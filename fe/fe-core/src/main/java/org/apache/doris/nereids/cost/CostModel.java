@@ -44,19 +44,16 @@ import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -213,12 +210,6 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 (filter.getConjuncts().size() - prefixIndexMatched + exprCost) * filterCostFactor);
     }
 
-    @Override
-    public Cost visitPhysicalDeferMaterializeOlapScan(PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan,
-            PlanContext context) {
-        return visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
-    }
-
     public Cost visitPhysicalSchemaScan(PhysicalSchemaScan physicalSchemaScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount());
@@ -255,19 +246,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     }
 
     @Override
-    public Cost visitPhysicalJdbcScan(PhysicalJdbcScan physicalJdbcScan, PlanContext context) {
-        Statistics statistics = context.getStatisticsWithCheck();
-        return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
-    }
-
-    @Override
     public Cost visitPhysicalOdbcScan(PhysicalOdbcScan physicalOdbcScan, PlanContext context) {
-        Statistics statistics = context.getStatisticsWithCheck();
-        return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
-    }
-
-    @Override
-    public Cost visitPhysicalEsScan(PhysicalEsScan physicalEsScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
     }
@@ -301,12 +280,6 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             rowCount = rowCount * 100 + 100;
         }
         return Cost.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
-    }
-
-    @Override
-    public Cost visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
-            PlanContext context) {
-        return visitPhysicalTopN(topN.getPhysicalTopN(), context);
     }
 
     @Override
@@ -393,6 +366,18 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     exprCost / 100 + inputStatistics.getRowCount() / factor,
                     inputStatistics.getRowCount() / factor, 0);
         }
+    }
+
+    @Override
+    public Cost visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> aggregate, PlanContext context) {
+        // Bucketed agg is similar to one-phase agg: all computation on a single BE,
+        // but avoids exchange overhead. Cost is comparable to one-phase agg.
+        Statistics inputStatistics = context.getChildStatistics(0);
+        double exprCost = expressionTreeCost(aggregate.getExpressions());
+        return Cost.of(context.getSessionVariable(),
+                exprCost / 100 + inputStatistics.getRowCount(),
+                inputStatistics.getRowCount(), 0);
     }
 
     @Override
@@ -567,22 +552,23 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
         /*
-         * nljPenalty:
-         * The row count estimation for nested loop join (NLJ) results often has significant errors.
-         * When the estimated row count is higher than the actual value, the cost benefits of subsequent
-         * operators (e.g., aggregation) may be overestimated. This can lead the optimizer to choose a
-         * plan where a small table joins a large table, severely impacting the overall SQL execution efficiency.
+         * nljPenalty multiplies the CPU cost (and memory cost) of a nested loop join
+         * to penalise plans where NLJ is selected for non-trivial input sizes.
          *
-         * For example, if the subsequent operator is an aggregation (AGG) and the GROUP BY key aligns with
-         * the distribution key of the small table, the optimizer might prioritize avoiding shuffling the NLJ
-         * results by choosing to join the small table to the large table, even if this is suboptimal.
+         * NLJ runs in O(leftRows * rightRows) time, but its estimated output row count
+         * can be inaccurate — when overestimated, downstream operators (e.g. AGG) appear
+         * to have large cost benefits, tricking the optimizer into preferring a small-left-
+         * large-right NLJ plan.  Applying a penalty proportional to the smaller side's row
+         * count makes the CPU cost reflect the true join effort, helping the cost model
+         * favour hash join or reorder the join tree.
          */
         double nljPenalty = 1.0;
         if (leftStatistics.getRowCount() < 10 * rightStatistics.getRowCount()) {
             nljPenalty = Math.min(leftStatistics.getRowCount(), rightStatistics.getRowCount());
         }
+        nljPenalty = Math.max(nljPenalty, 1.0);
         return Cost.of(context.getSessionVariable(),
-                leftStatistics.getRowCount() * rightStatistics.getRowCount(),
+                leftStatistics.getRowCount() * rightStatistics.getRowCount() * nljPenalty,
                 rightStatistics.getRowCount() * nljPenalty,
                 0);
     }

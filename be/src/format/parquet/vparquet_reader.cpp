@@ -24,6 +24,8 @@
 
 #include <algorithm>
 #include <functional>
+#include <set>
+#include <unordered_map>
 #include <utility>
 
 #include "common/config.h"
@@ -35,12 +37,13 @@
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "exec/scan/file_scanner.h"
+#include "exprs/expr_zonemap_filter.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
 #include "format/column_type_convert.h"
@@ -59,6 +62,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "util/slice.h"
 #include "util/string_util.h"
 #include "util/timezone_utils.h"
@@ -87,7 +91,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _batch_size(std::max(batch_size, 1UL)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
@@ -106,6 +110,13 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
     _init_file_description();
 }
 
+void ParquetReader::set_batch_size(size_t batch_size) {
+    if (_batch_size == batch_size) {
+        return;
+    }
+    _batch_size = batch_size;
+}
+
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size,
                              const cctz::time_zone* ctz,
@@ -114,7 +125,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _batch_size(std::max(batch_size, 1UL)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
@@ -196,6 +207,8 @@ void ParquetReader::_init_profile() {
                 _profile, "RowGroupsFiltered", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.filtered_row_groups_by_expr_zonemap = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "ParquetExprZoneMapFilteredRowGroups", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_row_groups_by_bloom_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "RowGroupsFilteredByBloomFilter", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -232,6 +245,12 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexParseTime", parquet_profile, 1);
         _parquet_profile.row_group_filter_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowGroupFilterTime", parquet_profile, 1);
+        _parquet_profile.expr_zonemap_unusable = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "ExprZoneMapUnusableEvals", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.in_zonemap_point_check = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "InZoneMapPointCheckCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.in_zonemap_range_only = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "InZoneMapRangeOnlyCount", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.file_footer_read_calls =
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterReadCalls", TUnit::UNIT, 1);
         _parquet_profile.file_footer_hit_cache =
@@ -276,6 +295,8 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
         _parquet_profile.dict_filter_rewrite_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DictFilterRewriteTime", parquet_profile, 1);
+        _parquet_profile.convert_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ConvertTime", parquet_profile, 1);
         _parquet_profile.bloom_filter_read_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "BloomFilterReadTime", parquet_profile, 1);
     }
@@ -288,6 +309,9 @@ Status ParquetReader::close() {
 
 void ParquetReader::_close_internal() {
     if (!_closed) {
+        _current_group_reader.reset();
+        _tracing_file_reader.reset();
+        _file_reader.reset();
         _closed = true;
     }
 }
@@ -301,12 +325,20 @@ Status ParquetReader::_open_file() {
         ++_reader_statistics.open_file_num;
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
-        io::FileReaderOptions reader_options =
-                FileFactory::get_reader_options(_state, _file_description);
-        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options,
-                io::DelegateReader::AccessMode::RANDOM, _io_ctx));
-        _tracing_file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(
+                _state ? _state->query_options() : _default_query_options, _file_description);
+        if (_io_ctx_holder) {
+            _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::RANDOM,
+                    std::static_pointer_cast<const io::IOContext>(_io_ctx_holder)));
+        } else {
+            _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        }
+        _tracing_file_reader = _io_ctx && _io_ctx->file_reader_stats
+                                       ? std::make_shared<io::TracingFileReader>(
                                                  _file_reader, _io_ctx->file_reader_stats)
                                        : _file_reader;
     }
@@ -393,34 +425,63 @@ void ParquetReader::_init_file_description() {
     }
 }
 
-Status ParquetReader::init_reader(
-        const std::vector<std::string>& all_column_names,
-        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-        const VExprContextSPtrs& conjuncts,
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        const std::unordered_map<std::string, int>* colname_to_slot_id,
-        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups,
-        const std::set<uint64_t>& column_ids, const std::set<uint64_t>& filter_column_ids) {
-    _col_name_to_block_idx = col_name_to_block_idx;
-    _tuple_descriptor = tuple_descriptor;
-    _row_descriptor = row_descriptor;
-    _colname_to_slot_id = colname_to_slot_id;
-    _not_single_slot_filter_conjuncts = not_single_slot_filter_conjuncts;
-    _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
-    _table_info_node_ptr = table_info_node_ptr;
-    _filter_groups = filter_groups;
-    _column_ids = column_ids;
-    _filter_column_ids = filter_column_ids;
-
-    RETURN_IF_ERROR(_open_file());
-    _t_metadata = &(_file_metadata->to_thrift());
-    if (_file_metadata == nullptr) {
-        return Status::InternalError("failed to init parquet reader, please open reader first");
+Status ParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
+    for (const auto& desc : *ctx->column_descs) {
+        if (desc.category == ColumnCategory::REGULAR ||
+            desc.category == ColumnCategory::GENERATED) {
+            ctx->column_names.push_back(desc.name);
+        } else if (desc.category == ColumnCategory::SYNTHESIZED &&
+                   desc.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            auto topn_row_id_column_iter = _create_topn_row_id_column_iterator();
+            this->register_synthesized_column_handler(
+                    desc.name,
+                    [iter = std::move(topn_row_id_column_iter), this, &desc](
+                            Block* block, size_t rows) -> Status {
+                        return fill_topn_row_id(iter, desc.name, block, rows);
+                    });
+            continue;
+        }
     }
+
+    // Build table_info_node from Parquet file metadata with case-insensitive recursive matching.
+    // File is already opened by init_reader before this hook, so metadata is available.
+    // tuple_descriptor may be null in unit tests that only set column_descs.
+    if (ctx->tuple_descriptor != nullptr) {
+        const FieldDescriptor* field_desc = nullptr;
+        RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
+        RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
+                ctx->tuple_descriptor, *field_desc, ctx->table_info_node));
+    }
+
+    return Status::OK();
+}
+
+Status ParquetReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
+    return _open_file();
+}
+
+Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
+    auto* ctx = checked_context_cast<ParquetInitContext>(base_ctx);
+    _col_name_to_block_idx = base_ctx->col_name_to_block_idx;
+    _tuple_descriptor = ctx->tuple_descriptor;
+    _row_descriptor = ctx->row_descriptor;
+    _colname_to_slot_id = ctx->colname_to_slot_id;
+    _not_single_slot_filter_conjuncts = ctx->not_single_slot_filter_conjuncts;
+    _slot_id_to_filter_conjuncts = ctx->slot_id_to_filter_conjuncts;
+    _filter_groups = ctx->filter_groups;
+    _table_info_node_ptr = base_ctx->table_info_node;
+    _column_ids = base_ctx->column_ids;
+    _filter_column_ids = base_ctx->filter_column_ids;
+
+    // _open_file_reader (called by init_reader NVI before hooks) must have opened the file.
+    DCHECK(_file_metadata != nullptr)
+            << "ParquetReader::_do_init_reader called without _open_file_reader";
+    _t_metadata = &(_file_metadata->to_thrift());
 
     SCOPED_RAW_TIMER(&_reader_statistics.parse_meta_time);
     _total_groups = _t_metadata->row_groups.size();
@@ -429,18 +490,98 @@ Status ParquetReader::init_reader(
     }
     _current_row_group_index = RowGroupReader::RowGroupIndex {-1, 0, 0};
 
-    _table_column_names = &all_column_names;
-    auto schema_desc = _file_metadata->schema();
-
-    std::map<std::string, std::string> required_file_columns; //file column -> table column
-    for (auto table_column_name : all_column_names) {
-        if (_table_info_node_ptr->children_column_exists(table_column_name)) {
-            required_file_columns.emplace(
-                    _table_info_node_ptr->children_file_column_name(table_column_name),
-                    table_column_name);
-        } else {
-            _missing_cols.emplace_back(table_column_name);
+    // Compute missing columns and file↔table column mapping.
+    // This runs in _do_init_reader (not on_before_init_reader) because table-format readers
+    // (Iceberg, Paimon, Hive, Hudi) override on_before_init_reader completely.
+    if (has_column_descs()) {
+        _fill_missing_cols.clear();
+        _fill_missing_defaults.clear();
+        for (const auto& col_name : base_ctx->column_names) {
+            // A projected column that is not present at all in the table-side schema tree means the
+            // schema info from FE (e.g. the paimon/iceberg history_schema_info, or the hive/orc name
+            // map) is inconsistent with the scan projection. Fail this query loudly instead of aborting
+            // the whole BE process via the children_column_exists DCHECK (or an std::out_of_range from
+            // children.at() in a release build). A column that IS known but missing from the data file
+            // keeps its key (add_not_exist_children) and is correctly classified as fill-missing below.
+            if (!_table_info_node_ptr->has_children_column(col_name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected column '{}'; the schema info from FE "
+                        "is "
+                        "inconsistent with the scan projection (file: {})",
+                        col_name, _scan_range.path);
+            }
+            if (!_table_info_node_ptr->children_column_exists(col_name)) {
+                _fill_missing_cols.insert(col_name);
+            }
         }
+        if (_column_descs && !_fill_missing_cols.empty()) {
+            for (const auto& desc : *_column_descs) {
+                if (_fill_missing_cols.contains(desc.name) &&
+                    !_fill_partition_values.contains(desc.name)) {
+                    _fill_missing_defaults[desc.name] = desc.default_expr;
+                }
+            }
+        }
+    }
+    // Resolve file-column ↔ table-column mapping in file-schema order.
+    // _init_read_columns handles both normal path (missing cols populated above)
+    // and standalone path (_fill_missing_cols empty, _table_info_node_ptr may be null).
+    _init_read_columns(base_ctx->column_names);
+
+    // build column predicates for column lazy read
+    if (ctx->conjuncts != nullptr) {
+        _lazy_read_ctx.conjuncts = *ctx->conjuncts;
+    }
+    if (ctx->slot_id_to_predicates != nullptr) {
+        _lazy_read_ctx.slot_id_to_predicates = *ctx->slot_id_to_predicates;
+    }
+
+    // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
+
+    // 1. Collect predicate columns from conjuncts for lazy materialization
+    std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
+    _collect_predicate_columns_from_conjuncts(predicate_columns);
+
+    // 2. Classify read/partition/missing/synthesized columns into lazy vs predicate groups
+    _classify_columns_for_lazy_read(predicate_columns, _fill_partition_values,
+                                    _fill_missing_defaults);
+
+    // 3. Populate col_names vectors for ColumnProcessor path
+    for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+        _lazy_read_ctx.predicate_partition_col_names.emplace_back(kv.first);
+    }
+    for (auto& kv : _lazy_read_ctx.predicate_missing_columns) {
+        _lazy_read_ctx.predicate_missing_col_names.emplace_back(kv.first);
+    }
+    for (auto& kv : _lazy_read_ctx.partition_columns) {
+        _lazy_read_ctx.partition_col_names.emplace_back(kv.first);
+    }
+    for (auto& kv : _lazy_read_ctx.missing_columns) {
+        _lazy_read_ctx.missing_col_names.emplace_back(kv.first);
+    }
+
+    if (_filter_groups && (_total_groups == 0 || _t_metadata->num_rows == 0 || _range_size < 0)) {
+        return Status::EndOfFile("No row group to read");
+    }
+
+    return Status::OK();
+}
+
+void ParquetReader::_init_read_columns(const std::vector<std::string>& column_names) {
+    // Build file_col_name → table_col_name map, skipping missing columns.
+    // Must iterate file schema in physical order so that _generate_random_access_ranges
+    // sees monotonically increasing chunk offsets.
+    auto schema_desc = _file_metadata->schema();
+    std::map<std::string, std::string> required_file_columns;
+    for (const auto& col_name : column_names) {
+        if (_fill_missing_cols.contains(col_name)) {
+            continue;
+        }
+        std::string file_col = col_name;
+        if (_table_info_node_ptr && _table_info_node_ptr->children_column_exists(col_name)) {
+            file_col = _table_info_node_ptr->children_file_column_name(col_name);
+        }
+        required_file_columns[file_col] = col_name;
     }
     for (int i = 0; i < schema_desc.size(); ++i) {
         const auto& name = schema_desc.get_column(i)->name;
@@ -450,10 +591,6 @@ Status ParquetReader::init_reader(
             _read_table_columns_set.insert(required_file_columns[name]);
         }
     }
-    // build column predicates for column lazy read
-    _lazy_read_ctx.conjuncts = conjuncts;
-    _lazy_read_ctx.slot_id_to_predicates = slot_id_to_predicates;
-    return Status::OK();
 }
 
 bool ParquetReader::_exists_in_file(const std::string& expr_name) const {
@@ -478,18 +615,8 @@ bool ParquetReader::_type_matches(const int cid) const {
            !is_complex_type(table_col_type->get_primitive_type());
 }
 
-Status ParquetReader::set_fill_columns(
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    _lazy_read_ctx.fill_partition_columns = partition_columns;
-    _lazy_read_ctx.fill_missing_columns = missing_columns;
-
-    // std::unordered_map<column_name, std::pair<col_id, slot_id>>
-    std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
-
-    // TODO(gabriel): we should try to clear too much structs which are used to represent conjuncts and predicates.
-    // visit_slot for lazy mat.
+void ParquetReader::_collect_predicate_columns_from_conjuncts(
+        std::unordered_map<std::string, std::pair<uint32_t, int>>& predicate_columns) {
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (expr->is_slot_ref()) {
             VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
@@ -505,23 +632,27 @@ Status ParquetReader::set_fill_columns(
             visit_slot(child.get());
         }
     };
+
     for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
         auto expr = conjunct->root();
-
         if (expr->is_rf_wrapper()) {
-            // REF: src/runtime_filter/runtime_filter_consumer.cpp
-            VRuntimeFilterWrapper* runtime_filter = assert_cast<VRuntimeFilterWrapper*>(expr.get());
-
+            RuntimeFilterExpr* runtime_filter = assert_cast<RuntimeFilterExpr*>(expr.get());
             auto filter_impl = runtime_filter->get_impl();
             visit_slot(filter_impl.get());
         } else {
             visit_slot(expr.get());
         }
     }
+
     if (!_lazy_read_ctx.slot_id_to_predicates.empty()) {
         auto and_pred = AndBlockColumnPredicate::create_unique();
         for (const auto& entry : _lazy_read_ctx.slot_id_to_predicates) {
             for (const auto& pred : entry.second) {
+                // Parquet shares _push_down_predicates for row-group/page min-max pruning and
+                // bloom-filter evaluation, so this flag currently gates both predicate paths.
+                if (!has_column_optimization(pred->col_name(), ColumnOptimizationTypes::MIN_MAX)) {
+                    continue;
+                }
                 if (!_exists_in_file(pred->col_name()) || !_type_matches(pred->column_id())) {
                     continue;
                 }
@@ -533,20 +664,51 @@ Status ParquetReader::set_fill_columns(
             _push_down_predicates.push_back(std::move(and_pred));
         }
     }
+}
 
+void ParquetReader::_classify_columns_for_lazy_read(
+        const std::unordered_map<std::string, std::pair<uint32_t, int>>&
+                predicate_conjuncts_columns,
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_columns,
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     const FieldDescriptor& schema = _file_metadata->schema();
-
-    auto check_iceberg_row_lineage_column_idx = [&](const auto& col_name) -> int {
-        if (_row_lineage_columns != nullptr) {
-            if (col_name == IcebergTableReader::ROW_LINEAGE_ROW_ID) {
-                return _row_lineage_columns->row_id_column_idx;
-            } else if (col_name == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
-                return _row_lineage_columns->last_updated_sequence_number_column_idx;
+    auto predicate_columns = predicate_conjuncts_columns;
+#ifndef BE_TEST
+    for (const auto& [col_name, _] : _generated_col_handlers) {
+        int slot_id = -1;
+        for (auto slot : _tuple_descriptor->slots()) {
+            if (slot->col_name() == col_name) {
+                slot_id = slot->id();
+                break;
             }
         }
-        return -1;
-    };
+        DCHECK(slot_id != -1) << "slot id should not be -1 for generated column: " << col_name;
+        auto column_index = _row_descriptor->get_column_id(slot_id);
+        if (column_index == 0) {
+            _lazy_read_ctx.resize_first_column = false;
+        }
+        // assume generated columns are only used for predicate push down.
+        predicate_columns.emplace(col_name, std::make_pair(column_index, slot_id));
+    }
 
+    for (const auto& [col_name, _] : _synthesized_col_handlers) {
+        int slot_id = -1;
+        for (auto slot : _tuple_descriptor->slots()) {
+            if (slot->col_name() == col_name) {
+                slot_id = slot->id();
+                break;
+            }
+        }
+        DCHECK(slot_id != -1) << "slot id should not be -1 for synthesized column: " << col_name;
+        auto column_index = _row_descriptor->get_column_id(slot_id);
+        if (column_index == 0) {
+            _lazy_read_ctx.resize_first_column = false;
+        }
+        // synthesized columns always fill data on first phase.
+        _lazy_read_ctx.all_predicate_col_ids.emplace_back(column_index);
+    }
+#endif
     for (auto& read_table_col : _read_table_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
 
@@ -559,21 +721,7 @@ Status ParquetReader::set_fill_columns(
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_table_col);
             if (iter == predicate_columns.end()) {
-                if (auto row_lineage_idx = check_iceberg_row_lineage_column_idx(read_table_col);
-                    row_lineage_idx != -1) {
-                    _lazy_read_ctx.predicate_columns.first.emplace_back(read_table_col);
-                    // row lineage column can not dict filter.
-                    int slot_id = 0;
-                    for (auto slot : _tuple_descriptor->slots()) {
-                        if (slot->col_name_lower_case() == read_table_col) {
-                            slot_id = slot->id();
-                        }
-                    }
-                    _lazy_read_ctx.predicate_columns.second.emplace_back(slot_id);
-                    _lazy_read_ctx.all_predicate_col_ids.emplace_back(row_lineage_idx);
-                } else {
-                    _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
-                }
+                _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
             } else {
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
@@ -581,11 +729,8 @@ Status ParquetReader::set_fill_columns(
             }
         }
     }
-    if (_row_id_column_iterator_pair.first != nullptr) {
-        _lazy_read_ctx.all_predicate_col_ids.emplace_back(_row_id_column_iterator_pair.second);
-    }
 
-    for (auto& kv : _lazy_read_ctx.fill_partition_columns) {
+    for (auto& kv : partition_columns) {
         auto iter = predicate_columns.find(kv.first);
         if (iter == predicate_columns.end()) {
             _lazy_read_ctx.partition_columns.emplace(kv.first, kv.second);
@@ -595,7 +740,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    for (auto& kv : _lazy_read_ctx.fill_missing_columns) {
+    for (auto& kv : missing_columns) {
         auto iter = predicate_columns.find(kv.first);
         if (iter != predicate_columns.end()) {
             //For check missing column :   missing column == xx, missing column is null,missing column is not null.
@@ -605,13 +750,8 @@ Status ParquetReader::set_fill_columns(
                     _lazy_read_ctx.missing_columns_conjuncts.emplace_back(ctx);
                 }
             }
-
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
-        } else if (auto row_lineage_idx = check_iceberg_row_lineage_column_idx(kv.first);
-                   row_lineage_idx != -1) {
-            _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
-            _lazy_read_ctx.all_predicate_col_ids.emplace_back(row_lineage_idx);
         } else {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         }
@@ -630,12 +770,6 @@ Status ParquetReader::set_fill_columns(
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         }
     }
-
-    if (_filter_groups && (_total_groups == 0 || _t_metadata->num_rows == 0 || _range_size < 0)) {
-        return Status::EndOfFile("No row group to read");
-    }
-    _fill_all_columns = true;
-    return Status::OK();
 }
 
 // init file reader and file metadata for parsing schema
@@ -657,22 +791,8 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
-void ParquetReader::set_iceberg_rowid_params(const std::string& file_path,
-                                             int32_t partition_spec_id,
-                                             const std::string& partition_data_json,
-                                             int row_id_column_pos) {
-    _iceberg_rowid_params.enabled = true;
-    _iceberg_rowid_params.file_path = file_path;
-    _iceberg_rowid_params.partition_spec_id = partition_spec_id;
-    _iceberg_rowid_params.partition_data_json = partition_data_json;
-    _iceberg_rowid_params.row_id_column_pos = row_id_column_pos;
-    if (_current_group_reader != nullptr) {
-        _current_group_reader->set_iceberg_rowid_params(_iceberg_rowid_params);
-    }
-}
-
-Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                  std::unordered_set<std::string>* missing_cols) {
+Status ParquetReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     const auto& schema_desc = _file_metadata->schema();
     std::unordered_set<std::string> column_names;
     schema_desc.get_column_names(&column_names);
@@ -680,13 +800,10 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
         auto field = schema_desc.get_column(name);
         name_to_type->emplace(name, field->data_type);
     }
-    for (auto& col : _missing_cols) {
-        missing_cols->insert(col);
-    }
     return Status::OK();
 }
 
-Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status ParquetReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_current_group_reader == nullptr || _row_group_eof) {
         Status st = _next_row_group_reader();
         if (!st.ok() && !st.is<ErrorCode::END_OF_FILE>()) {
@@ -699,24 +816,6 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
             *eof = true;
             return Status::OK();
         }
-    }
-    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-        auto rows = std::min(_current_group_reader->get_remaining_rows(), (int64_t)_batch_size);
-
-        _current_group_reader->set_remaining_rows(_current_group_reader->get_remaining_rows() -
-                                                  rows);
-        auto mutate_columns = block->mutate_columns();
-        for (auto& col : mutate_columns) {
-            col->resize(rows);
-        }
-        block->set_columns(std::move(mutate_columns));
-
-        *read_rows = rows;
-        if (_current_group_reader->get_remaining_rows() == 0) {
-            _current_group_reader.reset(nullptr);
-        }
-
-        return Status::OK();
     }
 
     // Limit memory per batch for load paths.
@@ -776,6 +875,33 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
 RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
         const tparquet::RowGroup& row_group, const RowGroupReader::RowGroupIndex& row_group_index) {
+    if (_deletion_vector != nullptr) {
+        _row_group_deletion_vector_rows.clear();
+        auto it = _deletion_vector->begin();
+        it.move(cast_set<uint64_t>(row_group_index.first_row));
+        const auto end = _deletion_vector->end();
+        while (it != end && *it < cast_set<uint64_t>(row_group_index.last_row)) {
+            _row_group_deletion_vector_rows.push_back(cast_set<int64_t>(*it));
+            ++it;
+        }
+        // Iceberg may plan a DV together with older position delete files. Preserve both sources
+        // while keeping only the current row group's temporary expansion.
+        if (_delete_rows != nullptr) {
+            const auto position_begin = std::lower_bound(_delete_rows->begin(), _delete_rows->end(),
+                                                         row_group_index.first_row);
+            const auto position_end =
+                    std::lower_bound(position_begin, _delete_rows->end(), row_group_index.last_row);
+            _row_group_deletion_vector_rows.insert(_row_group_deletion_vector_rows.end(),
+                                                   position_begin, position_end);
+            std::ranges::sort(_row_group_deletion_vector_rows);
+            auto unique_end = std::ranges::unique(_row_group_deletion_vector_rows).begin();
+            _row_group_deletion_vector_rows.erase(unique_end,
+                                                  _row_group_deletion_vector_rows.end());
+        }
+        return RowGroupReader::PositionDeleteContext(
+                _row_group_deletion_vector_rows, row_group.num_rows, row_group_index.first_row, 0,
+                cast_set<int64_t>(_row_group_deletion_vector_rows.size()));
+    }
     if (_delete_rows == nullptr) {
         return RowGroupReader::PositionDeleteContext(row_group.num_rows, row_group_index.first_row);
     }
@@ -833,7 +959,7 @@ Status ParquetReader::_next_row_group_reader() {
         }
 
         _reader_statistics.read_rows += candidate_row_ranges.count();
-        if (_io_ctx) {
+        if (_io_ctx && _io_ctx->file_reader_stats) {
             _io_ctx->file_reader_stats->read_rows += candidate_row_ranges.count();
         }
 
@@ -883,23 +1009,20 @@ Status ParquetReader::_next_row_group_reader() {
                         : _file_reader;
     }
     _current_group_reader.reset(new RowGroupReader(
-            _io_ctx ? std::make_shared<io::TracingFileReader>(group_file_reader,
+            _io_ctx && _io_ctx->file_reader_stats
+                    ? std::make_shared<io::TracingFileReader>(group_file_reader,
                                                               _io_ctx->file_reader_stats)
                     : group_file_reader,
             _read_table_columns, _current_row_group_index.row_group_id, row_group, _ctz, _io_ctx,
             position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
-    if (_iceberg_rowid_params.enabled) {
-        _current_group_reader->set_iceberg_rowid_params(_iceberg_rowid_params);
-    }
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
-    _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
-    _current_group_reader->set_row_lineage_columns(_row_lineage_columns);
     _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
     if (_condition_cache_ctx) {
         _current_group_reader->set_condition_cache_context(_condition_cache_ctx);
     }
+    _current_group_reader->set_table_format_reader(this);
 
     _current_group_reader->_table_info_node_ptr = _table_info_node_ptr;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,
@@ -994,6 +1117,43 @@ void ParquetReader::set_condition_cache_context(std::shared_ptr<ConditionCacheCo
     }
 }
 
+bool ParquetReader::_expr_zonemap_page_slot_index(const VExprContextSPtr& conjunct,
+                                                  int* cid) const {
+    DORIS_CHECK(cid != nullptr);
+    if (conjunct == nullptr || conjunct->root() == nullptr ||
+        !conjunct->root()->can_evaluate_zonemap_filter()) {
+        return false;
+    }
+
+    std::set<int> column_ids;
+    conjunct->root()->collect_slot_column_ids(column_ids);
+    if (column_ids.size() != 1) {
+        return false;
+    }
+
+    const int slot_index = *column_ids.begin();
+    if (slot_index < 0 || static_cast<size_t>(slot_index) >= _tuple_descriptor->slots().size()) {
+        return false;
+    }
+    auto* slot = _tuple_descriptor->slots()[slot_index];
+    if (!_exists_in_file(slot->col_name()) || !_type_matches(slot_index)) {
+        return false;
+    }
+
+    *cid = slot_index;
+    return true;
+}
+
+bool ParquetReader::_has_expr_zonemap_page_filter() const {
+    if (!expr_zonemap::is_expr_zonemap_filter_enabled(_state)) {
+        return false;
+    }
+    return std::ranges::any_of(_lazy_read_ctx.conjuncts, [this](const auto& conjunct) {
+        int cid = -1;
+        return _expr_zonemap_page_slot_index(conjunct, &cid);
+    });
+}
+
 Status ParquetReader::_process_page_index_filter(
         const tparquet::RowGroup& row_group, const RowGroupReader::RowGroupIndex& row_group_index,
         const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
@@ -1078,8 +1238,9 @@ Status ParquetReader::_process_page_index_filter(
     // from https://github.com/apache/doris/pull/55795
     RETURN_IF_ERROR(parse_offset_index());
 
-    // Check if page index is needed for min-max filter.
-    if (!_enable_filter_by_min_max || push_down_pred.empty()) {
+    // Check if page index is needed for min-max or expr-zonemap filter.
+    const bool has_expr_zonemap_filter = _has_expr_zonemap_page_filter();
+    if (!_enable_filter_by_min_max || (push_down_pred.empty() && !has_expr_zonemap_filter)) {
         read_whole_row_group();
         return Status::OK();
     }
@@ -1195,6 +1356,86 @@ Status ParquetReader::_process_page_index_filter(
         }
         RowRanges::ranges_intersection(*candidate_row_ranges, tmp_row_range, candidate_row_ranges);
     }
+    bool filtered_row_group_by_expr_zonemap = false;
+    RETURN_IF_ERROR(_process_expr_zonemap_page_filter(&cached_page_index, candidate_row_ranges,
+                                                      &filtered_row_group_by_expr_zonemap));
+    if (filtered_row_group_by_expr_zonemap) {
+        ++_reader_statistics.filtered_row_groups_by_expr_zonemap;
+    }
+    return Status::OK();
+}
+
+Status ParquetReader::_process_expr_zonemap_page_filter(
+        ParquetPredicate::CachedPageIndexStat* cached_page_index, RowRanges* candidate_row_ranges,
+        bool* filtered_row_group_by_expr_zonemap) {
+    DORIS_CHECK(cached_page_index != nullptr);
+    DORIS_CHECK(candidate_row_ranges != nullptr);
+    DORIS_CHECK(filtered_row_group_by_expr_zonemap != nullptr);
+    *filtered_row_group_by_expr_zonemap = false;
+    const auto& all_conjuncts = _lazy_read_ctx.conjuncts;
+    if (!expr_zonemap::is_expr_zonemap_filter_enabled(_state) || all_conjuncts.empty() ||
+        candidate_row_ranges->is_empty()) {
+        return Status::OK();
+    }
+
+    std::unordered_map<int, VExprContextSPtrs> ctxs_by_column;
+    for (const auto& conjunct : all_conjuncts) {
+        int cid = -1;
+        if (_expr_zonemap_page_slot_index(conjunct, &cid)) {
+            ctxs_by_column[cid].emplace_back(conjunct);
+        }
+    }
+
+    for (const auto& [cid, conjuncts] : ctxs_by_column) {
+        auto* slot = _tuple_descriptor->slots()[cid];
+        ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!cached_page_index->get_stat_func(&stat, cid) || stat == nullptr || !stat->available) {
+            continue;
+        }
+        RowRanges expr_ranges;
+        ZoneMapEvalStats page_stats;
+        for (int64_t page_id = 0; page_id < stat->num_of_pages; ++page_id) {
+            DORIS_CHECK_LT(page_id, stat->ranges.size());
+            DORIS_CHECK_LT(page_id, stat->has_null.size());
+            DORIS_CHECK_LT(page_id, stat->is_all_null.size());
+            const auto& page_range = stat->ranges[page_id];
+            DORIS_CHECK(page_range.is_valid());
+
+            ZoneMapEvalContext ctx;
+            ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+            slot_zone_map.data_type = slot->type();
+            segment_v2::ZoneMap zone_map;
+            zone_map.has_null = stat->has_null[page_id];
+            zone_map.has_not_null = !stat->is_all_null[page_id];
+            if (!stat->is_all_null[page_id]) {
+                DORIS_CHECK_LT(page_id, stat->encoded_min_value.size());
+                DORIS_CHECK_LT(page_id, stat->encoded_max_value.size());
+                Status status = ParquetPredicate::parse_min_max_value(
+                        stat->col_schema, stat->encoded_min_value[page_id],
+                        stat->encoded_max_value[page_id], *cached_page_index->ctz,
+                        &zone_map.min_value, &zone_map.max_value);
+                if (status.ok()) {
+                    slot_zone_map.zone_map =
+                            std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
+                }
+            } else {
+                slot_zone_map.zone_map = std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
+            }
+            ctx.slots.emplace(cid, std::move(slot_zone_map));
+            const auto result = VExprContext::evaluate_zonemap_filter(conjuncts, ctx);
+            page_stats.merge_page_eval_stats(ctx.stats);
+            if (result != ZoneMapFilterResult::kNoMatch) {
+                expr_ranges.add(page_range);
+            }
+        }
+        page_stats.accumulate_to(&_reader_statistics);
+        const auto before_expr_page_count = candidate_row_ranges->count();
+        RowRanges::ranges_intersection(*candidate_row_ranges, expr_ranges, candidate_row_ranges);
+        if (before_expr_page_count > 0 && candidate_row_ranges->is_empty()) {
+            *filtered_row_group_by_expr_zonemap = true;
+            return Status::OK();
+        }
+    }
     return Status::OK();
 }
 
@@ -1232,6 +1473,9 @@ Status ParquetReader::_process_min_max_bloom_filter(
         RETURN_IF_ERROR(_process_column_stat_filter(row_group, push_down_pred,
                                                     &filter_this_row_group, &filtered_by_min_max,
                                                     &filtered_by_bloom_filter));
+        if (!filter_this_row_group) {
+            RETURN_IF_ERROR(_process_expr_zonemap_filter(row_group, &filter_this_row_group));
+        }
         // Update statistics based on filter type
         if (filter_this_row_group) {
             if (filtered_by_min_max) {
@@ -1385,6 +1629,82 @@ Status ParquetReader::_process_column_stat_filter(
     return Status::OK();
 }
 
+Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row_group,
+                                                   bool* filter_group) {
+    DORIS_CHECK(filter_group != nullptr);
+    const auto& all_conjuncts = _lazy_read_ctx.conjuncts;
+    if (!expr_zonemap::is_expr_zonemap_filter_enabled(_state) || all_conjuncts.empty() ||
+        !_enable_filter_by_min_max) {
+        return Status::OK();
+    }
+
+    std::set<int> column_ids;
+    for (const auto& conjunct : all_conjuncts) {
+        if (conjunct->root() != nullptr && conjunct->root()->can_evaluate_zonemap_filter()) {
+            conjunct->root()->collect_slot_column_ids(column_ids);
+        }
+    }
+    if (column_ids.empty()) {
+        return Status::OK();
+    }
+
+    ZoneMapEvalContext ctx;
+    for (const int cid : column_ids) {
+        if (cid < 0 || cid >= _tuple_descriptor->slots().size()) {
+            continue;
+        }
+        auto* slot = _tuple_descriptor->slots()[cid];
+        ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+        slot_zone_map.data_type = slot->type();
+        if (!_exists_in_file(slot->col_name()) || !_type_matches(cid)) {
+            ctx.slots.emplace(cid, std::move(slot_zone_map));
+            continue;
+        }
+        const auto& file_col_name =
+                _table_info_node_ptr->children_file_column_name(slot->col_name());
+        const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
+        int parquet_col_id = col_schema->physical_column_index;
+        if (parquet_col_id < 0) {
+            // Complex parent fields do not map to a physical Parquet column.
+            ctx.slots.emplace(cid, std::move(slot_zone_map));
+            continue;
+        }
+        const auto& meta_data = row_group.columns[parquet_col_id].meta_data;
+
+        ParquetPredicate::ColumnStat stat;
+        stat.ctz = _ctz;
+        auto status = ParquetPredicate::read_column_stats(col_schema, meta_data, &_ignored_stats,
+                                                          _t_metadata->created_by, &stat);
+        if (!status.ok()) {
+            ctx.slots.emplace(cid, std::move(slot_zone_map));
+            continue;
+        }
+
+        segment_v2::ZoneMap zone_map;
+        zone_map.has_null = stat.has_null;
+        zone_map.has_not_null = !stat.is_all_null;
+        if (!stat.is_all_null) {
+            status = ParquetPredicate::parse_min_max_value(
+                    col_schema, stat.encoded_min_value, stat.encoded_max_value, *_ctz,
+                    &zone_map.min_value, &zone_map.max_value);
+            if (!status.ok()) {
+                ctx.slots.emplace(cid, std::move(slot_zone_map));
+                continue;
+            }
+        }
+        slot_zone_map.zone_map = std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
+        ctx.slots.emplace(cid, std::move(slot_zone_map));
+    }
+
+    const auto result = VExprContext::evaluate_zonemap_filter(all_conjuncts, ctx);
+    ctx.stats.accumulate_to(&_reader_statistics);
+    if (result == ZoneMapFilterResult::kNoMatch) {
+        *filter_group = true;
+        ++_reader_statistics.filtered_row_groups_by_expr_zonemap;
+    }
+    return Status::OK();
+}
+
 int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) const {
     return has_dict_page(column) ? column.dictionary_page_offset : column.data_page_offset;
 }
@@ -1400,6 +1720,8 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.filtered_row_groups, _reader_statistics.filtered_row_groups);
     COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_min_max,
                    _reader_statistics.filtered_row_groups_by_min_max);
+    COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_expr_zonemap,
+                   _reader_statistics.filtered_row_groups_by_expr_zonemap);
     COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_bloom_filter,
                    _reader_statistics.filtered_row_groups_by_bloom_filter);
     COUNTER_UPDATE(_parquet_profile.to_read_row_groups, _reader_statistics.read_row_groups);
@@ -1423,6 +1745,12 @@ void ParquetReader::_collect_profile() {
                    _reader_statistics.parse_page_index_time);
     COUNTER_UPDATE(_parquet_profile.row_group_filter_time,
                    _reader_statistics.row_group_filter_time);
+    COUNTER_UPDATE(_parquet_profile.expr_zonemap_unusable,
+                   _reader_statistics.expr_zonemap_unusable_evals);
+    COUNTER_UPDATE(_parquet_profile.in_zonemap_point_check,
+                   _reader_statistics.in_zonemap_point_check_count);
+    COUNTER_UPDATE(_parquet_profile.in_zonemap_range_only,
+                   _reader_statistics.in_zonemap_range_only_count);
     COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
                    _reader_statistics.file_footer_read_calls);
     COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
@@ -1435,6 +1763,7 @@ void ParquetReader::_collect_profile() {
                    _reader_statistics.predicate_filter_time);
     COUNTER_UPDATE(_parquet_profile.dict_filter_rewrite_time,
                    _reader_statistics.dict_filter_rewrite_time);
+    COUNTER_UPDATE(_parquet_profile.convert_time, _column_statistics.convert_time);
     COUNTER_UPDATE(_parquet_profile.bloom_filter_read_time,
                    _reader_statistics.bloom_filter_read_time);
     COUNTER_UPDATE(_parquet_profile.page_index_read_calls,

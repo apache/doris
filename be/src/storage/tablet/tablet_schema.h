@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -179,8 +180,6 @@ public:
     static std::string get_string_by_field_type(FieldType type);
     static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
     static FieldType get_field_type_by_string(const std::string& str);
-    static FieldType get_field_type_by_type(PrimitiveType type);
-    static PrimitiveType get_primitive_type_by_field_type(FieldType type);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
     bool is_row_store_column() const;
@@ -191,7 +190,7 @@ public:
     const PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
     bool is_extracted_column() const {
-        return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
+        return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id >= 0;
     };
     std::string suffix_path() const {
         return is_extracted_column() ? _column_path->get_path() : "";
@@ -457,9 +456,30 @@ public:
     void replace_column(size_t pos, TabletColumn new_col);
     const std::vector<TabletColumnPtr>& columns() const;
     size_t num_columns() const { return _num_columns; }
+    size_t num_visible_columns() const {
+        return std::count_if(_cols.begin(), _cols.end(),
+                             [](const TabletColumnPtr& column) { return column->visible(); });
+    }
+    size_t num_visible_value_columns() const {
+        return std::count_if(_cols.begin(), _cols.end(), [](const TabletColumnPtr& column) {
+            return column->visible() && !column->is_key();
+        });
+    }
+    // num_key_columns: Total number of sort key columns in the table, determined by the key columns
+    // specified in DUPLICATE KEY/UNIQUE KEY/AGGREGATE KEY when creating the table, used for complete data sorting
+    // Example: CREATE TABLE t(a INT, b DATE, c VARCHAR) DUPLICATE KEY(a, b, c)
+    //          Then num_key_columns = 3 (columns a, b, c are all sort keys)
     size_t num_key_columns() const { return _num_key_columns; }
     const std::vector<uint32_t>& cluster_key_uids() const { return _cluster_key_uids; }
     size_t num_null_columns() const { return _num_null_columns; }
+    // num_short_key_columns: Number of columns used to build the Short Key Index, automatically calculated by FE
+    // Limited by max column count (default 3) and max bytes (default 36 bytes). Types like float/double/STRING/JSONB
+    // cannot be used as short keys. VARCHAR can only be the last short key column. Optimizes index size and query performance.
+    // Example: CREATE TABLE t(a INT, b DATE, c VARCHAR) DUPLICATE KEY(a, b, c)
+    //          Then num_short_key_columns = 3 (a, b, c all meet criteria, c as VARCHAR is the last short key)
+    // Example: CREATE TABLE t(a INT, b DOUBLE, c DATE) DUPLICATE KEY(a, b, c)
+    //          Then num_short_key_columns = 1 (b is DOUBLE type which cannot be short key, stops at b)
+    // short key's size is limited to 36 bytes, because it will be loaded to memory during segment loaded.
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
     size_t num_variant_columns() const { return _num_variant_columns; };
@@ -485,10 +505,6 @@ public:
     bool deprecated_variant_flatten_nested() const {
         return _deprecated_enable_variant_flatten_nested;
     }
-    void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
-        _enable_single_replica_compaction = enable_single_replica_compaction;
-    }
-    bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
     // indicate if full row store column(all the columns encodes as row) exists
     bool has_row_store_for_all_columns() const {
         return _store_row_column && row_columns_uids().empty();
@@ -502,6 +518,10 @@ public:
     int32_t version_col_idx() const { return _version_col_idx; }
     bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
+    int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
+    int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
+    int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
+    int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
@@ -694,6 +714,12 @@ public:
         std::unordered_map<std::string, TabletIndexes> subcolumn_indexes; // subcolumns indexes
         PathSet sub_path_set;                                             // extracted columns
         PathSet sparse_path_set;                                          // sparse columns
+
+        // "Materialized regular path" means compaction chose to store this path as a dedicated
+        // column in the schema, either typed or extracted, instead of re-emitting it dynamically.
+        bool contains_materialized_regular_path(const std::string& path) const {
+            return typed_path_set.contains(path) || sub_path_set.contains(path);
+        }
     };
 
     void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>&& path_set_info_map) {
@@ -702,6 +728,11 @@ public:
 
     const PathsSetInfo& path_set_info(int32_t unique_id) const {
         return _path_set_info_map.at(unique_id);
+    }
+
+    const PathsSetInfo* try_path_set_info(int32_t unique_id) const {
+        auto it = _path_set_info_map.find(unique_id);
+        return it == _path_set_info_map.end() ? nullptr : &it->second;
     }
 
     bool need_record_variant_extended_schema() const { return variant_max_subcolumns_count() == 0; }
@@ -733,30 +764,8 @@ public:
 
     bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
 
-    // Whether new segments use externalized ColumnMetaPB layout (CMO) by default
-    bool is_external_segment_column_meta_used() const {
-        return _is_external_segment_column_meta_used;
-    }
-
-    void set_external_segment_meta_used_default(bool v) {
-        _is_external_segment_column_meta_used = v;
-    }
-
-    bool integer_type_default_use_plain_encoding() const {
-        return _integer_type_default_use_plain_encoding;
-    }
-
-    void set_integer_type_default_use_plain_encoding(bool v) {
-        _integer_type_default_use_plain_encoding = v;
-    }
-
-    BinaryPlainEncodingTypePB binary_plain_encoding_default_impl() const {
-        return _binary_plain_encoding_default_impl;
-    }
-
-    void set_binary_plain_encoding_default_impl(BinaryPlainEncodingTypePB impl) {
-        _binary_plain_encoding_default_impl = impl;
-    }
+    TabletStorageFormatPB storage_format() const { return _storage_format; }
+    void set_storage_format(TabletStorageFormatPB v) { _storage_format = v; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -812,11 +821,14 @@ private:
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;
     int32_t _skip_bitmap_col_idx = -1;
+    int32_t _commit_tso_col_idx = -1;
+    int32_t _binlog_tso_col_idx = -1;
+    int32_t _binlog_lsn_col_idx = -1;
+    int32_t _binlog_op_col_idx = -1;
     int32_t _schema_version = -1;
     int64_t _table_id = -1;
     int64_t _db_id = -1;
     bool _disable_auto_compaction = false;
-    bool _enable_single_replica_compaction = false;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
@@ -838,11 +850,10 @@ private:
     std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
 
     // Default behavior for new segments: use external ColumnMeta region + CMO table if true
-    bool _is_external_segment_column_meta_used = false;
-
-    bool _integer_type_default_use_plain_encoding {false};
-    BinaryPlainEncodingTypePB _binary_plain_encoding_default_impl {
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
+    // Persisted tablet storage format. Authoritative source for "is this tablet V3?"
+    // decisions in the segment write paths. Old PBs without this field are upgraded in
+    // init_from_pb() by deriving V3 from any of the three legacy V3-flavor flags.
+    TabletStorageFormatPB _storage_format {TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2};
     // Sequence column unique id mapping to value columns unique id
     std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_col_uid_to_value_cols_uid;
     // Value column unique id mapping to sequence column unique id(also map sequence column it self)

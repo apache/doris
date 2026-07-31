@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -44,6 +45,36 @@ import java.util.concurrent.TimeUnit;
 
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
+
+    class TableStatusStats {
+        private final long rows;
+        private final long dataLength;
+        private final long avgRowLength;
+        private final long indexLength;
+
+        public TableStatusStats(long rows, long dataLength, long avgRowLength, long indexLength) {
+            this.rows = rows;
+            this.dataLength = dataLength;
+            this.avgRowLength = avgRowLength;
+            this.indexLength = indexLength;
+        }
+
+        public long getRows() {
+            return rows;
+        }
+
+        public long getDataLength() {
+            return dataLength;
+        }
+
+        public long getAvgRowLength() {
+            return avgRowLength;
+        }
+
+        public long getIndexLength() {
+            return indexLength;
+        }
+    }
 
     long UNKNOWN_ROW_COUNT = -1;
 
@@ -104,6 +135,16 @@ public interface TableIf {
     String getName();
 
     TableType getType();
+
+    /**
+     * Returns the table type name used in ENGINE= clause of SHOW CREATE TABLE.
+     * By default this is the same as getType().name(); a plugin-driven table overrides it
+     * with the engine name its connector declares, so that both places a user sees an
+     * engine name agree.
+     */
+    default String getEngineTableTypeName() {
+        return getType().name();
+    }
 
     List<Column> getFullSchema();
 
@@ -166,6 +207,10 @@ public interface TableIf {
 
     long getIndexLength();
 
+    default TableStatusStats getTableStatusStats() {
+        return new TableStatusStats(getCachedRowCount(), getDataLength(), getAvgRowLength(), getIndexLength());
+    }
+
     long getLastCheckTime();
 
     String getComment(boolean escapeQuota);
@@ -200,6 +245,20 @@ public interface TableIf {
     }
 
     /**
+     * Returns whether the table can preload planning metadata before internal table locks are acquired.
+     */
+    default boolean supportsExternalMetadataPreload() {
+        return false;
+    }
+
+    /**
+     * Returns whether the table has a meaningful latest snapshot that can be preloaded ahead of analysis.
+     */
+    default boolean supportsLatestSnapshotPreload() {
+        return false;
+    }
+
+    /**
      * Doris table type.
      */
     enum TableType {
@@ -210,6 +269,7 @@ public interface TableIf {
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
         HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE,
+        PLUGIN_EXTERNAL_TABLE,
         STREAM;
 
         public String toEngineName() {
@@ -230,6 +290,8 @@ public interface TableIf {
                     return "Broker";
                 case ELASTICSEARCH:
                     return "ElasticSearch";
+                case ES_EXTERNAL_TABLE:
+                    return "es";
                 case HIVE:
                     return "Hive";
                 case HUDI:
@@ -242,8 +304,6 @@ public interface TableIf {
                     return "Table_Valued_Function";
                 case HMS_EXTERNAL_TABLE:
                     return "hms";
-                case ES_EXTERNAL_TABLE:
-                    return "es";
                 case ICEBERG:
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
@@ -253,6 +313,8 @@ public interface TableIf {
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:
                     return "External_Doris";
+                case PLUGIN_EXTERNAL_TABLE:
+                    return "Plugin";
                 case STREAM:
                     return "Stream";
                 default:
@@ -276,6 +338,7 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
+                case STREAM:
                     return "VIEW";
                 case OLAP:
                 case MYSQL:
@@ -288,13 +351,12 @@ public interface TableIf {
                 case JDBC_EXTERNAL_TABLE:
                 case TABLE_VALUED_FUNCTION:
                 case HMS_EXTERNAL_TABLE:
-                case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
                 case MATERIALIZED_VIEW:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:
-                case STREAM:
+                case PLUGIN_EXTERNAL_TABLE:
                     return "BASE TABLE";
                 default:
                     return null;
@@ -384,5 +446,10 @@ public interface TableIf {
             return Optional.empty();
         }
         return Optional.ofNullable(getSupportedSysTables().get(sysTableName));
+    }
+
+    default void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
+        throw new DdlException("Base table type: " + getType()  + ", StreamScanType: " + streamScanType
+                + " is not supported for create table stream");
     }
 }

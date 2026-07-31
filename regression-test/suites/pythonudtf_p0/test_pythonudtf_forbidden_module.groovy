@@ -21,7 +21,7 @@ suite("test_pythonudtf_forbidden_module") {
 
     def pyPath = """${context.file.parent}/udtf_scripts/python_udtf_forbidden_module.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     def forbiddenCases = [
         [name: "importlib", function: "py_forbidden_importlib_udtf", symbol: "importlib.forbidden_udtf"],
         [name: "inspect", function: "py_forbidden_inspect_udtf", symbol: "inspect.forbidden_udtf"],

@@ -57,8 +57,7 @@ public:
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
 
         execute_straight(assert_cast<const ColumnBitmap*>(argument_column.get()),
-                         assert_cast<ColumnInt64*>(result_column.get()),
-                         assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                         result_column.get(), result_null_map_column.get()->get_data(),
                          input_rows_count);
 
         block.get_by_position(result).column =
@@ -69,20 +68,24 @@ public:
 private:
     void execute_straight(const ColumnBitmap* date_column, ColumnInt64* result_column,
                           NullMap& result_null_map, size_t input_rows_count) const {
+        const auto& data = date_column->get_data();
+        auto& result_data = result_column->get_data();
+        result_data.resize(input_rows_count);
+
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
-                result_column->insert_default();
+                result_data[i] = 0;
                 continue;
             }
 
-            BitmapValue value = date_column->get_element(i);
+            const BitmapValue& value = data[i];
             if (!value.cardinality()) {
                 result_null_map[i] = true;
-                result_column->insert_default();
+                result_data[i] = 0;
                 continue;
             }
 
-            result_column->insert(Field::create_field<TYPE_BIGINT>(Impl::calculate(value)));
+            result_data[i] = Impl::calculate(value);
         }
     }
 };

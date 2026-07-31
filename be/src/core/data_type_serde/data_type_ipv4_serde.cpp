@@ -19,11 +19,12 @@
 
 #include <arrow/builder.h>
 
+#include "common/config.h"
 #include "core/column/column_const.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/types.h"
 #include "exprs/function/cast/cast_to_ip.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 namespace doris {
 
@@ -67,7 +68,8 @@ Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     auto& column_data = reinterpret_cast<ColumnIPv4&>(column);
     StringRef str(slice.data, slice.size);
     IPv4 val = 0;
-    if (!read_ipv4_text_impl(val, str)) {
+    CastParameters params;
+    if (!CastToIPv4::from_string(str, val, params)) {
         return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
@@ -106,13 +108,16 @@ Status DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const Nul
             int32_builder.AppendValues(reinterpret_cast<const Int32*>(col_data.data()) + start,
                                        end - start,
                                        reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-            column.get_name(), array_builder->type()->name()));
+            column, *array_builder));
     return Status::OK();
 }
 
 Status DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& col_data = assert_cast<ColumnIPv4&>(column).get_data();
     int64_t row_count = end - start;
     /// buffers[0] is a null bitmap and buffers[1] are actual values

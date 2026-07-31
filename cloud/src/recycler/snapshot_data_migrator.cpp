@@ -28,6 +28,7 @@
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
 #include "recycler/util.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
@@ -99,9 +100,8 @@ void SnapshotDataMigrator::migration_loop() {
         }
 
         std::string job_key = job_snapshot_data_migrator_key(instance.instance_id());
-        int ret =
-                prepare_instance_recycle_job(txn_kv_.get(), job_key, instance.instance_id(),
-                                             ip_port_, config::recycle_job_lease_expired_ms * 1000);
+        int ret = prepare_instance_recycle_job(txn_kv_.get(), job_key, instance.instance_id(),
+                                               ip_port_, config::recycle_job_lease_expired_ms);
         if (ret != 0) { // Prepare failed
             continue;
         } else {
@@ -303,8 +303,8 @@ int InstanceDataMigrator::do_migrate() {
                 .tag("cost(sec)", stop_watch.elapsed_seconds());
     };
 
-    SnapshotManager snapshot_mgr(txn_kv_);
-    int res = snapshot_mgr.migrate_to_versioned_keys(this);
+    auto snapshot_mgr = create_snapshot_manager(txn_kv_);
+    int res = snapshot_mgr->migrate_to_versioned_keys(this);
     if (res != 0) {
         LOG_WARNING("failed to migrate snapshot keys").tag("instance_id", instance_id_);
         return res;

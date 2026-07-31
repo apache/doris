@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -37,12 +38,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
@@ -148,22 +147,6 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         join.right().accept(this, context);
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
         if (rfContext.isEffectiveSrcNode(join.right())) {
-            boolean enableExpand = false;
-            if (ConnectContext.get() != null) {
-                enableExpand = ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin;
-            }
-            if (enableExpand && rfContext.getEffectiveSrcType(join.right())
-                    == RuntimeFilterContext.EffectiveSrcType.REF) {
-                RuntimeFilterContext.ExpandRF expand = rfContext.getExpandRfByJoin(join);
-                if (expand != null) {
-                    Set<ExprId> outputExprIdOfExpandTargets = Sets.newHashSet();
-                    outputExprIdOfExpandTargets.addAll(expand.target1.getOutputExprIds());
-                    outputExprIdOfExpandTargets.addAll(expand.target2.getOutputExprIds());
-                    rfContext.getTargetExprIdByFilterJoin(join)
-                            .stream().filter(exprId -> outputExprIdOfExpandTargets.contains(exprId))
-                            .forEach(exprId -> rfContext.removeFilters(exprId, join));
-                }
-            }
             RuntimeFilterContext.EffectiveSrcType childType =
                     rfContext.getEffectiveSrcType(join.right());
             context.getRuntimeFilterContext().addEffectiveSrcNode(join, childType);
@@ -256,14 +239,29 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalHashAggregate visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate,
                                                             CascadesContext context) {
+        return propagateEffectiveSrc(aggregate, context);
+    }
+
+    @Override
+    public PhysicalBucketedHashAggregate visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> aggregate, CascadesContext context) {
+        return propagateEffectiveSrc(aggregate, context);
+    }
+
+    /**
+     * Visit child and propagate effective source type if applicable.
+     * Shared by visitPhysicalHashAggregate and visitPhysicalBucketedHashAggregate.
+     *
+     * Note: agg is not regarded as an effective source itself. For example:
+     * q1: A join (select x, sum(y) as z from B group by x) T on A.a = T.x
+     * q2: A join (select x, sum(y) as z from B group by x) T on A.a = T.z
+     * RF on q1 is not effective, but RF on q2 is. Let RF judge by ndv.
+     */
+    private <T extends Plan> T propagateEffectiveSrc(T aggregate, CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        aggregate.child().accept(this, context);
-        // q1: A join (select x, sum(y) as z from B group by x) T on A.a = T.x
-        // q2: A join (select x, sum(y) as z from B group by x) T on A.a = T.z
-        // RF on q1 is not effective, but RF on q2 is. But q1 is a more generous pattern, and hence agg is not
-        // regarded as an effective source. Let this RF judge by ndv.
+        aggregate.child(0).accept(this, context);
         if (ctx.isEffectiveSrcNode(aggregate.child(0))) {
-            RuntimeFilterContext.EffectiveSrcType childType = ctx.getEffectiveSrcType(aggregate.child());
+            RuntimeFilterContext.EffectiveSrcType childType = ctx.getEffectiveSrcType(aggregate.child(0));
             ctx.addEffectiveSrcNode(aggregate, childType);
         }
         return aggregate;

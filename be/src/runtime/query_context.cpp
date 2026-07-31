@@ -24,12 +24,12 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <exception>
 #include <memory>
 #include <mutex>
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/operator/rec_cte_scan_operator.h"
@@ -37,6 +37,7 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/spill/spill_file_manager.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"
@@ -112,29 +113,21 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
     _timeout_second = query_options.execution_timeout;
 
-    // For olap tables, data is cached regardless of the 'enable_file_cache_for_olap_table' setting:
-    // - When true: data enters the normal queue.
-    // - When false: data enters the disposable queue.
-    // In both cases, a context_holder must be generated for the query limit functionality.
-
-    // For external tables, file cache is only used when 'enable_file_cache_for_external_table' is enabled:
-    // - When true: data enters the normal queue.
-    // - When false: data is not cached at all.
-    // Therefore, a context_holder is required only when external table caching is enabled.
-
-    // Summary: The only scenario where no context_holder is needed is for external tables
-    // when 'enable_file_cache_for_external_table' is disabled.
-    bool initialize_context_holder = config::enable_file_cache &&
-                                     config::enable_file_cache_query_limit &&
-                                     !(query_options.query_type == TQueryType::EXTERNAL &&
-                                       !query_options.enable_file_cache_for_external_table) &&
-                                     query_options.__isset.file_cache_query_limit_percent &&
-                                     query_options.file_cache_query_limit_percent < 100;
-
-    // Initialize file cache context holders
-    if (initialize_context_holder) {
+    // Query type does not identify which table types a query scans. Always create holders when
+    // query-level limiting is enabled; cache-bypassed reads simply leave them unused.
+    if (_should_initialize_file_cache_query_context(query_options)) {
         _query_context_holders = io::FileCacheFactory::instance()->get_query_context_holders(
                 _query_id, query_options.file_cache_query_limit_percent);
+    }
+
+    const bool initialize_remote_scan_cache_write_limiter =
+            config::is_cloud_mode() && config::enable_file_cache &&
+            query_options.__isset.file_cache_query_limit_bytes &&
+            query_options.file_cache_query_limit_bytes >= 0 &&
+            query_options.query_type == TQueryType::SELECT;
+    if (initialize_remote_scan_cache_write_limiter) {
+        _remote_scan_cache_write_limiter = std::make_unique<io::RemoteScanCacheWriteLimiter>(
+                _query_id, query_options.file_cache_query_limit_bytes);
     }
 
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
@@ -156,6 +149,12 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _mem_arb = MemShareArbitrator::create_shared(
             query_id, query_options.mem_limit,
             query_options.__isset.max_scan_mem_ratio ? query_options.max_scan_mem_ratio : 1.0);
+}
+
+bool QueryContext::_should_initialize_file_cache_query_context(const TQueryOptions& query_options) {
+    return config::enable_file_cache && config::enable_file_cache_query_limit &&
+           query_options.__isset.file_cache_query_limit_percent &&
+           query_options.file_cache_query_limit_percent < 100;
 }
 
 void QueryContext::_init_query_mem_tracker() {
@@ -236,26 +235,12 @@ QueryContext::~QueryContext() {
                 PrettyPrinter::print_bytes(query_mem_tracker()->consumption()),
                 PrettyPrinter::print_bytes(query_mem_tracker()->peak_consumption()));
     }
-    [[maybe_unused]] uint64_t group_id = 0;
-    if (workload_group()) {
-        group_id = workload_group()->id(); // before remove
-    }
-
     _resource_ctx->task_controller()->finish();
 
     if (enable_profile()) {
         _report_query_profile();
     }
 
-#ifndef BE_TEST
-    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
-        try {
-            ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
-        } catch (std::exception& e) {
-            LOG(WARNING) << "Dump trace log failed bacause " << e.what();
-        }
-    }
-#endif
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
     _runtime_predicates.clear();
@@ -269,7 +254,12 @@ QueryContext::~QueryContext() {
         ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
     }
     // the only one msg shows query's end. any other msg should append to it if need.
-    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
+    timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    int64_t elapsed_ms = (now.tv_sec - _query_arrival_timestamp.tv_sec) * 1000LL +
+                         (now.tv_nsec - _query_arrival_timestamp.tv_nsec) / 1000000LL;
+    LOG_INFO("Query {} deconstructed, elapsed_ms: {}, mem_tracker: {}", print_id(this->_query_id),
+             elapsed_ms, mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {
@@ -569,6 +559,18 @@ Status QueryContext::reset_global_rf(const google::protobuf::RepeatedField<int32
         return _merge_controller_handler->reset_global_rf(this, filter_ids);
     }
     return Status::OK();
+}
+
+void QueryContext::add_total_task_num(int delta) {
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->add_total_task_num(delta);
+    }
+}
+
+void QueryContext::inc_finished_task_num() {
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->inc_finished_task_num();
+    }
 }
 
 } // namespace doris

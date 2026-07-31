@@ -54,7 +54,6 @@
 
 namespace doris {
 class DeleteHandler;
-class StorageField;
 class TAlterInvertedIndexReq;
 class TAlterTabletReqV2;
 class TExpr;

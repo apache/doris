@@ -27,6 +27,7 @@ namespace doris {
 
 template <typename T>
 T unaligned_load(const void* address) {
+    static_assert(std::is_trivially_copyable_v<T>);
     T res {};
     memcpy(&res, address, sizeof(res));
     return res;

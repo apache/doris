@@ -67,15 +67,7 @@ public:
 
     Status finish(OwnedSlice* slice) override {
         encode_fixed32_le((uint8_t*)&_buffer[0], cast_set<uint32_t>(_count));
-        RETURN_IF_CATCH_EXCEPTION({
-            if (_count > 0) {
-                _first_value.assign_copy(&_buffer[PLAIN_PAGE_HEADER_SIZE], SIZE_OF_TYPE);
-                _last_value.assign_copy(
-                        &_buffer[PLAIN_PAGE_HEADER_SIZE + (_count - 1) * SIZE_OF_TYPE],
-                        SIZE_OF_TYPE);
-            }
-            *slice = _buffer.build();
-        });
+        RETURN_IF_CATCH_EXCEPTION({ *slice = _buffer.build(); });
         return Status::OK();
     }
 
@@ -97,22 +89,6 @@ public:
 
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
-    Status get_first_value(void* value) const override {
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, _first_value.data(), SIZE_OF_TYPE);
-        return Status::OK();
-    }
-
-    Status get_last_value(void* value) const override {
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, _last_value.data(), SIZE_OF_TYPE);
-        return Status::OK();
-    }
-
 private:
     PlainPageBuilder(const PageBuilderOptions& options) : _options(options) {}
 
@@ -123,8 +99,6 @@ private:
     uint64_t _raw_data_size = 0;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
-    faststring _first_value;
-    faststring _last_value;
 };
 
 template <FieldType Type>

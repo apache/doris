@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ClientPool;
@@ -130,7 +131,8 @@ public class FollowerColumnSender extends MasterDaemon {
                 LOG.warn("Failed to find table for column {}", column.colName);
                 continue;
             }
-            if (StatisticsUtil.isUnsupportedType(table.getColumn(column.colName).getType())) {
+            Column col = table.getColumn(column.colName);
+            if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
                 continue;
             }
             Set<Pair<String, String>> columnIndexPairs = table.getColumnIndexPairs(

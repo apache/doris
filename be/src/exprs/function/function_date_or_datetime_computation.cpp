@@ -186,7 +186,8 @@ using FunctionSubTimeTimestampTz =
 
 #define ALL_FUNCTION_TIME_DIFF(NAME, IMPL)          \
     FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_DATETIMEV2) \
-    FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_DATEV2)
+    FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_DATEV2)     \
+    FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_TIMESTAMPTZ)
 // these diff functions accept all v2 types. but for v1 only datetime.
 ALL_FUNCTION_TIME_DIFF(FunctionDatetimeDateDiff, DateDiffImpl)
 ALL_FUNCTION_TIME_DIFF(FunctionDatetimeTimeDiff, TimeDiffImpl)
@@ -324,7 +325,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
 
 #define REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(NAME)          \
     REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATETIMEV2) \
-    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATEV2)
+    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATEV2)     \
+    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_TIMESTAMPTZ)
 
     REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeDateDiff)
     REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeTimeDiff)

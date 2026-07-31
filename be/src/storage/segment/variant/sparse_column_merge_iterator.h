@@ -41,7 +41,6 @@
 #include "core/types.h"
 #include "exprs/function/function_helpers.h"
 #include "io/io_common.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"

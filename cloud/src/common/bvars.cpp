@@ -284,6 +284,7 @@ bvar::Status<int64_t> g_bvar_fdb_incompatible_connections("fdb_incompatible_conn
 bvar::Status<int64_t> g_bvar_fdb_latency_probe_transaction_start_ns("fdb_latency_probe_transaction_start_ns", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_latency_probe_commit_ns("fdb_latency_probe_commit_ns", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_latency_probe_read_ns("fdb_latency_probe_read_ns", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_performance_limited_by_name("fdb_performance_limited_by_name", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_machines_count("fdb_machines_count", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_process_count("fdb_process_count", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_qos_worst_data_lag_storage_server_ns("fdb_qos_worst_data_lag_storage_server_ns", BVAR_FDB_INVALID_VALUE);

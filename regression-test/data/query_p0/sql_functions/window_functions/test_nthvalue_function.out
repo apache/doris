@@ -262,3 +262,8 @@
 11	true	11
 15	true	15
 
+-- !select_upper_bounded --
+1	B	B
+2	C	C
+3	\N	\N
+

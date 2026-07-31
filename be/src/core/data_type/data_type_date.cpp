@@ -33,7 +33,6 @@
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
-#include "util/io_helper.h"
 
 namespace doris {
 bool DataTypeDate::equals(const IDataType& rhs) const {

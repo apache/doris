@@ -19,7 +19,6 @@
 
 #include <string>
 
-#include "util/hash_util.hpp"
 #include "util/string_parser.hpp"
 
 namespace doris {
@@ -44,10 +43,6 @@ std::istream& operator>>(std::istream& is, __int128& value) {
         is.setstate(std::ios_base::failbit);
     }
     return is;
-}
-
-std::size_t hash_value(__int128 const& value) {
-    return HashUtil::hash(&value, sizeof(value), 0);
 }
 
 } // namespace doris

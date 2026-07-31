@@ -19,8 +19,8 @@ package org.apache.doris.persist.gson;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils.HiddenAnnotationExclusionStrategy;
-import org.apache.doris.persist.gson.GsonUtils.PostProcessTypeAdapterFactory;
+import org.apache.doris.persist.gson.GsonUtilsBase.HiddenAnnotationExclusionStrategy;
+import org.apache.doris.persist.gson.GsonUtilsBase.PostProcessTypeAdapterFactory;
 
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;

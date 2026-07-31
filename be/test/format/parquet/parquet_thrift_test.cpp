@@ -30,6 +30,7 @@
 #include <memory>
 #include <new>
 #include <ostream>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -160,8 +161,8 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
 static int fill_nullable_column(ColumnPtr& doris_column, level_t* definitions, size_t num_values) {
     CHECK(doris_column->is_nullable());
-    auto* nullable_column =
-            const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(doris_column.get()));
+    doris_column = IColumn::mutate(std::move(doris_column));
+    auto* nullable_column = assert_cast<ColumnNullable*>(doris_column->assert_mutable().get());
     NullMap& map_data = nullable_column->get_null_map_data();
     int null_cnt = 0;
     for (int i = 0; i < num_values; ++i) {
@@ -192,6 +193,9 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
 
     ColumnPtr src_column = _converter->get_physical_column(
             field_schema->physical_type, field_schema->data_type, doris_column, data_type, false);
+    if (_converter->read_directly_into_dst_logical_column()) {
+        src_column = std::move(doris_column);
+    }
     DataTypePtr& resolved_type = _converter->get_physical_type();
 
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
@@ -216,11 +220,11 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     if (src_column->is_nullable()) {
         // fill nullable values
         fill_nullable_column(src_column, definitions, rows);
-        auto* nullable_column =
-                const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(src_column.get()));
+        auto* nullable_column = assert_cast<ColumnNullable*>(src_column->assert_mutable().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
-        data_column = src_column->assume_mutable();
+        src_column = IColumn::mutate(std::move(src_column));
+        data_column = src_column->assert_mutable();
     }
     FilterMap filter_map;
     RETURN_IF_ERROR(filter_map.init(nullptr, 0, false));
@@ -456,5 +460,35 @@ TEST_F(ParquetThriftReaderTest, type_decoder) {
 TEST_F(ParquetThriftReaderTest, dict_decoder) {
     read_parquet_data_and_check("./be/test/exec/test_data/parquet_scanner/dict-decoder.parquet",
                                 "./be/test/exec/test_data/parquet_scanner/dict-decoder.txt", 12);
+}
+
+TEST_F(ParquetThriftReaderTest, is_dictionary_encoded_rejects_plain_data_page_v2) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page;
+    dict_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    dict_page.encoding = tparquet::Encoding::RLE_DICTIONARY;
+    dict_page.count = 2;
+
+    tparquet::PageEncodingStats plain_page;
+    plain_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    plain_page.encoding = tparquet::Encoding::PLAIN;
+    plain_page.count = 1;
+
+    column_metadata.encoding_stats = {dict_page, plain_page};
+
+    tparquet::RowGroup row_group;
+    row_group.num_rows = 0;
+    RowGroupReader::PositionDeleteContext position_delete_ctx(row_group.num_rows, 0);
+    RowGroupReader::LazyReadContext lazy_read_ctx;
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
+    RowGroupReader row_group_reader(nullptr, {}, 0, row_group, nullptr, nullptr,
+                                    position_delete_ctx, lazy_read_ctx, nullptr, column_ids,
+                                    filter_column_ids);
+
+    EXPECT_FALSE(row_group_reader.is_dictionary_encoded(column_metadata));
 }
 } // namespace doris

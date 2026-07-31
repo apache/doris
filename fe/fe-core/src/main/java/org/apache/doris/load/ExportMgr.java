@@ -19,6 +19,7 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -37,7 +38,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -117,9 +117,13 @@ public class ExportMgr {
         try {
             // delete existing files
             if (Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+                // Concrete filesystems only accept their native schemes; normalize legacy
+                // compatibility schemes (e.g. cos:// with s3.* properties) before crossing
+                // the plugin boundary.
+                String exportPath = job.getBrokerDesc().getFileLocation(job.getExportPath());
                 try (org.apache.doris.filesystem.FileSystem fs =
                         FileSystemFactory.getFileSystem(job.getBrokerDesc())) {
-                    fs.delete(Location.of(FileSystemUtil.extractParentDirectory(job.getExportPath())), true);
+                    fs.delete(Location.of(FileSystemUtil.extractParentDirectory(exportPath)), true);
                 } catch (java.io.IOException e) {
                     throw new UserException("Failed to delete existing files: " + e.getMessage(), e);
                 }

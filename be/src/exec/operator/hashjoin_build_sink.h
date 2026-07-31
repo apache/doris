@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/thread_safety_annotations.h"
 #include "exec/operator/join_build_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper.h"
@@ -117,7 +118,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
@@ -133,15 +134,17 @@ public:
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child->is_serial_operator() ? DataDistribution(ExchangeType::PASS_TO_ONE)
-                                                : DataDistribution(ExchangeType::NOOP);
+            return _child->is_serial_operator() ? DataDistribution(TLocalPartitionType::PASS_TO_ONE)
+                                                : DataDistribution(TLocalPartitionType::NOOP);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
-                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+                       ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                          _partition_exprs)
+                       : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                          _partition_exprs);
     }
 
     bool is_shuffled_operator() const override {
@@ -196,8 +199,8 @@ private:
 
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;
-    std::mutex _mutex;
-    std::vector<std::shared_ptr<Dependency>> _finish_dependencies;
+    AnnotatedMutex _mutex;
+    std::vector<std::shared_ptr<Dependency>> _finish_dependencies GUARDED_BY(_mutex);
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> _runtime_filters;
 };
 
@@ -230,7 +233,7 @@ struct ProcessHashTableBuild {
 
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_build_raw_ptrs.size() == 1 && null_map && *has_null_key) {
-            _build_raw_ptrs[0]->assume_mutable()->replace_column_null_data(null_map->data());
+            const_cast<IColumn*>(_build_raw_ptrs[0])->replace_column_null_data(null_map->data());
         }
 
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,

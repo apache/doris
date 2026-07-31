@@ -18,9 +18,9 @@
 #pragma once
 
 #include <gen_cpp/Exprs_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -44,7 +44,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "runtime/runtime_profile.h"
-#include "storage/field.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/index_iterator.h"
 #include "storage/iterators.h"
@@ -53,6 +52,7 @@
 #include "storage/predicate/column_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/schema.h"
+#include "storage/segment/adaptive_block_size_predictor.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
 #include "util/slice.h"
@@ -188,7 +188,9 @@ private:
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
-
+    [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
+                                                           rowid_t min_rowid,
+                                                           RowRanges* row_ranges);
     [[nodiscard]] Status _apply_inverted_index();
     [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
             std::shared_ptr<ColumnPredicate> pred,
@@ -204,11 +206,6 @@ private:
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
     Status _vec_init_lazy_materialization();
-    // TODO: Fix Me
-    // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
-    // so segment iterator need to shrink char column before output it. only use in vec query engine.
-    void _vec_init_char_column_id(Block* block);
-    bool _has_char_type(const StorageField& column_desc);
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -220,17 +217,21 @@ private:
                                        MutableColumns& column_block, size_t nrows);
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
+    void _update_tso_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    Status _apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size);
     void _collect_runtime_filter_predicate();
     Status _output_non_pred_columns(Block* block);
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
                                                  MutableColumns* mutable_columns,
-                                                 bool init_condition_cache = false);
+                                                 bool init_condition_cache = false,
+                                                 bool read_for_predicate = false);
+    [[nodiscard]] Status _read_lazy_pruned_columns(Block* block);
 
     Status copy_column_data_by_selector(IColumn* input_col_ptr, MutableColumnPtr& output_col,
                                         uint16_t* sel_rowid_idx, uint16_t select_size,
@@ -241,7 +242,7 @@ private:
                                                    uint16_t* sel_rowid_idx, uint16_t select_size) {
         SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
-            int block_cid = _schema_block_id_map[cid];
+            int block_cid = _schema->column_index(cid);
             // Only the additional deleted filter condition need to materialize column be at the end of the block
             // We should not to materialize the column of query engine do not need. So here just return OK.
             // Eg:
@@ -252,8 +253,7 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            DataTypePtr storage_type =
-                    _segment->get_data_type_of(_schema->column(cid)->get_desc(), _opts);
+            DataTypePtr storage_type = _segment->get_data_type_of(*_schema->column(cid), _opts);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 MutableColumnPtr tmp = storage_type->create_column();
@@ -265,7 +265,7 @@ private:
                         &block->get_by_position(block_cid).column));
             } else {
                 MutableColumnPtr output_column =
-                        block->get_by_position(block_cid).column->assume_mutable();
+                        block->get_by_position(block_cid).column->assert_mutable();
                 RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
                                                              output_column, sel_rowid_idx,
                                                              select_size, _opts.block_row_max));
@@ -277,7 +277,6 @@ private:
     bool _can_evaluated_by_vectorized(std::shared_ptr<ColumnPredicate> predicate);
 
     [[nodiscard]] Status _extract_common_expr_columns(const VExprSPtr& expr);
-    // same with _extract_common_expr_columns, but only extract columns that can be used for index
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               Block* block);
     Status _process_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size, Block* block);
@@ -293,12 +292,11 @@ private:
 
     bool _check_apply_by_inverted_index(std::shared_ptr<ColumnPredicate> pred);
 
-    void _output_index_result_column(const std::vector<VExprContext*>& expr_ctxs,
-                                     uint16_t* sel_rowid_idx, uint16_t select_size, Block* block);
+    void _output_index_result_column(const VExprContextSPtrs& expr_ctxs, uint16_t* sel_rowid_idx,
+                                     uint16_t select_size);
 
     bool _need_read_data(ColumnId cid);
-    bool _prune_column(ColumnId cid, MutableColumnPtr& column, bool fill_defaults,
-                       size_t num_of_defaults);
+    bool _prune_column(ColumnId cid, MutableColumnPtr& column, size_t num_of_defaults);
 
     Status _construct_compound_expr_context();
 
@@ -307,7 +305,7 @@ private:
         for (auto cid : col_ids) {
             auto ord = key.field(cid) <=> (*_seek_block[cid])[0];
             if (ord != std::strong_ordering::equal) {
-                return ord < 0 ? -1 : 1;
+                return ord == std::strong_ordering::less ? -1 : 1;
             }
         }
         return 0;
@@ -318,18 +316,17 @@ private:
     bool _no_need_read_key_data(ColumnId cid, MutableColumnPtr& column, size_t nrows_read);
 
     bool _has_delete_predicate(ColumnId cid);
+    bool _can_skip_reading_extra_column(ColumnId cid);
 
-    bool _can_opt_topn_reads();
+    bool _can_opt_limit_reads();
 
     void _initialize_predicate_results();
     bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                 bool default_return = false);
 
-    void _calculate_expr_in_remaining_conjunct_root();
+    void _calculate_common_expr_index_exec_status();
 
     Status _process_eof(Block* block);
-
-    Status _process_column_predicate();
 
     void _fill_column_nothing();
 
@@ -376,6 +373,9 @@ private:
     bool _is_need_short_eval = false;
     bool _is_need_expr_eval = false;
 
+    std::set<ColumnId> _support_lazy_read_pruned_columns;
+    bool _enable_prune_nested_column = false;
+
     // fields for vectorization execution
     std::vector<ColumnId>
             _vec_pred_column_ids; // keep columnId of columns for vectorized predicate evaluation
@@ -395,22 +395,29 @@ private:
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _predicate_column_ids;
     std::vector<ColumnId> _common_expr_column_ids;
-    // TODO: Should use std::vector<size_t>
+    // Block slot indexes to filter after common expr evaluation. This is not
+    // tablet column ids because Block::filter_block_internal filters by block
+    // position.
     std::vector<ColumnId> _columns_to_filter;
     std::vector<bool> _converted_column_ids;
-    // TODO: Should use std::vector<size_t>
-    std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
     bool _lazy_inited;
     bool _inited;
 
     StorageReadOptions _opts;
+    // Adaptive batch size predictor; null when the feature is disabled.
+    std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
+    // Build the AdaptiveBlockSizePredictor for this segment based on segment footer
+    // metadata for the projected output columns. Returns nullptr if the feature is
+    // disabled or the byte budget is non-positive.
+    std::unique_ptr<AdaptiveBlockSizePredictor> _make_block_size_predictor() const;
+    // Snapshot of _opts.block_row_max at init time; used as the hard upper bound so that
+    // dynamic adjustments never exceed the capacity of pre-allocated buffers.
+    uint32_t _initial_block_row_max = 0;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
     VExprContextSPtrs _common_expr_ctxs_push_down;
-    bool _enable_common_expr_pushdown = false;
-    std::vector<VExprSPtr> _remaining_conjunct_roots;
     std::set<ColumnId> _not_apply_index_pred;
 
     // row schema of the key to seek
@@ -422,13 +429,13 @@ private:
 
     io::FileReaderSPtr _file_reader;
 
-    // char_type or array<char> type columns cid
-    std::vector<size_t> _char_type_idx;
-    std::vector<bool> _is_char_type;
-
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
     std::vector<uint16_t> _sel_rowid_idx;
+
+    // Rows already produced by this iterator. Used together with
+    // _opts.read_limit to compute the remaining per-batch budget.
+    size_t _rows_returned = 0;
 
     std::unique_ptr<ObjectPool> _pool;
 
@@ -467,7 +474,6 @@ private:
 
     // cid to virtual column expr
     std::map<ColumnId, VExprContextSPtr> _virtual_column_exprs;
-    std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
 
     IndexQueryContextPtr _index_query_context;
 

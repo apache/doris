@@ -1,7 +1,10 @@
 use default;
 
 
-CREATE TABLE orc_partition_multi_stripe (
+drop table if exists orc_partition_multi_stripe;
+
+
+create table orc_partition_multi_stripe (
     col1 STRING,
     col2 INT,
     col3 DOUBLE
@@ -14,7 +17,9 @@ LOCATION '/user/doris/preinstalled_data/orc_table/orc_partition_multi_stripe';
 ;
 msck repair table orc_partition_multi_stripe;
 
-CREATE TABLE parquet_partition_multi_row_group (
+drop table if exists parquet_partition_multi_row_group;
+
+create table parquet_partition_multi_row_group (
     col1 STRING,
     col2 INT,
     col3 DOUBLE

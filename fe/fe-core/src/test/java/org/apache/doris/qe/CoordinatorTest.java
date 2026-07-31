@@ -17,15 +17,20 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SortNode;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineInstanceParams;
+import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -34,9 +39,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -119,6 +126,29 @@ public class CoordinatorTest extends TestWithFeService {
             Assertions.assertSame(shared, localParamsList.get(i).getTopnFilterDescs(),
                     "instance " + i + " must share the same topnFilterDescs list object");
         }
+    }
+
+    @Test
+    public void testFragmentExecParamsMarksNonOlapTopnFilterSource() {
+        ScanNode scanNode = Mockito.mock(ScanNode.class);
+        SortNode sortNode = Mockito.mock(SortNode.class);
+        Mockito.when(scanNode.getTopnFilterSortNodes()).thenReturn(Collections.singletonList(sortNode));
+
+        PlanFragment fragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(fragment.getFragmentId()).thenReturn(new PlanFragmentId(0));
+        Mockito.when(fragment.toThrift()).thenReturn(new TPlanFragment());
+        Mockito.when(fragment.isTransferQueryStatisticsWithEveryBatch()).thenReturn(false);
+
+        Coordinator.FragmentExecParams fragParams = new Coordinator(0L, new TUniqueId(1L, 1L),
+                new DescriptorTable(), Collections.singletonList(fragment), Collections.singletonList(scanNode),
+                "UTC", false, false).new FragmentExecParams(fragment);
+        TNetworkAddress host = new TNetworkAddress("127.0.0.1", 9060);
+        fragParams.instanceExecParams.add(
+                new Coordinator.FInstanceExecParam(new TUniqueId(2L, 2L), host, fragParams));
+
+        fragParams.toThrift(0);
+
+        Mockito.verify(sortNode).setHasRuntimePredicate();
     }
 
     private NereidsPlanner plan(String sql) throws IOException {

@@ -31,6 +31,38 @@ suite("test_cdc_stream_tvf_postgres", "p0,external,pg,external_docker,external_d
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
 
+        // --- Validation error tests (no JDBC connection needed) ---
+        test {
+            sql """select * from cdc_stream(
+                "type" = "postgres",
+                "jdbc_url" = "jdbc:postgresql://localhost:5432/db",
+                "table" = "t1",
+                "offset" = "latest")"""
+            exception "schema is required for PostgreSQL"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "postgres",
+                "jdbc_url" = "jdbc:postgresql://localhost:5432/db",
+                "schema" = "public",
+                "table" = "t1",
+                "offset" = "latest",
+                "slot_name" = "bad-name;drop")"""
+            exception "Invalid value for key 'slot_name'"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "postgres",
+                "jdbc_url" = "jdbc:postgresql://localhost:5432/db",
+                "schema" = "public",
+                "table" = "t1",
+                "offset" = "latest",
+                "publication_name" = "Bad Name")"""
+            exception "Invalid value for key 'publication_name'"
+        }
+
         // create test
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
@@ -60,6 +92,11 @@ suite("test_cdc_stream_tvf_postgres", "p0,external,pg,external_docker,external_d
             """
             exception "Unsupported offset: initial"
         }
+
+        // Standalone cdc_stream TVF does not validate PG slot/publication ownership
+        // (that check runs only when cdc_stream is nested inside a streaming INSERT job
+        //  — see test_cdc_stream_tvf_publication). The TVF path just forwards whatever
+        // slot_name / publication_name the user supplies to cdcclient.
 
         // Here, because PG consumption requires creating a slot first,
         // we only verify whether the execution can be successful.

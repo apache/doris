@@ -168,6 +168,11 @@ public:
     void attach_task(const std::shared_ptr<ResourceContext>& rc) {
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
         DCHECK(resource_ctx_ == nullptr);
+        // Validation of `rc` and its sub-objects is performed by the
+        // AttachTask::init() / SwitchResourceContext constructor entry
+        // points before any thread-local or signal mutation, so a thrown
+        // FatalError does not leak thread-local handle counts or leave a
+        // stale signal task id behind.
         resource_ctx_ = rc;
         thread_mem_tracker_mgr->attach_limiter_tracker(rc->memory_context()->mem_tracker(),
                                                        rc->workload_group());

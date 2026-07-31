@@ -200,18 +200,18 @@
 2	2
 
 -- !00_avg --
-2.0
+2
 
 -- !10_avg --
-2.0	1.5
+2	1.5
 
 -- !01_avg --
-2.0
-2.0
+2
+2
 
 -- !11_avg --
-2.0	1.0
-2.0	2.0
+2	1
+2	2
 
 -- !count_sum_avg_no_gby --
 2	2	3.5
@@ -221,10 +221,10 @@
 
 -- !count_sum_avg_with_gby --
 2	1	3.5
-2	1	4.0
+2	1	4
 
 -- !count_multi_sum_avg_with_gby --
-2	2	4.0
+2	2	4
 2	3	3.5
 
 -- !multi_sum_has_upper --
@@ -369,13 +369,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[DISTINCT_GLOBAL]
 --------hashAgg[DISTINCT_LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[DISTINCT_GLOBAL]
 --------hashAgg[DISTINCT_LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_count_mulitcols_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -386,13 +384,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !three_count_mulitcols_without_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -404,18 +400,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------hashAgg[DISTINCT_GLOBAL]
 ----------hashAgg[DISTINCT_LOCAL]
 ------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------hashAgg[DISTINCT_GLOBAL]
 ----------hashAgg[DISTINCT_LOCAL]
 ------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[DISTINCT_GLOBAL]
 --------hashAgg[DISTINCT_LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !four_count_mulitcols_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -428,23 +421,19 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !has_other_func --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -478,13 +467,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_count_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -495,13 +482,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_sum_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -512,13 +497,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !sum_count_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -529,12 +512,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !has_grouping --
 PhysicalResultSink
@@ -544,7 +525,7 @@ PhysicalResultSink
 --------PhysicalOlapScan[test_distinct_multi]
 
 -- !null_hash --
-1	\N	0	0.0
+1	\N	0	0
 
 -- !same_distinct_arg --
 2	1

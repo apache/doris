@@ -23,6 +23,7 @@
 #include <functional>
 #include <thread>
 
+#include "common/exception.h"
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
 
 namespace doris {
@@ -60,6 +61,11 @@ bool PrioritizedSplitRunner::is_closed() const {
 void PrioritizedSplitRunner::close(const Status& status) {
     if (!_closed.exchange(true)) {
         _split_runner->close(status);
+        if (status.ok()) {
+            _finished_future.set_value({});
+        } else {
+            _finished_future.set_error(status);
+        }
     }
 }
 
@@ -70,7 +76,12 @@ int64_t PrioritizedSplitRunner::created_nanos() const {
 bool PrioritizedSplitRunner::is_finished() {
     bool finished = _split_runner->is_finished();
     if (finished) {
-        _finished_future.set_value({});
+        auto status = _split_runner->finished_status();
+        if (status.ok()) {
+            _finished_future.set_value({});
+        } else {
+            _finished_future.set_error(status);
+        }
     }
     return finished || _closed.load() || _task_handle->is_closed();
 }
@@ -99,9 +110,18 @@ Result<SharedListenableFuture<Void>> PrioritizedSplitRunner::process() {
     _wait_nanos.fetch_add(start_nanos - _last_ready.load());
 
     auto process_start_time = _ticker->read();
-    auto blocked = _split_runner->process_for(SPLIT_RUN_QUANTA);
+    Result<SharedListenableFuture<Void>> blocked = SharedListenableFuture<Void>::create_ready();
+    try {
+        blocked = _split_runner->process_for(SPLIT_RUN_QUANTA);
+    } catch (const Exception& e) {
+        Status status = e.to_status();
+        _finished_future.set_error(status);
+        return unexpected(status);
+    }
     if (!blocked.has_value()) {
-        return unexpected(std::move(blocked).error());
+        auto error_status = blocked.error();
+        _finished_future.set_error(error_status);
+        return unexpected(std::move(error_status));
     }
     auto process_end_time = _ticker->read();
     auto quanta_scheduled_nanos = process_end_time - process_start_time;

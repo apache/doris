@@ -98,6 +98,25 @@ else()
 endif()
 message(STATUS "make test: ${MAKE_TEST}")
 
+if (OS_MACOSX)
+    set(USE_UNWIND OFF)
+else()
+    set(USE_UNWIND ON)
+endif()
+message(STATUS "USE_UNWIND is ${USE_UNWIND}")
+
+option(ENABLE_TLS "Enable TLS feature module" OFF)
+set(TLS_MODULE_DIR "" CACHE STRING "TLS feature module directory under cloud/src")
+if (ENABLE_TLS AND "${TLS_MODULE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "ENABLE_TLS requires TLS_MODULE_DIR")
+endif()
+
+option(ENABLE_SNAPSHOT "Enable Snapshot feature module" OFF)
+set(SNAPSHOT_MODULE_DIR "" CACHE STRING "Snapshot feature module directory under cloud/src")
+if (ENABLE_SNAPSHOT AND "${SNAPSHOT_MODULE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "ENABLE_SNAPSHOT requires SNAPSHOT_MODULE_DIR")
+endif()
+
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
@@ -413,11 +432,11 @@ set(DORIS_CLOUD_LIBS
     Snapshot
 )
 
-if (EXISTS ${SRC_DIR}/enterprise/CMakeLists.txt)
-    add_subdirectory(${SRC_DIR}/enterprise)
-    if (DORIS_ADDITIONAL_DEFINITIONS)
-        add_definitions(${DORIS_ADDITIONAL_DEFINITIONS})
-    endif()
+if (ENABLE_SNAPSHOT)
+    add_subdirectory(${SRC_DIR}/${SNAPSHOT_MODULE_DIR})
+endif()
+if (DORIS_ADDITIONAL_DEFINITIONS)
+    add_definitions(${DORIS_ADDITIONAL_DEFINITIONS})
 endif()
 
 add_subdirectory(${SRC_DIR}/common)

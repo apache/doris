@@ -65,7 +65,8 @@ suite("test_show_no_auth","p0,auth_call") {
 
         def res1 = sql """SHOW PROCESSLIST"""
         logger.info("res1: " + res1)
-        assertTrue(res1.size() == 1)
+        def ownSessions = res1.findAll { it[2] == user }
+        assertTrue(ownSessions.size() >= 1)
     }
     sql """revoke grant_priv on *.*.* from ${user}"""
     sql """grant admin_priv on *.*.* to ${user}"""

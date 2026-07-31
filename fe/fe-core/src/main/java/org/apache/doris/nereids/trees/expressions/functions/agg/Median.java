@@ -79,7 +79,7 @@ public class Median extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (((!argType.isNumericType() && !argType.isNullType()) || argType.isOnlyMetricType())) {
             throw new AnalysisException("median requires a numeric parameter: " + toSql());
         }

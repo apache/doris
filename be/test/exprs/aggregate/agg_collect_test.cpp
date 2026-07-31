@@ -17,9 +17,9 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -40,6 +40,7 @@
 #include "core/types.h"
 #include "exprs/aggregate/agg_function_test.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/aggregate/aggregate_function_collect.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "gtest/gtest_pred_impl.h"
 
@@ -53,12 +54,12 @@ void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& fa
 
 class VAggCollectTest : public testing::Test {
 public:
-    void SetUp() {
+    void SetUp() override {
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         register_aggregate_function_collect_list(factory);
     }
 
-    void TearDown() {}
+    void TearDown() override {}
 
     bool is_distinct(const std::string& fn_name) { return fn_name == "collect_set"; }
 
@@ -147,14 +148,14 @@ public:
         agg_function->merge(place, place2, _agg_arena_pool);
         auto column_result =
                 ColumnArray::create(std::move(make_nullable(data_types[0]->create_column())));
-        agg_function->insert_result_into(place, column_result->assume_mutable_ref());
+        agg_function->insert_result_into(place, column_result->assert_mutable_ref());
         EXPECT_EQ(column_result->size(), 1);
         EXPECT_EQ(column_result->get_offsets()[0],
                   is_distinct(fn_name) ? input_nums : 2 * input_nums * _repeated_times);
 
         auto column_result2 =
                 ColumnArray::create(std::move(make_nullable(data_types[0]->create_column())));
-        agg_function->insert_result_into(place2, column_result2->assume_mutable_ref());
+        agg_function->insert_result_into(place2, column_result2->assert_mutable_ref());
         EXPECT_EQ(column_result2->size(), 1);
         EXPECT_EQ(column_result2->get_offsets()[0],
                   is_distinct(fn_name) ? input_nums : input_nums * _repeated_times);
@@ -215,6 +216,69 @@ TEST_F(VAggCollectTest, test_complex_data_type) {
 
     test_agg_collect<DataTypeString>("collect_list", 10, true);
     test_agg_collect<DataTypeString>("array_agg", 5, true);
+}
+
+TEST_F(VAggCollectTest, test_merge_preserve_initialized_max_size) {
+    {
+        const DataTypes argument_types {std::make_shared<DataTypeInt32>()};
+        AggregateFunctionCollectListData<TYPE_INT, true> lhs(argument_types);
+        AggregateFunctionCollectListData<TYPE_INT, true> rhs(argument_types);
+        lhs.max_size = 2;
+        lhs.data.push_back(1);
+        lhs.data.push_back(2);
+        rhs.data.push_back(3);
+        rhs.data.push_back(4);
+
+        lhs.merge(rhs);
+
+        EXPECT_EQ(lhs.max_size, 2);
+        EXPECT_EQ(lhs.size(), 2);
+    }
+
+    {
+        const DataTypes argument_types {std::make_shared<DataTypeString>()};
+        AggregateFunctionCollectSetData<TYPE_STRING, true> lhs(argument_types);
+        AggregateFunctionCollectSetData<TYPE_STRING, true> rhs(argument_types);
+        lhs.max_size = 1;
+        lhs.data_set.insert(StringRef("lhs", sizeof("lhs") - 1));
+        rhs.data_set.insert(StringRef("rhs", sizeof("rhs") - 1));
+        Arena arena;
+
+        lhs.merge(rhs, arena);
+
+        EXPECT_EQ(lhs.max_size, 1);
+        EXPECT_EQ(lhs.size(), 1);
+    }
+
+    {
+        const DataTypes argument_types {std::make_shared<DataTypeString>()};
+        AggregateFunctionCollectListData<TYPE_STRING, true> lhs(argument_types);
+        AggregateFunctionCollectListData<TYPE_STRING, true> rhs(argument_types);
+        lhs.max_size = 1;
+        lhs.data->insert_data("lhs", sizeof("lhs") - 1);
+        rhs.data->insert_data("rhs", sizeof("rhs") - 1);
+
+        lhs.merge(rhs);
+
+        EXPECT_EQ(lhs.max_size, 1);
+        EXPECT_EQ(lhs.size(), 1);
+    }
+
+    {
+        const DataTypePtr nested_type = std::make_shared<DataTypeInt32>();
+        const DataTypes argument_types {
+                std::make_shared<DataTypeArray>(make_nullable(nested_type))};
+        AggregateFunctionCollectListData<TYPE_ARRAY, true> lhs(argument_types);
+        AggregateFunctionCollectListData<TYPE_ARRAY, true> rhs(argument_types);
+        lhs.max_size = 1;
+        lhs.column_data->insert_default();
+        rhs.column_data->insert_default();
+
+        lhs.merge(rhs);
+
+        EXPECT_EQ(lhs.max_size, 1);
+        EXPECT_EQ(lhs.size(), 1);
+    }
 }
 
 struct AggregateFunctionCollectTest : public AggregateFunctiontest {};

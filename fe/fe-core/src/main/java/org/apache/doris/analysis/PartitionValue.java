@@ -50,9 +50,9 @@ public class PartitionValue {
             return new NullLiteral();
         }
         if (isMax()) {
-            return LiteralExpr.createInfinity(type, true);
+            return LiteralExprUtils.createInfinity(type, true);
         }
-        return LiteralExpr.create(value, type);
+        return LiteralExprUtils.createLiteral(value, type);
     }
 
     public boolean isMax() {

@@ -57,6 +57,7 @@ void register_function_array_filter_function(SimpleFunctionFactory&);
 void register_function_array_splits(SimpleFunctionFactory&);
 void register_function_array_contains_all(SimpleFunctionFactory&);
 void register_function_array_match(SimpleFunctionFactory&);
+void register_function_array_cross_product(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_flatten(factory);
@@ -95,6 +96,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_splits(factory);
     register_function_array_contains_all(factory);
     register_function_array_match(factory);
+    register_function_array_cross_product(factory);
 }
 
 } // namespace doris

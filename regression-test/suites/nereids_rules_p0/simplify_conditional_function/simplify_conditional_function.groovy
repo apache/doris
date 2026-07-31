@@ -51,4 +51,51 @@ suite("simplify_conditional_function") {
     qt_test_outer_ref_nullif "select c1 from (select nullif(a, null) c1,c from test_simplify_conditional_function order by c1,c limit 2 ) t group by c1 order by c1"
 
     qt_test_nullable_nullif "SELECT COUNT( DISTINCT NULLIF ( 1, NULL ) ), COUNT( DISTINCT 72 )"
+
+    sql "drop table if exists table_20_30_utf8_partitions2_keys3_properties4_distributed_by5"
+    sql """create table table_20_30_utf8_partitions2_keys3_properties4_distributed_by5 (
+        pk int,
+        col_varchar_64__undef_signed_not_null varchar(64),
+        col_date_undef_signed_not_null date,
+        col_datetime_3__undef_signed_not_null datetime(3),
+        col_datetime_0__undef_signed datetime(0)
+    ) distributed by hash(pk) properties("replication_num"="1");"""
+
+    sql """drop table if exists table_24_50_utf8_partitions2_keys3_properties4_distributed_by5"""
+    sql """create table table_24_50_utf8_partitions2_keys3_properties4_distributed_by5 (
+        pk int,
+        col_varchar_64__undef_signed varchar(64),
+        col_datetime_6__undef_signed_not_null datetime(6),
+        col_datetime_0__undef_signed datetime(0)
+    ) distributed by hash(pk) properties("replication_num"="1");"""
+
+    sql """insert into table_20_30_utf8_partitions2_keys3_properties4_distributed_by5 values
+        (1,'k1','2012-01-01','2012-02-02 01:02:03', '2010-01-01 00:00:00'),
+        (2,'k2','2015-06-01', null, '2011-01-01 00:00:00'),
+        (3,'k3','2010-03-03','2010-04-04 04:04:04','2009-01-01 00:00:00'),
+        (4,'k4','2018-12-12', null, null),
+        (5,'k5','2020-07-07','2020-08-08 08:08:08','2015-05-05 05:05:05')"""
+
+    sql """insert into table_24_50_utf8_partitions2_keys3_properties4_distributed_by5 values
+        (101,'k1','2011-11-11 11:11:11', null),
+        (102,'k2','2016-06-06 06:06:06','2000-01-01 00:00:00'),
+        (103,'kx','2009-09-09 09:09:09', null),
+        (104,'k4','2019-09-09 09:09:09','2012-12-12 12:12:12'),
+        (105,'zz','2021-01-01 01:01:01', null)"""
+
+    qt_test_coalesce_custom """
+    select
+            coalesce(
+                    t1.col_datetime_3__undef_signed_not_null,
+                    t2.col_datetime_6__undef_signed_not_null
+            ),
+            coalesce(t2.col_datetime_0__undef_signed, t1.col_datetime_0__undef_signed)
+    from
+            (select * from table_20_30_utf8_partitions2_keys3_properties4_distributed_by5) as t1
+    left join
+            table_24_50_utf8_partitions2_keys3_properties4_distributed_by5 as t2
+            on t1.col_varchar_64__undef_signed_not_null = t2.col_varchar_64__undef_signed
+    where t1.col_date_undef_signed_not_null > '2011-05-12'
+    order by t1.pk nulls last, t2.pk nulls last
+    limit 8"""
 }

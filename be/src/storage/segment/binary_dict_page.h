@@ -92,10 +92,6 @@ public:
 
     Status get_dictionary_page_encoding(EncodingTypePB* encoding) const override;
 
-    Status get_first_value(void* value) const override;
-
-    Status get_last_value(void* value) const override;
-
     uint64_t get_raw_data_size() const override;
 
 private:
@@ -110,10 +106,10 @@ private:
 
     EncodingTypePB _encoding_type;
 
-    EncodingTypePB
-            _dict_word_page_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
-    EncodingTypePB
-            _fallback_binary_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
+    // On-disk binary plain encoding (PLAIN_ENCODING / PLAIN_ENCODING_V2 / PLAIN_ENCODING_V3)
+    // used both for the dictionary word page and for the dict-overflow data page. Copied
+    // verbatim from PageBuilderOptions::dict_binary_plain_encoding.
+    const EncodingTypePB _binary_plain_encoding_type;
 
     struct HashOfSlice {
         size_t operator()(const Slice& slice) const { return crc32_hash(slice.data, slice.size); }
@@ -123,7 +119,6 @@ private:
     // TODO(zc): rethink about this arena
     Arena _arena;
     faststring _buffer;
-    faststring _first_value;
     uint64_t _raw_data_size = 0;
 
     bool _has_empty = false;

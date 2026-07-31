@@ -23,11 +23,8 @@
 #include <climits>
 #include <type_traits>
 
-#include "core/column/column_decimal.h"
-#include "core/column/column_vector.h"
 #include "core/extended_types.h"
 #include "core/types.h"
-#include "core/uint128.h"
 
 namespace doris {
 
@@ -143,68 +140,6 @@ struct Construct<true, true, 16> {
     static constexpr PrimitiveType Type = TYPE_DOUBLE;
 };
 
-/** The result of addition or multiplication is calculated according to the following rules:
-    * - if one of the arguments is floating-point, the result is a floating point, otherwise - the whole;
-    * - if one of the arguments is signed, the result is signed, otherwise it is unsigned;
-    * - the result contains more bits (not only meaningful) than the maximum in the arguments
-    *   (for example, UInt8 + Int32 = Int64).
-    */
-template <typename A, typename B>
-struct ResultOfAdditionMultiplication {
-    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>,
-                                   std::is_floating_point_v<A> || std::is_floating_point_v<B>,
-                                   next_size(max(sizeof(A), sizeof(B))) > ::Type;
-};
-
-template <typename A, typename B>
-struct ResultOfSubtraction {
-    static constexpr PrimitiveType Type = Construct < true,
-                                   std::is_floating_point_v<A> || std::is_floating_point_v<B>,
-                                   next_size(max(sizeof(A), sizeof(B))) > ::Type;
-};
-
-/** When dividing, you always get a floating-point number.
-    */
-template <typename A, typename B>
-struct ResultOfFloatingPointDivision {
-    struct DoubleField {
-        static constexpr PrimitiveType PType = TYPE_DOUBLE;
-    };
-    static constexpr PrimitiveType Type =
-            std::conditional_t<IsDecimalNumber<A>, A,
-                               std::conditional_t<IsDecimalNumber<B>, B, DoubleField>>::PType;
-};
-
-/** For integer division, we get a number with the same number of bits as in divisible.
-    */
-template <typename A, typename B>
-struct ResultOfIntegerDivision {
-    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>, false,
-                                   sizeof(A) > ::Type;
-};
-
-/** Division with remainder you get a number with the same number of bits as in divisor.
-    */
-template <typename A, typename B>
-struct ResultOfModulo {
-    constexpr static auto has_float = std::is_floating_point_v<A> || std::is_floating_point_v<B>;
-    consteval static auto result_size() {
-        if constexpr (!has_float) {
-            return max(sizeof(A), sizeof(B));
-        }
-        size_t max_float_size = 0;
-        if constexpr (std::is_floating_point_v<A>) {
-            max_float_size = max(max_float_size, sizeof(A));
-        }
-        if constexpr (std::is_floating_point_v<B>) {
-            max_float_size = max(max_float_size, sizeof(B));
-        }
-        return max_float_size;
-    }
-    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>, has_float,
-                                   result_size() > ::Type;
-};
-
 template <typename A>
 struct ResultOfAbs {
     static constexpr PrimitiveType Type =
@@ -237,28 +172,9 @@ struct ResultOfAbs<Decimal128V3> {
     static constexpr PrimitiveType Type = TYPE_DECIMAL128I;
 };
 
-/** For bitwise operations, an integer is obtained with number of bits is equal to the maximum of the arguments.
-    */
-template <typename A, typename B>
-struct ResultOfBit {
-    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>, false,
-                                   std::is_floating_point_v<A> || std::is_floating_point_v<B>
-                                           ? 8
-                                           : max(sizeof(A), sizeof(B)) > ::Type;
-};
-
 template <typename A>
 struct ResultOfBitNot {
     static constexpr PrimitiveType Type = Construct<IsSignedV<A>, false, sizeof(A)>::Type;
-};
-
-template <PrimitiveType A, PrimitiveType B>
-struct BinaryOperatorTraits {
-    using ColumnVectorA = typename PrimitiveTypeTraits<A>::ColumnType;
-    using ColumnVectorB = typename PrimitiveTypeTraits<B>::ColumnType;
-    using ArrayA = typename ColumnVectorA::Container;
-    using ArrayB = typename ColumnVectorB::Container;
-    using ArrayNull = PaddedPODArray<UInt8>;
 };
 
 template <typename T>

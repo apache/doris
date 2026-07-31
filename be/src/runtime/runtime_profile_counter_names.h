@@ -34,6 +34,9 @@ inline constexpr char FAKER_PROFILE[] = "faker profile";
 // ============================================================
 inline constexpr char ROWS_PRODUCED[] = "RowsProduced";
 inline constexpr char BLOCKS_PRODUCED[] = "BlocksProduced";
+inline constexpr char OUTPUT_BLOCK_BYTES[] = "OutputBlockBytes";
+inline constexpr char MAX_OUTPUT_BLOCK_BYTES[] = "MaxOutputBlockBytes";
+inline constexpr char MIN_OUTPUT_BLOCK_BYTES[] = "MinOutputBlockBytes";
 
 // ============================================================
 // Sink operator common counters (PipelineXSinkLocalState::init)
@@ -101,7 +104,6 @@ inline constexpr char SPILL_WRITE_ROWS[] = "SpillWriteRows";
 inline constexpr char SPILL_WRITE_FILE_BYTES[] = "SpillWriteFileBytes";
 inline constexpr char SPILL_WRITE_FILE_TOTAL_COUNT[] = "SpillWriteFileTotalCount";
 inline constexpr char SPILL_WRITE_FILE_CURRENT_BYTES[] = "SpillWriteFileCurrentBytes";
-inline constexpr char SPILL_WRITE_FILE_CURRENT_COUNT[] = "SpillWriteFileCurrentCount";
 
 // ============================================================
 // Spill read counters (Source-only)

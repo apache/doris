@@ -20,42 +20,118 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <mutex>
 #include <utility>
 
+#include "common/thread_safety_annotations.h"
 #include "core/block/block.h"
 #include "exec/pipeline/dependency.h"
+#include "fmt/format.h"
 
 namespace doris {
-DataQueue::DataQueue(int child_count)
-        : _queue_blocks_lock(child_count),
-          _queue_blocks(child_count),
-          _free_blocks_lock(child_count),
-          _free_blocks(child_count),
-          _child_count(child_count),
-          _is_finished(child_count),
-          _is_canceled(child_count),
-          _cur_bytes_in_queue(child_count),
-          _cur_blocks_nums_in_queue(child_count),
-          _flag_queue_idx(0) {
-    for (int i = 0; i < child_count; ++i) {
-        _queue_blocks_lock[i].reset(new std::mutex());
-        _free_blocks_lock[i].reset(new std::mutex());
-        _is_finished[i] = false;
-        _is_canceled[i] = false;
-        _cur_bytes_in_queue[i] = 0;
-        _cur_blocks_nums_in_queue[i] = 0;
+
+void SubQueue::try_pop(std::unique_ptr<Block>* output_block) {
+    LockGuard l(queue_lock);
+    if (!blocks.empty()) {
+        *output_block = std::move(blocks.front());
+        blocks.pop_front();
+        bytes_in_queue -= (*output_block)->allocated_bytes();
+        blocks_in_queue -= 1;
+        if (blocks.empty()) {
+            sink_dependency->set_ready();
+        }
+    }
+}
+
+bool SubQueue::try_push(std::unique_ptr<Block> block, std::atomic_uint32_t& total_counter) {
+    LockGuard l(queue_lock);
+    if (is_finished) {
+        return false;
+    }
+    total_counter++;
+    bytes_in_queue += block->allocated_bytes();
+    blocks.emplace_back(std::move(block));
+    blocks_in_queue += 1;
+    if (static_cast<int64_t>(blocks.size()) > max_blocks_in_queue.load()) {
+        sink_dependency->block();
+    }
+    return true;
+}
+
+bool SubQueue::mark_finished(std::atomic_uint32_t& unfinished_counter,
+                             std::atomic_bool& all_finished) {
+    LockGuard l(queue_lock);
+    if (is_finished) {
+        return false;
+    }
+    is_finished = true;
+    if (unfinished_counter.fetch_sub(1) == 1) {
+        all_finished = true;
+    }
+    return true;
+}
+
+void SubQueue::clear_blocks() {
+    bool need_set_always_ready = false;
+    {
+        LockGuard l(queue_lock);
+        if (!blocks.empty()) {
+            blocks.clear();
+            bytes_in_queue = 0;
+            blocks_in_queue = 0;
+            need_set_always_ready = true;
+        }
+    }
+    // Notify outside of queue_lock to keep lock ordering simple.
+    if (need_set_always_ready) {
+        sink_dependency->set_always_ready();
+    }
+}
+
+DataQueue::DataQueue(int child_count) : _sub_queues(child_count), _child_count(child_count) {
+    for (auto& sub : _sub_queues) {
+        sub = std::make_unique<SubQueue>();
     }
     _un_finished_counter = child_count;
-    _sink_dependencies.resize(child_count, nullptr);
+}
+
+bool DataQueue::has_more_data() const {
+    return _cur_blocks_total_nums.load() > 0;
+}
+
+std::string DataQueue::debug_string() const {
+    return fmt::format("(is_all_finish = {}, has_data = {})", is_all_finish(), has_more_data());
+}
+
+void DataQueue::set_source_dependency(std::shared_ptr<Dependency> source_dependency)
+        NO_THREAD_SAFETY_ANALYSIS {
+    _source_dependency = std::move(source_dependency);
+}
+
+void DataQueue::set_sink_dependency(Dependency* sink_dependency, int child_idx) {
+    _sub_queues[child_idx]->sink_dependency = sink_dependency;
+}
+
+void DataQueue::set_max_blocks_in_sub_queue(int64_t max_blocks) {
+    for (auto& sub : _sub_queues) {
+        sub->max_blocks_in_queue = max_blocks;
+    }
+}
+
+void DataQueue::set_low_memory_mode() {
+    _is_low_memory_mode = true;
+    for (auto& sub : _sub_queues) {
+        sub->max_blocks_in_queue = 1;
+    }
+    clear_free_blocks();
 }
 
 std::unique_ptr<Block> DataQueue::get_free_block(int child_idx) {
+    auto& sub = *_sub_queues[child_idx];
     {
-        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]));
-        if (!_free_blocks[child_idx].empty()) {
-            auto block = std::move(_free_blocks[child_idx].front());
-            _free_blocks[child_idx].pop_front();
+        LockGuard l(sub.free_lock);
+        if (!sub.free_blocks.empty()) {
+            auto block = std::move(sub.free_blocks.front());
+            sub.free_blocks.pop_front();
             return block;
         }
     }
@@ -63,152 +139,122 @@ std::unique_ptr<Block> DataQueue::get_free_block(int child_idx) {
     return Block::create_unique();
 }
 
-void DataQueue::push_free_block(std::unique_ptr<Block> block, int child_idx) {
-    DCHECK(block->rows() == 0);
+void DataQueue::push_free_block(DataQueueBlock&& queue_block) {
+    if (!queue_block.block) {
+        return;
+    }
+    DCHECK(queue_block.block->rows() == 0);
 
     if (!_is_low_memory_mode) {
-        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]));
-        _free_blocks[child_idx].emplace_back(std::move(block));
+        auto& sub = *_sub_queues[queue_block.child_idx];
+        LockGuard l(sub.free_lock);
+        sub.free_blocks.emplace_back(std::move(queue_block.block));
     }
 }
 
 void DataQueue::clear_free_blocks() {
-    for (size_t child_idx = 0; child_idx < _free_blocks.size(); ++child_idx) {
-        std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]);
+    for (auto& sub : _sub_queues) {
+        LockGuard l(sub->free_lock);
         std::deque<std::unique_ptr<Block>> tmp_queue;
-        _free_blocks[child_idx].swap(tmp_queue);
+        sub->free_blocks.swap(tmp_queue);
     }
 }
 
 void DataQueue::terminate() {
-    for (int i = 0; i < _queue_blocks.size(); i++) {
-        set_finish(i);
-        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[i]));
-        if (_cur_blocks_nums_in_queue[i] > 0) {
-            _queue_blocks[i].clear();
-            _cur_bytes_in_queue[i] = 0;
-            _cur_blocks_nums_in_queue[i] = 0;
-            _sink_dependencies[i]->set_always_ready();
-        }
+    for (int i = 0; i < _child_count; ++i) {
+        mark_finish(i);
+        _sub_queues[i]->clear_blocks();
     }
+    _cur_blocks_total_nums = 0;
     clear_free_blocks();
+    set_source_always_ready();
 }
 
-//check which queue have data, and save the idx in _flag_queue_idx,
-//so next loop, will check the record idx + 1 first
-//maybe it's useful with many queue, others maybe always 0
-bool DataQueue::remaining_has_data() {
-    int count = _child_count;
-    while (--count >= 0) {
-        _flag_queue_idx++;
-        if (_flag_queue_idx == _child_count) {
-            _flag_queue_idx = 0;
+Result<DataQueueBlock> DataQueue::get_block_from_queue() {
+    DataQueueBlock result;
+    const int start_idx = (_flag_queue_idx + 1) % _child_count;
+    for (int offset = 0; offset < _child_count; ++offset) {
+        const int idx = (start_idx + offset) % _child_count;
+        if (_sub_queues[idx]->blocks_in_queue.load() == 0) {
+            continue;
         }
-        if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
-            return true;
+
+        auto& sub = *_sub_queues[idx];
+        sub.try_pop(&result.block);
+        if (!result.block) {
+            continue;
         }
+        result.child_idx = idx;
+        _flag_queue_idx = idx;
+        auto old_total = _cur_blocks_total_nums.fetch_sub(1);
+        if (old_total == 1) {
+            set_source_block();
+        }
+        break;
     }
-    return false;
+
+    // A producer enqueues its final block before marking the child finished. Observe completion
+    // first, then recheck queued data to avoid reporting EOS while the final block is still queued.
+    result.eos = is_all_finish() && !has_more_data();
+    return result;
 }
 
-//the _flag_queue_idx indicate which queue has data, and in check can_read
-//will be set idx in remaining_has_data function
-Status DataQueue::get_block_from_queue(std::unique_ptr<Block>* output_block, int* child_idx) {
-    if (_is_canceled[_flag_queue_idx]) {
-        return Status::InternalError("Current queue of idx {} have beed canceled: ",
-                                     _flag_queue_idx);
-    }
-
-    {
-        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[_flag_queue_idx]));
-        if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
-            *output_block = std::move(_queue_blocks[_flag_queue_idx].front());
-            _queue_blocks[_flag_queue_idx].pop_front();
-            if (child_idx) {
-                *child_idx = _flag_queue_idx;
-            }
-            _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
-            _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
-            if (_cur_blocks_nums_in_queue[_flag_queue_idx] == 0) {
-                _sink_dependencies[_flag_queue_idx]->set_ready();
-            }
-            auto old_value = _cur_blocks_total_nums.fetch_sub(1);
-            if (old_value == 1 && _source_dependency) {
-                set_source_block();
-            }
-        }
-    }
-    return Status::OK();
-}
-
-Status DataQueue::push_block(std::unique_ptr<Block> block, int child_idx) {
-    if (!block) {
+Status DataQueue::push_block(std::unique_ptr<Block> block, int child_idx, bool eos) {
+    DCHECK(block || eos);
+    if (!block && !eos) {
         return Status::OK();
     }
-    {
-        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]));
-        if (_is_finished[child_idx]) {
-            return Status::EndOfFile("Already finish");
-        }
-        _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
-        _queue_blocks[child_idx].emplace_back(std::move(block));
-        _cur_blocks_nums_in_queue[child_idx] += 1;
 
-        if (_cur_blocks_nums_in_queue[child_idx] > _max_blocks_in_sub_queue) {
-            _sink_dependencies[child_idx]->block();
+    if (block) {
+        auto& sub = *_sub_queues[child_idx];
+        // total_counter is incremented inside try_push under queue_lock, only when the
+        // block is actually enqueued. This ensures get_block_from_queue() always observes
+        // _cur_blocks_total_nums >= 1 when it successfully pops a block, with no risk of
+        // underflow or the need for a rollback on failure.
+        if (!sub.try_push(std::move(block), _cur_blocks_total_nums)) {
+            return Status::EndOfFile("SubQueue already finished");
         }
-        _cur_blocks_total_nums++;
-
-        set_source_ready();
     }
+
+    if (eos) {
+        mark_finish(child_idx);
+    }
+    set_source_ready();
     return Status::OK();
 }
 
-void DataQueue::set_finish(int child_idx) {
-    INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]));
-    if (_is_finished[child_idx]) {
+void DataQueue::mark_finish(int child_idx) {
+    auto& sub = *_sub_queues[child_idx];
+    if (!sub.mark_finished(_un_finished_counter, _is_all_finished)) {
         return;
     }
-    _is_finished[child_idx] = true;
-    if (_un_finished_counter.fetch_sub(1) == 1) {
-        _is_all_finished = true;
-    }
-    set_source_ready();
 }
 
-void DataQueue::set_canceled(int child_idx) {
-    INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]));
-    DCHECK(!_is_finished[child_idx]);
-    _is_canceled[child_idx] = true;
-    _is_finished[child_idx] = true;
-    if (_un_finished_counter.fetch_sub(1) == 1) {
-        _is_all_finished = true;
-    }
-    set_source_ready();
-}
-
-bool DataQueue::is_finish(int child_idx) {
-    return _is_finished[child_idx];
-}
-
-bool DataQueue::is_all_finish() {
+bool DataQueue::is_all_finish() const {
     return _is_all_finished;
 }
 
 void DataQueue::set_source_ready() {
+    LockGuard lc(_source_lock);
     if (_source_dependency) {
-        std::unique_lock lc(_source_lock);
         _source_dependency->set_ready();
     }
 }
 
+void DataQueue::set_source_always_ready() {
+    LockGuard lc(_source_lock);
+    if (_source_dependency) {
+        _source_dependency->set_always_ready();
+    }
+}
+
 void DataQueue::set_source_block() {
-    if (_cur_blocks_total_nums == 0 && !is_all_finish()) {
-        std::unique_lock lc(_source_lock);
-        // Performing the judgment twice, attempting to avoid blocking the source as much as possible.
-        if (_cur_blocks_total_nums == 0 && !is_all_finish()) {
-            _source_dependency->block();
-        }
+    // Re-check under _source_lock to avoid blocking the source when a concurrent push
+    // has already added new blocks (or all children have finished) since we observed
+    // the counter drop to zero.
+    LockGuard lc(_source_lock);
+    if (_source_dependency && _cur_blocks_total_nums == 0 && !is_all_finish()) {
+        _source_dependency->block();
     }
 }
 

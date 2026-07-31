@@ -35,5 +35,7 @@ public class ShowRoutineLoadCommandTest extends TestWithFeService {
         LabelNameInfo labelNameInfo = new LabelNameInfo("test_db", "test_label");
         ShowRoutineLoadCommand command = new ShowRoutineLoadCommand(labelNameInfo, null, false);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals(24, command.getMetaData().getColumnCount());
+        Assertions.assertEquals("FirstErrorMsg", command.getMetaData().getColumn(23).getName());
     }
 }

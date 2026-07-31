@@ -27,8 +27,8 @@
 
 namespace doris {
 class BloomFilterFuncBase;
-class VRuntimeFilterWrapper;
-using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
+class RuntimeFilterExpr;
+using RuntimeFilterExprPtr = std::shared_ptr<RuntimeFilterExpr>;
 
 // This class is a wrapper of runtime predicate function
 class RuntimeFilterWrapper {
@@ -73,7 +73,6 @@ public:
     std::shared_ptr<MinMaxFuncBase> minmax_func() const { return _minmax_func; }
     std::shared_ptr<HybridSetBase> hybrid_set() const { return _hybrid_set; }
     std::shared_ptr<BloomFilterFuncBase> bloom_filter_func() const { return _bloom_filter_func; }
-    std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func() const { return _bitmap_filter_func; }
 
     Status to_protobuf(PInFilter* filter);
     Status to_protobuf(PMinMaxFilter* filter);
@@ -148,7 +147,6 @@ private:
     std::shared_ptr<MinMaxFuncBase> _minmax_func;
     std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloom_filter_func;
-    std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
 
     // disable always_true logic if detected in filter
     // to make left_semi_direct_return_opt work correctly

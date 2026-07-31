@@ -57,10 +57,10 @@ public class RemoteInsertOverwriteManager implements AbstractInsertOverwriteMana
     }
 
     @Override
-    public void taskGroupSuccess(long groupId, OlapTable targetTable) throws DdlException {
+    public void taskGroupSuccess(long groupId, OlapTable targetTable, boolean forceDropPartition) throws DdlException {
         catalog.getFeServiceClient()
                 .taskGroupSuccess(InternalCatalog.INTERNAL_CATALOG_NAME,
-                        targetTable.getDatabase().getFullName(), targetTable.getName(), groupId);
+                        targetTable.getDatabase().getFullName(), targetTable.getName(), groupId, forceDropPartition);
     }
 
     @Override

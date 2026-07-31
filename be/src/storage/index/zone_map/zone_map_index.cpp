@@ -32,11 +32,11 @@
 #include "core/string_ref.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h"
-#include "storage/field.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/indexed_column_writer.h"
 #include "storage/olap_common.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "util/slice.h"
 #include "util/unaligned.h"
@@ -122,15 +122,42 @@ TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(DataTypePtr&& data_type)
 template <PrimitiveType Type>
 void TypedZoneMapIndexWriter<Type>::_update_page_zonemap(const ValType& min_value,
                                                          const ValType& max_value) {
-    auto min_field = doris::Field::create_field_from_olap_value<Type>(min_value);
-    auto max_field = doris::Field::create_field_from_olap_value<Type>(max_value);
-    if (!_page_zone_map.has_not_null || min_field < _page_zone_map.min_value) {
-        _page_zone_map.min_value = std::move(min_field);
-    }
-    if (!_page_zone_map.has_not_null || max_field > _page_zone_map.max_value) {
-        _page_zone_map.max_value = std::move(max_field);
+    // Hot path: compare/store using raw CppType to avoid Field temporaries.
+    // For string types, truncate to MAX_ZONE_MAP_INDEX_SIZE (matching the old
+    // Field-based path) and copy bytes into _page_{min,max}_storage so the
+    // StringRef stays valid across add_values() calls.
+    if constexpr (is_string_type(Type)) {
+        auto truncate_into = [](const StringRef& src, std::string& dst) {
+            auto sz = std::min<size_t>(src.size, MAX_ZONE_MAP_INDEX_SIZE);
+            dst.assign(src.data, sz);
+            return StringRef(dst.data(), dst.size());
+        };
+        StringRef min_t(min_value.data, std::min<size_t>(min_value.size, MAX_ZONE_MAP_INDEX_SIZE));
+        StringRef max_t(max_value.data, std::min<size_t>(max_value.size, MAX_ZONE_MAP_INDEX_SIZE));
+        if (!_page_zone_map.has_not_null || min_t < _page_min) {
+            _page_min = truncate_into(min_value, _page_min_storage);
+        }
+        if (!_page_zone_map.has_not_null || _page_max < max_t) {
+            _page_max = truncate_into(max_value, _page_max_storage);
+        }
+    } else {
+        if (!_page_zone_map.has_not_null || min_value < _page_min) {
+            _page_min = min_value;
+        }
+        if (!_page_zone_map.has_not_null || max_value > _page_max) {
+            _page_max = max_value;
+        }
     }
     _page_zone_map.has_not_null = true;
+}
+
+template <PrimitiveType Type>
+void TypedZoneMapIndexWriter<Type>::_materialize_page_minmax() {
+    if (!_page_zone_map.has_not_null) {
+        return;
+    }
+    _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
+    _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
 }
 
 template <PrimitiveType Type>
@@ -195,14 +222,20 @@ void TypedZoneMapIndexWriter<Type>::invalid_page_zone_map() {
 
 template <PrimitiveType Type>
 Status TypedZoneMapIndexWriter<Type>::flush() {
+    // Materialize the running CppType min/max into the Field-typed page zone map
+    // before merging into the segment zone map / serializing to proto.
+    _materialize_page_minmax();
+
     // Update segment zone map.
-    if (!_segment_zone_map.has_not_null ||
-        _segment_zone_map.min_value.get<Type>() > _page_zone_map.min_value.get<Type>()) {
-        _segment_zone_map.min_value = _page_zone_map.min_value;
-    }
-    if (!_segment_zone_map.has_not_null ||
-        _segment_zone_map.max_value.get<Type>() < _page_zone_map.max_value.get<Type>()) {
-        _segment_zone_map.max_value = _page_zone_map.max_value;
+    if (_page_zone_map.has_not_null) {
+        if (!_segment_zone_map.has_not_null ||
+            _segment_zone_map.min_value.get<Type>() > _page_zone_map.min_value.get<Type>()) {
+            _segment_zone_map.min_value = _page_zone_map.min_value;
+        }
+        if (!_segment_zone_map.has_not_null ||
+            _segment_zone_map.max_value.get<Type>() < _page_zone_map.max_value.get<Type>()) {
+            _segment_zone_map.max_value = _page_zone_map.max_value;
+        }
     }
     if (_page_zone_map.has_null) {
         _segment_zone_map.has_null = true;
@@ -245,14 +278,15 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _data_type);
 
     // write out zone map for each data pages
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
+    constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_BITMAP;
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(type_info->type(), {}, false);
+    // Zone map page always uses PLAIN_ENCODING. Do not change.
+    options.encoding = PLAIN_ENCODING;
     options.compression = NO_COMPRESSION; // currently not compressed
 
-    IndexedColumnWriter writer(options, type_info, file_writer);
+    IndexedColumnWriter writer(options, type, file_writer);
     RETURN_IF_ERROR(writer.init());
 
     for (auto& value : _values) {
@@ -263,20 +297,22 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory,
-                                OlapReaderStatistics* index_load_stats) {
+                                OlapReaderStatistics* index_load_stats,
+                                const io::IOContext* io_ctx) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
+    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats, io_ctx] {
         return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta),
-                     index_load_stats);
+                     index_load_stats, io_ctx);
     });
 }
 
 Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
                                  std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta,
-                                 OlapReaderStatistics* index_load_stats) {
+                                 OlapReaderStatistics* index_load_stats,
+                                 const io::IOContext* io_ctx) {
     IndexedColumnReader reader(_file_reader, *page_zone_maps_meta);
-    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory, index_load_stats));
-    IndexedColumnIterator iter(&reader, index_load_stats);
+    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory, index_load_stats, io_ctx));
+    IndexedColumnIterator iter(&reader, index_load_stats, io_ctx);
 
     _page_zone_maps.resize(reader.num_values());
 
@@ -332,9 +368,9 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_DECIMAL128I)          \
     M(TYPE_DECIMAL256)
 
-Status ZoneMapIndexWriter::create(DataTypePtr data_type, StorageField* field,
+Status ZoneMapIndexWriter::create(DataTypePtr data_type, const TabletColumn* column,
                                   std::unique_ptr<ZoneMapIndexWriter>& res) {
-    switch (field->type()) {
+    switch (column->type()) {
 #define M(NAME)                                                             \
     case FieldType::OLAP_FIELD_##NAME: {                                    \
         res.reset(new TypedZoneMapIndexWriter<NAME>(std::move(data_type))); \

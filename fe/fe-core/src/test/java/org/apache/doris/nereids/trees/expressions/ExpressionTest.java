@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
@@ -26,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -65,5 +68,19 @@ public class ExpressionTest {
         Assertions.assertTrue(new DaysAdd(
                 new UnixTimestamp(), new IntegerLiteral(2)).containsNondeterministic());
 
+    }
+
+    @Test
+    public void testAliasToSlotKeepsOneLevelColumn() {
+        SlotReference slotReference = new SlotReference(new ExprId(1), "k1", IntegerType.INSTANCE, true,
+                ImmutableList.of("test", "view_metadata"), null, new Column("k1", PrimitiveType.INT),
+                null, new Column("vk1", PrimitiveType.INT));
+
+        SlotReference aliasSlot = (SlotReference) new Alias(slotReference, "c2").toSlot();
+
+        Assertions.assertTrue(aliasSlot.getOriginalColumn().isPresent());
+        Assertions.assertTrue(aliasSlot.getOneLevelColumn().isPresent());
+        Assertions.assertEquals("k1", aliasSlot.getOriginalColumn().get().getName());
+        Assertions.assertEquals("vk1", aliasSlot.getOneLevelColumn().get().getName());
     }
 }

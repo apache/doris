@@ -63,7 +63,7 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType itemType = NullType.INSTANCE;
-        for (Expression child : children()) {
+        for (Expression child : getArguments()) {
             DataType argType = child.getDataType();
             // nullsafe
             if (argType == NullType.INSTANCE) {

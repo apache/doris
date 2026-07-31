@@ -76,6 +76,14 @@ public:
         }
     };
 
+#ifdef BE_TEST
+    void append_range_for_test(int64_t start, size_t length) {
+        std::lock_guard<std::mutex> lock {_latch};
+        _buffers.emplace_back(AutoIncRange {start, length});
+        _current_volume += length;
+    }
+#endif
+
 private:
     [[nodiscard]] size_t _prefetch_size() const {
         return _batch_size * config::auto_inc_prefetch_size_ratio;

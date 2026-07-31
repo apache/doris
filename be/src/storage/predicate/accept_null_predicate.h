@@ -46,10 +46,7 @@ public:
               _nested {nested} {}
     AcceptNullPredicate(const AcceptNullPredicate& other, uint32_t col_id)
             : ColumnPredicate(other, col_id),
-              _nested(assert_cast<const AcceptNullPredicate&>(other)._nested
-                              ? assert_cast<const AcceptNullPredicate&>(other)._nested->clone(
-                                        col_id)
-                              : nullptr) {}
+              _nested(other._nested ? other._nested->clone(col_id) : nullptr) {}
     AcceptNullPredicate(const AcceptNullPredicate& other) = delete;
     ~AcceptNullPredicate() override = default;
     std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {

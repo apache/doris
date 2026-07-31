@@ -33,9 +33,12 @@ public:
                      const UniqueId& load_id);
     ~CloudDeltaWriter() override;
 
-    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) override;
+    Status write(const Block* block, const TabletAddRowsPayload& rows,
+                 bool* memtable_flushed = nullptr) override;
 
     Status close() override;
+
+    Status flush_memtable_async() override;
 
     Status cancel_with_status(const Status& st) override;
 

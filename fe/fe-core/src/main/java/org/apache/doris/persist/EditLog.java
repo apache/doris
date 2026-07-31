@@ -40,8 +40,10 @@ import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.persist.CloudMetaSyncPoint;
@@ -58,18 +60,17 @@ import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.InitCatalogLog;
-import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.log.InitDatabaseLog;
+import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
@@ -91,6 +92,7 @@ import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -829,6 +831,11 @@ public class EditLog {
                     Env.getCurrentEnv().replayCreateFunction(function);
                     break;
                 }
+                case OperationType.OP_ADD_FUNCTIONS: {
+                    final CreateFunctionInfo info = (CreateFunctionInfo) journal.getData();
+                    Env.getCurrentEnv().replayCreateFunctions(info);
+                    break;
+                }
                 case OperationType.OP_DROP_FUNCTION: {
                     FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
                     Env.getCurrentEnv().replayDropFunction(function);
@@ -996,6 +1003,12 @@ public class EditLog {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
                     env.getBinlogManager().addModifyTableProperty(log, logId);
+                    break;
+                }
+                case OperationType.OP_TABLE_STREAM_CLEANUP: {
+                    TableStreamCleanupInfo info =
+                            (TableStreamCleanupInfo) journal.getData();
+                    env.replayTableStreamCleanup(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
@@ -1200,38 +1213,36 @@ public class EditLog {
                 }
                 case OperationType.OP_ADD_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    try {
-                        TableNameInfo tni = log.getTableNameInfo();
-                        Constraint constraint = log.getConstraint();
-                        if (tni == null) {
-                            LOG.warn("Failed to replay add constraint {}: "
-                                    + "table name could not be resolved",
-                                    constraint.getName());
-                            break;
-                        }
-                        env.getConstraintManager().addConstraint(
-                                tni, constraint.getName(), constraint, true);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to replay add constraint", e);
+                    TableNameInfo tni = log.getTableNameInfo();
+                    Constraint constraint = log.getConstraint();
+                    if (tni == null) {
+                        LOG.warn("Skip replaying add constraint {} because table name could not be resolved",
+                                constraint.getName());
+                        break;
                     }
+                    List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
+                    env.getConstraintManager().addConstraint(
+                            tni, constraint.getName(), constraint, true);
+                    MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                            String.format("when replaying add constraint %s on table %s",
+                                    constraint.getName(), tni));
                     break;
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    try {
-                        TableNameInfo tni = log.getTableNameInfo();
-                        Constraint constraint = log.getConstraint();
-                        if (tni == null) {
-                            LOG.warn("Failed to replay drop constraint {}: "
-                                    + "table name could not be resolved",
-                                    constraint.getName());
-                            break;
-                        }
-                        env.getConstraintManager().dropConstraint(
-                                tni, constraint.getName(), true);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to replay drop constraint", e);
+                    TableNameInfo tni = log.getTableNameInfo();
+                    Constraint constraint = log.getConstraint();
+                    if (tni == null) {
+                        LOG.warn("Skip replaying drop constraint {} because table name could not be resolved",
+                                constraint.getName());
+                        break;
                     }
+                    List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
+                    env.getConstraintManager().dropConstraint(
+                            tni, constraint.getName(), true);
+                    MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                            String.format("when replaying drop constraint %s on table %s",
+                                    constraint.getName(), tni));
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
@@ -2129,6 +2140,10 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FUNCTION, function);
     }
 
+    public void logAddFunctions(List<Function> functions) {
+        logEdit(OperationType.OP_ADD_FUNCTIONS, new CreateFunctionInfo(functions));
+    }
+
     public void logAddGlobalFunction(Function function) {
         logEdit(OperationType.OP_ADD_GLOBAL_FUNCTION, function);
     }
@@ -2283,6 +2298,10 @@ public class EditLog {
         logModifyTableProperty(OperationType.OP_DYNAMIC_PARTITION, info);
     }
 
+    public void logTableStreamCleanup(TableStreamCleanupInfo info) {
+        logEdit(OperationType.OP_TABLE_STREAM_CLEANUP, info);
+    }
+
     public long logModifyReplicationNum(ModifyTablePropertyOperationLog info) {
         return logModifyTableProperty(OperationType.OP_MODIFY_REPLICATION_NUM, info);
     }
@@ -2393,10 +2412,6 @@ public class EditLog {
 
     public void logDropRoleMapping(DropRoleMappingOperationLog log) {
         logEdit(OperationType.OP_DROP_ROLE_MAPPING, log);
-    }
-
-    public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
 
     public void logCreatePolicy(Policy policy) {

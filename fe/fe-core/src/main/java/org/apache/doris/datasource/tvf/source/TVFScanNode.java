@@ -17,7 +17,9 @@
 
 package org.apache.doris.datasource.tvf.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
@@ -26,11 +28,11 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.FileSplit.FileSplitCreator;
-import org.apache.doris.datasource.FileSplitter;
-import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.scan.FileQueryScanNode;
+import org.apache.doris.datasource.scan.TableFormatType;
+import org.apache.doris.datasource.split.FileSplit;
+import org.apache.doris.datasource.split.FileSplit.FileSplitCreator;
+import org.apache.doris.datasource.split.FileSplitter;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -39,12 +41,12 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -140,9 +142,9 @@ public class TVFScanNode extends FileQueryScanNode {
 
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
 
-        // Push down count optimization.
+        // Avoid splitting only for table-level COUNT(*). COUNT(column) still reads column data.
         boolean needSplit = true;
-        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT) {
+        if (isTableLevelCountStarPushdown()) {
             int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
             int totalFileNum = fileStatuses.size();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
@@ -167,6 +169,14 @@ public class TVFScanNode extends FileQueryScanNode {
             }
         }
         return splits;
+    }
+
+    @Override
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        if (slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        return super.classifyColumn(slot, partitionKeys);
     }
 
     private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {

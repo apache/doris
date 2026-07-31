@@ -28,12 +28,14 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "json2pb/json_to_pb.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -395,6 +397,15 @@ TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {
     }
 }
 TEST_F(CloudCompactionTest, should_cache_compaction_output) {
+    auto old_write_index_file_only = config::enable_file_cache_write_index_file_only;
+    auto old_keep_base_compaction_output = config::enable_file_cache_keep_base_compaction_output;
+    Defer restore_config {[&] {
+        config::enable_file_cache_write_index_file_only = old_write_index_file_only;
+        config::enable_file_cache_keep_base_compaction_output = old_keep_base_compaction_output;
+    }};
+    config::enable_file_cache_write_index_file_only = false;
+    config::enable_file_cache_keep_base_compaction_output = false;
+
     CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>());
     CloudBaseCompaction cloud_base_compaction(_engine, tablet);
     cloud_base_compaction._input_rowsets_total_size = 0;
@@ -436,6 +447,12 @@ TEST_F(CloudCompactionTest, should_cache_compaction_output) {
     cloud_base_compaction._input_rowsets_cached_data_size = 50;
     cloud_base_compaction._input_rowsets_cached_index_size = 50;
     ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), true);
+
+    config::enable_file_cache_keep_base_compaction_output = true;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), true);
+
+    config::enable_file_cache_write_index_file_only = true;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), false);
     LOG(INFO) << "should_cache_compaction_output done";
 }
 

@@ -1099,9 +1099,9 @@ TEST(RecycleOperationLogTest, RecycleCompactionLog) {
         ret->first = true;
         ret->second = true;
     });
-    sp->set_call_back("recycle_tablet::bypass_check", [&](auto&& args) {
-        auto* ret = doris::try_any_cast_ret<bool>(args);
-        ret->first = false;
+    sp->set_call_back("recycle_tablet::begin", [&](auto&& args) {
+        auto* ret = doris::try_any_cast_ret<int>(args);
+        ret->first = 0;
         ret->second = true;
     });
     sp->enable_processing();
@@ -1622,9 +1622,9 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
         ret->first = true;
         ret->second = true;
     });
-    sp->set_call_back("recycle_tablet::bypass_check", [&](auto&& args) {
-        auto* ret = doris::try_any_cast_ret<bool>(args);
-        ret->first = false;
+    sp->set_call_back("recycle_tablet::begin", [&](auto&& args) {
+        auto* ret = doris::try_any_cast_ret<int>(args);
+        ret->first = 0;
         ret->second = true;
     });
     sp->enable_processing();

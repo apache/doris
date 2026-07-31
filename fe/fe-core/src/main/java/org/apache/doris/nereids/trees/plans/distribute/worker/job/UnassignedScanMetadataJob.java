@@ -48,6 +48,15 @@ public class UnassignedScanMetadataJob extends AbstractUnassignedScanJob {
         this.schemaScanNode = schemaScanNode;
     }
 
+    /**
+     * Select a worker for the schema metadata scan node (e.g. information_schema tables).
+     * Metadata scans are typically lightweight and produce a single scan range per node;
+     * this method distributes them across available workers for load balancing.
+     *
+     * @param distributeContext the distribute context
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return a map from worker to its assigned schema scan ranges
+     */
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
@@ -56,6 +65,16 @@ public class UnassignedScanMetadataJob extends AbstractUnassignedScanJob {
         );
     }
 
+    /**
+     * If no workers could be selected for the metadata scan (e.g. all backends are
+     * unavailable), create a single empty instance on a random available worker
+     * as a fallback to prevent query failure.
+     *
+     * @param assignedJobs the list produced by {@link #insideMachineParallelization}
+     * @param workerManager the worker manager to select a fallback worker from
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return the original list if non-empty, otherwise a single empty instance
+     */
     @Override
     protected List<AssignedJob> fillUpAssignedJobs(List<AssignedJob> assignedJobs,
             DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

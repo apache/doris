@@ -35,7 +35,7 @@ namespace doris {
 // because we may have already assumed that the array's elements are always nullable types, and many places have such checks.
 // V1 code is kept to ensure compatibility during upgrades and downgrades.
 // V2 code differs from V1 only in the return type and insert_into logic; all other logic is exactly the same.
-class AggregateFunctionForEachV2 : public AggregateFunctionForEach {
+class AggregateFunctionForEachV2 final : public AggregateFunctionForEach {
 public:
     constexpr static auto AGG_FOREACH_SUFFIX = "_foreachv2";
     AggregateFunctionForEachV2(AggregateFunctionPtr nested_function_, const DataTypes& arguments)
@@ -48,14 +48,16 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const AggregateFunctionForEachData& state = data(place);
 
-        auto& arr_to = assert_cast<ColumnArray&>(to);
+        auto& arr_to = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& offsets_to = arr_to.get_offsets();
         IColumn& elems_nullable = arr_to.get_data();
 
-        DCHECK(elems_nullable.is_nullable());
-        auto& elems_to = assert_cast<ColumnNullable&>(elems_nullable).get_nested_column();
+        DCHECK(is_column_nullable(elems_nullable));
+        auto& elems_to = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(elems_nullable)
+                                 .get_nested_column();
         auto& elements_null_map =
-                assert_cast<ColumnNullable&>(elems_nullable).get_null_map_column();
+                assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(elems_nullable)
+                        .get_null_map_column();
 
         if (nested_function->get_return_type()->is_nullable()) {
             char* nested_state = state.array_of_aggregate_datas;

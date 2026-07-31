@@ -80,6 +80,15 @@ suite("ex06_ttl_restart_consistency", "docker") {
                 assertTrue(false, "Timeout waiting type=${expectedType}, tablets=${tabletIds}")
             }
 
+            def assertTtlDisabledInShowCreate = {
+                def rows = sql """show create table ${tableName};"""
+                assertTrue(!rows.isEmpty(), "No show create table result for ${tableName}")
+                def createTableSql = rows[0][1].toString()
+                logger.info("show create table ${tableName}: ${createTableSql}")
+                assertTrue(createTableSql.contains("\"file_cache_ttl_seconds\" = \"0\""),
+                        "file_cache_ttl_seconds is not 0 in show create table result: ${createTableSql}")
+            }
+
             def values = (0..<300).collect { i -> "(${i}, 'restart_${i}')" }.join(",")
             sql """insert into ${tableName} values ${values}"""
             qt_ex06_preheat """select count(*) from ${tableName} where c1 like 'restart_%'"""
@@ -90,9 +99,9 @@ suite("ex06_ttl_restart_consistency", "docker") {
 
             // EX-06: TTL 转换窗口内重启，重启后状态应一致收敛到 normal。
             sql """alter table ${tableName} set ("file_cache_ttl_seconds"="0")"""
-            qt_ex06_create_table_1 """show create table ${tableName};"""
+            assertTtlDisabledInShowCreate.call()
             cluster.restartBackends()
-            qt_ex06_create_table_2 """show create table ${tableName};"""
+            assertTtlDisabledInShowCreate.call()
             sleep(10000)
 
             qt_ex06_after_restart """select count(*) from ${tableName} where c1 like 'restart_%'"""

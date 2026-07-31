@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 
 /**
  * Visitor that produces the external SQL string for any {@link Expr}.
@@ -51,17 +49,7 @@ public class ExprToExternalSqlVisitor extends ExprToSqlVisitor {
     @Override
     public String visitSlotRef(SlotRef expr, ToSqlParams context) {
         if (expr.getCol() != null) {
-            if (context.tableType.equals(TableIf.TableType.JDBC_EXTERNAL_TABLE)
-                    || context.tableType.equals(TableIf.TableType.JDBC)) {
-                if (context.table instanceof JdbcExternalTable) {
-                    return ((JdbcExternalTable) context.table).getProperRemoteColumnName(
-                            ((JdbcExternalTable) context.table).getJdbcTableType(), expr.getCol());
-                } else {
-                    return expr.getCol();
-                }
-            } else {
-                return expr.getCol();
-            }
+            return expr.getCol();
         } else {
             return "<slot " + expr.desc.getId().asInt() + ">";
         }

@@ -26,6 +26,7 @@ namespace doris {
 struct PackedInt128 {
     // PackedInt128() : value(0) {}
     PackedInt128() = default;
+    PackedInt128(const PackedInt128&) = default;
 
     PackedInt128(const __int128& value_) { value = value_; }
     PackedInt128& operator=(const __int128& value_) {
@@ -39,6 +40,7 @@ struct PackedInt128 {
 
 struct PackedUInt128 {
     PackedUInt128() = default;
+    PackedUInt128(const PackedUInt128&) = default;
 
     PackedUInt128(const unsigned __int128& value_) { value = value_; }
     PackedUInt128& operator=(const unsigned __int128& value_) {

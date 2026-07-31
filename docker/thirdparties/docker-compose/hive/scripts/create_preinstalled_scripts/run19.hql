@@ -1,6 +1,8 @@
 set hive.stats.column.autogather=false;
 
-CREATE TABLE `test_hive_orc_add_column`(
+drop table if exists `test_hive_orc_add_column`;
+
+create table `test_hive_orc_add_column`(
   id int,
   col1 int
 )
@@ -11,7 +13,9 @@ insert into `test_hive_orc_add_column` values(7,8,9),(10,11,null),(12,13,null),(
 alter table `test_hive_orc_add_column` ADD COLUMNS (col3 int,col4 string);
 insert into `test_hive_orc_add_column` values(17,18,19,20,"hello world"),(21,22,23,24,"cywcywcyw"),(25,26,null,null,null),(27,28,29,null,null),(30,31,32,33,null);
 
-CREATE TABLE `test_hive_parquet_add_column`(
+drop table if exists `test_hive_parquet_add_column`;
+
+create table `test_hive_parquet_add_column`(
   id int,
   col1 int
 )
@@ -22,7 +26,9 @@ insert into `test_hive_parquet_add_column` values(7,8,9),(10,11,null),(12,13,nul
 alter table `test_hive_parquet_add_column` ADD COLUMNS (col3 int,col4 string);
 insert into `test_hive_parquet_add_column` values(17,18,19,20,"hello world"),(21,22,23,24,"cywcywcyw"),(25,26,null,null,null),(27,28,29,null,null),(30,31,32,33,null);
 
-CREATE TABLE `schema_evo_test_text`(
+drop table if exists `schema_evo_test_text`;
+
+create table `schema_evo_test_text`(
   id int,
   name string
 )
@@ -31,7 +37,9 @@ insert into `schema_evo_test_text` select 1, "kaka";
 alter table `schema_evo_test_text` ADD COLUMNS (`ts` timestamp);
 insert into `schema_evo_test_text` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
 
-CREATE TABLE `schema_evo_test_parquet`(
+drop table if exists `schema_evo_test_parquet`;
+
+create table `schema_evo_test_parquet`(
   id int,
   name string
 )
@@ -40,7 +48,9 @@ insert into `schema_evo_test_parquet` select 1, "kaka";
 alter table `schema_evo_test_parquet` ADD COLUMNS (`ts` timestamp);
 insert into `schema_evo_test_parquet` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
 
-CREATE TABLE `schema_evo_test_orc`(
+drop table if exists `schema_evo_test_orc`;
+
+create table `schema_evo_test_orc`(
   id int,
   name string
 )

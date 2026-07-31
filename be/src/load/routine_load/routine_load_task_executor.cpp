@@ -41,6 +41,7 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "io/fs/kafka_consumer_pipe.h"
+#include "io/fs/kinesis_consumer_pipe.h"
 #include "io/fs/multi_table_pipe.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/message_body_sink.h"
@@ -133,6 +134,48 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRe
 
     Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(
             partition_ids);
+    if (st.ok()) {
+        _data_consumer_pool.return_consumer(consumer);
+    }
+    return st;
+}
+
+Status RoutineLoadTaskExecutor::_prepare_ctx(const PKinesisMetaProxyRequest& request,
+                                             std::shared_ptr<StreamLoadContext> ctx) {
+    ctx->load_type = TLoadType::ROUTINE_LOAD;
+    ctx->load_src_type = TLoadSourceType::KINESIS;
+    ctx->label = "NaN";
+
+    // convert PKinesisLoadInfo to TKinesisLoadInfo
+    TKinesisLoadInfo t_info;
+    t_info.region = request.kinesis_info().region();
+    t_info.stream = request.kinesis_info().stream();
+    if (request.kinesis_info().has_endpoint()) {
+        t_info.__set_endpoint(request.kinesis_info().endpoint());
+    }
+    std::map<std::string, std::string> properties;
+    for (int i = 0; i < request.kinesis_info().properties_size(); ++i) {
+        const PStringPair& pair = request.kinesis_info().properties(i);
+        properties.emplace(pair.key(), pair.val());
+    }
+    t_info.__set_properties(std::move(properties));
+
+    ctx->kinesis_info.reset(new KinesisLoadInfo(t_info));
+    ctx->need_rollback = false;
+    return Status::OK();
+}
+
+Status RoutineLoadTaskExecutor::get_kinesis_shard_meta(const PKinesisMetaProxyRequest& request,
+                                                       std::vector<std::string>* shard_ids) {
+    CHECK(request.has_kinesis_info());
+
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, ctx));
+
+    std::shared_ptr<DataConsumer> consumer;
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
+
+    Status st = std::static_pointer_cast<KinesisDataConsumer>(consumer)->get_shard_list(shard_ids);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }
@@ -315,6 +358,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     case TLoadSourceType::KAFKA:
         ctx->kafka_info.reset(new KafkaLoadInfo(task.kafka_load_info));
         break;
+    case TLoadSourceType::KINESIS:
+        ctx->kinesis_info.reset(new KinesisLoadInfo(task.kinesis_load_info));
+        break;
     default:
         LOG(WARNING) << "unknown load source type: " << task.type;
         return Status::InternalError("unknown load source type");
@@ -414,6 +460,25 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         }
         break;
     }
+    case TLoadSourceType::KINESIS: {
+        if (ctx->is_multi_table) {
+            err_handler(ctx, Status::Cancelled("Cancelled"),
+                        "Kinesis doesn't support multi-table yet");
+            cb(ctx);
+            return;
+        } else {
+            pipe = std::make_shared<io::KinesisConsumerPipe>();
+        }
+        Status st = std::static_pointer_cast<KinesisDataConsumerGroup>(consumer_grp)
+                            ->assign_stream_shards(ctx);
+
+        if (!st.ok()) {
+            err_handler(ctx, st, st.to_string());
+            cb(ctx);
+            return;
+        }
+        break;
+    }
     default: {
         std::stringstream ss;
         ss << "unknown routine load task type: " << ctx->load_type;
@@ -441,15 +506,15 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 #endif
     }
 
-    std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
-            std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
+    pipe = std::static_pointer_cast<io::StreamLoadPipe>(ctx->body_sink);
 
+    // Multi-table currently only supported for Kafka
     if (ctx->is_multi_table) {
         Status st;
         // plan the rest of unplanned data
         auto multi_table_pipe = std::static_pointer_cast<io::MultiTablePipe>(ctx->body_sink);
         // start to consume, this may block a while
-        st = consumer_grp->start_all(ctx, kafka_pipe);
+        st = consumer_grp->start_all(ctx, pipe);
         if (!st.ok()) {
             multi_table_pipe->handle_consume_finished();
             HANDLE_MULTI_TABLE_ERROR(st, "consuming failed");
@@ -461,10 +526,10 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         }
         // need memory order
         multi_table_pipe->handle_consume_finished();
-        HANDLE_MULTI_TABLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
+        HANDLE_MULTI_TABLE_ERROR(pipe->finish(), "finish multi table task failed");
     } else {
         // start to consume, this may block a while
-        HANDLE_ERROR(consumer_grp->start_all(ctx, kafka_pipe), "consuming failed");
+        HANDLE_ERROR(consumer_grp->start_all(ctx, pipe), "consuming failed");
     }
 
     // wait for all consumers finished
@@ -514,6 +579,13 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
             std::for_each(topic_partitions.begin(), topic_partitions.end(),
                           [](RdKafka::TopicPartition* tp1) { delete tp1; });
         }};
+        break;
+    }
+    case TLoadSourceType::KINESIS: {
+        // kinesis metrics/progress are aggregated in KinesisDataConsumerGroup::start_all()
+        LOG(INFO) << "Kinesis routine load task completed. Committed sequence numbers for "
+                  << ctx->kinesis_info->cmt_sequence_number.size()
+                  << " shards. Task: " << ctx->brief();
         break;
     }
     default:

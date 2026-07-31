@@ -25,13 +25,11 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -53,8 +51,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +62,6 @@ import java.util.Map;
  * broker file information will be saved here.
  */
 public class BrokerFileGroup {
-    private static final Logger LOG = LogManager.getLogger(BrokerFileGroup.class);
 
     private long tableId;
     // columnSeparator and lineDelimiter here are only for toString(),
@@ -159,7 +154,7 @@ public class BrokerFileGroup {
                         .anyMatch(partition -> partition.getState() == PartitionState.RESTORE);
                 // tbl RESTORE && all partition NOT RESTORE -> whole table restore
                 // tbl RESTORE && some partition RESTORE -> just partitions restore, NOT WHOLE TABLE
-                // so check wether the whole table restore here
+                // so check whether the whole table restore here
                 if (!hasPartitionRestoring) {
                     throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
                 }
@@ -195,27 +190,8 @@ public class BrokerFileGroup {
         fileSize = dataDescription.getFileSize();
 
         if (dataDescription.isLoadFromTable()) {
-            String srcTableName = dataDescription.getSrcTableName();
-            // src table should be hive table
-            Table srcTable = db.getTableOrDdlException(srcTableName);
-            if (!(srcTable instanceof HiveTable)) {
-                throw new DdlException("Source table " + srcTableName + " is not HiveTable");
-            }
-            // src table columns should include all columns of loaded table
-            for (Column column : olapTable.getBaseSchema()) {
-                boolean isIncluded = false;
-                for (Column srcColumn : srcTable.getBaseSchema()) {
-                    if (srcColumn.getName().equalsIgnoreCase(column.getName())) {
-                        isIncluded = true;
-                        break;
-                    }
-                }
-                if (!isIncluded) {
-                    throw new DdlException("Column " + column.getName() + " is not in Source table");
-                }
-            }
-            srcTableId = srcTable.getId();
-            isLoadFromTable = true;
+            throw new DdlException("Load from an external hive table is no longer supported. "
+                    + "Please use Hive Catalog and INSERT INTO ... SELECT ... instead.");
         }
     }
 
@@ -239,36 +215,12 @@ public class BrokerFileGroup {
         return whereExpr;
     }
 
-    public void setWhereExpr(Expr whereExpr) {
-        this.whereExpr = whereExpr;
-    }
-
     public List<String> getFilePaths() {
         return filePaths;
     }
 
     public List<String> getColumnNamesFromPath() {
         return columnNamesFromPath;
-    }
-
-    public List<ImportColumnDesc> getColumnExprList() {
-        return columnExprList;
-    }
-
-    public List<String> getFileFieldNames() {
-        return fileFieldNames;
-    }
-
-    public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
-        return columnToHadoopFunction;
-    }
-
-    public long getSrcTableId() {
-        return srcTableId;
-    }
-
-    public boolean isLoadFromTable() {
-        return isLoadFromTable;
     }
 
     public Expr getDeleteCondition() {
@@ -312,10 +264,6 @@ public class BrokerFileGroup {
 
     public FileFormatProperties getFileFormatProperties() {
         return fileFormatProperties;
-    }
-
-    public boolean getIgnoreCsvRedundantCol() {
-        return ignoreCsvRedundantCol;
     }
 
     @Override

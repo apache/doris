@@ -54,7 +54,7 @@ suite("test_index_range_smaller_and_equal_select", "inverted_index_select"){
         ("san zhang", 10, "grade 5", "2017-10-01", "tall:100cm, weight: 30kg, hobbies:", "", "", "", "", ""),
         ("li sisi", 11, "grade 6", "2016-10-01", "tall:150cm, weight: 40kg, hobbies: sing, dancing, running", "good at handiwork and beaty", "", "li ba", "li liuliu", "")
     """
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     // case1. test <=
     // case1.0: test only <=
     qt_sql "select * from ${indexTbName1} where name<='' order by name"
@@ -72,7 +72,7 @@ suite("test_index_range_smaller_and_equal_select", "inverted_index_select"){
     qt_sql """ select * from ${indexTbName1} where selfComment<="" order by name"""
     qt_sql """ select * from ${indexTbName1} where tearchComment<="" order by name"""
     qt_sql """ select * from ${indexTbName1} where fatherName<="" order by name"""
-    
+
     // case1.1: test only <= some condition
     qt_sql "select * from ${indexTbName1} where name<='zhang' order by name"
     qt_sql "select * from ${indexTbName1} where age<=8 order by name"
@@ -81,7 +81,7 @@ suite("test_index_range_smaller_and_equal_select", "inverted_index_select"){
     qt_sql "select * from ${indexTbName1} where selfComment<='i like' order by name"
     qt_sql "select * from ${indexTbName1} where tearchComment<='A' order by name"
     qt_sql "select * from ${indexTbName1} where fatherName<= 'zhang yi' order by name"
-    
+
     // case1.1 test index colume and common colume mix select
     qt_sql """ select * from ${indexTbName1} where name<='zhang' and registDate="2017-10-01" order by name"""
     qt_sql """ select * from ${indexTbName1} where age<=8 and registDate="2017-10-01" order by name"""
@@ -98,7 +98,7 @@ suite("test_index_range_smaller_and_equal_select", "inverted_index_select"){
     qt_sql """ select * from ${indexTbName1} where selfComment<='i like' or registDate="2017-10-01" order by name"""
     qt_sql """ select * from ${indexTbName1} where tearchComment<='A' or registDate="2017-10-01" order by name"""
     qt_sql """ select * from ${indexTbName1} where fatherName<= 'zhang yi' or registDate="2017-10-01" order by name"""
-    
+
     // case1.2 test different index mix select
     // case1.2.0 data index colume and string index mix select;
     qt_sql """ select * from ${indexTbName1} where age<=10 and name<="zhang san" order by name"""

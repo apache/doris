@@ -63,8 +63,8 @@ suite ("metadata") {
     println viewMeta
 
     assertEquals("c1", viewMeta.getColumnName(1))
-    assertEquals("vk1", viewMeta.getColumnName(2))
-    assertEquals("vk1", viewMeta.getColumnName(3))
+    assertEquals("vk1", viewMeta.getColumnName(2),"viewMeta.getColumnName(2)")
+    assertEquals("vk1", viewMeta.getColumnName(3), "viewMeta.getColumnName(3)")
     assertEquals("k2", viewMeta.getColumnName(4))
     assertEquals("k2", viewMeta.getColumnName(5))
     assertEquals("c4", viewMeta.getColumnName(6))

@@ -51,7 +51,7 @@ public class ClientController {
     @RequestMapping(path = "/api/initReader", method = RequestMethod.POST)
     public Object initSourceReader(@RequestBody JobBaseConfig jobConfig) {
         try {
-            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
+            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig, true);
             return RestResponse.success("Source reader initialized successfully");
         } catch (Exception ex) {
             LOG.error("Failed to create reader, jobId={}", jobConfig.getJobId(), ex);
@@ -105,26 +105,71 @@ public class ClientController {
     @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
     public Object fetchEndOffset(@RequestBody JobBaseConfig jobConfig) {
         LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
-        SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
-        return RestResponse.success(reader.getEndOffset(jobConfig));
+        try {
+            SourceReader reader = Env.getCurrentEnv().getMetaReader(jobConfig);
+            Env.getCurrentEnv().keepAlive(jobConfig.getJobId());
+            return RestResponse.success(reader.getEndOffset(jobConfig));
+        } catch (Exception ex) {
+            LOG.error("Failed to fetch end offset, jobId={}", jobConfig.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
     }
 
     /** compare datasource Binlog Offset */
     @RequestMapping(path = "/api/compareOffset", method = RequestMethod.POST)
     public Object compareOffset(@RequestBody CompareOffsetRequest compareOffsetRequest) {
-        SourceReader reader = Env.getCurrentEnv().getReader(compareOffsetRequest);
-        return RestResponse.success(reader.compareOffset(compareOffsetRequest));
+        try {
+            SourceReader reader = Env.getCurrentEnv().getMetaReader(compareOffsetRequest);
+            return RestResponse.success(reader.compareOffset(compareOffsetRequest));
+        } catch (Exception ex) {
+            LOG.error("Failed to compare offset, jobId={}", compareOffsetRequest.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
     }
 
     /** Close job */
     @RequestMapping(path = "/api/close", method = RequestMethod.POST)
     public Object close(@RequestBody JobBaseConfig jobConfig) {
-        LOG.info("Closing job {}", jobConfig.getJobId());
+        String jobId = jobConfig.getJobId();
+        LOG.info("Closing job {}", jobId);
         Env env = Env.getCurrentEnv();
-        SourceReader reader = env.getReader(jobConfig);
-        reader.close(jobConfig);
-        env.close(jobConfig.getJobId());
-        pipelineCoordinator.closeJobStreamLoad(jobConfig.getJobId());
+        // Don't rebuild a reader to close it; an absent reader (owner BE gone) just needs its slot
+        // dropped.
+        SourceReader reader = env.getReaderIfPresent(jobId);
+        try {
+            if (reader != null) {
+                reader.release(jobConfig);
+            }
+            SourceReader dropper = reader != null ? reader : env.getMetaReader(jobConfig);
+            env.releaseSourceResourcesOrRetry(dropper, jobConfig);
+        } catch (Exception ex) {
+            LOG.warn("Close job {} teardown failed: {}", jobId, ex.getMessage());
+            env.scheduleSlotDrop(jobConfig);
+        } finally {
+            env.close(jobId);
+            pipelineCoordinator.closeJobStreamLoad(jobId);
+        }
+        return RestResponse.success(true);
+    }
+
+    /** Release a job's reader on this backend: stop engine, keep the replication slot. */
+    @RequestMapping(path = "/api/releaseReader/{taskId}", method = RequestMethod.POST)
+    public Object releaseReader(
+            @PathVariable("taskId") String taskId, @RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Releasing reader (keep slot) for job {} task {}", jobConfig.getJobId(), taskId);
+        Env env = Env.getCurrentEnv();
+        // Only the owning task may release; detach removes the context under the per-job lock so a
+        // racing claim rebuilds a fresh reader, and a stale RPC is a no-op.
+        SourceReader reader = env.detachReaderIfOwner(jobConfig.getJobId(), taskId);
+        if (reader == null) {
+            LOG.info(
+                    "No owned reader for job {} task {}, skip release",
+                    jobConfig.getJobId(),
+                    taskId);
+            return RestResponse.success(true);
+        }
+        // Upstream-only: stop engine, keep slot. Loader is job-scoped, cleaned up by /api/close.
+        reader.release(jobConfig);
         return RestResponse.success(true);
     }
 
@@ -132,6 +177,11 @@ public class ClientController {
     @RequestMapping(path = "/api/getFailReason/{taskId}", method = RequestMethod.POST)
     public Object getFailReason(@PathVariable("taskId") String taskId) {
         return RestResponse.success(pipelineCoordinator.getTaskFailReason(taskId));
+    }
+
+    @RequestMapping(path = "/api/getTaskStatus/{taskId}", method = RequestMethod.POST)
+    public Object getTaskStatus(@PathVariable("taskId") String taskId) {
+        return RestResponse.success(pipelineCoordinator.getTaskStatus(taskId));
     }
 
     @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)

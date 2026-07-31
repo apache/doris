@@ -69,22 +69,22 @@ TEST(CastToStringTest, test) {
         EXPECT_EQ(str, "1234567.89");
     }
     {
-        Decimal64 num = -123456789012345678;
+        Decimal64 num = int64_t(-123456789012345678);
         std::string str = CastToString::from_decimal(num, 4);
         EXPECT_EQ(str, "-12345678901234.5678");
     }
     {
-        Decimal128V2 num = 1234567890123;
+        Decimal128V2 num = int64_t(1234567890123);
         std::string str = CastToString::from_decimal(num, 6);
         EXPECT_EQ(str, "1234.567890");
     }
     {
-        Decimal128V3 num = 1234567890567890;
+        Decimal128V3 num = int64_t(1234567890567890);
         std::string str = CastToString::from_decimal(num, 8);
         EXPECT_EQ(str, "12345678.90567890");
     }
     {
-        Decimal256 num {1234567890567890};
+        Decimal256 num {int64_t(1234567890567890)};
         std::string str = CastToString::from_decimal(num, 10);
         EXPECT_EQ(str, "123456.7890567890");
     }
@@ -157,6 +157,18 @@ TEST(CastToStringTest, test) {
         std::string str = CastToString::from_ip(ip.value());
         EXPECT_EQ(str, "2001:db8:85a3::8a2e:370:7334");
     }
+}
+
+TEST(CastToStringTest, from_int128_overloads) {
+    EXPECT_EQ(CastToString::from_int128(static_cast<int128_t>(-1234567890123456789LL)),
+              "-1234567890123456789");
+    EXPECT_EQ(CastToString::from_uint128(static_cast<uint128_t>(12345678901234567890ULL)),
+              "12345678901234567890");
+
+    UInt128 value;
+    value.items[0] = 0x0123456789ABCDEFULL;
+    value.items[1] = 0x0FEDCBA987654321ULL;
+    EXPECT_EQ(CastToString::from_uint128(value), "0123456789abcdeffedcba987654321");
 }
 
 } // namespace doris

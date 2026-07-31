@@ -101,6 +101,105 @@ class EliminateJoinTest extends SqlTestBase {
     }
 
     @Test
+    void testLOJWithUKAndOtherJoinConjuncts() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1",
+                connectContext
+        );
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        addConstraint("alter table T2 add constraint uk_other_join_conjunct unique (id)");
+        try {
+            CascadesContext c2 = createCascadesContext(
+                    "select * from T1 left outer join T2 "
+                            + "on T1.id = T2.id and T2.id = 1",
+                    connectContext
+            );
+            Plan p2 = PlanChecker.from(c2)
+                    .analyze()
+                    .rewrite()
+                    .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                    .getAllPlan().get(0).child(0);
+            HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+            HyperGraph h2 = HyperGraph.builderForMv(p2).build();
+            ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
+            Assertions.assertFalse(res.isInvalid());
+            Assertions.assertTrue(res.getViewExpressions().isEmpty());
+        } finally {
+            dropConstraint("alter table T2 drop constraint uk_other_join_conjunct");
+        }
+    }
+
+    @Test
+    void testLOJWithUKAndFilterOnEliminatedNode() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id from T1",
+                connectContext
+        );
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        addConstraint("alter table T2 add constraint uk_loj_filter unique (id)");
+        try {
+            CascadesContext c2 = createCascadesContext(
+                    "select T1.id from T1 left outer join T2 "
+                            + "on T1.id = T2.id where T2.id is null",
+                    connectContext
+            );
+            Plan p2 = PlanChecker.from(c2)
+                    .analyze()
+                    .rewrite()
+                    .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                    .getAllPlan().get(0).child(0);
+            HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+            HyperGraph h2 = HyperGraph.builderForMv(p2).build();
+            ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
+            Assertions.assertTrue(res.isInvalid());
+        } finally {
+            dropConstraint("alter table T2 drop constraint uk_loj_filter");
+        }
+    }
+
+    @Test
+    void testInnerJoinWithPKFKAndSlotFreeFilterOnEliminatedNode() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1",
+                connectContext
+        );
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        addConstraint("alter table T2 add constraint pk_slot_free_filter primary key (id)");
+        addConstraint("alter table T1 add constraint fk_slot_free_filter foreign key (id) references T2(id)");
+        try {
+            CascadesContext c2 = createCascadesContext(
+                    "select * from T1 inner join (select * from T2 where 1 = 0) T2 "
+                            + "on T1.id = T2.id",
+                    connectContext
+            );
+            Plan p2 = PlanChecker.from(c2)
+                    .analyze()
+                    .rewrite()
+                    .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                    .getAllPlan().get(0).child(0);
+            HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+            HyperGraph h2 = HyperGraph.builderForMv(p2).build();
+            ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
+            Assertions.assertTrue(res.isInvalid());
+        } finally {
+            dropConstraint("alter table T1 drop constraint fk_slot_free_filter");
+            dropConstraint("alter table T2 drop constraint pk_slot_free_filter");
+        }
+    }
+
+    @Test
     void testLOJWithPKFK() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
@@ -140,6 +239,36 @@ class EliminateJoinTest extends SqlTestBase {
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertTrue(res.getViewExpressions().isEmpty());
         Assertions.assertTrue(!HyperGraphComparator.isLogicCompatible(h1, h3, constructContext(p1, p2, c1)).isInvalid());
+        dropConstraint("alter table T2 drop constraint pk");
+    }
+
+    @Test
+    void testInnerJoinWithPKFKAndMultiNodeResidualFilter() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1",
+                connectContext
+        );
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        addConstraint("alter table T2 add constraint pk primary key (id)");
+        addConstraint("alter table T1 add constraint fk foreign key (id) references T2(id)");
+        CascadesContext c2 = createCascadesContext(
+                "select * from T1 inner join T2 "
+                        + "on T1.id = T2.id where T1.score > T2.score",
+                connectContext
+        );
+        Plan p2 = PlanChecker.from(c2)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
+        Assertions.assertTrue(res.isInvalid());
         dropConstraint("alter table T2 drop constraint pk");
     }
 

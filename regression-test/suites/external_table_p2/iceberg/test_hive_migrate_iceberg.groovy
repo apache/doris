@@ -34,6 +34,7 @@ suite("test_hive_migrate_iceberg", "p2,external,iceberg,external_remote,external
     sql """create catalog if not exists ${catalog_name} properties (
         "type" = "iceberg",
         "iceberg.catalog.type" = "hms",
+        'hive.version' = '3.1.3',
         ${props}
     );"""
     logger.info("catalog " + catalog_name + " created")
@@ -59,12 +60,12 @@ suite("test_hive_migrate_iceberg", "p2,external,iceberg,external_remote,external
         qt_map_col_contains_x """select * FROM ${table} WHERE ARRAY_CONTAINS(MAP_KEYS(map_col), 'x') ORDER BY id"""
 
         // Test struct column (new_struct_col)
-        qt_struct_name_alice """select * FROM ${table} WHERE STRUCT_ELEMENT(new_struct_col, 'new_name') = 'Alice' ORDER BY id"""
-        qt_struct_age_over_28 """select * FROM ${table} WHERE STRUCT_ELEMENT(new_struct_col, 'age') > 28 ORDER BY id"""
-        qt_struct_name_like_c """select * FROM ${table} WHERE STRUCT_ELEMENT(new_struct_col, 'new_name') LIKE 'C%' ORDER BY id"""
+        qt_struct_name_alice """select * FROM ${table} WHERE element_at(new_struct_col, 'new_name') = 'Alice' ORDER BY id"""
+        qt_struct_age_over_28 """select * FROM ${table} WHERE element_at(new_struct_col, 'age') > 28 ORDER BY id"""
+        qt_struct_name_like_c """select * FROM ${table} WHERE element_at(new_struct_col, 'new_name') LIKE 'C%' ORDER BY id"""
 
         // Test array of struct column (arr_struct_col)
-        qt_arr_struct_city_beijing """select * FROM ${table} WHERE STRUCT_ELEMENT(arr_struct_col[1], 'city') = 'Beijing' ORDER BY id"""
+        qt_arr_struct_city_beijing """select * FROM ${table} WHERE element_at(arr_struct_col[1], 'city') = 'Beijing' ORDER BY id"""
         qt_arr_struct_size_2 """select * FROM ${table} WHERE ARRAY_SIZE(arr_struct_col) = 2 ORDER BY id"""
 
         // Test map of array column (map_array_col)
@@ -72,7 +73,7 @@ suite("test_hive_migrate_iceberg", "p2,external,iceberg,external_remote,external
         qt_map_array_contains_1 """select * FROM ${table} WHERE ARRAY_CONTAINS(MAP_VALUES(map_array_col)[1], 1) ORDER BY id"""
 
         // Complex nested query
-        qt_complex_1 """select id, new_name, STRUCT_ELEMENT(new_struct_col, 'age') AS age, ARRAY_SIZE(arr_col) AS arr_size FROM ${table} WHERE STRUCT_ELEMENT(new_struct_col, 'age') > 28 ORDER BY id"""
+        qt_complex_1 """select id, new_name, element_at(new_struct_col, 'age') AS age, ARRAY_SIZE(arr_col) AS arr_size FROM ${table} WHERE element_at(new_struct_col, 'age') > 28 ORDER BY id"""
 
     }
     sql """drop catalog if exists ${catalog_name}"""

@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "format/jni/jni_reader.h"
+#include "format/table/table_format_reader.h"
 #include "storage/olap_scan_common.h"
 
 namespace doris {
@@ -37,7 +38,7 @@ class Block;
 } // namespace doris
 
 namespace doris {
-class RemoteDorisReader : public GenericReader {
+class RemoteDorisReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(RemoteDorisReader);
 
 public:
@@ -48,10 +49,9 @@ public:
 
     Status init_reader();
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
 
     Status close() override;
 
@@ -62,6 +62,9 @@ public:
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
         _col_name_to_block_idx = col_name_to_block_idx;
     }
+
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
     arrow::Status init_stream();

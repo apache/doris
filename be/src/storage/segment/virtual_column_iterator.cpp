@@ -37,7 +37,7 @@ Status VirtualColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 void VirtualColumnIterator::prepare_materialization(IColumn::Ptr column,
-                                                    std::unique_ptr<std::vector<uint64_t>> labels) {
+                                                    std::shared_ptr<std::vector<uint64_t>> labels) {
     DCHECK(labels->size() == column->size()) << "labels size: " << labels->size()
                                              << ", materialized column size: " << column->size();
     // 1. do sort to labels
@@ -154,7 +154,7 @@ Status VirtualColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     // Update dst column
     if (check_and_get_column<ColumnNothing>(*dst)) {
         VLOG_DEBUG << fmt::format("Dst is nothing column, create new mutable column");
-        dst = res_col->assume_mutable();
+        dst = res_col->assert_mutable();
     } else {
         dst->insert_range_from(*res_col, 0, res_col->size());
     }

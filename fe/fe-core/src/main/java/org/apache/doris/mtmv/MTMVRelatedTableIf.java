@@ -117,6 +117,20 @@ public interface MTMVRelatedTableIf extends TableIf {
     long getNewestUpdateVersionOrTime();
 
     /**
+     * The table's newest data-update time as a genuine WALL-CLOCK epoch-millis value, used ONLY by the
+     * SqlCache eligibility "quiet window" gate ({@code CacheAnalyzer}), never for staleness. It differs from
+     * {@link #getNewestUpdateVersionOrTime()} only when that token is not epoch-millis (iceberg returns
+     * microseconds): the default returns the token unchanged, which is correct for every table whose token is
+     * already epoch-millis (olap visible version, hive last-DDL millis, paimon file-creation millis), while
+     * the plugin range-view table (iceberg) overrides it to return the connector-normalized wall-clock millis.
+     *
+     * @return the newest-update wall-clock epoch millis; {@code 0} for something wrong.
+     */
+    default long getNewestUpdateTimeMillisForCache() {
+        return getNewestUpdateVersionOrTime();
+    }
+
+    /**
      * Does the current type of table allow timed triggering
      *
      * @return If return false,The method of comparing whether to synchronize will directly return true,

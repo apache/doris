@@ -136,7 +136,7 @@ private:
 
             if (is_column_nullable(*col_ptr)) {
                 has_nullable = true;
-                const auto* nullable = check_and_get_column<ColumnNullable>(col_ptr.get());
+                const auto* nullable = assert_cast<const ColumnNullable*>(col_ptr.get());
                 columns_info[i].nested_col = &nullable->get_nested_column();
                 columns_info[i].null_map = &nullable->get_null_map_data();
             } else {

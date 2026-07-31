@@ -111,7 +111,13 @@ public:
     }
 
     void check_mem_used(bool* is_low_watermark, bool* is_high_watermark) const {
-        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        check_mem_used(0, is_low_watermark, is_high_watermark);
+    }
+
+    void check_mem_used(size_t reserved_size, bool* is_low_watermark,
+                        bool* is_high_watermark) const {
+        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load() +
+                                       static_cast<int64_t>(reserved_size);
         *is_low_watermark = (realtime_total_mem_used >
                              ((double)_memory_limit *
                               _memory_low_watermark.load(std::memory_order_relaxed) / 100));
@@ -213,6 +219,8 @@ private:
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
     Status upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                                       std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
+    void stop_schedulers_no_lock();
+    void destroy_schedulers();
 
     std::string _memory_debug_string() const;
 

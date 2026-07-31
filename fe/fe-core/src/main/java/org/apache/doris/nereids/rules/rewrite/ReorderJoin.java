@@ -100,7 +100,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 for (Expression conjunct : filter.getConjuncts()) {
                     // after reorder and push down the random() down to lower join,
                     // the rewritten sql may have less rows() than the origin sql
-                    if (conjunct.containsUniqueFunction()) {
+                    if (conjunct.containsVolatileExpression()) {
                         uniqueExprConjuncts.add(conjunct);
                     } else {
                         nonUniqueExprConjuncts.add(conjunct);
@@ -153,7 +153,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 // (t1 join t2) join t3 where t1.a = t3.x + random()
                 // if reorder, then may have ((t1 join t3) on t1.a = t3.x + random()) join t2,
                 // then the reorder result will less rows than origin.
-                if (conjunct.containsUniqueFunction()) {
+                if (conjunct.containsVolatileExpression()) {
                     return plan;
                 }
             }

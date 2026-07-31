@@ -51,7 +51,6 @@
 #include "storage/olap_tuple.h"
 #include "storage/olap_utils.h"
 #include "storage/predicate/filter_olap_param.h"
-#include "util/io_helper.h"
 
 namespace doris {
 

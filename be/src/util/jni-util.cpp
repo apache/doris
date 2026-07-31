@@ -208,7 +208,7 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
     std::string return_msg;
     auto* msg_str = env->GetStringUTFChars(msg, nullptr);
     return_msg += msg_str;
-    env->ReleaseStringUTFChars((jstring)msg, msg_str);
+    env->ReleaseStringUTFChars(msg, msg_str);
 
     if (log_stack) {
         jstring stack = static_cast<jstring>(

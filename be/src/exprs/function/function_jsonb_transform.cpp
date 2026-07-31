@@ -15,8 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/simple_function_factory.h"
@@ -60,6 +62,50 @@ void sort_json_object_keys(JsonbWriter& jsonb_writer, const JsonbValue* jsonb_va
         // scalar value
         jsonb_writer.writeValue(jsonb_value);
     }
+}
+
+// Walk a JSONB object recursively and emit flat "<dot.path>": value entries
+// directly into `writer`. Members whose value is a non-empty object recurse;
+// every other shape (scalars, arrays, null literals, empty objects) is emitted
+// as an opaque leaf at its dot-joined path. The `prefix` buffer is reused
+// across the whole row — appended on descent and truncated on return — so no
+// path segment is ever re-allocated outside this single growing string.
+void flatten_json_object_into(JsonbWriter& jsonb_writer, const ObjectVal* obj,
+                              std::string& prefix) {
+    for (auto it = obj->begin(); it != obj->end(); ++it) {
+        const auto* val = it->value();
+        const size_t saved = prefix.size();
+        if (!prefix.empty()) {
+            prefix.push_back('.');
+        }
+        prefix.append(it->getKeyStr(), it->klen());
+
+        if (val->isObject() && val->unpack<ObjectVal>()->numElem() > 0) {
+            flatten_json_object_into(jsonb_writer, val->unpack<ObjectVal>(), prefix);
+        } else {
+            jsonb_writer.writeKey(prefix.data(), static_cast<uint8_t>(prefix.size()));
+            jsonb_writer.writeValue(val);
+        }
+        prefix.resize(saved);
+    }
+}
+
+// json_object_flatten: turn a nested JSONB object into a single-level JSONB
+// object whose keys are the dot-joined paths to each leaf (NiFi FlattenJson
+// "keep-arrays" semantics — arrays / scalars / nulls / empty objects stay as
+// opaque leaf values; only objects are walked).
+//   {"a":{"b":2}}        -> {"a.b":2}
+//   {"a":[{"b":1}]}      -> {"a":[{"b":1}]}
+// Top-level non-object values pass through unchanged.
+void flatten_json_object(JsonbWriter& jsonb_writer, const JsonbValue* jsonb_value) {
+    if (!jsonb_value->isObject()) {
+        jsonb_writer.writeValue(jsonb_value);
+        return;
+    }
+    jsonb_writer.writeStartObject();
+    std::string prefix;
+    flatten_json_object_into(jsonb_writer, jsonb_value->unpack<ObjectVal>(), prefix);
+    jsonb_writer.writeEndObject();
 }
 
 // Convert all numeric types in JSON to double type
@@ -167,12 +213,21 @@ struct NormalizeJsonNumbersToDouble {
     }
 };
 
+struct JsonObjectFlatten {
+    static constexpr auto name = "json_object_flatten";
+    static void transform(JsonbWriter& writer, const JsonbValue* value) {
+        flatten_json_object(writer, value);
+    }
+};
+
 using FunctionSortJsonObjectKeys = FunctionJsonbTransform<SortJsonObjectKeys>;
 using FunctionNormalizeJsonNumbersToDouble = FunctionJsonbTransform<NormalizeJsonNumbersToDouble>;
+using FunctionJsonObjectFlatten = FunctionJsonbTransform<JsonObjectFlatten>;
 
 void register_function_json_transform(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSortJsonObjectKeys>();
     factory.register_function<FunctionNormalizeJsonNumbersToDouble>();
+    factory.register_function<FunctionJsonObjectFlatten>();
 
     factory.register_alias(FunctionSortJsonObjectKeys::name, "sort_jsonb_object_keys");
     factory.register_alias(FunctionNormalizeJsonNumbersToDouble::name,

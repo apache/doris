@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "exec/scan/olap_scanner.h"
+#include "io/io_common.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment_loader.h"
@@ -66,6 +67,9 @@ public:
     const OlapReaderStatistics* builder_stats() const { return &_builder_stats; }
 
 private:
+    static io::IOContext _create_preload_io_context(RuntimeState* state,
+                                                    OlapReaderStatistics* preload_stats);
+
     Status _load();
 
     Status _build_scanners_by_rowid(std::list<ScannerSPtr>& scanners);
@@ -75,7 +79,8 @@ private:
 
     std::shared_ptr<OlapScanner> _build_scanner(BaseTabletSPtr tablet, int64_t version,
                                                 const std::vector<OlapScanRange*>& key_ranges,
-                                                TabletReadSource&& read_source);
+                                                TabletReadSource&& read_source,
+                                                io::FileCacheStatistics&& initial_file_cache_stats);
 
     OlapScanLocalState* _parent;
 
@@ -90,6 +95,7 @@ private:
     size_t _rows_per_scanner {_min_rows_per_scanner};
 
     std::map<RowsetId, std::vector<size_t>> _all_segments_rows;
+    std::unordered_map<int64_t, io::FileCacheStatistics> _tablet_preload_file_cache_stats;
 
     // Force building one scanner per segment when true.
     bool _scan_parallelism_by_per_segment {false};

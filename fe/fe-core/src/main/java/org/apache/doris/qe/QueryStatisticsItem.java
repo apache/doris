@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -38,6 +39,8 @@ public final class QueryStatisticsItem {
     // root query profile
     private final RuntimeProfile queryProfile;
     private final boolean isReportSucc;
+    // query statistics same as statistics in audit log
+    private final TQueryStatistics queryStatistics;
 
     private QueryStatisticsItem(Builder builder) {
         this.queryId = builder.queryId;
@@ -50,6 +53,7 @@ public final class QueryStatisticsItem {
         this.fragmentInstanceInfos = builder.fragmentInstanceInfos;
         this.queryProfile = builder.queryProfile;
         this.isReportSucc = builder.isReportSucc;
+        this.queryStatistics = builder.queryStatistics;
     }
 
     public String getDb() {
@@ -97,6 +101,10 @@ public final class QueryStatisticsItem {
         return isReportSucc;
     }
 
+    public TQueryStatistics getQueryStatistics() {
+        return queryStatistics;
+    }
+
     public static final class Builder {
         private String queryId;
         private String catalog;
@@ -108,6 +116,7 @@ public final class QueryStatisticsItem {
         private List<FragmentInstanceInfo> fragmentInstanceInfos;
         private RuntimeProfile queryProfile;
         private boolean isReportSucc;
+        private TQueryStatistics queryStatistics;
 
         public Builder() {
             fragmentInstanceInfos = Lists.newArrayList();
@@ -163,6 +172,11 @@ public final class QueryStatisticsItem {
             return this;
         }
 
+        public Builder queryStatistics(TQueryStatistics queryStatistics) {
+            this.queryStatistics = queryStatistics;
+            return this;
+        }
+
         public QueryStatisticsItem build() {
             initDefaultValue(this);
             return new QueryStatisticsItem(this);
@@ -191,6 +205,10 @@ public final class QueryStatisticsItem {
 
             if (queryProfile == null) {
                 queryProfile = new RuntimeProfile("");
+            }
+
+            if (queryStatistics == null) {
+                queryStatistics = new TQueryStatistics();
             }
         }
     }

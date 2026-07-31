@@ -45,6 +45,11 @@ public:
 private:
     friend class TxnLazyCommitter;
 
+    // Marks the task as finished with the final result and wakes all waiters.
+    // `code` is returned by wait() as the task status, and `msg` carries the
+    // corresponding error detail or an empty string on success.
+    void finish(MetaServiceCode code, std::string msg);
+
     std::pair<MetaServiceCode, std::string> commit_partition(
             int64_t db_id, int64_t partition_id,
             const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowset_metas,
@@ -66,6 +71,7 @@ class TxnLazyCommitter {
 public:
     TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv);
     TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr);
+    ~TxnLazyCommitter();
     std::shared_ptr<TxnLazyCommitTask> submit(const std::string& instance_id, int64_t txn_id);
     void remove(int64_t txn_id);
 
@@ -82,5 +88,6 @@ private:
     std::mutex mutex_;
     // <txn_id, TxnLazyCommitTask>
     std::unordered_map<int64_t, std::shared_ptr<TxnLazyCommitTask>> running_tasks_;
+    bool stopped_ = false;
 };
 } // namespace doris::cloud

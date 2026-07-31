@@ -27,6 +27,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
@@ -340,7 +341,7 @@ public class InitMaterializationContextHook implements PlannerHook {
         StringBuilder createMvSqlBuilder = new StringBuilder();
         createMvSqlBuilder.append(String.format("create materialized view %s as select ", mvName));
         for (Column col : columns) {
-            createMvSqlBuilder.append(String.format("%s, ", getIdentSql(col.getName())));
+            createMvSqlBuilder.append(String.format("%s, ", SqlUtils.getIdentSql(col.getName())));
         }
         removeLastTwoChars(createMvSqlBuilder);
         createMvSqlBuilder.append(String.format(" from %s", baseTableName));
@@ -368,14 +369,14 @@ public class InitMaterializationContextHook implements PlannerHook {
                         case HLL_UNION:
                         case BITMAP_UNION:
                         case QUANTILE_UNION: {
-                            aggColumnsStringBuilder
-                                    .append(String.format("%s(%s), ", aggregateType, getIdentSql(col.getName())));
+                            aggColumnsStringBuilder.append(
+                                    String.format("%s(%s), ", aggregateType, SqlUtils.getIdentSql(col.getName())));
                             break;
                         }
                         case GENERIC: {
                             AggStateType aggStateType = (AggStateType) col.getType();
                             aggColumnsStringBuilder.append(String.format("%s_union(%s), ",
-                                    aggStateType.getFunctionName(), getIdentSql(col.getName())));
+                                    aggStateType.getFunctionName(), SqlUtils.getIdentSql(col.getName())));
                             break;
                         }
                         default: {
@@ -389,7 +390,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                     // use column name for key
                     Preconditions.checkState(col.isKey(),
                             String.format("%s must be key", col.getName()));
-                    keyColumnsStringBuilder.append(String.format("%s, ", getIdentSql(col.getName())));
+                    keyColumnsStringBuilder.append(String.format("%s, ", SqlUtils.getIdentSql(col.getName())));
                 }
             }
             Preconditions.checkState(keyColumnsStringBuilder.length() > 0,
@@ -409,7 +410,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                     String.format(" from %s group by %s", baseTableName, keyColumnsStringBuilder));
         } else {
             for (Column col : columns) {
-                createMvSqlBuilder.append(String.format("%s, ", getIdentSql(col.getName())));
+                createMvSqlBuilder.append(String.format("%s, ", SqlUtils.getIdentSql(col.getName())));
             }
             removeLastTwoChars(createMvSqlBuilder);
             createMvSqlBuilder.append(String.format(" from %s", baseTableName));
@@ -424,17 +425,4 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
     }
 
-    private static String getIdentSql(String ident) {
-        StringBuilder sb = new StringBuilder();
-        sb.append('`');
-        for (char ch : ident.toCharArray()) {
-            if (ch == '`') {
-                sb.append("``");
-            } else {
-                sb.append(ch);
-            }
-        }
-        sb.append('`');
-        return sb.toString();
-    }
 }

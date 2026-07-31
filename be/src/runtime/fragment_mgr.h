@@ -133,9 +133,6 @@ public:
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
-    Status trigger_pipeline_context_report(const ReportStatusRequest,
-                                           std::shared_ptr<PipelineFragmentContext>&&);
-
     // Can be used in both version.
     MOCK_FUNCTION void cancel_query(const TUniqueId query_id, const Status reason);
 
@@ -161,10 +158,6 @@ public:
     Status send_filter_size(const PSendFilterSizeRequest* request);
 
     Status sync_filter_size(const PSyncFilterSizeRequest* request);
-
-    std::string to_http_path(const std::string& file_name);
-
-    void coordinator_callback(const ReportStatusRequest& req);
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 

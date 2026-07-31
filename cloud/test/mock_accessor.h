@@ -109,7 +109,7 @@ inline auto MockAccessor::get_prefix_range(const std::string& path_prefix) {
 }
 
 inline int MockAccessor::delete_prefix_impl(const std::string& path_prefix) {
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::delete_prefix", (int)0);
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::delete_prefix", (int)0, &path_prefix);
     LOG(INFO) << "delete object of prefix=" << path_prefix;
     std::lock_guard lock(mtx_);
 
@@ -151,7 +151,7 @@ inline int MockAccessor::delete_all(int64_t expiration_time) {
 }
 
 inline int MockAccessor::delete_files(const std::vector<std::string>& paths) {
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::delete_files", (int)0);
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::delete_files", (int)0, &paths);
 
     for (auto&& path : paths) {
         delete_file(path);

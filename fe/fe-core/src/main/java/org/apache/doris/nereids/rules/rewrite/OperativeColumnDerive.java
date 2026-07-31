@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive.DeriveContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
@@ -63,6 +62,11 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
 
     @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> sink, DeriveContext context) {
+        return visitChildren(this, sink, context);
+    }
+
+    @Override
+    public Plan visitPhysicalResultSink(PhysicalResultSink<? extends Plan> sink, DeriveContext context) {
         return visitChildren(this, sink, context);
     }
 
@@ -140,18 +144,6 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
             }
         }
 
-        OlapTable table = olapScan.getTable();
-        if (KeysType.UNIQUE_KEYS.equals(table.getKeysType())
-                && !table.getTableProperty().getEnableUniqueKeyMergeOnWrite()
-                || KeysType.AGG_KEYS.equals(table.getKeysType())
-                || KeysType.PRIMARY_KEYS.equals(table.getKeysType())) {
-            for (Slot slot : olapScan.getOutput()) {
-                SlotReference slotReference = (SlotReference) slot;
-                if (slotReference.getOriginalColumn().isPresent() && slotReference.getOriginalColumn().get().isKey()) {
-                    intersectSlots.add(slotReference);
-                }
-            }
-        }
         for (NamedExpression virtualColumn : olapScan.getVirtualColumns()) {
             intersectSlots.add(virtualColumn.toSlot());
             intersectSlots.addAll(virtualColumn.getInputSlots());

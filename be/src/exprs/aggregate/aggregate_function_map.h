@@ -22,6 +22,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_map.h"
 #include "core/string_ref.h"
@@ -34,7 +35,7 @@ namespace doris {
 template <PrimitiveType K>
 struct AggregateFunctionMapAggData {
     using KeyType = typename PrimitiveTypeTraits<K>::CppType;
-    using Map = phmap::flat_hash_map<StringRef, int64_t>;
+    using Map = doris::flat_hash_map<StringRef, int64_t>;
 
     AggregateFunctionMapAggData() { throw Exception(Status::FatalError("__builtin_unreachable")); }
 
@@ -120,10 +121,11 @@ struct AggregateFunctionMapAggData {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& dst = assert_cast<ColumnMap&>(to);
+        auto& dst = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(to);
         size_t num_rows = _key_column->size();
         auto& offsets = dst.get_offsets();
-        auto& dst_key_column = assert_cast<ColumnNullable&>(dst.get_keys());
+        auto& dst_key_column =
+                assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(dst.get_keys());
         dst_key_column.get_null_map_data().resize_fill(dst_key_column.get_null_map_data().size() +
                                                        num_rows);
         dst_key_column.get_nested_column().insert_range_from(*_key_column, 0, num_rows);
@@ -197,17 +199,15 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        if (columns[0]->is_nullable()) {
-            const auto& nullable_col =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const auto& nullable_map = nullable_col.get_null_map_data();
+        if (const auto* nullable_col = check_and_get_column<ColumnNullable>(columns[0])) {
+            const auto& nullable_map = nullable_col->get_null_map_data();
             if (nullable_map[row_num]) {
                 return;
             }
             Field value;
             columns[1]->get(row_num, value);
             this->data(place).add(assert_cast<const KeyColumnType&, TypeCheckOnRelease::DISABLE>(
-                                          nullable_col.get_nested_column())
+                                          nullable_col->get_nested_column())
                                           .get_data_at(row_num),
                                   value);
         } else {
@@ -309,6 +309,17 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (is_string_type(K)) {
+            const IColumn* key_column = columns[0];
+            if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*key_column)) {
+                key_column = &nullable_column->get_nested_column();
+            }
+            this->template check_argument_column_type<ColumnString>(key_column);
+        }
     }
 
     [[nodiscard]] MutableColumnPtr create_serialize_column() const override {

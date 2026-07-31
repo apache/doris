@@ -1,15 +1,36 @@
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Filesystem Environment Tests
 
-本目录下的环境测试（Layer 2）需要真实的云存储/HDFS/Broker 服务才能运行。默认 CI 构建会自动跳过它们。
+The environment tests (Layer 2) in this directory require real cloud storage / HDFS / Broker
+services to run. They are automatically skipped in default CI builds.
 
-## 快速开始
+## Quick Start
 
-### 使用辅助脚本
+### Using the Helper Script
 
-仓库根目录提供了 `run-fs-env-test.sh`，支持通过命令行参数或预设环境变量运行：
+The repository root provides `run-fs-env-test.sh`, which supports running tests via command-line
+arguments or pre-set environment variables:
 
 ```bash
-# S3 测试
+# S3 tests
 ./run-fs-env-test.sh s3 \
   --s3-endpoint=https://s3.us-east-1.amazonaws.com \
   --s3-region=us-east-1 \
@@ -17,25 +38,25 @@
   --s3-ak=AKIAIOSFODNN7EXAMPLE \
   --s3-sk=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
-# Azure 测试
+# Azure tests
 ./run-fs-env-test.sh azure \
   --azure-account=myaccount \
   --azure-key=base64key== \
   --azure-container=testcontainer
 
-# HDFS 测试（Simple Auth）
+# HDFS tests (Simple Auth)
 ./run-fs-env-test.sh hdfs \
   --hdfs-host=namenode.example.com \
   --hdfs-port=8020
 
-# Kerberos 测试
+# Kerberos tests
 ./run-fs-env-test.sh kerberos \
   --kdc-principal=hdfs/namenode@REALM \
   --kdc-keytab=/path/to/hdfs.keytab \
   --hdfs-host=namenode.example.com \
   --hdfs-port=8020
 
-# COS（腾讯云）测试
+# COS (Tencent Cloud) tests
 ./run-fs-env-test.sh cos \
   --cos-endpoint=https://cos.ap-guangzhou.myqcloud.com \
   --cos-region=ap-guangzhou \
@@ -43,7 +64,7 @@
   --cos-ak=SecretId \
   --cos-sk=SecretKey
 
-# OSS（阿里云）测试
+# OSS (Alibaba Cloud) tests
 ./run-fs-env-test.sh oss \
   --oss-endpoint=https://oss-cn-hangzhou.aliyuncs.com \
   --oss-region=cn-hangzhou \
@@ -51,7 +72,7 @@
   --oss-ak=AccessKeyId \
   --oss-sk=AccessKeySecret
 
-# OBS（华为云）测试
+# OBS (Huawei Cloud) tests
 ./run-fs-env-test.sh obs \
   --obs-endpoint=https://obs.cn-north-4.myhuaweicloud.com \
   --obs-region=cn-north-4 \
@@ -59,40 +80,40 @@
   --obs-ak=AK \
   --obs-sk=SK
 
-# Broker 测试
+# Broker tests
 ./run-fs-env-test.sh broker \
   --broker-host=broker.example.com \
   --broker-port=8060
 
-# 运行全部环境测试（需要所有环境变量已预设）
+# Run all environment tests (requires all environment variables to be pre-set)
 ./run-fs-env-test.sh all
 ```
 
-### 使用 Maven 直接运行
+### Running Directly with Maven
 
-也可以先导出环境变量，然后使用 Maven 命令直接运行：
+You can also export environment variables first and then run tests directly with Maven:
 
 ```bash
-# 导出凭据
+# Export credentials
 export DORIS_FS_TEST_S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
 export DORIS_FS_TEST_S3_REGION=us-east-1
 export DORIS_FS_TEST_S3_BUCKET=my-test-bucket
 export DORIS_FS_TEST_S3_AK=your-access-key
 export DORIS_FS_TEST_S3_SK=your-secret-key
 
-# 运行 S3 相关环境测试
+# Run S3-related environment tests
 cd fe
-mvn test -pl fe-filesystem \
-  -Dsurefire.excludedGroups= \
+mvn test -pl fe-filesystem/fe-filesystem-s3 \
+  -Dtest.excludedGroups=none \
   -Dgroups=s3 \
   -Dcheckstyle.skip=true \
   -DfailIfNoTests=false \
   -Dmaven.build.cache.enabled=false \
   --also-make
 
-# 运行 HDFS + Kerberos 环境测试
-mvn test -pl fe-filesystem \
-  -Dsurefire.excludedGroups= \
+# Run HDFS + Kerberos environment tests
+mvn test -pl fe-filesystem/fe-filesystem-hdfs \
+  -Dtest.excludedGroups=none \
   -Dgroups="hdfs | kerberos" \
   -Dcheckstyle.skip=true \
   -DfailIfNoTests=false \
@@ -100,90 +121,101 @@ mvn test -pl fe-filesystem \
   --also-make
 ```
 
-## 环境变量一览
+## Environment Variables Reference
 
-| Tag | 环境变量 | 说明 |
-|-----|---------|------|
-| `s3` | `DORIS_FS_TEST_S3_ENDPOINT` | S3 兼容存储端点 |
-| | `DORIS_FS_TEST_S3_REGION` | 区域 |
-| | `DORIS_FS_TEST_S3_BUCKET` | 测试桶名 |
+| Tag | Environment Variable | Description |
+|-----|---------------------|-------------|
+| `s3` | `DORIS_FS_TEST_S3_ENDPOINT` | S3-compatible storage endpoint |
+| | `DORIS_FS_TEST_S3_REGION` | Region |
+| | `DORIS_FS_TEST_S3_BUCKET` | Test bucket name |
 | | `DORIS_FS_TEST_S3_AK` | Access Key |
 | | `DORIS_FS_TEST_S3_SK` | Secret Key |
-| `azure` | `DORIS_FS_TEST_AZURE_ACCOUNT` | Azure Storage 账户名 |
-| | `DORIS_FS_TEST_AZURE_KEY` | 账户密钥 |
-| | `DORIS_FS_TEST_AZURE_CONTAINER` | 测试容器名 |
-| `cos` | `DORIS_FS_TEST_COS_ENDPOINT` | COS 端点 |
-| | `DORIS_FS_TEST_COS_REGION` | 区域（如 ap-guangzhou） |
-| | `DORIS_FS_TEST_COS_BUCKET` | 测试桶名 |
+| `azure` | `DORIS_FS_TEST_AZURE_ACCOUNT` | Azure Storage account name |
+| | `DORIS_FS_TEST_AZURE_KEY` | Account key |
+| | `DORIS_FS_TEST_AZURE_CONTAINER` | Test container name |
+| `cos` | `DORIS_FS_TEST_COS_ENDPOINT` | COS endpoint |
+| | `DORIS_FS_TEST_COS_REGION` | Region (e.g., ap-guangzhou) |
+| | `DORIS_FS_TEST_COS_BUCKET` | Test bucket name |
 | | `DORIS_FS_TEST_COS_AK` | SecretId |
 | | `DORIS_FS_TEST_COS_SK` | SecretKey |
-| `oss` | `DORIS_FS_TEST_OSS_ENDPOINT` | OSS 端点 |
-| | `DORIS_FS_TEST_OSS_REGION` | 区域 |
-| | `DORIS_FS_TEST_OSS_BUCKET` | 测试桶名 |
+| `oss` | `DORIS_FS_TEST_OSS_ENDPOINT` | OSS endpoint |
+| | `DORIS_FS_TEST_OSS_REGION` | Region |
+| | `DORIS_FS_TEST_OSS_BUCKET` | Test bucket name |
 | | `DORIS_FS_TEST_OSS_AK` | Access Key |
 | | `DORIS_FS_TEST_OSS_SK` | Secret Key |
-| `obs` | `DORIS_FS_TEST_OBS_ENDPOINT` | OBS 端点 |
-| | `DORIS_FS_TEST_OBS_REGION` | 区域 |
-| | `DORIS_FS_TEST_OBS_BUCKET` | 测试桶名 |
+| `obs` | `DORIS_FS_TEST_OBS_ENDPOINT` | OBS endpoint |
+| | `DORIS_FS_TEST_OBS_REGION` | Region |
+| | `DORIS_FS_TEST_OBS_BUCKET` | Test bucket name |
 | | `DORIS_FS_TEST_OBS_AK` | Access Key |
 | | `DORIS_FS_TEST_OBS_SK` | Secret Key |
-| `hdfs` | `DORIS_FS_TEST_HDFS_HOST` | NameNode 地址 |
-| | `DORIS_FS_TEST_HDFS_PORT` | NameNode 端口 |
-| `kerberos` | `DORIS_FS_TEST_KDC_PRINCIPAL` | Kerberos 主体 |
-| | `DORIS_FS_TEST_KDC_KEYTAB` | keytab 文件路径 |
-| | `DORIS_FS_TEST_HDFS_HOST` | 启用 Kerberos 的 HDFS 地址 |
-| `broker` | `DORIS_FS_TEST_BROKER_HOST` | Broker 进程地址 |
-| | `DORIS_FS_TEST_BROKER_PORT` | Broker 进程端口 |
+| `hdfs` | `DORIS_FS_TEST_HDFS_HOST` | NameNode address |
+| | `DORIS_FS_TEST_HDFS_PORT` | NameNode port |
+| `kerberos` | `DORIS_FS_TEST_KDC_PRINCIPAL` | Kerberos principal |
+| | `DORIS_FS_TEST_KDC_KEYTAB` | Keytab file path |
+| | `DORIS_FS_TEST_HDFS_HOST` | Kerberos-enabled HDFS address |
+| | `DORIS_FS_TEST_HDFS_PORT` | NameNode port (optional, defaults to 8020) |
+| `broker` | `DORIS_FS_TEST_BROKER_HOST` | Broker process address |
+| | `DORIS_FS_TEST_BROKER_PORT` | Broker process port |
 
-## 测试用例概览
+## Test Case Overview
 
-### T-E1: S3ObjStorage 环境测试（5 tests, tag: `s3`）
-- `putAndHeadObject` — 上传小文件 → headObject 验证 size 和 etag
-- `listObjects` — 上传多个文件 → listObjects 验证返回数量
-- `copyAndDeleteObject` — 上传 → copy → 验证 → delete → 验证不存在
-- `multipartUpload_completeSucceeds` — initiate → uploadPart × 2 → complete → headObject 验证
-- `abortMultipartUpload_leavesNoObject` — initiate → abort → 对象不存在
+### T-E1: S3ObjStorage Environment Tests (6 tests, tag: `s3`)
+- `putAndHeadObject` — Upload a small file → verify size and etag via headObject
+- `listObjects` — Upload multiple files → verify returned count via listObjects
+- `copyAndDeleteObject` — Upload → copy → verify → delete → verify non-existence
+- `multipartUpload_completeSucceeds` — initiate → uploadPart × 2 → complete → verify via headObject
+- `abortMultipartUpload_leavesNoObject` — initiate → abort → object does not exist
+- `getPresignedUrl_returnsValidUrlAndUploadWorks` — Generate presigned URL → PUT upload → verify object exists
 
-### T-E2: S3FileSystem 环境测试（7 tests, tag: `s3`）
-- `exists` — 已存在/不存在的对象
-- `deleteRemovesObject` — 上传 → delete → exists false
-- `renameMovesObject` — 上传 → rename → 旧不存在/新存在
-- `listReturnsCorrectEntries` — 上传多个 → list 验证
-- `inputOutputRoundTrip` — 写入 → 读取 → 内容一致（含 UTF-8 + emoji）
-- `inputFileLength` — 上传已知大小 → length() 验证
+### T-E2: S3FileSystem Environment Tests (8 tests, tag: `s3`)
+- `exists` — Existing / non-existing objects
+- `deleteRemovesObject` — Upload → delete → exists returns false
+- `renameMovesObject` — Upload → rename → old does not exist / new exists
+- `listReturnsCorrectEntries` — Upload multiple → verify via list
+- `inputOutputRoundTrip` — Write → read → content matches (including UTF-8 + emoji)
+- `inputFileLength` — Upload with known size → verify length()
+- `getPresignedUrl_returnsValidUrlAndUploadWorks` — Generate presigned URL → PUT upload → verify object exists
 
-### T-E3: Azure 环境测试（7 tests, tag: `azure`）
-测试项同 T-E2，使用 `wasbs://` scheme。
+### T-E3: Azure Environment Tests (8 tests, tag: `azure`)
+Same test cases as T-E2, using the `wasbs://` scheme.
 
-### T-E3b/c/d: COS / OSS / OBS 环境测试（各 7 tests, tag: `cos` / `oss` / `obs`）
-测试项同 T-E2，分别使用腾讯云/阿里云/华为云 SDK。
+### T-E3b/c/d: COS / OSS / OBS Environment Tests (8 tests each, tags: `cos` / `oss` / `obs`)
+Same test cases as T-E2, using the Tencent Cloud / Alibaba Cloud / Huawei Cloud SDKs
+respectively.
 
-### T-E4: DFSFileSystem 环境测试（8 tests, tag: `hdfs`）
-- `mkdirsAndExists` — 创建多级目录 → exists true
-- `deleteRecursive` — 创建含文件的目录 → 递归删除
-- `renameFile` / `renameDirectory` — 文件/目录重命名
-- `listFiles` / `listDirectories` — 列举文件/子目录
-- `inputOutputRoundTrip` — 写入 → 读取 → 内容一致
-- `inputFileLength` — 验证文件大小
+### T-E4: DFSFileSystem Environment Tests (8 tests, tag: `hdfs`)
+- `mkdirsAndExists` — Create multi-level directories → exists returns true
+- `deleteRecursive` — Create a directory with files → recursive delete
+- `renameFile` / `renameDirectory` — File / directory rename
+- `listFiles` / `listDirectories` — List files / subdirectories
+- `inputOutputRoundTrip` — Write → read → content matches
+- `inputFileLength` — Verify file size
 
-### T-E5: Kerberos 环境测试（4 tests, tag: `kerberos`）
-- `loginSucceeds` — 使用真实 principal/keytab 登录
-- `doAsExecutesAction` — 代理执行返回值验证
-- `doAsPropagatesIOException` — IOException 正确传播
-- `hdfsOperationWithKerberos` — Kerberos 模式下 HDFS exists 可正常工作
+### T-E5: Kerberos Environment Tests (4 tests, tag: `kerberos`)
+- `loginSucceeds` — Log in with a real principal / keytab
+- `doAsExecutesAction` — Verify return value of proxied execution
+- `doAsPropagatesIOException` — IOException is correctly propagated
+- `hdfsOperationWithKerberos` — HDFS exists works correctly under Kerberos
 
-### T-E6: Broker 环境测试（4 tests, tag: `broker`）
-- `existsReturnsFalseForMissing` — 不存在的路径 → false
-- `writeAndRead` — 通过 outputFile 写入 → inputFile 读取 → 一致
-- `deleteRemovesFile` — 写入 → delete → exists false
-- `listReturnsFiles` — 写入多个 → list 验证
+### T-E6: Broker Environment Tests (4 tests, tag: `broker`)
+- `existsReturnsFalseForMissing` — Non-existing path → false
+- `writeAndRead` — Write via outputFile → read via inputFile → content matches
+- `deleteRemovesFile` — Write → delete → exists returns false
+- `listReturnsFiles` — Write multiple → verify via list
 
-## 注意事项
+## Notes
 
-1. **每次测试都会在目标存储中创建带唯一 UUID 前缀的临时数据**，`@AfterAll` 会尝试清理。如果测试异常中断，可能需要手动清理。
+1. **Each test creates temporary data with a unique UUID prefix in the target storage**.
+   `@AfterAll` attempts cleanup. If a test is interrupted abnormally, manual cleanup may be
+   required.
 
-2. **S3 multipart upload 测试**会上传 ~5MB 数据，请确保测试桶有足够的空间和权限。
+2. **S3 multipart upload tests** upload ~5 MB of data. Ensure the test bucket has sufficient
+   space and permissions.
 
-3. **环境测试默认不运行**（通过 Maven Surefire 的 `<excludedGroups>environment</excludedGroups>` 配置）。只有通过 `-Dsurefire.excludedGroups= -Dgroups=<tag>` 显式启用时才会运行。
+3. **Environment tests are not run by default** (the module POM sets
+   `<excludedGroups>${test.excludedGroups}</excludedGroups>` with a default value of
+   `environment`). They only run when explicitly enabled with
+   `-Dtest.excludedGroups=none -Dgroups=<tag>`.
 
-4. **请勿将凭据提交到代码仓库中**。建议使用环境变量或 CI/CD 密钥管理。
+4. **Never commit credentials to the code repository**. Use environment variables or CI/CD
+   secret management instead.

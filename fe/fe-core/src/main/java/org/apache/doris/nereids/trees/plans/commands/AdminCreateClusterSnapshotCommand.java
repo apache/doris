@@ -45,11 +45,13 @@ public class AdminCreateClusterSnapshotCommand extends Command implements Forwar
 
     public static final String PROP_TTL = "ttl";
     public static final String PROP_LABEL = "label";
+    public static final String PROP_VAULT_NAME = "vault_name";
     private static final Logger LOG = LogManager.getLogger(AdminCreateClusterSnapshotCommand.class);
 
     private Map<String, String> properties;
     private long ttl;
     private String label = null;
+    private String vaultName = null;
 
     /**
      * AdminCreateClusterSnapshotCommand
@@ -64,7 +66,7 @@ public class AdminCreateClusterSnapshotCommand extends Command implements Forwar
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         CloudSnapshotHandler cloudSnapshotHandler = ((CloudEnv) ctx.getEnv()).getCloudSnapshotHandler();
-        cloudSnapshotHandler.submitJob(ttl, label);
+        cloudSnapshotHandler.submitJob(ttl, label, vaultName);
     }
 
     /**
@@ -105,6 +107,11 @@ public class AdminCreateClusterSnapshotCommand extends Command implements Forwar
                 label = entry.getValue();
                 if (label == null || label.isEmpty()) {
                     throw new AnalysisException("Property 'label' cannot be empty");
+                }
+            } else if (entry.getKey().equalsIgnoreCase(PROP_VAULT_NAME)) {
+                vaultName = entry.getValue();
+                if (vaultName == null || vaultName.isEmpty()) {
+                    throw new AnalysisException("Property 'vault_name' cannot be empty");
                 }
             } else {
                 throw new AnalysisException("Unknown property: " + entry.getKey());

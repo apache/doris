@@ -84,12 +84,15 @@ private:
 class VMergeIteratorContext {
 public:
     VMergeIteratorContext(RowwiseIteratorUPtr&& iter, int sequence_id_idx, bool is_unique,
-                          bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns,
-                          SchemaSPtr output_schema)
+                          bool is_reverse, bool use_insert_order_when_same,
+                          std::vector<uint32_t>* read_orderby_key_columns, SchemaSPtr output_schema,
+                          bool small_seq_first = false)
             : _iter(std::move(iter)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
+              _use_insert_order_when_same(use_insert_order_when_same),
+              _small_seq_first(small_seq_first),
               _output_schema(std::move(output_schema)),
               _num_key_columns(cast_set<int>(_output_schema->num_key_columns())),
               _compare_columns(read_orderby_key_columns) {}
@@ -187,6 +190,11 @@ private:
     int _sequence_id_idx = -1;
     bool _is_unique = false;
     bool _is_reverse = false;
+    bool _use_insert_order_when_same = false;
+    // Tie-break direction on the sequence column when keys are equal:
+    // false = larger value sorts first (UNIQUE_KEYS sequence column);
+    // true  = smaller value sorts first (row binlog TSO column).
+    bool _small_seq_first = false;
     bool _valid = false;
     mutable bool _skip = false;
     mutable bool _same = false;
@@ -218,12 +226,14 @@ class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
     VMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, int sequence_id_idx, bool is_unique,
-                   bool is_reverse, uint64_t* merged_rows, SchemaSPtr output_schema)
+                   bool is_reverse, uint64_t* merged_rows, SchemaSPtr output_schema,
+                   bool small_seq_first = false)
             : _origin_iters(std::move(iters)),
               _output_schema(std::move(output_schema)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
+              _small_seq_first(small_seq_first),
               _merged_rows(merged_rows) {}
 
     ~VMergeIterator() override = default;
@@ -341,6 +351,8 @@ private:
     int _sequence_id_idx = -1;
     bool _is_unique = false;
     bool _is_reverse = false;
+    // See VMergeIteratorContext::_small_seq_first; forwarded to every context on init().
+    bool _small_seq_first = false;
     uint64_t* _merged_rows = nullptr;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
@@ -354,7 +366,8 @@ private:
 // should delete returned iterator after usage.
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
-                                       uint64_t* merged_rows, SchemaSPtr output_schema);
+                                       uint64_t* merged_rows, SchemaSPtr output_schema,
+                                       bool small_seq_first = false);
 
 // Create a union iterator for input iterators. Union iterator will read
 // input iterators one by one.

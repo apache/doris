@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <unistd.h>
+
+#include <filesystem>
+
 #include "gtest/gtest.h"
 #include "load/load_path_mgr.h"
 #include "runtime/exec_env.h"
@@ -27,18 +31,19 @@ protected:
         _exec_env = ExecEnv::GetInstance();
 
         _load_path_mgr = std::make_unique<LoadPathMgr>(_exec_env);
-        // create tmp file
-        _test_dir = "/tmp/test_clean_file";
-        _test_dir1 = "/tmp/test_clean_file/mini_download";
-        _test_dir2 = "/tmp/test_clean_file1/mini_download/test.parquet";
+        auto test_root = std::filesystem::temp_directory_path() /
+                         ("doris_load_path_mgr_test_" + std::to_string(::getpid()));
+        _test_dir = test_root.string();
+        _test_dir1 = _test_dir + "/mini_download";
+        _test_dir2 = _test_dir1 + "/test.parquet";
 
-        auto result = io::global_local_filesystem()->delete_directory_or_file(_test_dir1);
-        result = io::global_local_filesystem()->create_directory(_test_dir1);
-        EXPECT_TRUE(result.ok());
-
-        result = io::global_local_filesystem()->delete_directory_or_file(_test_dir2);
-        result = io::global_local_filesystem()->create_directory(_test_dir2);
-        EXPECT_TRUE(result.ok());
+        std::error_code ec;
+        std::filesystem::remove_all(_test_dir, ec);
+        ASSERT_FALSE(ec) << ec.message();
+        std::filesystem::create_directories(_test_dir1, ec);
+        ASSERT_FALSE(ec) << ec.message();
+        std::filesystem::create_directories(_test_dir2, ec);
+        ASSERT_FALSE(ec) << ec.message();
 
         const_cast<std::vector<StorePath>&>(_exec_env->store_paths()).emplace_back(_test_dir, 1024);
     }
@@ -46,6 +51,9 @@ protected:
     void TearDown() override {
         const_cast<std::vector<StorePath>&>(_exec_env->store_paths()).clear();
         _load_path_mgr->stop();
+        std::error_code ec;
+        std::filesystem::remove_all(_test_dir, ec);
+        EXPECT_FALSE(ec) << ec.message();
         _exec_env->destroy();
     }
 

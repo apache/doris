@@ -71,6 +71,7 @@ public abstract class AbstractTask implements Task {
             return false;
         }
         status = TaskStatus.FAILED;
+        setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
             return false;
         }

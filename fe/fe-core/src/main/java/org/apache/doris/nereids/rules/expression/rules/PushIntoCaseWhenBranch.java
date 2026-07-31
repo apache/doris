@@ -166,7 +166,7 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
         // so there will exist twice 'first' in the rewritten IF expression, which may increase the computation cost.
         // if the plan is not filter and not join, then push down action may not have positive effect,
         // considering this, we give up the rewrite if the plan is not condition plan or first contains unique function.
-        if (first.containsUniqueFunction() || !isConditionPlan) {
+        if (first.containsVolatileExpression() || !isConditionPlan) {
             return Optional.empty();
         }
         If ifExpr = new If(new IsNull(first), second, first);
@@ -182,7 +182,7 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
         // so there will exist twice 'first' in the rewritten IF expression, which may increase the computation cost.
         // if the plan is not filter and not join, then push down action may not have positive effect,
         // considering this, we give up the rewrite if the plan is not condition plan or first contains unique function.
-        if (first.containsUniqueFunction() || !isConditionPlan) {
+        if (first.containsVolatileExpression() || !isConditionPlan) {
             return Optional.empty();
         }
         If ifExpr = new If(new EqualTo(first, second), new NullLiteral(nullIf.getDataType()), first);

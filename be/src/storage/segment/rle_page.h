@@ -86,11 +86,6 @@ public:
             _rle_encoder->Put(value);
         }
 
-        if (_count == 0) {
-            memcpy(&_first_value, new_vals, SIZE_OF_TYPE);
-        }
-        memcpy(&_last_value, &new_vals[*count - 1], SIZE_OF_TYPE);
-
         _count += *count;
         _raw_data_size += *count * SIZE_OF_TYPE;
         return Status::OK();
@@ -124,24 +119,6 @@ public:
 
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
-    Status get_first_value(void* value) const override {
-        DCHECK(_finished);
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, &_first_value, SIZE_OF_TYPE);
-        return Status::OK();
-    }
-
-    Status get_last_value(void* value) const override {
-        DCHECK(_finished);
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, &_last_value, SIZE_OF_TYPE);
-        return Status::OK();
-    }
-
 private:
     RlePageBuilder(const PageBuilderOptions& options)
             : _options(options),
@@ -159,8 +136,6 @@ private:
     int _bit_width;
     RleEncoder<CppType>* _rle_encoder = nullptr;
     faststring _buf;
-    CppType _first_value;
-    CppType _last_value;
     uint64_t _raw_data_size = 0;
 };
 

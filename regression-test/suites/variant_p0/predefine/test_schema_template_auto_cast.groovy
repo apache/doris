@@ -18,7 +18,7 @@
 suite("test_schema_template_auto_cast", "p0") {
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
     sql """ set enable_variant_schema_auto_cast = true """

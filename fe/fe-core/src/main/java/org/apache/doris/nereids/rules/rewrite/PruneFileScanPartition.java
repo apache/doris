@@ -18,23 +18,26 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionPruneResult;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,6 +55,7 @@ import java.util.stream.Collectors;
  * external file ScanNode could do the partition filter by themselves.
  */
 public class PruneFileScanPartition extends OneRewriteRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(PruneFileScanPartition.class);
 
     @Override
     public Rule build() {
@@ -77,7 +81,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
         if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(
-                ctx.getStatementContext().getSnapshot(externalTable)))) {
+                ctx.getStatementContext().getSnapshot(externalTable,
+                        scan.getTableSnapshot(), scan.getScanParams())))) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
             return SelectedPartitions.NOT_PRUNED;
@@ -86,26 +91,55 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 .stream()
                 .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
         List<Slot> partitionSlots = externalTable.getPartitionColumns(
-                        ctx.getStatementContext().getSnapshot(externalTable))
+                        ctx.getStatementContext().getSnapshot(externalTable,
+                        scan.getTableSnapshot(), scan.getScanParams()))
                 .stream()
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
+
+        // The pruner's input contract is positional AND injective: PartitionPruner zips each partition
+        // slot with the partition key's value at the same index, and OneListPartitionEvaluator collects
+        // (slot -> literal) into an ImmutableMap. A repeated slot therefore aborts planning with
+        // "Multiple entries with same key", and a null slot (a declared partition column missing from the
+        // scan output) would NPE. Either shape means the table's partition model is not expressible as a
+        // Doris partition-column set — e.g. an iceberg spec with two partition FIELDS over one source
+        // column. Decline to prune instead of failing the query: NOT_PRUNED leaves isPruned=false, so
+        // PluginDrivenScanNode.resolveRequiredPartitions returns scan-all and the query reads every
+        // partition — never fewer rows, only a lost optimization.
+        if (partitionSlots.contains(null) || Sets.newHashSet(partitionSlots).size() != partitionSlots.size()) {
+            LOG.warn("skip partition pruning for {}.{}: partition columns {} do not map to a distinct,"
+                            + " fully-resolved scan slot set", externalTable.getDbName(),
+                    externalTable.getName(), partitionSlots);
+            return SelectedPartitions.NOT_PRUNED;
+        }
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
-        if (enableBinarySearch) {
-            sortedPartitionRanges = (Optional) externalTable.getSortedPartitionRanges(scan);
+        if (enableBinarySearch && !nameToPartitionItem.isEmpty()) {
+            sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges
+                    .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
+                    .or(() -> Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem)));
         }
-        Pair<List<String>, Optional<Expression>> res = PartitionPruner.prune(
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
                 PartitionTableType.EXTERNAL, sortedPartitionRanges);
-        List<String> prunedPartitions = new ArrayList<>(res.first);
+        List<String> prunedPartitions = new ArrayList<>(result.partitions);
 
         for (String name : prunedPartitions) {
-            selectedPartitionItems.put(name, nameToPartitionItem.get(name));
+            PartitionItem item = nameToPartitionItem.get(name);
+            // Within THIS query, nameToPartitionItem and sortedPartitionRanges are built from the same
+            // frozen map. On a cross-query cache HIT, sortedPartitionRanges instead reuses ranges built by
+            // an earlier query keyed by the identical (snapshotId, schemaId) version token -- content is
+            // identical only via the MVCC determinism premise (same version token => same partition set),
+            // not because the two maps are literally the same object. A missing item here means that
+            // premise was violated, so fail loud rather than silently returning a partial scan.
+            Preconditions.checkState(item != null,
+                    "pruned partition %s is missing in the selected partitions snapshot", name);
+            selectedPartitionItems.put(name, item);
         }
-        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true);
+        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
+                result.hasPartitionPredicate);
     }
 }

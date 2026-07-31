@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -78,6 +79,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
         BACKEND_TABLE.add("column_data_sizes");
         BACKEND_TABLE.add("be_compaction_tasks");
+        BACKEND_TABLE.add("backend_ms_rpc_table_throttlers");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {
@@ -167,7 +169,8 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
                 // create partition key
                 PartitionKey partitionKey = new PartitionKey();
                 for (Column partitionColumn : partitionColumns) {
-                    LiteralExpr expr = LiteralExpr.create(String.valueOf(be.getId()), partitionColumn.getType());
+                    LiteralExpr expr = LiteralExprUtils.createLiteral(
+                            String.valueOf(be.getId()), partitionColumn.getType());
                     partitionKey.pushColumn(expr, partitionColumn.getDataType());
                 }
                 // create partition Item

@@ -23,7 +23,6 @@ import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.s3.S3FileSystem;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -44,7 +43,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Environment-dependent integration tests for COS (Tencent Cloud) via {@link S3FileSystem}.
+ * Environment-dependent integration tests for COS (Tencent Cloud).
  */
 @Tag("environment")
 @Tag("cos")
@@ -53,7 +52,7 @@ import java.util.UUID;
 class CosFileSystemEnvTest {
 
     private static final String PREFIX = "doris-cos-ut-" + UUID.randomUUID() + "/";
-    private static S3FileSystem fs;
+    private static CosFileSystem fs;
     private static String bucket;
 
     @BeforeAll
@@ -66,7 +65,7 @@ class CosFileSystemEnvTest {
         props.put("AWS_SECRET_KEY", requireEnv("DORIS_FS_TEST_COS_SK"));
         props.put("use_path_style", "false");
         bucket = props.get("AWS_BUCKET");
-        fs = new S3FileSystem(new CosObjStorage(props));
+        fs = new CosFileSystem(new CosObjStorage(props));
     }
 
     @AfterAll

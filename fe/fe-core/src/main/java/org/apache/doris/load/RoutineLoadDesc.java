@@ -18,8 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
@@ -28,27 +27,29 @@ import org.apache.doris.load.loadv2.LoadTask;
 
 import com.google.common.base.Strings;
 
+import java.util.List;
+
 public class RoutineLoadDesc {
     private final Separator columnSeparator;
     private final Separator lineDelimiter;
-    private final ImportColumnsStmt columnsInfo;
-    private final ImportWhereStmt precedingFilter;
-    private final ImportWhereStmt wherePredicate;
+    private final List<ImportColumnDesc> columnsInfo;
+    private final Expr precedingFilter;
+    private final Expr filter;
     private final Expr deleteCondition;
     private LoadTask.MergeType mergeType;
     // nullable
     private final PartitionNamesInfo partitionNamesInfo;
     private final String sequenceColName;
 
-    public RoutineLoadDesc(Separator columnSeparator, Separator lineDelimiter, ImportColumnsStmt columnsInfo,
-                           ImportWhereStmt precedingFilter, ImportWhereStmt wherePredicate,
+    public RoutineLoadDesc(Separator columnSeparator, Separator lineDelimiter, List<ImportColumnDesc> columnsInfo,
+                           Expr precedingFilter, Expr filter,
                            PartitionNamesInfo partitionNamesInfo, Expr deleteCondition, LoadTask.MergeType mergeType,
                            String sequenceColName) {
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
         this.columnsInfo = columnsInfo;
         this.precedingFilter = precedingFilter;
-        this.wherePredicate = wherePredicate;
+        this.filter = filter;
         this.partitionNamesInfo = partitionNamesInfo;
         this.deleteCondition = deleteCondition;
         this.mergeType = mergeType;
@@ -63,16 +64,16 @@ public class RoutineLoadDesc {
         return lineDelimiter;
     }
 
-    public ImportColumnsStmt getColumnsInfo() {
+    public List<ImportColumnDesc> getColumnsInfo() {
         return columnsInfo;
     }
 
-    public ImportWhereStmt getPrecedingFilter() {
+    public Expr getPrecedingFilter() {
         return precedingFilter;
     }
 
-    public ImportWhereStmt getWherePredicate() {
-        return wherePredicate;
+    public Expr getFilter() {
+        return filter;
     }
 
     public LoadTask.MergeType getMergeType() {

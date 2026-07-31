@@ -23,6 +23,10 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -42,12 +46,20 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 
 public class MTMVUtil {
+
+    private static final Logger LOG = LogManager.getLogger(MTMVUtil.class);
 
     /**
      * get Table by BaseTableInfo
@@ -98,6 +110,59 @@ public class MTMVUtil {
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
+    public static List<MTMV> getDependentMtmvsByBaseTables(List<BaseTableInfo> baseTableInfos)
+            throws AnalysisException {
+        Set<BaseTableInfo> uniqueBases = new LinkedHashSet<>(baseTableInfos);
+        Map<Long, MTMV> mtmvById = new TreeMap<>();
+        for (BaseTableInfo base : uniqueBases) {
+            for (BaseTableInfo mtmvInfo
+                    : Env.getCurrentEnv().getMtmvService().getRelationManager()
+                            .getMtmvsByBaseTable(base)) {
+                try {
+                    MTMV mtmv = MTMVUtil.getMTMV(mtmvInfo);
+                    mtmvById.put(mtmv.getId(), mtmv);
+                } catch (AnalysisException e) {
+                    LOG.warn("Skip stale dependent MTMV relation {} for base table {}",
+                            mtmvInfo, base, e);
+                }
+            }
+        }
+        return new ArrayList<>(mtmvById.values());
+    }
+
+    public static List<BaseTableInfo> getConstraintRelatedBaseTables(
+            TableNameInfo tableNameInfo, Constraint constraint) {
+        List<BaseTableInfo> baseTables = new ArrayList<>();
+        baseTables.add(new BaseTableInfo(tableNameInfo));
+        if (constraint instanceof ForeignKeyConstraint) {
+            TableNameInfo referencedTableInfo = ((ForeignKeyConstraint) constraint).getReferencedTableName();
+            if (referencedTableInfo != null) {
+                baseTables.add(new BaseTableInfo(referencedTableInfo));
+            }
+        } else if (constraint instanceof PrimaryKeyConstraint) {
+            for (TableNameInfo fkTableInfo : ((PrimaryKeyConstraint) constraint).getForeignTableInfos()) {
+                baseTables.add(new BaseTableInfo(fkTableInfo));
+            }
+        }
+        return baseTables;
+    }
+
+    public static List<MTMV> getDependentMtmvsByConstraint(TableNameInfo tableNameInfo, Constraint constraint)
+            throws AnalysisException {
+        return getDependentMtmvsByBaseTables(getConstraintRelatedBaseTables(tableNameInfo, constraint));
+    }
+
+    public static void invalidateRewriteCachesBestEffort(List<MTMV> dependentMtmvs, String reason) {
+        for (MTMV dependentMtmv : dependentMtmvs) {
+            try {
+                dependentMtmv.invalidateRewriteCache();
+            } catch (Exception e) {
+                LOG.warn("Failed to invalidate rewrite cache for dependent MTMV {}: {}",
+                        dependentMtmv.getName(), reason, e);
+            }
+        }
+    }
+
     public static TableIf getTable(List<String> names) throws AnalysisException {
         if (names == null || names.size() != 3) {
             throw new AnalysisException("size of names need 3, but names is:" + names);
@@ -116,12 +181,7 @@ public class MTMVUtil {
      */
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
         Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevelAndFromView();
-        for (BaseTableInfo baseTableInfo : baseTables) {
-            if (!baseTableInfo.isInternalTable()) {
-                return true;
-            }
-        }
-        return false;
+        return baseTables.stream().anyMatch(baseTableInfo -> !baseTableInfo.isInternalTable());
     }
 
     /**

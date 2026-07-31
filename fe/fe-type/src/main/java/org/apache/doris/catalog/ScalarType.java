@@ -1073,4 +1073,5 @@ public class ScalarType extends Type {
         }
         return false; // Default to false for backward compatibility.
     }
+
 }

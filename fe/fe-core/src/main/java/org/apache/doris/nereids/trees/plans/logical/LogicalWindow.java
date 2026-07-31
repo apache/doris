@@ -325,11 +325,26 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 && chosenRowNumberPartitionLimit == Long.MAX_VALUE)) {
             return null;
         } else {
-            // 4. check all windowExpression's order key is empty or is the same as chosenWindowFunc's order key
+            // 4. check all windowExpression's partition key and order key are compatible with chosenWindowFunc.
+            // The generated partitionTopN is pushed below the whole window node, so it prunes the input rows
+            // (keeping per-partition top-k of the chosen function) of every co-located window function.
+            // For another window function W to stay correct, every row that could affect W's value for a
+            // surviving row must also survive the pruning. This holds iff the chosen partition key is a
+            // SUBSET of W's partition key (chosen is coarser): then any row in W's partition with a smaller
+            // order value is also in the same chosen-partition with an order value <= the surviving row's,
+            // so its chosen-rank is within top-k and it is kept. The order key must also be compatible
+            // (empty or identical). Otherwise we must disable the optimization, e.g.
+            //   'row_number() over (partition by a order by c)' as rn together with
+            //   'row_number() over (partition by b order by c)' as rk, filter on rn
+            // (independent partitions), or a chosen partition (a, b) finer than a co-located 'partition by a'
+            // would prune rows the latter still needs and produce a wrong result.
             for (NamedExpression windowExpr : windowExpressions) {
                 if (windowExpr != null && windowExpr instanceof Alias
                         && windowExpr.child(0) instanceof WindowExpression) {
                     WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+                    if (!windowFunc.getPartitionKeys().containsAll(chosenWindowFunc.getPartitionKeys())) {
+                        return null;
+                    }
                     if (windowFunc.getOrderKeys().isEmpty()
                             || windowFunc.getOrderKeys().equals(chosenWindowFunc.getOrderKeys())) {
                         continue;

@@ -101,12 +101,6 @@ public:
         DCHECK(!_finished);
         _finished = true;
         RETURN_IF_CATCH_EXCEPTION({
-            // Store first and last values for statistics
-            if (_positions.size() > 0) {
-                _copy_value_at(0, &_first_value);
-                _copy_value_at(_positions.size() - 1, &_last_value);
-            }
-
             // Write trailer: number of elements
             put_fixed32_le(&_buffer, cast_set<uint32_t>(_positions.size()));
 
@@ -136,50 +130,9 @@ public:
 
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
-    Status get_first_value(void* value) const override {
-        DCHECK(_finished);
-        if (_positions.size() == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        *reinterpret_cast<Slice*>(value) = Slice(_first_value);
-        return Status::OK();
-    }
-
-    Status get_last_value(void* value) const override {
-        DCHECK(_finished);
-        if (_positions.size() == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        *reinterpret_cast<Slice*>(value) = Slice(_last_value);
-        return Status::OK();
-    }
-
-    Status get_dict_word(uint32_t value_code, Slice* word) override {
-        if (value_code >= _positions.size()) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "value_code {} is out of range [0, {})", value_code, _positions.size());
-        }
-
-        const uint8_t* ptr = reinterpret_cast<const uint8_t*>(&_buffer[_positions[value_code]]);
-        uint32_t length;
-        const uint8_t* data_ptr = decode_varint32_ptr(ptr, ptr + 5, &length);
-
-        word->data = const_cast<char*>(reinterpret_cast<const char*>(data_ptr));
-        word->size = length;
-
-        return Status::OK();
-    }
-
 private:
     BinaryPlainPageV2Builder(const PageBuilderOptions& options)
             : _size_estimate(0), _options(options) {}
-
-    void _copy_value_at(size_t idx, faststring* value) const {
-        const uint8_t* ptr = &_buffer[_positions[idx]];
-        uint32_t length;
-        const uint8_t* data_ptr = decode_varint32_ptr(ptr, ptr + 5, &length);
-        value->assign_copy(data_ptr, length);
-    }
 
     faststring _buffer;
     size_t _size_estimate = 0;
@@ -189,8 +142,6 @@ private:
     PageBuilderOptions _options;
     uint32_t _last_value_size = 0;
     uint64_t _raw_data_size = 0;
-    faststring _first_value;
-    faststring _last_value;
 };
 
 // BinaryPlainPageV2Decoder now inherits from BinaryPlainPageDecoder.

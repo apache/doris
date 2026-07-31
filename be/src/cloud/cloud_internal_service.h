@@ -17,11 +17,25 @@
 
 #pragma once
 
+#include <chrono>
+
 #include "service/internal_service.h"
+
+namespace brpc {
+class Controller;
+}
 
 namespace doris {
 
 class CloudStorageEngine;
+
+#ifdef BE_TEST
+Status test_handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request,
+                                                 PFetchPeerDataResponse* response,
+                                                 brpc::Controller* cntl);
+bool test_try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point enqueue_ts,
+                                        PFetchPeerDataResponse* response);
+#endif
 
 class CloudInternalServiceImpl final : public PInternalService {
 public:

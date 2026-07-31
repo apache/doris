@@ -49,5 +49,8 @@ public:
     ~HudiJniReader() override = default;
 
     Status init_reader();
+
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 };
 } // namespace doris

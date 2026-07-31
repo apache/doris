@@ -28,7 +28,6 @@
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 
 namespace doris {
 class Arena;
@@ -144,7 +143,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to);
+        auto& column = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&,
+                                   TypeCheckOnRelease::DISABLE>(to);
         column.get_data().push_back(this->data(place).get());
     }
 };

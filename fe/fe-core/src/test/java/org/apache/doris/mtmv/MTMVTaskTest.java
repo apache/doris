@@ -17,25 +17,32 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.commons.collections4.CollectionUtils;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Set;
@@ -47,61 +54,50 @@ public class MTMVTaskTest {
     private MTMVRelation relation = new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(),
             Sets.newHashSet(), Sets.newHashSet());
 
-    @Mocked
-    private MTMV mtmv;
-    @Mocked
-    private MTMVUtil mtmvUtil;
-    @Mocked
-    private MTMVPartitionUtil mtmvPartitionUtil;
-    @Mocked
-    private MTMVPartitionInfo mtmvPartitionInfo;
-    @Mocked
-    private MTMVRefreshInfo mtmvRefreshInfo;
+    private MTMV mtmv = Mockito.mock(MTMV.class);
+    private MTMVPartitionInfo mtmvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+    private MTMVRefreshInfo mtmvRefreshInfo = Mockito.mock(MTMVRefreshInfo.class);
+    private MockedStatic<MTMVUtil> mtmvUtilStatic;
+    private MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic;
+    private static final String COMPUTE_GROUP = "ComputeGroup";
 
     @Before
     public void setUp()
             throws NoSuchMethodException, SecurityException, AnalysisException, DdlException, MetaNotFoundException {
 
-        new Expectations() {
-            {
-                mtmvUtil.getMTMV(anyLong, anyLong);
-                minTimes = 0;
-                result = mtmv;
+        mtmvUtilStatic = Mockito.mockStatic(MTMVUtil.class);
+        mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class);
 
-                mtmv.getPartitionNames();
-                minTimes = 0;
-                result = Sets.newHashSet(poneName, ptwoName);
+        mtmvUtilStatic.when(() -> MTMVUtil.getMTMV(Mockito.anyLong(), Mockito.anyLong())).thenReturn(mtmv);
 
-                mtmv.getMvPartitionInfo();
-                minTimes = 0;
-                result = mtmvPartitionInfo;
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(poneName, ptwoName));
 
-                mtmvPartitionInfo.getPartitionType();
-                minTimes = 0;
-                result = MTMVPartitionType.FOLLOW_BASE_TABLE;
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mtmvPartitionInfo);
 
-                // mtmvPartitionUtil.getPartitionsIdsByNames(mtmv, Lists.newArrayList(poneName));
-                // minTimes = 0;
-                // result = poneId;
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
 
-                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = true;
+        // mtmvPartitionUtil.getPartitionsIdsByNames(mtmv, Lists.newArrayList(poneName));
+        // minTimes = 0;
+        // result = poneId;
 
-                mtmv.getRefreshInfo();
-                minTimes = 0;
-                result = mtmvRefreshInfo;
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(true);
 
-                mtmvRefreshInfo.getRefreshMethod();
-                minTimes = 0;
-                result = RefreshMethod.COMPLETE;
-            }
-        };
+        Mockito.when(mtmv.getRefreshInfo()).thenReturn(mtmvRefreshInfo);
+
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.COMPLETE);
+
+        Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(true);
+    }
+
+    @After
+    public void tearDown() {
+        mtmvUtilStatic.close();
+        mtmvPartitionUtilStatic.close();
     }
 
     @Test
     public void testCalculateNeedRefreshPartitionsManualComplete() throws AnalysisException {
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, true);
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, true, null);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
         Assert.assertEquals(allPartitionNames, result);
@@ -109,7 +105,8 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsManualPartitions() throws AnalysisException {
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName), false);
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
+                false, null);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
         Assert.assertEquals(Lists.newArrayList(poneName), result);
@@ -117,13 +114,7 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsSystem() throws AnalysisException {
-        new Expectations() {
-            {
-                mtmvRefreshInfo.getRefreshMethod();
-                minTimes = 0;
-                result = RefreshMethod.AUTO;
-            }
-        };
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
@@ -139,14 +130,36 @@ public class MTMVTaskTest {
     }
 
     @Test
+    public void testCalculateNeedRefreshPartitionsSystemIncompleteRefreshSnapshot() throws AnalysisException {
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
+        Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(false);
+
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null);
+
+        Assert.assertEquals(allPartitionNames, result);
+        mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.isMTMVSync(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class)),
+                Mockito.never());
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsManualPartitionsIncompleteRefreshSnapshot()
+            throws AnalysisException {
+        Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(false);
+
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
+                false, null);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null);
+
+        Assert.assertEquals(Lists.newArrayList(poneName), result);
+    }
+
+    @Test
     public void testCalculateNeedRefreshPartitionsSystemNotSyncComplete() throws AnalysisException {
-        new Expectations() {
-            {
-                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(false);
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
@@ -155,26 +168,89 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsSystemNotSyncAuto() throws AnalysisException {
-        new Expectations() {
-            {
-                mtmvPartitionUtil
-                        .isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = false;
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(false);
 
-                mtmvRefreshInfo.getRefreshMethod();
-                minTimes = 0;
-                result = RefreshMethod.AUTO;
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
 
-                mtmvPartitionUtil
-                        .getMTMVNeedRefreshPartitions((MTMVRefreshContext) any, (Set<BaseTableInfo>) any);
-                minTimes = 0;
-                result = Lists.newArrayList(ptwoName);
-            }
-        };
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class))).thenReturn(Lists.newArrayList(ptwoName));
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
         Assert.assertEquals(Lists.newArrayList(ptwoName), result);
+    }
+
+    @Test
+    public void testTaskSchemaContainsComputeGroup() {
+        Column lastColumn = MTMVTask.SCHEMA.get(MTMVTask.SCHEMA.size() - 1);
+        Assert.assertEquals(COMPUTE_GROUP, lastColumn.getName());
+        Assert.assertEquals(MTMVTask.SCHEMA.size() - 1,
+                MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase()).intValue());
+    }
+
+    @Test
+    public void testGetTvfInfoReturnsComputeGroup() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.setField(task, "computeGroup", "cg1");
+
+        TRow row = task.getTvfInfo("job1");
+
+        Assert.assertEquals("cg1", row.getColumnValue()
+                .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
+    }
+
+    @Test
+    public void testRecordComputeGroupFromContext() {
+        String originCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test_cloud";
+            ConnectContext ctx = new ConnectContext();
+            ctx.setCloudCluster("cg1");
+            MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+            Deencapsulation.invoke(task, "recordComputeGroup", ctx);
+            TRow row = task.getTvfInfo("job1");
+
+            Assert.assertEquals("cg1", row.getColumnValue()
+                    .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
+        } finally {
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testSetComputeGroupFromTaskContext() {
+        String originCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test_cloud";
+            ConnectContext ctx = new ConnectContext();
+            MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, true, "cg1");
+            MTMVTask task = new MTMVTask(mtmv, relation, context);
+
+            Deencapsulation.invoke(task, "setComputeGroup", ctx);
+
+            Assert.assertEquals("cg1", ctx.getSessionVariable().getCloudCluster());
+        } finally {
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testGetTvfInfoReturnsNullStringForMissingComputeGroup() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        TRow row = task.getTvfInfo("job1");
+
+        Assert.assertEquals(FeConstants.null_string, row.getColumnValue()
+                .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
+    }
+
+    @Test
+    public void testDeserializeOldTaskWithoutComputeGroup() {
+        MTMVTask task = GsonUtils.GSON.fromJson("{\"di\":1,\"mi\":2}", MTMVTask.class);
+
+        TRow row = task.getTvfInfo("job1");
+
+        Assert.assertEquals(FeConstants.null_string, row.getColumnValue()
+                .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
     }
 }

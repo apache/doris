@@ -354,7 +354,7 @@ public:
         auto res_column = ColumnString::create();
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
 
-        auto result_column = assert_cast<ColumnString*>(res_column.get());
+        auto result_column = res_column.get();
 
         Impl::execute(context, result_column, argument_column, input_rows_count);
 
@@ -528,7 +528,7 @@ public:
         bool is_const;
         std::tie(argument_column_2, is_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        auto* result_column = assert_cast<ColumnString*>(res_column.get());
+        auto* result_column = res_column.get();
 
         if (is_const) {
             RETURN_IF_ERROR(Impl::template execute<true>(context, result_column, argument_column,

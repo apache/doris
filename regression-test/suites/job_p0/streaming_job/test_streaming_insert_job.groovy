@@ -82,6 +82,11 @@ suite("test_streaming_insert_job") {
     def jobResult = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
     log.info("show success job: " + jobResult)
 
+    // LastTaskSuccessTime should be populated after a successful task commit.
+    def lastSuccessTime = sql """select LastTaskSuccessTime from jobs("type"="insert") where Name='${jobName}'"""
+    assert lastSuccessTime.get(0).get(0) != null && lastSuccessTime.get(0).get(0) != "",
+            "LastTaskSuccessTime should be set after a successful task, got: " + lastSuccessTime.get(0).get(0)
+
     qt_select """ SELECT * FROM ${tableName} order by c1 """
 
     sql """

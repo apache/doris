@@ -105,7 +105,7 @@ public class TokenManager {
             }
             return result.getToken();
         } catch (TTransportException e) {
-            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
+            boolean ok = ClientPool.frontendPool.reopenOrClear(thriftAddress, client, thriftTimeoutMs);
             if (!ok) {
                 throw e;
             }
@@ -159,7 +159,7 @@ public class TokenManager {
             isReturnToPool = true;
             return result;
         } catch (TTransportException e) {
-            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
+            boolean ok = ClientPool.frontendPool.reopenOrClear(thriftAddress, client, thriftTimeoutMs);
             if (!ok) {
                 throw e;
             }

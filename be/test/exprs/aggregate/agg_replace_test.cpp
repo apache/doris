@@ -123,7 +123,11 @@ public:
         auto* data_col = array_col->get_data_ptr().get();
         EXPECT_EQ(data_col->size(), expect_num);
         for (size_t i = 0; i < expect_num; ++i) {
-            check_column_basic<DataType, nullable>(data_col, i, i);
+            if (data_col->is_nullable()) {
+                check_column_basic<DataType, true>(data_col, i, i);
+            } else {
+                check_column_basic<DataType, false>(data_col, i, i);
+            }
         }
     }
 

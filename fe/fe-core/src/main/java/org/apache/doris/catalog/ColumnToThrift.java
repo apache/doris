@@ -51,7 +51,7 @@ public class ColumnToThrift {
         tColumn.setColumnType(tColumnType);
 
         if (column.getAggregationType() != null) {
-            tColumn.setAggregationType(column.getAggregationType().toThrift());
+            tColumn.setAggregationType(toThrift(column.getAggregationType()));
         } else {
             tColumn.setAggregationType(TAggregationType.NONE);
         }
@@ -94,6 +94,31 @@ public class ColumnToThrift {
         // If we need to use `defineExpr` and call defineExpr.treeToThrift(),
         // make sure it is analyzed, or NPE will thrown.
         return tColumn;
+    }
+
+    public static TAggregationType toThrift(AggregateType aggregateType) {
+        switch (aggregateType) {
+            case SUM:
+                return TAggregationType.SUM;
+            case MAX:
+                return TAggregationType.MAX;
+            case MIN:
+                return TAggregationType.MIN;
+            case REPLACE:
+                return TAggregationType.REPLACE;
+            case REPLACE_IF_NOT_NULL:
+                return TAggregationType.REPLACE_IF_NOT_NULL;
+            case NONE:
+                return TAggregationType.NONE;
+            case HLL_UNION:
+                return TAggregationType.HLL_UNION;
+            case BITMAP_UNION:
+                return TAggregationType.BITMAP_UNION;
+            case QUANTILE_UNION:
+                return TAggregationType.QUANTILE_UNION;
+            default:
+                return null;
+        }
     }
 
     public static void setChildrenTColumn(Column children, TColumn tColumn) {

@@ -26,7 +26,6 @@
 #include "core/string_buffer.hpp"
 #include "core/value/ipv6_value.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 namespace doris {
 bool DataTypeIPv6::equals(const IDataType& rhs) const {

@@ -60,10 +60,6 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import junit.framework.AssertionFailedError;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -71,15 +67,17 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 
 public abstract class DorisHttpTestCase {
 
@@ -132,8 +130,9 @@ public abstract class DorisHttpTestCase {
         DORIS_HOME = dorisHome;
     }
 
-    @Mocked
-    private static EditLog editLog;
+    private static EditLog editLog = Mockito.mock(EditLog.class);
+
+    private Env originalEnvInstance;
 
     public static OlapTable newTable(String name) {
         Env.getCurrentInvertedIndex().clear();
@@ -182,96 +181,38 @@ public abstract class DorisHttpTestCase {
         return table;
     }
 
-
-
     private static Env newDelegateCatalog() {
         try {
-            Env env = Deencapsulation.newInstance(Env.class);
+            Env env = Mockito.spy(Deencapsulation.newInstance(Env.class));
             Auth auth = new Auth();
             AccessControllerManager accessManager = new AccessControllerManager(auth);
-            //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
             Database db = new Database(testDbId, "testDb");
             OlapTable table = newTable(TABLE_NAME);
             db.registerTable(table);
             OlapTable table1 = newTable(TABLE_NAME + 1);
             db.registerTable(table1);
 
+            InternalCatalog internalCatalog = Mockito.spy(Deencapsulation.newInstance(InternalCatalog.class));
+            // anyString catch-all first, then specific overrides
+            Mockito.doReturn(new Database()).when(internalCatalog).getDbNullable(Mockito.anyString());
+            Mockito.doReturn(db).when(internalCatalog).getDbNullable("" + DB_NAME);
+            Mockito.doReturn(null).when(internalCatalog).getDbNullable("emptyDb");
+            Mockito.doReturn(db).when(internalCatalog).getDbNullable(db.getId());
+            Mockito.doReturn(Lists.newArrayList("testDb")).when(internalCatalog).getDbNames();
 
-            InternalCatalog internalCatalog = Deencapsulation.newInstance(InternalCatalog.class);
-            new Expectations(internalCatalog) {
-                {
-                    internalCatalog.getDbNullable(db.getId());
-                    minTimes = 0;
-                    result = db;
+            CatalogMgr dsMgr = Mockito.spy(new CatalogMgr());
+            Mockito.doReturn(internalCatalog).when(dsMgr).getCatalog(Mockito.anyString());
+            Mockito.doReturn(internalCatalog).when(dsMgr).getCatalogOrException(Mockito.anyString(), Mockito.any());
+            Mockito.doReturn(internalCatalog).when(dsMgr).getCatalogOrAnalysisException(Mockito.anyString());
 
-                    internalCatalog.getDbNullable("" + DB_NAME);
-                    minTimes = 0;
-                    result = db;
+            Mockito.doReturn(accessManager).when(env).getAccessManager();
+            Mockito.doReturn(true).when(env).isMaster();
+            Mockito.doReturn(editLog).when(env).getEditLog();
+            Mockito.doReturn(internalCatalog).when(env).getInternalCatalog();
+            Mockito.doReturn(internalCatalog).when(env).getCurrentCatalog();
+            Mockito.doNothing().when(env).changeDb(Mockito.nullable(ConnectContext.class), Mockito.anyString());
+            Mockito.doReturn(dsMgr).when(env).getCatalogMgr();
 
-                    internalCatalog.getDbNullable("emptyDb");
-                    minTimes = 0;
-                    result = null;
-
-                    internalCatalog.getDbNullable(anyString);
-                    minTimes = 0;
-                    result = new Database();
-
-                    internalCatalog.getDbNames();
-                    minTimes = 0;
-                    result = Lists.newArrayList("testDb");
-                }
-            };
-
-            CatalogMgr dsMgr = new CatalogMgr();
-            new Expectations(dsMgr) {
-                {
-                    dsMgr.getCatalog((String) any);
-                    minTimes = 0;
-                    result = internalCatalog;
-
-                    dsMgr.getCatalogOrException((String) any, (Function) any);
-                    minTimes = 0;
-                    result = internalCatalog;
-
-                    dsMgr.getCatalogOrAnalysisException((String) any);
-                    minTimes = 0;
-                    result = internalCatalog;
-                }
-            };
-
-            new Expectations(env) {
-                {
-                    env.getAccessManager();
-                    minTimes = 0;
-                    result = accessManager;
-
-                    env.isMaster();
-                    minTimes = 0;
-                    result = true;
-
-                    env.getEditLog();
-                    minTimes = 0;
-                    result = editLog;
-
-                    env.getInternalCatalog();
-                    minTimes = 0;
-                    result = internalCatalog;
-
-                    env.getCurrentCatalog();
-                    minTimes = 0;
-                    result = internalCatalog;
-
-                    env.changeDb((ConnectContext) any, "blockDb");
-                    minTimes = 0;
-
-                    env.changeDb((ConnectContext) any, anyString);
-                    minTimes = 0;
-
-                    env.getCatalogMgr();
-                    minTimes = 0;
-                    result = dsMgr;
-                }
-            };
             return env;
         } catch (DdlException e) {
             return null;
@@ -332,46 +273,63 @@ public abstract class DorisHttpTestCase {
         file.delete();
     }
 
-
     @Before
     public void setUp() {
         Env env = newDelegateCatalog();
         SystemInfoService systemInfoService = new SystemInfoService();
         TabletInvertedIndex tabletInvertedIndex = new LocalTabletInvertedIndex();
-        new MockUp<Env>() {
-            @Mock
-            SchemaChangeHandler getSchemaChangeHandler() {
-                return new SchemaChangeHandler();
-            }
 
-            @Mock
-            MaterializedViewHandler getMaterializedViewHandler() {
-                return new MaterializedViewHandler();
-            }
+        Mockito.doReturn(new SchemaChangeHandler()).when(env).getSchemaChangeHandler();
+        Mockito.doReturn(new MaterializedViewHandler()).when(env).getMaterializedViewHandler();
+        Mockito.doReturn(systemInfoService).when(env).getClusterInfo();
+        Mockito.doReturn(tabletInvertedIndex).when(env).getTabletInvertedIndex();
 
-            @Mock
-            Env getCurrentEnv() {
-                return env;
-            }
+        // Replace SingletonHolder.INSTANCE with our spy for cross-thread visibility.
+        // Mockito.mockStatic is thread-local and invisible to HTTP handler threads.
+        try {
+            originalEnvInstance = replaceEnvSingleton(env);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to set SingletonHolder.INSTANCE", e);
+        }
 
-            @Mock
-            SystemInfoService getCurrentSystemInfo() {
-                return systemInfoService;
-            }
-
-            @Mock
-            TabletInvertedIndex getCurrentInvertedIndex() {
-                return tabletInvertedIndex;
-            }
-        };
         assignBackends();
         doSetUp();
     }
 
     @After
     public void tearDown() {
+        if (originalEnvInstance != null) {
+            try {
+                replaceEnvSingleton(originalEnvInstance);
+                originalEnvInstance = null;
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to restore SingletonHolder.INSTANCE", e);
+            }
+        }
     }
 
+    /**
+     * Replace Env.SingletonHolder.INSTANCE using sun.misc.Unsafe via reflection.
+     * Returns the previous INSTANCE value. This is needed because mockStatic is
+     * thread-local and HTTP handler threads cannot see it.
+     */
+    private static Env replaceEnvSingleton(Env newInstance) throws Exception {
+        Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+        Field unsafeField = unsafeClass.getDeclaredField("theUnsafe");
+        unsafeField.setAccessible(true);
+        Object unsafe = unsafeField.get(null);
+        Class<?> singletonHolder = Class.forName("org.apache.doris.catalog.Env$SingletonHolder");
+        Field instanceField = singletonHolder.getDeclaredField("INSTANCE");
+        Method staticFieldOffset = unsafeClass.getMethod("staticFieldOffset", Field.class);
+        Method staticFieldBase = unsafeClass.getMethod("staticFieldBase", Field.class);
+        Method getObject = unsafeClass.getMethod("getObject", Object.class, long.class);
+        Method putObject = unsafeClass.getMethod("putObject", Object.class, long.class, Object.class);
+        long offset = (long) staticFieldOffset.invoke(unsafe, instanceField);
+        Object base = staticFieldBase.invoke(unsafe, instanceField);
+        Env old = (Env) getObject.invoke(unsafe, base, offset);
+        putObject.invoke(unsafe, base, offset, newInstance);
+        return old;
+    }
 
     public void doSetUp() {
 

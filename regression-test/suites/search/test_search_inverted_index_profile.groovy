@@ -72,8 +72,7 @@ suite("test_search_inverted_index_profile", "nonConcurrent") {
     sql """ set enable_sql_cache = false """
     sql """ set enable_inverted_index_searcher_cache = false """
     sql """ set enable_inverted_index_query_cache = false """
-    sql """ set enable_common_expr_pushdown = true """
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     def queryId1 = "search_profile_miss_${System.currentTimeMillis()}"
     try {
@@ -127,7 +126,7 @@ suite("test_search_inverted_index_profile", "nonConcurrent") {
     sql """ set enable_inverted_index_query_cache = false """
 
     // First run: populate searcher cache
-    sql """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */
+    sql """SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */
            id FROM ${tableName} WHERE search('title:cherry') ORDER BY id"""
 
     // Second run: should hit searcher cache
@@ -179,16 +178,16 @@ suite("test_search_inverted_index_profile", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("FieldReaderResolver.resolve.io_ctx")
 
         // First query: cache miss, debug point validates io_ctx consistency
-        qt_io_ctx_miss """ SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */
+        qt_io_ctx_miss """ SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */
             id FROM ${tableName} WHERE search('content:tropical') ORDER BY id """
 
         // Second query: cache hit, reuses the cached searcher
         // If io_ctx was stale, this would crash under ASAN
-        qt_io_ctx_hit """ SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */
+        qt_io_ctx_hit """ SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */
             id FROM ${tableName} WHERE search('content:tropical') ORDER BY id """
 
         // Third query: different DSL but same field — exercises resolver cache
-        qt_io_ctx_multi """ SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */
+        qt_io_ctx_multi """ SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */
             id FROM ${tableName} WHERE search('content:tropical OR content:fruit') ORDER BY id """
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("FieldReaderResolver.resolve.io_ctx")
@@ -204,7 +203,7 @@ suite("test_search_inverted_index_profile", "nonConcurrent") {
     sql """ set enable_inverted_index_query_cache = true """
 
     // First run: populate DSL cache
-    sql """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */
+    sql """SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */
            id FROM ${tableName} WHERE search('title:banana') ORDER BY id"""
 
     // Second run: should hit DSL cache
@@ -251,7 +250,7 @@ suite("test_search_inverted_index_profile", "nonConcurrent") {
     sql """ set enable_inverted_index_query_cache = false """
 
     // First run: cache miss (searcher cache disabled, nothing to hit)
-    sql """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */
+    sql """SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */
            id FROM ${tableName} WHERE search('title:grape') ORDER BY id"""
 
     // Second run: should STILL be a cache miss because searcher cache is disabled
@@ -291,7 +290,7 @@ suite("test_search_inverted_index_profile", "nonConcurrent") {
     // both should return identical results.
     // =========================================================================
     def search_result = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */
         id FROM ${tableName} WHERE search('title:apple') ORDER BY id
     """
     def match_result = sql """

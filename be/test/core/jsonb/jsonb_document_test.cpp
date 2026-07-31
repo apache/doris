@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -29,6 +30,7 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
+
 class JsonbDocumentTest : public testing::Test {
 protected:
     void SetUp() override {}
@@ -36,31 +38,46 @@ protected:
     void TearDown() override {}
 };
 
+static const JsonbValue* jsonb_value(JsonbWriter& writer) {
+    return writer.getDocument()->getValue();
+}
+
+static std::string remove_path_member_escapes(std::string escaped) {
+    Stream stream(escaped.data(), escaped.size());
+    stream.set_leg_ptr(escaped.data());
+    stream.clear_leg_len();
+    for (size_t i = 0; i < escaped.size(); ++i) {
+        stream.add_leg_len();
+    }
+    stream.remove_escapes();
+    return {escaped.data(), stream.get_leg_len()};
+}
+
 TEST_F(JsonbDocumentTest, writer) {
     JsonbWriter writer;
     writer.writeStartObject();
 
-    writer.writeKey("key_null");
+    writer.writeKey("key_null", static_cast<uint8_t>(sizeof("key_null") - 1));
     writer.writeNull();
 
-    writer.writeKey("key_true");
+    writer.writeKey("key_true", static_cast<uint8_t>(sizeof("key_true") - 1));
     writer.writeBool(true);
 
-    writer.writeKey("key_false");
+    writer.writeKey("key_false", static_cast<uint8_t>(sizeof("key_false") - 1));
     writer.writeBool(false);
 
-    writer.writeKey("key_int");
+    writer.writeKey("key_int", static_cast<uint8_t>(sizeof("key_int") - 1));
     writer.writeInt(12345);
 
-    writer.writeKey("key_float");
+    writer.writeKey("key_float", static_cast<uint8_t>(sizeof("key_float") - 1));
     writer.writeFloat(123.456);
 
-    writer.writeKey("key_string");
+    writer.writeKey("key_string", static_cast<uint8_t>(sizeof("key_string") - 1));
     writer.writeStartString();
     writer.writeString("hello world");
     writer.writeEndString();
 
-    writer.writeKey("key_array");
+    writer.writeKey("key_array", static_cast<uint8_t>(sizeof("key_array") - 1));
 
     writer.writeStartArray();
     writer.writeInt(1);
@@ -69,24 +86,24 @@ TEST_F(JsonbDocumentTest, writer) {
     writer.writeEndString();
     writer.writeEndArray();
 
-    writer.writeKey("key_int128");
+    writer.writeKey("key_int128", static_cast<uint8_t>(sizeof("key_int128") - 1));
 
     __int128_t int128_value = __int128_t(std::numeric_limits<uint64_t>::max()) + 1;
     writer.writeInt128(int128_value);
 
-    writer.writeKey("key_decimal32");
+    writer.writeKey("key_decimal32", static_cast<uint8_t>(sizeof("key_decimal32") - 1));
     Decimal32 decimal_value32(int32_t(99999999));
     writer.writeDecimal(decimal_value32, 9, 4);
 
-    writer.writeKey("key_decimal64");
+    writer.writeKey("key_decimal64", static_cast<uint8_t>(sizeof("key_decimal64") - 1));
     Decimal64 decimal_value64(int64_t(999999999999999999ULL));
     writer.writeDecimal(decimal_value64, 18, 4);
 
-    writer.writeKey("key_decimal128");
+    writer.writeKey("key_decimal128", static_cast<uint8_t>(sizeof("key_decimal128") - 1));
     Decimal128V3 decimal_value((__int128_t(std::numeric_limits<uint64_t>::max())));
     writer.writeDecimal(decimal_value, 30, 8);
 
-    writer.writeKey("key_decimal256");
+    writer.writeKey("key_decimal256", static_cast<uint8_t>(sizeof("key_decimal256") - 1));
     wide::Int256 int256_value(wide::Int256(std::numeric_limits<__int128_t>::max()) * 2);
     Decimal256 decimal256_value(int256_value);
     writer.writeDecimal(decimal256_value, 40, 8);
@@ -218,21 +235,21 @@ TEST_F(JsonbDocumentTest, forobject) {
     JsonbWriter writer;
     writer.writeStartObject();
 
-    writer.writeKey("key_null");
+    writer.writeKey("key_null", static_cast<uint8_t>(sizeof("key_null") - 1));
     writer.writeNull();
 
-    writer.writeKey("key_true");
+    writer.writeKey("key_true", static_cast<uint8_t>(sizeof("key_true") - 1));
     writer.writeBool(true);
 
-    writer.writeKey("key_false");
+    writer.writeKey("key_false", static_cast<uint8_t>(sizeof("key_false") - 1));
     writer.writeBool(false);
 
-    writer.writeKey("key_int");
+    writer.writeKey("key_int", static_cast<uint8_t>(sizeof("key_int") - 1));
     writer.writeInt(12345);
 
     // writer array
 
-    writer.writeKey("key_array");
+    writer.writeKey("key_array", static_cast<uint8_t>(sizeof("key_array") - 1));
     writer.writeStartArray();
     writer.writeInt(1);
     writer.writeStartString();
@@ -279,6 +296,108 @@ TEST_F(JsonbDocumentTest, forobject) {
     }
 }
 
+TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_escapes_control_characters) {
+    std::string key = "a\nb\tc\rd\"e\\f";
+    key.push_back('\x01');
+    key.append("g");
+
+    leg_info leg(key.data(), static_cast<unsigned int>(key.size()), 0, MEMBER_CODE);
+
+    std::string out;
+    ASSERT_TRUE(leg.to_string(&out));
+    EXPECT_EQ(out, ".\"a\\nb\\tc\\rd\\\"e\\\\f\\u0001g\"");
+    EXPECT_EQ(out.find('\n'), std::string::npos);
+    EXPECT_EQ(out.find('\t'), std::string::npos);
+    EXPECT_EQ(out.find('\r'), std::string::npos);
+
+    const std::string expected_path = "$" + out;
+    std::string parsed_path = expected_path;
+    JsonbPath path;
+    ASSERT_TRUE(path.seek(parsed_path.data(), parsed_path.size()));
+
+    std::string round_trip;
+    ASSERT_TRUE(path.to_string(&round_trip));
+    EXPECT_EQ(round_trip, expected_path);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_escapes_all_control_forms) {
+    std::string key = "a";
+    key.push_back('\b');
+    key.append("b");
+    key.push_back('\f');
+    key.append("c");
+    key.push_back('\0');
+    key.push_back('\x1F');
+    key.append("d");
+
+    leg_info leg(key.data(), static_cast<unsigned int>(key.size()), 0, MEMBER_CODE);
+
+    std::string out;
+    ASSERT_TRUE(leg.to_string(&out));
+    EXPECT_EQ(out, ".\"a\\bb\\fc\\u0000\\u001fd\"");
+    EXPECT_EQ(out.find('\b'), std::string::npos);
+    EXPECT_EQ(out.find('\f'), std::string::npos);
+    EXPECT_EQ(out.find('\0'), std::string::npos);
+    EXPECT_EQ(out.find('\x1F'), std::string::npos);
+
+    const std::string expected_path = "$" + out;
+    std::string parsed_path = expected_path;
+    JsonbPath path;
+    ASSERT_TRUE(path.seek(parsed_path.data(), parsed_path.size()));
+
+    std::string round_trip;
+    ASSERT_TRUE(path.to_string(&round_trip));
+    EXPECT_EQ(round_trip, expected_path);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_escaped_member_round_trips_with_following_legs) {
+    const std::string expected_path = R"($."a\nb".c.d)";
+    std::string parsed_path = expected_path;
+
+    JsonbPath path;
+    ASSERT_TRUE(path.seek(parsed_path.data(), parsed_path.size()));
+    EXPECT_EQ(path.get_leg_vector_size(), 3);
+
+    std::string round_trip;
+    ASSERT_TRUE(path.to_string(&round_trip));
+    EXPECT_EQ(round_trip, expected_path);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_remove_escapes_decodes_json_sequences) {
+    std::string expected = "a";
+    expected.push_back('\b');
+    expected.append("b");
+    expected.push_back('\f');
+    expected.append("c");
+    expected.push_back('\n');
+    expected.append("d");
+    expected.push_back('\r');
+    expected.append("e");
+    expected.push_back('\t');
+    expected.append("f\"g\\h/i");
+    expected.push_back('\0');
+    expected.append("j");
+    expected.push_back('\x1F');
+    expected.append("k");
+    expected.push_back('\x1F');
+    expected.append("l");
+
+    const auto decoded =
+            remove_path_member_escapes(R"(a\bb\fc\nd\re\tf\"g\\h\/i\u0000j\u001fk\u001Fl)");
+    EXPECT_EQ(decoded.size(), expected.size());
+    EXPECT_EQ(decoded, expected);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_remove_escapes_keeps_invalid_unicode_escape_body) {
+    EXPECT_EQ(remove_path_member_escapes(R"(\u0101)"), "u0101");
+    EXPECT_EQ(remove_path_member_escapes(R"(\u00g1)"), "u00g1");
+    EXPECT_EQ(remove_path_member_escapes(R"(\u00G1)"), "u00G1");
+    EXPECT_EQ(remove_path_member_escapes(R"(\u001g)"), "u001g");
+    EXPECT_EQ(remove_path_member_escapes(R"(\u00)"), "u00");
+    EXPECT_EQ(remove_path_member_escapes(R"(\q)"), "q");
+    EXPECT_EQ(remove_path_member_escapes("\\"), "");
+}
+
 TEST_F(JsonbDocumentTest, invaild_jsonb_document) {
     const JsonbDocument* doc = nullptr;
     auto st = JsonbDocument::checkAndCreateDocument(nullptr, 0, &doc);
@@ -292,6 +411,73 @@ TEST_F(JsonbDocumentTest, invaild_jsonb_document) {
 
     std::string json_string = JsonbToJson::jsonb_to_json_string(nullptr, 0);
     EXPECT_EQ(json_null, json_string);
+}
+
+TEST_F(JsonbDocumentTest, contains_numeric_equality) {
+    JsonbWriter int_writer;
+    ASSERT_TRUE(int_writer.writeInt(1));
+
+    JsonbWriter double_writer;
+    ASSERT_TRUE(double_writer.writeDouble(1.0));
+
+    JsonbWriter non_integer_double_writer;
+    ASSERT_TRUE(non_integer_double_writer.writeDouble(1.5));
+
+    JsonbWriter decimal32_writer;
+    ASSERT_TRUE(decimal32_writer.writeDecimal(Decimal32(int32_t(100)), 3, 2));
+
+    JsonbWriter decimal32_scale1_writer;
+    ASSERT_TRUE(decimal32_scale1_writer.writeDecimal(Decimal32(int32_t(10)), 2, 1));
+
+    JsonbWriter decimal64_writer;
+    ASSERT_TRUE(decimal64_writer.writeDecimal(Decimal64(int64_t(1000)), 4, 3));
+
+    JsonbWriter decimal128_non_integer_writer;
+    ASSERT_TRUE(decimal128_non_integer_writer.writeDecimal(Decimal128V3(int128_t(150)), 3, 2));
+
+    JsonbWriter large_int128_writer;
+    ASSERT_TRUE(large_int128_writer.writeInt128((int128_t(1) << 100) + 1));
+
+    JsonbWriter large_decimal128_writer;
+    ASSERT_TRUE(
+            large_decimal128_writer.writeDecimal(Decimal128V3((int128_t(1) << 100) + 1), 31, 0));
+
+    JsonbWriter large_double_writer;
+    ASSERT_TRUE(large_double_writer.writeDouble(std::ldexp(1.0, 100)));
+
+    EXPECT_TRUE(jsonb_value(int_writer)->contains(jsonb_value(double_writer)));
+    EXPECT_TRUE(jsonb_value(double_writer)->contains(jsonb_value(int_writer)));
+    EXPECT_FALSE(jsonb_value(int_writer)->contains(jsonb_value(non_integer_double_writer)));
+    EXPECT_FALSE(jsonb_value(large_int128_writer)->contains(jsonb_value(large_double_writer)));
+    EXPECT_FALSE(jsonb_value(large_decimal128_writer)->contains(jsonb_value(large_double_writer)));
+    EXPECT_FALSE(jsonb_value(large_double_writer)->contains(jsonb_value(large_decimal128_writer)));
+
+    EXPECT_TRUE(jsonb_value(decimal32_writer)->contains(jsonb_value(decimal32_scale1_writer)));
+    EXPECT_TRUE(jsonb_value(decimal32_scale1_writer)->contains(jsonb_value(decimal32_writer)));
+    EXPECT_TRUE(jsonb_value(decimal32_writer)->contains(jsonb_value(decimal64_writer)));
+    EXPECT_TRUE(jsonb_value(decimal64_writer)->contains(jsonb_value(decimal32_writer)));
+    EXPECT_TRUE(jsonb_value(decimal32_writer)->contains(jsonb_value(int_writer)));
+    EXPECT_TRUE(jsonb_value(int_writer)->contains(jsonb_value(decimal32_writer)));
+    EXPECT_TRUE(jsonb_value(decimal32_writer)->contains(jsonb_value(double_writer)));
+    EXPECT_TRUE(jsonb_value(double_writer)->contains(jsonb_value(decimal32_writer)));
+    EXPECT_FALSE(jsonb_value(decimal128_non_integer_writer)->contains(jsonb_value(int_writer)));
+    EXPECT_FALSE(jsonb_value(int_writer)->contains(jsonb_value(decimal128_non_integer_writer)));
+    EXPECT_FALSE(jsonb_value(decimal128_non_integer_writer)->contains(jsonb_value(double_writer)));
+    EXPECT_FALSE(jsonb_value(double_writer)->contains(jsonb_value(decimal128_non_integer_writer)));
+}
+
+TEST_F(JsonbDocumentTest, contains_invalid_decimal_scale) {
+    JsonbWriter invalid_decimal_writer;
+    ASSERT_TRUE(invalid_decimal_writer.writeDecimal(
+            Decimal32(int32_t(100)), 2, static_cast<uint32_t>(BeConsts::MAX_DECIMALV3_SCALE) + 1));
+
+    JsonbWriter double_writer;
+    ASSERT_TRUE(double_writer.writeDouble(1.0));
+
+    EXPECT_THROW(jsonb_value(invalid_decimal_writer)->contains(jsonb_value(double_writer)),
+                 Exception);
+    EXPECT_THROW(jsonb_value(double_writer)->contains(jsonb_value(invalid_decimal_writer)),
+                 Exception);
 }
 
 } // namespace doris

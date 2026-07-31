@@ -24,8 +24,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -231,7 +231,7 @@ public class ExprToSqlTest {
 
     @Test
     public void testPlaceHolderExprWithLiteral() throws AnalysisException {
-        PlaceHolderExpr expr = PlaceHolderExpr.create("42", Type.INT);
+        PlaceHolderExpr expr = LiteralExprUtils.createPlaceHolderExpr("42", Type.INT);
         Assertions.assertEquals("_placeholder_(42)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 

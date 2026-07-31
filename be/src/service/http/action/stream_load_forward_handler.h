@@ -25,7 +25,8 @@
 #include <string>
 
 #include "common/status.h"
-#include "service/http/http_handler.h"
+#include "runtime/exec_env.h"
+#include "service/http/http_handler_with_auth.h"
 #include "service/http/http_request.h"
 #include "util/byte_buffer.h"
 
@@ -98,9 +99,10 @@ private:
 // Stream Load request forward handler
 // Forwards Stream Load requests to other BE nodes
 // Supports streaming forward, maintains original request path format: /api/{db}/{table}/_stream_load_forward
-class StreamLoadForwardHandler : public HttpHandler {
+class StreamLoadForwardHandler : public HttpHandlerWithAuth {
 public:
-    StreamLoadForwardHandler() = default;
+    explicit StreamLoadForwardHandler(ExecEnv* exec_env)
+            : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD) {}
     ~StreamLoadForwardHandler() override = default;
 
     void handle(HttpRequest* req) override;

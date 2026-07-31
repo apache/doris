@@ -16,6 +16,7 @@
 // under the License.
 
 suite("push_count_into_union_all") {
+    sql "set parallel_pipeline_task_num=2"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""

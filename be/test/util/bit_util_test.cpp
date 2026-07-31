@@ -63,14 +63,14 @@ TEST(BitUtil, BigEndianToHost) {
 
 void insert_true(ColumnNullable* column, size_t num = 1) {
     for (int i = 0; i < num; i++) {
-        assert_cast<ColumnUInt8*>(column->get_nested_column_ptr().get())->insert_value(1);
+        assert_cast<ColumnUInt8&>(column->get_nested_column()).insert_value(1);
         column->push_false_to_nullmap(1);
     }
 }
 
 void insert_false(ColumnNullable* column, size_t num = 1) {
     for (int i = 0; i < num; i++) {
-        assert_cast<ColumnUInt8*>(column->get_nested_column_ptr().get())->insert_value(0);
+        assert_cast<ColumnUInt8&>(column->get_nested_column()).insert_value(0);
         column->push_false_to_nullmap(1);
     }
 }
@@ -102,16 +102,12 @@ TEST(BitUtil, CountZero) {
         insert_false(column.get(), 54);
         insert_true(column.get(), 1);
         insert_false(column.get(), 14);
+        const auto& nested_data =
+                assert_cast<const ColumnUInt8&>(column->get_nested_column()).get_data();
         ASSERT_EQ(
-                brute_force_count_zero_num(
-                        assert_cast<const ColumnUInt8*>(column->get_nested_column_ptr().get())
-                                ->get_data()
-                                .data(),
-                        column->get_null_map_data().data(), column->size()),
-                simd::count_zero_num((int8_t*)assert_cast<const ColumnUInt8*>(
-                                             column->get_nested_column_ptr().get())
-                                             ->get_data()
-                                             .data(),
+                brute_force_count_zero_num(nested_data.data(), column->get_null_map_data().data(),
+                                           column->size()),
+                simd::count_zero_num((int8_t*)nested_data.data(),
                                      column->get_null_map_data().data(), (uint32_t)column->size()));
     }
 
@@ -131,16 +127,12 @@ TEST(BitUtil, CountZero) {
                 }
             }
         }
+        const auto& nested_data =
+                assert_cast<const ColumnUInt8&>(column->get_nested_column()).get_data();
         ASSERT_EQ(
-                brute_force_count_zero_num(
-                        assert_cast<const ColumnUInt8*>(column->get_nested_column_ptr().get())
-                                ->get_data()
-                                .data(),
-                        column->get_null_map_data().data(), column->size()),
-                simd::count_zero_num((int8_t*)assert_cast<const ColumnUInt8*>(
-                                             column->get_nested_column_ptr().get())
-                                             ->get_data()
-                                             .data(),
+                brute_force_count_zero_num(nested_data.data(), column->get_null_map_data().data(),
+                                           column->size()),
+                simd::count_zero_num((int8_t*)nested_data.data(),
                                      column->get_null_map_data().data(), (uint32_t)column->size()));
     }
 }

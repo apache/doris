@@ -1,7 +1,9 @@
 create database if not exists multi_catalog;
 use multi_catalog;
 
-CREATE TABLE IF NOT EXISTS `test_csv_format_error`(
+drop table if exists `test_csv_format_error`;
+
+create table `test_csv_format_error`(
   `device_id` string COMMENT '设备唯一识别ID ',
   `user_id` bigint COMMENT '设备唯一识别ID  HASH DEVICE_ID ',
   `user_app_id` int COMMENT '使用样本应用的用户Id ',

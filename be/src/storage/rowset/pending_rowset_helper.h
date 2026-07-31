@@ -45,9 +45,9 @@ public:
 
 private:
     friend class PendingRowsetSet;
-    explicit PendingRowsetGuard(const RowsetId& rowset_id, PendingRowsetSet* set);
+    explicit PendingRowsetGuard(const std::vector<RowsetId>& rowset_ids, PendingRowsetSet* set);
 
-    RowsetId _rowset_id;
+    std::vector<RowsetId> _rowset_ids;
     PendingRowsetSet* _pending_rowset_set = nullptr;
 };
 
@@ -62,6 +62,9 @@ public:
     // adding the rowset to tablet. rowset id will be removed from `PendingRowsetSet` eventually
     // when `PendingRowsetGuard` is destroyed.
     PendingRowsetGuard add(const RowsetId& rowset_id);
+
+    // for GroupRowsetBuilder
+    PendingRowsetGuard add(const std::vector<RowsetId>& rowset_ids);
 
 private:
     friend class PendingRowsetGuard;

@@ -329,7 +329,7 @@ Status BlockSerializer::_serialize_block(PBlock* dest, size_t num_receivers) {
             reset_block();
         } else {
             block.clear_column_data();
-            _mutable_block->set_mutable_columns(block.mutate_columns());
+            _mutable_block->set_mutable_columns(std::move(block).mutate_columns());
         }
     }
 

@@ -24,7 +24,6 @@
 #include "common/metrics/metrics.h"
 #include "load/memtable/memtable.h"
 #include "load/memtable/memtable_writer.h"
-#include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
 
 namespace doris {
@@ -34,6 +33,12 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memtable_memory_limiter_mem_consumption, Metr
 
 bvar::LatencyRecorder g_memtable_memory_limit_latency_ms("mm_limiter_limit_time_ms");
 bvar::Adder<int> g_memtable_memory_limit_waiting_threads("mm_limiter_waiting_threads");
+bvar::LatencyRecorder g_memtable_table_backpressure_latency_ms(
+        "mm_limiter_table_backpressure_time_ms");
+bvar::Adder<int> g_memtable_table_backpressure_waiting_threads(
+        "mm_limiter_table_backpressure_waiting_threads");
+bvar::Status<int64_t> g_memtable_table_backpressure_pending_count(
+        "mm_limiter_table_backpressure_pending_count", 0);
 bvar::Status<int64_t> g_memtable_active_memory("mm_limiter_mem_active", 0);
 bvar::Status<int64_t> g_memtable_write_memory("mm_limiter_mem_write", 0);
 bvar::Status<int64_t> g_memtable_flush_memory("mm_limiter_mem_flush", 0);
@@ -121,7 +126,69 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     return need_flush - _queue_mem_usage - _flush_mem_usage;
 }
 
-void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_check) {
+int64_t MemTableMemoryLimiter::_table_flush_pending_memtable_count(int64_t table_id) {
+    int64_t pending_memtables = 0;
+    for (const auto& writer : _writers) {
+        auto writer_sptr = writer.lock();
+        if (writer_sptr == nullptr) {
+            continue;
+        }
+        if (writer_sptr->table_id() == table_id) {
+            pending_memtables += writer_sptr->flush_pending_memtable_count();
+        }
+    }
+    return pending_memtables;
+}
+
+void MemTableMemoryLimiter::handle_table_memtable_backpressure(std::function<bool()> cancel_check,
+                                                               int64_t table_id) {
+    if (!config::enable_table_memtable_flush_backpressure) {
+        return;
+    }
+    const int64_t pending_count_limit = config::table_memtable_flush_pending_count_limit;
+    if (pending_count_limit <= 0) {
+        return;
+    }
+    DORIS_CHECK(table_id > 0);
+
+    std::unique_lock<std::mutex> l(_lock);
+    int64_t pending_count = _table_flush_pending_memtable_count(table_id);
+    if (pending_count < pending_count_limit) {
+        return;
+    }
+
+    MonotonicStopWatch timer;
+    timer.start();
+    g_memtable_table_backpressure_waiting_threads << 1;
+    while (pending_count >= pending_count_limit) {
+        g_memtable_table_backpressure_pending_count.set_value(pending_count);
+        LOG_EVERY_T(INFO, 1) << "table memtable flush backpressure: table_id=" << table_id
+                             << ", pending_memtables=" << pending_count
+                             << ", limit=" << pending_count_limit
+                             << ", memtable writers num: " << _writers.size();
+        if (cancel_check && cancel_check()) {
+            LOG(INFO) << "cancelled when waiting for table memtable flush backpressure"
+                      << ", table_id=" << table_id << ", pending_memtables=" << pending_count
+                      << ", limit=" << pending_count_limit;
+            g_memtable_table_backpressure_waiting_threads << -1;
+            return;
+        }
+        static_cast<void>(_hard_limit_end_cond.wait_for(l, std::chrono::milliseconds(100)));
+        pending_count = _table_flush_pending_memtable_count(table_id);
+    }
+    g_memtable_table_backpressure_pending_count.set_value(pending_count);
+    g_memtable_table_backpressure_waiting_threads << -1;
+    timer.stop();
+    int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
+    g_memtable_table_backpressure_latency_ms << time_ms;
+    LOG(INFO) << "waited " << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+              << " for table memtable flush backpressure"
+              << ", table_id=" << table_id << ", pending_memtables=" << pending_count
+              << ", limit=" << pending_count_limit << ", memtable writers num: " << _writers.size();
+}
+
+void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_check,
+                                                  WorkloadGroup*) {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     do {

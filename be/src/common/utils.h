@@ -20,11 +20,21 @@
 #include <random>
 #include <string>
 
+#include "gen_cpp/FrontendService_types.h"
+
 namespace doris {
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
+
+inline constexpr const char* HTTP_HEADER_CLIENT_CERT_PEM = "x-doris-client-cert-pem";
+inline constexpr const char* HTTP_HEADER_CLIENT_CERT_SUBJECT = "x-doris-client-cert-subject";
+inline constexpr const char* HTTP_HEADER_CLIENT_CERT_SAN = "x-doris-client-cert-san";
+inline constexpr const char* HTTP_HEADER_CLIENT_CERT_ISSUER = "x-doris-client-cert-issuer";
+inline constexpr const char* HTTP_HEADER_CLIENT_CERT_CIPHER = "x-doris-client-cert-cipher";
+inline constexpr const char* HTTP_HEADER_CLIENT_CERT_NOT_BEFORE = "x-doris-client-cert-not-before";
+inline constexpr const char* HTTP_HEADER_CLIENT_CERT_NOT_AFTER = "x-doris-client-cert-not-after";
 
 struct AuthInfo {
     std::string user;
@@ -34,6 +44,16 @@ struct AuthInfo {
     // -1 as unset
     int64_t auth_code = -1; // deprecated
     std::string token;
+
+    std::string cert_pem;
+    std::string cert_subject;
+    std::string cert_san;
+    std::string cert_issuer;
+    std::string cert_cipher;
+    std::string cert_validity_not_before;
+    std::string cert_validity_not_after;
+
+    bool has_cert_info() const { return !cert_san.empty() || !cert_subject.empty(); }
 };
 
 template <class T>
@@ -55,6 +75,22 @@ void set_request_auth(T* req, const AuthInfo& auth) {
             req->__set_cluster(auth.cluster);
         }
         req->__set_user_ip(auth.user_ip);
+    }
+
+    if constexpr (requires(T req_obj, TCertBasedAuth cert_auth_obj) {
+                      req_obj.__set_cert_based_auth(cert_auth_obj);
+                  }) {
+        if (auth.has_cert_info()) {
+            TCertBasedAuth cert_auth;
+            cert_auth.__set_cert_pem(auth.cert_pem);
+            cert_auth.__set_subject(auth.cert_subject);
+            cert_auth.__set_san(auth.cert_san);
+            cert_auth.__set_issuer(auth.cert_issuer);
+            cert_auth.__set_cipher(auth.cert_cipher);
+            cert_auth.__set_validity_not_before(auth.cert_validity_not_before);
+            cert_auth.__set_validity_not_after(auth.cert_validity_not_after);
+            req->__set_cert_based_auth(cert_auth);
+        }
     }
 }
 

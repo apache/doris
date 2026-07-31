@@ -130,6 +130,16 @@ static void export_fdb_status_details(const std::string& status_str) {
         if (node->value.IsArray()) return node->value.Size();
         return BVAR_FDB_INVALID_VALUE;
     };
+    auto get_string_value = [&](const std::vector<const char*>& v) -> std::string {
+        if (v.empty()) return "invalid";
+        auto node = document.FindMember("cluster");
+        for (const auto& name : v) {
+            if (!node->value.HasMember(name)) return "invalid";
+            node = node->value.FindMember(name);
+        }
+        if (node->value.IsString()) return node->value.GetString();
+        return "invalid";
+    };
     auto get_nanoseconds = [&](const std::vector<const char*>& v) -> int64_t {
         constexpr double NANOSECONDS = 1e9;
         auto node = document.FindMember("cluster");
@@ -194,6 +204,12 @@ static void export_fdb_status_details(const std::string& status_str) {
             get_value({"qos", "worst_queue_bytes_storage_server"}));
 
     // Backup and DR
+
+    // Performance Limited By
+    // invalid or not-workload, the final value is -1
+    int64_t performance_val =
+            get_string_value({"qos", "performance_limited_by", "name"}) == "workload" ? 0 : -1;
+    g_bvar_fdb_performance_limited_by_name.set_value(performance_val);
 
     // Client Count
     g_bvar_fdb_client_count.set_value(get_value({"clients", "count"}));

@@ -42,7 +42,8 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
                                                  int operator_id, const DescriptorTbl& descs)
         : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs) {}
 
-Status AnalyticSourceOperatorX::get_block(RuntimeState* state, Block* output_block, bool* eos) {
+Status AnalyticSourceOperatorX::get_block_impl(RuntimeState* state, Block* output_block,
+                                               bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -52,18 +53,17 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, Block* output_blo
     output_block->clear_column_data();
     size_t output_rows = 0;
     {
-        std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
+        LockGuard lock(local_state._shared_state->buffer_mutex);
         if (!local_state._shared_state->blocks_buffer.empty()) {
             local_state._shared_state->blocks_buffer.front().swap(*output_block);
             local_state._shared_state->blocks_buffer.pop();
             output_rows = output_block->rows();
             //if buffer have no data and sink not eos, block reading and wait for signal again
             RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, output_block));
-            if (local_state._shared_state->blocks_buffer.empty() &&
-                !local_state._shared_state->sink_eos) {
+            if (local_state._shared_state->blocks_buffer.empty()) {
                 // add this mutex to check, as in some case maybe is doing block(), and the sink is doing set eos.
                 // so have to hold mutex to set block(), avoid to sink have set eos and set ready, but here set block() by mistake
-                std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+                LockGuard lc(local_state._shared_state->sink_eos_lock);
                 if (!local_state._shared_state->sink_eos) {
                     local_state._dependency->block();              // block self source
                     local_state._dependency->set_ready_to_write(); // ready for sink write
@@ -71,7 +71,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, Block* output_blo
             }
         } else {
             //iff buffer have no data and sink eos, set eos
-            std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+            LockGuard lc(local_state._shared_state->sink_eos_lock);
             *eos = local_state._shared_state->sink_eos;
         }
     }

@@ -52,7 +52,7 @@ struct SpillSortSourceTestContext {
 void init_spill_sort_description(SpillSortSharedState* shared_state) {
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < static_cast<int>(sort_desc.size()); ++i) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -188,7 +188,27 @@ void delete_spill_files(const std::vector<SpillFileSPtr>& spill_files) {
     }
 }
 
+constexpr auto CANCEL_REASON = "spill sort source cancelled";
+
+void cancel_state(RuntimeState* state) {
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+}
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
 } // namespace
+
+TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    auto local_state = std::make_unique<SpillSortLocalState>(_helper.runtime_state.get(),
+                                                             source_operator.get());
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(local_state->execute_merge_sort_spill_files(_helper.runtime_state.get()));
+}
 
 TEST_F(SpillSortSourceOperatorTest, Basic) {
     auto [source_operator, sink_operator] = _helper.create_operators();
@@ -352,7 +372,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
 
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -543,7 +563,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
 
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -888,7 +908,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
 
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -1009,7 +1029,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSingleSpillFile) {
 
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -1153,7 +1173,7 @@ TEST_F(SpillSortSourceOperatorTest, EndToEndSinkAndSource) {
     // Read back from source
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;

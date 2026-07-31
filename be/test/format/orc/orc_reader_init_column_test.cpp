@@ -53,18 +53,18 @@ TEST_F(OrcReaderInitColumnTest, InitReadColumn) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
         reader->_reader = std::move(orc_reader);
         std::vector<std::string> tmp;
         tmp.emplace_back("col1");
 
-        reader->_table_column_names = &tmp;
+        reader->_table_column_names = tmp;
         Status st = reader->_init_read_columns();
         std::cout << "st =" << st << "\n";
-        std::list<std::string> ans;
-        ans.emplace_back("col1");
-        ASSERT_EQ(ans, reader->_read_file_cols);
-        ASSERT_EQ(ans, reader->_read_table_cols);
+        // _init_read_columns builds _type_map; _read_file_cols is populated later
+        // in _do_init_reader's standalone path when _table_column_names is set.
+        ASSERT_TRUE(reader->_type_map.contains("col1"));
+        ASSERT_FALSE(reader->_type_map.contains("nonexistent"));
     }
 }
 
@@ -72,7 +72,7 @@ TEST_F(OrcReaderInitColumnTest, CheckAcidSchemaTest) {
     using namespace orc;
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto _reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
     // 1. Test standard ACID schema
     {
         // Create standard ACID structure
@@ -139,7 +139,7 @@ TEST_F(OrcReaderInitColumnTest, RemoveAcidTest) {
     using namespace orc;
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto _reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
     // 1. Test removing ACID info from ACID schema
     {
         // Create ACID schema

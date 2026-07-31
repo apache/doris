@@ -16,7 +16,10 @@
 // under the License.
 
 #include <cstddef>
+#include <cstring>
 #include <string_view>
+#include <type_traits>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -98,6 +101,14 @@ private:
                         const std::vector<ColumnPtr>& argument_columns,
                         const std::vector<uint8_t>& is_const, ColumnString::Chars& res_data,
                         ColumnString::Offsets& res_offset) const {
+        if constexpr (std::is_same_v<Impl, MD5Sum>) {
+            if (argument_columns.size() == 1) {
+                const auto* col = assert_cast<const ColumnType*>(argument_columns[0].get());
+                vector_execute_single_md5(col, input_rows_count, is_const[0], res_data, res_offset);
+                return;
+            }
+        }
+
         using ObjectData = typename Impl::ObjectData;
         for (size_t i = 0; i < input_rows_count; ++i) {
             ObjectData digest;
@@ -113,6 +124,42 @@ private:
             StringOP::push_value_string(std::string_view(digest.hex().c_str(), digest.hex().size()),
                                         i, res_data, res_offset);
         }
+    }
+
+    template <typename ColumnType>
+    void vector_execute_single_md5(const ColumnType* col, size_t input_rows_count, bool is_const,
+                                   ColumnString::Chars& res_data,
+                                   ColumnString::Offsets& res_offset) const {
+        ColumnString::check_chars_length(input_rows_count * MD5_HEX_LENGTH, input_rows_count);
+        res_data.resize(input_rows_count * MD5_HEX_LENGTH);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            res_offset[i] = (i + 1) * MD5_HEX_LENGTH;
+        }
+        if (input_rows_count == 0) {
+            return;
+        }
+
+        if (is_const) {
+            StringRef data_ref = col->get_data_at(0);
+            const unsigned char* input = reinterpret_cast<const unsigned char*>(data_ref.data);
+            size_t length = data_ref.size;
+            char digest[MD5_HEX_LENGTH];
+            md5_hex_batch(&input, &length, digest, 1);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                std::memcpy(res_data.data() + i * MD5_HEX_LENGTH, digest, MD5_HEX_LENGTH);
+            }
+            return;
+        }
+
+        std::vector<const unsigned char*> inputs(input_rows_count);
+        std::vector<size_t> lengths(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            StringRef data_ref = col->get_data_at(i);
+            inputs[i] = reinterpret_cast<const unsigned char*>(data_ref.data);
+            lengths[i] = data_ref.size;
+        }
+        md5_hex_batch(inputs.data(), lengths.data(), reinterpret_cast<char*>(res_data.data()),
+                      input_rows_count);
     }
 };
 

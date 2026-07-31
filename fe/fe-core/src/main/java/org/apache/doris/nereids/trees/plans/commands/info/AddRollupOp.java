@@ -127,6 +127,12 @@ public class AddRollupOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Adding rollup index is allowed for row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toString() {
         return toSql();
     }

@@ -33,3 +33,8 @@ AQEC5XSzrpDsdw==
 -- !const_select --
 AQEyl7yFZerf2A==
 
+-- !sparse_roundtrip --
+true
+
+-- !sparse_len_positive --
+true

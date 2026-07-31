@@ -18,20 +18,19 @@
 package org.apache.doris.mysql;
 
 import com.google.common.primitives.Bytes;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
 
 public class MysqlHandshakePacketTest {
     private byte[] buf;
     private MysqlCapability capability;
-
-    @Mocked
-    MysqlPassword mysqlPassword;
+    private MockedStatic<MysqlPassword> mockedMysqlPassword;
 
     @Before
     public void setUp() {
@@ -40,15 +39,17 @@ public class MysqlHandshakePacketTest {
             buf[i] = (byte) ('a' + i);
         }
 
-        new Expectations() {
-            {
-                MysqlPassword.createRandomString(20);
-                minTimes = 0;
-                result = buf;
-            }
-        };
+        mockedMysqlPassword = Mockito.mockStatic(MysqlPassword.class);
+        mockedMysqlPassword.when(() -> MysqlPassword.createRandomString(20)).thenReturn(buf);
 
         capability = new MysqlCapability(0);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedMysqlPassword != null) {
+            mockedMysqlPassword.close();
+        }
     }
 
     @Test

@@ -81,6 +81,9 @@ public:
 
     static bool ComputeArea(GeoShape* rhs, double* angle, std::string square_unit);
 
+    virtual int num_geometries() const { return 1; }
+    virtual int num_points() const { return -1; }
+
 protected:
     virtual void encode(std::string* buf) = 0;
     virtual bool decode(const void* data, size_t size) = 0;
@@ -125,6 +128,9 @@ public:
     double x() const;
     double y() const;
 
+    int num_geometries() const override { return 1; }
+    int num_points() const override { return 1; }
+
 protected:
     void encode(std::string* buf) override;
     bool decode(const void* data, size_t size) override;
@@ -160,6 +166,9 @@ public:
 
     int numPoint() const;
     const S2Point* getPoint(int i) const;
+
+    int num_geometries() const override { return 1; }
+    int num_points() const override { return numPoint(); }
 
 protected:
     void encode(std::string* buf) override;
@@ -199,6 +208,9 @@ public:
     double Distance(const GeoShape* rhs) const override;
     S2Loop* getLoop(int i) const;
 
+    int num_geometries() const override { return 1; }
+    int num_points() const override;
+
 protected:
     void encode(std::string* buf) override;
     bool decode(const void* data, size_t size) override;
@@ -231,6 +243,9 @@ public:
     double getArea() const;
     double Length() const override;
     double Distance(const GeoShape* rhs) const override;
+
+    int num_geometries() const override { return static_cast<int>(_polygons.size()); }
+    int num_points() const override;
 
 protected:
     void encode(std::string* buf) override;

@@ -26,7 +26,7 @@ import java.util.Optional;
 public class PreparedStatementContext {
     public PrepareCommand command;
     public ConnectContext ctx;
-    StatementContext statementContext;
+    private StatementContext statementContext;
     public String stmtString;
     public Optional<ShortCircuitQueryContext> shortCircuitQueryContext = Optional.empty();
     public Optional<GroupCommitPlanner> groupCommitPlanner = Optional.empty();
@@ -44,6 +44,14 @@ public class PreparedStatementContext {
 
     public long getStartTime() {
         return startTime;
+    }
+
+    public StatementContext getStatementContext() {
+        return statementContext;
+    }
+
+    public void setStatementContext(StatementContext statementContext) {
+        this.statementContext = statementContext;
     }
 
     public void setStartTime() {

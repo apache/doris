@@ -38,10 +38,6 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
     }
 
     const Slice* src = reinterpret_cast<const Slice*>(vals);
-    if (_count == 0) {
-        _first_entry.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()),
-                                 src->get_size());
-    }
 
     int i = 0;
     for (; i < *add_count; ++i, ++src) {

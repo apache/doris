@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS partition_type;
 USE partition_type;
 
-CREATE TABLE `partition_type.varchar_partition`(
+drop table if exists `partition_type.varchar_partition`;
+
+create table `partition_type.varchar_partition`(
   `id` int)
 PARTITIONED BY ( 
   `varchar_part` varchar(50))

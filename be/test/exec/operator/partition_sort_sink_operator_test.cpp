@@ -37,7 +37,9 @@ public:
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
+        return Status::OK();
+    }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -91,12 +93,7 @@ struct PartitionSortOperatorTest : public ::testing::Test {
         sink->_is_asc_order = {true};
         sink->_nulls_first = {false};
 
-        sink->_vsort_exec_exprs._sort_tuple_slot_expr_ctxs =
-                MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
-
-        sink->_vsort_exec_exprs._materialize_tuple = false;
-
-        sink->_vsort_exec_exprs._ordering_expr_ctxs =
+        sink->_ordering_expr_ctxs =
                 MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
 
         if (partition_exprs_num > 0) {

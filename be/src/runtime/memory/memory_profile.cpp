@@ -23,8 +23,8 @@
 #include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_profile.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/metadata_adder.h"
+#include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "util/mem_info.h"
 
@@ -161,8 +161,7 @@ void MemoryProfile::refresh_memory_overview_profile() {
     // 2 refresh metadata memory tracker
     ExecEnv::GetInstance()->tablets_no_cache_mem_tracker()->set_consumption(
             MetadataAdder<TabletMeta>::get_all_tablets_size() -
-            TabletSchemaCache::instance()->value_mem_consumption() -
-            SchemaCache::instance()->value_mem_consumption());
+            TabletSchemaCache::instance()->value_mem_consumption());
     ExecEnv::GetInstance()->rowsets_no_cache_mem_tracker()->set_consumption(
             MetadataAdder<RowsetMeta>::get_all_rowsets_size());
     ExecEnv::GetInstance()->segments_no_cache_mem_tracker()->set_consumption(

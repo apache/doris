@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `test_mixed_par_locations_parquet`(
+drop table if exists `test_mixed_par_locations_parquet`;
+
+create table `test_mixed_par_locations_parquet`(
   `id` int,
   `name` string,
   `age` int,

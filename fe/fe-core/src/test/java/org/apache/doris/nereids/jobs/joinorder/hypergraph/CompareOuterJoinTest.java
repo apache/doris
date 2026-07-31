@@ -25,7 +25,7 @@ import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.util.HyperGraphBuilder;
+import org.apache.doris.nereids.util.HyperGraphBuilderOld;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.Sets;
@@ -69,7 +69,7 @@ class CompareOuterJoinTest extends SqlTestBase {
     void testRandomQuery() {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableMaterializedViewRewrite(false);
-        Plan p1 = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
+        Plan p1 = new HyperGraphBuilderOld(Sets.newHashSet(JoinType.INNER_JOIN))
                 .randomBuildPlanWith(3, 3);
         PlanChecker planChecker = PlanChecker.from(connectContext, p1)
                 .analyze()

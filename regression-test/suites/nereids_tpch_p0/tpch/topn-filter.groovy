@@ -18,6 +18,7 @@
  */
 
 suite("topn-filter") {
+    sql "set parallel_pipeline_task_num=2"
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     multi_sql """
         use ${db};

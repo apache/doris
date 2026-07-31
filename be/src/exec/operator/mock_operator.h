@@ -42,7 +42,7 @@ public:
     ENABLE_FACTORY_CREATOR(MockOperatorX);
     MockOperatorX() = default;
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         if (_outout_blocks.empty()) {
             *eos = true;
             return Status::OK();

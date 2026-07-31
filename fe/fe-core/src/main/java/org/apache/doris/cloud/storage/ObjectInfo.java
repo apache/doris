@@ -55,7 +55,8 @@ public class ObjectInfo {
     public ObjectInfo(Cloud.ObjectStoreInfoPB objectStoreInfoPB) {
         this(objectStoreInfoPB.getProvider(), objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(),
                 objectStoreInfoPB.getBucket(), objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
-                objectStoreInfoPB.getPrefix());
+                objectStoreInfoPB.getPrefix(), null, objectStoreInfoPB.getRoleArn(),
+                objectStoreInfoPB.getExternalId(), null);
     }
 
     public ObjectInfo(Cloud.ObjectStoreInfoPB objectStoreInfoPB, String roleName, String arn,

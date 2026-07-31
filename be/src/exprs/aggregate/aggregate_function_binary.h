@@ -41,7 +41,7 @@ struct StatFunc {
 };
 
 template <typename StatFunc>
-struct AggregateFunctionBinary
+struct AggregateFunctionBinary final
         : public IAggregateFunctionDataHelper<typename StatFunc::Data,
                                               AggregateFunctionBinary<StatFunc>>,
           MultiExpression,

@@ -853,11 +853,6 @@ void PackedFileManager::process_uploading_packed_files() {
         Status upload_status = finalize_packed_file_upload(packed_file->packed_file_path,
                                                            packed_file->writer.get());
 
-        if (upload_status.is<ErrorCode::ALREADY_CLOSED>()) {
-            record_ready_to_upload(packed_file);
-            handle_success(packed_file);
-            continue;
-        }
         if (!upload_status.ok()) {
             handle_failure(packed_file, upload_status);
             continue;
@@ -875,16 +870,13 @@ void PackedFileManager::process_uploading_packed_files() {
             continue;
         }
 
-        if (packed_file->writer->state() != FileWriter::State::CLOSED) {
+        Status status = packed_file->writer->try_finish_close();
+        if (status.is<ErrorCode::NEED_SEND_AGAIN>()) {
             continue;
         }
 
-        Status status = packed_file->writer->close(true);
-        if (status.is<ErrorCode::ALREADY_CLOSED>()) {
-            handle_success(packed_file);
-            continue;
-        }
         if (status.ok()) {
+            handle_success(packed_file);
             continue;
         }
 
@@ -902,7 +894,8 @@ Status PackedFileManager::finalize_packed_file_upload(const std::string& packed_
 }
 
 Status PackedFileManager::update_meta_service(const std::string& packed_file_path,
-                                              const cloud::PackedFileInfoPB& packed_file_info) {
+                                              const cloud::PackedFileInfoPB& packed_file_info,
+                                              int64_t table_id) {
 #ifdef BE_TEST
     TEST_SYNC_POINT_RETURN_WITH_VALUE("PackedFileManager::update_meta_service", Status::OK(),
                                       packed_file_path, &packed_file_info);
@@ -918,7 +911,7 @@ Status PackedFileManager::update_meta_service(const std::string& packed_file_pat
 
     auto& storage_engine = ExecEnv::GetInstance()->storage_engine();
     auto& cloud_meta_mgr = storage_engine.to_cloud().meta_mgr();
-    return cloud_meta_mgr.update_packed_file_info(packed_file_path, packed_file_info);
+    return cloud_meta_mgr.update_packed_file_info(packed_file_path, packed_file_info, table_id);
 }
 
 void PackedFileManager::cleanup_expired_data() {

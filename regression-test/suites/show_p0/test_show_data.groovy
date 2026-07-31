@@ -27,5 +27,5 @@ suite("test_show_data") {
     }
 
     assertTrue(result2.size() > 0);
-    assertTrue(result2[0].size() == 6);
+    assertTrue(result2[0].size() == 7);
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.info;
 
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 

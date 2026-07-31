@@ -171,7 +171,7 @@ Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
                                         const ColumnNumbers& arguments, uint32_t result,
                                         size_t input_rows_count,
                                         const NullMap::value_type* null_map) {
-    const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+    const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
             block.get_by_position(arguments[0]).column.get());
 
     auto to_type = block.get_by_position(result).type;
@@ -209,7 +209,7 @@ Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Bl
                                                     const ColumnNumbers& arguments, uint32_t result,
                                                     size_t input_rows_count,
                                                     const NullMap::value_type* null_map) {
-    const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+    const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
             block.get_by_position(arguments[0]).column.get());
 
     auto to_type = block.get_by_position(result).type;

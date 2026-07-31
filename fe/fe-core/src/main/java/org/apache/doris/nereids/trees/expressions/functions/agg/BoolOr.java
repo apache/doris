@@ -63,7 +63,7 @@ public class BoolOr extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (!(argType.isBooleanType() || argType.isNumericType())) {
             throw new AnalysisException("bool_or requires a boolean or numeric argument");
         }

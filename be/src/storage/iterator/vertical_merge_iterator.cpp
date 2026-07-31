@@ -34,7 +34,6 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 
@@ -69,8 +68,14 @@ uint16_t RowSource::data() const {
 Status RowSourcesBuffer::append(const std::vector<RowSource>& row_sources) {
     if (_buffer.allocated_bytes() + row_sources.size() * sizeof(UInt16) >
         config::vertical_compaction_max_row_source_memory_mb * 1024 * 1024) {
-        if (_buffer.allocated_bytes() - _buffer.size() * sizeof(UInt16) <
-            row_sources.size() * sizeof(UInt16)) {
+        // Use capacity() - size() to get the truly available element slots.
+        // Note: PODArrayBase::allocated_bytes() includes pad_left and pad_right,
+        // which are NOT usable for storing elements. Using allocated_bytes() here
+        // would over-estimate the available space and lead to a missed spill,
+        // causing _buffer to grow beyond the configured memory limit when
+        // push_back triggers reallocation below.
+        size_t available_slots = _buffer.capacity() - _buffer.size();
+        if (available_slots < row_sources.size()) {
             VLOG_NOTICE << "RowSourceBuffer is too large, serialize and reset buffer: "
                         << _buffer.allocated_bytes() << ", total size: " << _total_size;
             // serialize current buffer
@@ -199,6 +204,8 @@ Status RowSourcesBuffer::_create_buffer_file() {
         file_path_ss << "_full";
     } else if (_reader_type == ReaderType::READER_COLD_DATA_COMPACTION) {
         file_path_ss << "_cold";
+    } else if (_reader_type == ReaderType::READER_BINLOG_COMPACTION) {
+        file_path_ss << "_binlog";
     } else {
         DCHECK(false);
         return Status::InternalError("unknown reader type");
@@ -307,7 +314,9 @@ bool VerticalMergeIteratorContext::compare(const VerticalMergeIteratorContext& r
         col_cmp_res = _block->compare_column_at(_index_in_block, rhs._index_in_block, real_seq_idx,
                                                 *rhs._block, -1);
     }
-    auto result = (col_cmp_res == 0) ? (_order < rhs.order()) : (col_cmp_res < 0);
+    auto result = (col_cmp_res == 0) ? (_use_insert_order_when_same ? (_order > rhs.order())
+                                                                    : (_order < rhs.order()))
+                                     : (col_cmp_res < 0);
     result ? set_is_same(true) : rhs.set_is_same(true);
     return result;
 }
@@ -327,7 +336,7 @@ Status VerticalMergeIteratorContext::copy_rows(Block* block, size_t count) {
             ColumnPtr& s_cp = s_col.column;
             ColumnPtr& d_cp = d_col.column;
 
-            d_cp->assume_mutable()->insert_range_from(*s_cp, start, count);
+            d_cp->assert_mutable()->insert_range_from(*s_cp, start, count);
         }
     });
     return Status::OK();
@@ -350,7 +359,7 @@ Status VerticalMergeIteratorContext::copy_rows(Block* block, bool advanced) {
             ColumnPtr& s_cp = s_col.column;
             ColumnPtr& d_cp = d_col.column;
 
-            d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
+            d_cp->assert_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
         }
     });
     _cur_batch_num = 0;
@@ -576,7 +585,7 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts,
         auto& iter = _origin_iters[seg_order];
         auto ctx = std::make_unique<VerticalMergeIteratorContext>(
                 std::move(iter), _rowset_ids[seg_order], _ori_return_cols, seg_order, _seq_col_idx,
-                _key_group_cluster_key_idxes);
+                opts.use_insert_order_when_same, _key_group_cluster_key_idxes);
         _ori_iter_ctx.push_back(std::move(ctx));
     }
     _origin_iters.clear();
@@ -642,9 +651,9 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
                  cur_order++) {
                 auto& next_iter = _origin_iters[cur_order];
                 std::unique_ptr<VerticalMergeIteratorContext> next_ctx(
-                        new VerticalMergeIteratorContext(std::move(next_iter),
-                                                         _rowset_ids[cur_order], _ori_return_cols,
-                                                         cur_order, _seq_col_idx));
+                        new VerticalMergeIteratorContext(
+                                std::move(next_iter), _rowset_ids[cur_order], _ori_return_cols,
+                                cur_order, _seq_col_idx, _opts.use_insert_order_when_same));
                 RETURN_IF_ERROR(next_ctx->init(_opts));
                 if (next_ctx->valid()) {
                     _cur_iter_ctx.swap(next_ctx);
@@ -682,9 +691,9 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts,
     // will not be pushed into heap, we should init next one util we find a valid iter
     // so this rowset can work in heap
     for (auto& iter : _origin_iters) {
-        std::unique_ptr<VerticalMergeIteratorContext> ctx(
-                new VerticalMergeIteratorContext(std::move(iter), _rowset_ids[seg_order],
-                                                 _ori_return_cols, seg_order, _seq_col_idx));
+        std::unique_ptr<VerticalMergeIteratorContext> ctx(new VerticalMergeIteratorContext(
+                std::move(iter), _rowset_ids[seg_order], _ori_return_cols, seg_order, _seq_col_idx,
+                opts.use_insert_order_when_same));
         RETURN_IF_ERROR(ctx->init(opts, sample_info));
         if (!ctx->valid()) {
             ++seg_order;

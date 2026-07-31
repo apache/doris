@@ -1060,6 +1060,10 @@ public class ReportHandler extends Daemon {
                                                             ? olapTable.getCopiedIndexes() : null;
                                     List<String> rowStoreColumns =
                                                 olapTable.getTableProperty().getCopiedRowStoreColumns();
+                                    MaterializedIndexMeta rowBinlogIndexMeta = null;
+                                    if (olapTable.needRowBinlog() && indexId == olapTable.getBaseIndexId()) {
+                                        rowBinlogIndexMeta = olapTable.getRowBinlogMeta();
+                                    }
                                     CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId,
                                             tableId, partitionId, indexId, tabletId, replica.getId(),
                                             indexMeta.getShortKeyColumnCount(),
@@ -1074,7 +1078,6 @@ public class ReportHandler extends Daemon {
                                             olapTable.getCompressionType(),
                                             olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
                                             olapTable.disableAutoCompaction(),
-                                            olapTable.enableSingleReplicaCompaction(),
                                             olapTable.skipWriteIndexOnLoad(), olapTable.getCompactionPolicy(),
                                             olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
@@ -1090,7 +1093,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.storagePageSize(), olapTable.getTDEAlgorithm(),
                                             olapTable.storageDictPageSize(),
                                             olapTable.getColumnSeqMapping(),
-                                            olapTable.getVerticalCompactionNumColumnsPerGroup());
+                                            olapTable.getVerticalCompactionNumColumnsPerGroup(),
+                                            rowBinlogIndexMeta);
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());

@@ -786,10 +786,18 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_group_commit_mode(ctx->group_commit_mode);
     }
 
+    // Keep cloud_cluster for compatibility with old FEs during rolling upgrade. New FEs use
+    // backend_id below to bind planning to the compute group of the receiving BE.
     if (!http_req->header(HTTP_COMPUTE_GROUP).empty()) {
         request.__set_cloud_cluster(http_req->header(HTTP_COMPUTE_GROUP));
     } else if (!http_req->header(HTTP_CLOUD_CLUSTER).empty()) {
         request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
+    }
+
+    if (_exec_env->cluster_info()->backend_id != 0) {
+        request.__set_backend_id(_exec_env->cluster_info()->backend_id);
+    } else {
+        LOG(WARNING) << "_exec_env->cluster_info not set backend_id";
     }
 
     if (!http_req->header(HTTP_EMPTY_FIELD_AS_NULL).empty()) {
@@ -833,13 +841,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                                                http_req->header(HttpHeaders::CONTENT_LENGTH),
                                                e.what());
             }
-            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
-                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
-                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+            if (LoadUtil::is_compressed_load(ctx->compress_type, ctx->format)) {
                 content_length *= 3;
             }
         }
@@ -915,9 +917,16 @@ Status StreamLoadAction::_check_wal_space(const std::string& group_commit_mode,
 Status StreamLoadAction::_can_group_commit(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx,
                                            std::string& group_commit_header,
                                            bool& can_group_commit) {
-    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                     ? 0
-                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    int64_t content_length = 0;
+    const auto& content_length_str = req->header(HttpHeaders::CONTENT_LENGTH);
+    if (!content_length_str.empty()) {
+        try {
+            content_length = std::stoll(content_length_str);
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                           content_length_str, e.what());
+        }
+    }
     if (content_length < 0) {
         std::stringstream ss;
         ss << "This stream load content length <0 (" << content_length

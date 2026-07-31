@@ -24,7 +24,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -34,13 +33,13 @@ import org.apache.doris.thrift.TPipelineWorkloadGroup;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -50,65 +49,37 @@ import java.util.stream.Collectors;
 
 public class WorkloadGroupMgrTest {
 
-    @Injectable
-    private EditLog editLog;
+    private EditLog editLog = Mockito.mock(EditLog.class);
 
-    @Mocked
-    private Env env;
+    private Env env = Mockito.mock(Env.class);
 
-    @Mocked
-    AccessControllerManager accessControllerManager;
+    private AccessControllerManager accessControllerManager = Mockito.mock(AccessControllerManager.class);
 
-    @Mocked
-    private Auth auth;
+    private Auth auth = Mockito.mock(Auth.class);
 
+    private MockedStatic<Env> mockedEnv;
 
     private AtomicLong id = new AtomicLong(10);
 
     @Before
     public void setUp() throws DdlException {
-        new Expectations() {
-            {
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
+        mockedEnv = Mockito.mockStatic(Env.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
-                env.getNextId();
-                minTimes = 0;
-                result = new Delegate() {
-                    long delegate() {
-                        return id.addAndGet(1);
-                    }
-                };
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getNextId()).thenAnswer(inv -> id.addAndGet(1));
+        Mockito.doNothing().when(editLog).logCreateWorkloadGroup(ArgumentMatchers.any());
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(accessControllerManager.checkWorkloadGroupPriv(ArgumentMatchers.nullable(ConnectContext.class), ArgumentMatchers.anyString(), ArgumentMatchers.any())).thenReturn(true);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.isWorkloadGroupInUse(ArgumentMatchers.anyString())).thenReturn(Pair.of(false, ""));
+    }
 
-                editLog.logCreateWorkloadGroup((WorkloadGroup) any);
-                minTimes = 0;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkWorkloadGroupPriv((ConnectContext) any, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-
-                env.getAuth();
-                minTimes = 0;
-                result = auth;
-
-                auth.isWorkloadGroupInUse(anyString);
-                minTimes = 0;
-                result = new Delegate() {
-                    Pair<Boolean, String> list() {
-                        return Pair.of(false, "");
-                    }
-                };
-            }
-        };
+    @After
+    public void tearDown() {
+        if (mockedEnv != null) {
+            mockedEnv.close();
+        }
     }
 
     @Test
@@ -265,7 +236,6 @@ public class WorkloadGroupMgrTest {
         workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(100, "normal", properties1), false);
         workloadGroupMgr.createWorkloadGroup(cgName2, new WorkloadGroup(101, "normal", properties1), false);
 
-
         // 1 test get workload group by ConnectContext
         ConnectContext ctx = new ConnectContext();
         // 1.1 not set wg, get normal
@@ -278,7 +248,6 @@ public class WorkloadGroupMgrTest {
 
         ctx.setComputeGroup(new ComputeGroup(cgName2, cgName2, null));
         Assert.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).get(0).getId() == 101);
-
 
         // 1.2 get from user prop
 
@@ -409,7 +378,6 @@ public class WorkloadGroupMgrTest {
         wgMgr.getIdToWorkloadGroup().put(wgId3, wg3);
         wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName3), wg3);
 
-
         // create a duplicate wg3 which binds to a compute group
         String cg1 = "cg1";
 
@@ -420,7 +388,6 @@ public class WorkloadGroupMgrTest {
         prop4.put(WorkloadGroup.COMPUTE_GROUP, cg1);
         WorkloadGroup wg4 = new WorkloadGroup(wgId4, wgName4, prop4);
         wgMgr.createWorkloadGroup(cg1, wg4, false);
-
 
         Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 4);
         Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 4);
@@ -507,7 +474,6 @@ public class WorkloadGroupMgrTest {
         }
     }
 
-
     @Test
     public void testMultiTagAlterWorkloadGroup() throws UserException {
         Config.enable_workload_group = true;
@@ -585,7 +551,6 @@ public class WorkloadGroupMgrTest {
         WorkloadGroupMgr wgMgr = new WorkloadGroupMgr();
         Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 0);
         Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 0);
-
 
         // 1 test replay create
         WorkloadGroup wg1 = new WorkloadGroup(1, "wg1", Maps.newHashMap());

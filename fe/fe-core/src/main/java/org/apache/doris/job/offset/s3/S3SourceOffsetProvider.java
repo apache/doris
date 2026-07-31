@@ -18,12 +18,13 @@
 package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
@@ -63,10 +64,10 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         S3Offset offset = new S3Offset();
         String startFile = currentOffset == null ? null : currentOffset.endFile;
         String filePath = null;
-        StorageProperties storageProperties = StorageProperties.createPrimary(copiedProps);
-        try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageProperties)) {
-            String uri = storageProperties.validateAndGetUri(copiedProps);
-            filePath = storageProperties.validateAndNormalizeUri(uri);
+        StorageAdapter storageAdapter = StorageAdapter.of(copiedProps);
+        try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter)) {
+            String uri = storageAdapter.validateAndGetUri(copiedProps);
+            filePath = storageAdapter.validateAndNormalizeUri(uri);
             GlobListing globListing = fileSystem.globListWithLimit(Location.of(filePath), startFile,
                     jobProps.getS3BatchBytes(), jobProps.getS3BatchFiles());
 
@@ -157,11 +158,11 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         copiedProps.putAll(properties);
-        StorageProperties storageProperties = StorageProperties.createPrimary(copiedProps);
+        StorageAdapter storageAdapter = StorageAdapter.of(copiedProps);
         String startFile = currentOffset == null ? null : currentOffset.endFile;
-        try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageProperties)) {
-            String uri = storageProperties.validateAndGetUri(copiedProps);
-            String filePath = storageProperties.validateAndNormalizeUri(uri);
+        try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter)) {
+            String uri = storageAdapter.validateAndGetUri(copiedProps);
+            String filePath = storageAdapter.validateAndNormalizeUri(uri);
             // debug point: simulate globListWithLimit throwing an IOException (e.g. S3 auth error)
             if (DebugPointUtil.isEnable("S3SourceOffsetProvider.fetchRemoteMeta.error")) {
                 throw new java.io.IOException("debug point: simulated S3 auth error");
@@ -183,6 +184,47 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public String getPersistInfo() {
+        if (currentOffset == null) {
+            return null;
+        }
+        return currentOffset.toSerializedJson();
+    }
+
+    @Override
+    public void restoreFromPersistInfo(String persistInfo) {
+        if (persistInfo == null) {
+            return;
+        }
+        try {
+            this.currentOffset = GsonUtils.GSON.fromJson(
+                    persistInfo, S3Offset.class);
+        } catch (Exception e) {
+            log.warn("Failed to restore S3 offset from persistInfo", e);
+        }
+    }
+
+    @Override
+    public void replayIfNeed(StreamingInsertJob job) {
+        // If currentOffset was already set by EditLog replay (replayOnCommitted -> updateOffset),
+        // it reflects the latest committed state and should not be overwritten by
+        // offsetProviderPersist which may be stale (e.g. txn replay runs after ALTER replay).
+        if (currentOffset != null) {
+            log.info("S3 offset for job {} already set by EditLog replay: endFile={}",
+                    job.getJobId(), currentOffset.getEndFile());
+            return;
+        }
+        // Only restore from offsetProviderPersist when currentOffset is null,
+        // which means recovery is from checkpoint image without subsequent EditLog replay.
+        String persist = job.getOffsetProviderPersist();
+        if (persist != null) {
+            this.currentOffset = GsonUtils.GSON.fromJson(persist, S3Offset.class);
+            log.info("Restored S3 offset from checkpoint for job {}: endFile={}",
+                    job.getJobId(), currentOffset.getEndFile());
+        }
     }
 
     @Override

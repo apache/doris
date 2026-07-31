@@ -31,11 +31,13 @@ OPTS="$(getopt \
     -l 'daemon' \
     -l 'helper:' \
     -l 'image:' \
+    -l 'local_resource_group:' \
     -l 'version' \
     -l 'metadata_failure_recovery' \
     -l 'recovery_journal_id:' \
     -l 'console' \
     -l 'cluster_snapshot:' \
+    -l 'drop_backends' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -46,9 +48,12 @@ HELPER=''
 IMAGE_PATH=''
 IMAGE_TOOL=''
 OPT_VERSION=''
-METADATA_FAILURE_RECOVERY=''
-RECOVERY_JOURNAL_ID=''
-CLUSTER_SNAPSHOT=''
+declare -a LOCAL_RESOURCE_GROUP_ARGS=()
+declare -a HELPER_ARGS=()
+declare -a METADATA_FAILURE_RECOVERY_ARGS=()
+declare -a RECOVERY_JOURNAL_ID_ARGS=()
+declare -a CLUSTER_SNAPSHOT_ARGS=()
+declare -a DROP_BACKENDS_ARGS=()
 while true; do
     case "$1" in
     --daemon)
@@ -64,11 +69,11 @@ while true; do
         shift
         ;;
     --metadata_failure_recovery)
-        METADATA_FAILURE_RECOVERY="-r"
+        METADATA_FAILURE_RECOVERY_ARGS=("-r")
         shift
         ;;
     --recovery_journal_id)
-        RECOVERY_JOURNAL_ID="--recovery_journal_id $2"
+        RECOVERY_JOURNAL_ID_ARGS=("--recovery_journal_id" "$2")
         shift 2
         ;;
     --helper)
@@ -80,9 +85,17 @@ while true; do
         IMAGE_PATH="$2"
         shift 2
         ;;
-    --cluster_snapshot)
-        CLUSTER_SNAPSHOT="-cluster_snapshot $2"
+    --local_resource_group)
+        LOCAL_RESOURCE_GROUP_ARGS=("--local_resource_group" "$2")
         shift 2
+        ;;
+    --cluster_snapshot)
+        CLUSTER_SNAPSHOT_ARGS=("--cluster_snapshot" "$2")
+        shift 2
+        ;;
+    --drop_backends)
+        DROP_BACKENDS_ARGS=("--drop_backends")
+        shift
         ;;
     --)
         shift
@@ -92,7 +105,7 @@ while true; do
         echo "Internal error"
         exit 1
         ;;
-    esac
+esac
 done
 
 DORIS_HOME="$(
@@ -416,28 +429,28 @@ log "start time: ${CUR_DATE}"
 
 if [[ "${HELPER}" != "" ]]; then
     # change it to '-helper' to be compatible with code in Frontend
-    HELPER="-helper ${HELPER}"
+    HELPER_ARGS=("-helper" "${HELPER}")
 fi
 
 if [[ "${OPT_VERSION}" != "" ]]; then
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${JAVA}" org.apache.doris.DorisFE --version
+    ${LIMIT:+${LIMIT}} "${JAVA}" org.apache.doris.DorisFE "${LOCAL_RESOURCE_GROUP_ARGS[@]}" --version
     exit 0
 fi
 
 if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
     if [[ -n "${IMAGE_PATH}" ]]; then
-        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE -i "${IMAGE_PATH}"
+        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE "${LOCAL_RESOURCE_GROUP_ARGS[@]}" -i "${IMAGE_PATH}"
     else
         echo "Internal error, USE IMAGE_TOOL like: ./start_fe.sh --image image_path"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "${RECOVERY_JOURNAL_ID:+${RECOVERY_JOURNAL_ID}}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null &
+    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE "${HELPER_ARGS[@]}" "${LOCAL_RESOURCE_GROUP_ARGS[@]}" "${METADATA_FAILURE_RECOVERY_ARGS[@]}" "${RECOVERY_JOURNAL_ID_ARGS[@]}" "${CLUSTER_SNAPSHOT_ARGS[@]}" "${DROP_BACKENDS_ARGS[@]}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null &
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "${RECOVERY_JOURNAL_ID:+${RECOVERY_JOURNAL_ID}}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE "${HELPER_ARGS[@]}" "${LOCAL_RESOURCE_GROUP_ARGS[@]}" ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY_ARGS[@]}" "${RECOVERY_JOURNAL_ID_ARGS[@]}" "${CLUSTER_SNAPSHOT_ARGS[@]}" "${DROP_BACKENDS_ARGS[@]}" "$@" >>"${STDOUT_LOGGER}" </dev/null
 else
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "${RECOVERY_JOURNAL_ID:+${RECOVERY_JOURNAL_ID}}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE "${HELPER_ARGS[@]}" "${LOCAL_RESOURCE_GROUP_ARGS[@]}" ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY_ARGS[@]}" "${RECOVERY_JOURNAL_ID_ARGS[@]}" "${CLUSTER_SNAPSHOT_ARGS[@]}" "${DROP_BACKENDS_ARGS[@]}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null
 fi
 
 if [[ "${OPT_VERSION}" != "" ]]; then

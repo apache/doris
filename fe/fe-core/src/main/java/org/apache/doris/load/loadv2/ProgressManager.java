@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.HashBasedTable;
@@ -56,7 +57,8 @@ public class ProgressManager {
         if (progress != null) {
             progress.updateFinishedScanNums(queryId, fragmentId, finishedScannerNum);
         } else {
-            LOG.warn("progress[" + id + "] missing meta information");
+            LOG.warn("progress id {} missing meta information, queryId {}, fragmentId {}",
+                    id, DebugUtil.printId(queryId), DebugUtil.printId(fragmentId));
         }
     }
 

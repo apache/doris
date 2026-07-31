@@ -23,8 +23,8 @@ import groovy.json.JsonOutput
 // 2 create vcg, c1, c2 are sub compute group of vcg, adn c1 is active cg
 // 3 set vcg as default cluster
 // 4 stop 2 bes of c1
-// 5 start 2 bes of c1
-// 6 long-term stop 2 bes of c1
+// 5 start 2 bes of c1, vcg does not actively switch back and writes still go to c2
+// 6 stop the current serving c2, writes go back to c1
 
 suite('default_vcg_auto_failover', 'multi_cluster,docker') {
     def options = new ClusterOptions()
@@ -66,11 +66,11 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
 
             def clusterName1 = "newcluster1"
             // add cluster newcluster1
-            cluster.addBackend(2, clusterName1)
+            def cluster1BeIndexes = cluster.addBackend(2, clusterName1)
 
             def clusterName2 = "newcluster2"
             // add cluster newcluster2
-            cluster.addBackend(2, clusterName2)
+            def cluster2BeIndexes = cluster.addBackend(2, clusterName2)
 
             // add vcluster
             def instance_id = "default_instance_id"
@@ -189,7 +189,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
 
             sql """ set enable_profile = true """
 
-            cluster.stopBackends(4, 5)
+            cluster.stopBackends(cluster1BeIndexes[0], cluster1BeIndexes[1])
 
             def before_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
             log.info("before_cluster2_be0_load_rows : ${before_cluster2_be0_load_rows}".toString())
@@ -262,7 +262,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
             log.info("policy {}", vcgInShow.Policy)
             assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster1","standbyComputeGroup":"newcluster2"'))
 
-            cluster.startBackends(4, 5)
+            cluster.startBackends(cluster1BeIndexes[0], cluster1BeIndexes[1])
 
             def before_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
             log.info("before_cluster1_be0_load_rows : ${before_cluster1_be0_load_rows}".toString())
@@ -335,15 +335,15 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
             after_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("after_cluster2_be1_flush : ${after_cluster2_be1_flush}".toString())
 
-            assertTrue(before_cluster1_be0_load_rows < after_cluster1_be0_load_rows || before_cluster1_be1_load_rows < after_cluster1_be1_load_rows)
-            assertTrue(before_cluster1_be0_flush < after_cluster1_be0_flush || before_cluster1_be1_flush < after_cluster1_be1_flush)
+            assertTrue(before_cluster1_be0_load_rows == after_cluster1_be0_load_rows)
+            assertTrue(before_cluster1_be0_flush == after_cluster1_be0_flush)
+            assertTrue(before_cluster1_be1_load_rows == after_cluster1_be1_load_rows)
+            assertTrue(before_cluster1_be1_flush == after_cluster1_be1_flush)
 
-            assertTrue(before_cluster2_be0_load_rows == after_cluster2_be0_load_rows)
-            assertTrue(before_cluster2_be0_flush == after_cluster2_be0_flush)
-            assertTrue(before_cluster2_be1_load_rows == after_cluster2_be1_load_rows)
-            assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
+            assertTrue(before_cluster2_be0_load_rows < after_cluster2_be0_load_rows || before_cluster2_be1_load_rows < after_cluster2_be1_load_rows)
+            assertTrue(before_cluster2_be0_flush < after_cluster2_be0_flush || before_cluster2_be1_flush < after_cluster2_be1_flush)
 
-            addrSet = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
+            addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
             if (options.connectToFollower) {
                 checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
@@ -351,17 +351,17 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
                 checkProfileNew.call(cluster.getMasterFe(), addrSet)
             }
 
-            cluster.stopBackends(4, 5)
+            cluster.stopBackends(cluster2BeIndexes[0], cluster2BeIndexes[1])
 
-            before_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
-            log.info("before_cluster2_be0_load_rows : ${before_cluster2_be0_load_rows}".toString())
-            before_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
-            log.info("before_cluster2_be0_flush : ${before_cluster2_be0_flush}".toString())
+            before_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
+            log.info("before_cluster1_be0_load_rows : ${before_cluster1_be0_load_rows}".toString())
+            before_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
+            log.info("before_cluster1_be0_flush : ${before_cluster1_be0_flush}".toString())
 
-            before_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
-            log.info("before_cluster2_be1_load_rows : ${before_cluster2_be1_load_rows}".toString())
-            before_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
-            log.info("before_cluster2_be1_flush : ${before_cluster2_be1_flush}".toString())
+            before_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
+            log.info("before_cluster1_be1_load_rows : ${before_cluster1_be1_load_rows}".toString())
+            before_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
+            log.info("before_cluster1_be1_flush : ${before_cluster1_be1_flush}".toString())
 
             txnId = -1;
             streamLoad {
@@ -394,20 +394,20 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
             order_qt_all11 "SELECT count(*) FROM ${tableName}" // 20
             order_qt_all12 "SELECT count(*) FROM ${tableName} where k1 <= 10"  // 11
 
-            after_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
-            log.info("after_cluster2_be0_load_rows : ${after_cluster2_be0_load_rows}".toString())
-            after_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
-            log.info("after_cluster2_be0_flush : ${after_cluster2_be0_flush}".toString())
+            after_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
+            log.info("after_cluster1_be0_load_rows : ${after_cluster1_be0_load_rows}".toString())
+            after_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
+            log.info("after_cluster1_be0_flush : ${after_cluster1_be0_flush}".toString())
 
-            after_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
-            log.info("after_cluster2_be1_load_rows : ${after_cluster2_be1_load_rows}".toString())
-            after_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
-            log.info("after_cluster2_be1_flush : ${after_cluster2_be1_flush}".toString())
+            after_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
+            log.info("after_cluster1_be1_load_rows : ${after_cluster1_be1_load_rows}".toString())
+            after_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
+            log.info("after_cluster1_be1_flush : ${after_cluster1_be1_flush}".toString())
 
-            assertTrue(before_cluster2_be0_load_rows < after_cluster2_be0_load_rows || before_cluster2_be1_load_rows < after_cluster2_be1_load_rows)
-            assertTrue(before_cluster2_be0_flush < after_cluster2_be0_flush || before_cluster2_be1_flush < after_cluster2_be1_flush)
+            assertTrue(before_cluster1_be0_load_rows < after_cluster1_be0_load_rows || before_cluster1_be1_load_rows < after_cluster1_be1_load_rows)
+            assertTrue(before_cluster1_be0_flush < after_cluster1_be0_flush || before_cluster1_be1_flush < after_cluster1_be1_flush)
 
-            addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
+            addrSet = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
             if (options.connectToFollower) {
                 checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
@@ -425,7 +425,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
             log.info("show compute group {}", showComputeGroup)
             vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
-            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster2","standbyComputeGroup":"newcluster1"'))
+            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster1","standbyComputeGroup":"newcluster2"'))
         }
         // connect to follower, run again
         options.connectToFollower = true

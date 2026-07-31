@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("sqlserver.md", "p0,external,sqlserver,external_docker,external_docker_sqlserver") {
+suite("sqlserver.md", "p2,external,sqlserver,external_docker,external_docker_sqlserver") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "sqlserver_catalog_md";

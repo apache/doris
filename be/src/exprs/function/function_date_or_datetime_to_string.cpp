@@ -147,7 +147,7 @@ public:
         ColumnPtr actual_col = source_col;
 
         if (is_column_nullable(*source_col)) {
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(source_col.get());
+            const auto* nullable_col = assert_cast<const ColumnNullable*>(source_col.get());
             actual_col = nullable_col->get_nested_column_ptr();
             null_map = &nullable_col->get_null_map_data();
         }
@@ -164,12 +164,10 @@ public:
                null_map);
 
         if (null_map) {
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(source_col.get());
+            const auto* nullable_col = assert_cast<const ColumnNullable*>(source_col.get());
             block.replace_by_position(
-                    result,
-                    ColumnNullable::create(std::move(col_res),
-                                           nullable_col->get_null_map_column_ptr()->clone_resized(
-                                                   input_rows_count)));
+                    result, ColumnNullable::create(std::move(col_res),
+                                                   nullable_col->get_null_map_column_ptr()));
         } else {
             block.replace_by_position(result, std::move(col_res));
         }

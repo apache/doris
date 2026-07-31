@@ -26,8 +26,13 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 public class WriteRecordRequest extends JobBaseRecordRequest {
     private long maxInterval;
+    private long taskTimeoutMs;
     private String targetDb;
     private String token;
     private String taskId;
     private Map<String, String> streamLoadProps;
+    // previous task ended abnormally, rebuild reader instead of reusing
+    private boolean rebuildReader;
+    // off by default: an old FE omits it, so a new cdc_client falls back to per-round reader close
+    private boolean reuseReader;
 }

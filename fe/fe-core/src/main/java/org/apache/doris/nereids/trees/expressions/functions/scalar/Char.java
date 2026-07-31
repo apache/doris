@@ -54,13 +54,14 @@ public class Char extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child(0) instanceof StringLikeLiteral)) {
-            throw new AnalysisException("char charset name must be a constant: " + child(0).toSql());
+        Expression charsetArgument = getArgument(0);
+        if (!(charsetArgument instanceof StringLikeLiteral)) {
+            throw new AnalysisException("char charset name must be a constant: " + charsetArgument.toSql());
         }
-        StringLikeLiteral stringLiteral = (StringLikeLiteral) child(0);
+        StringLikeLiteral stringLiteral = (StringLikeLiteral) charsetArgument;
         if (!"utf8".equalsIgnoreCase(stringLiteral.getStringValue())) {
             throw new AnalysisException(
-                    "char function currently only support charset name 'utf8': " + child(0).toSql());
+                    "char function currently only support charset name 'utf8': " + charsetArgument.toSql());
         }
     }
 

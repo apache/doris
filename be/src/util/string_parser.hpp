@@ -36,7 +36,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/data_type/number_traits.h"
 #include "core/data_type/primitive_type.h"
@@ -266,7 +265,7 @@ uint32_t count_valid_length(const char* s, const char* end) {
 
 inline auto count_digits = count_valid_length<is_numeric_ascii>;
 
-inline PURE std::string combine_tz_offset(char sign, uint32_t hour_offset, uint32_t minute_offset) {
+inline std::string combine_tz_offset(char sign, uint32_t hour_offset, uint32_t minute_offset) {
     std::string result(6, '0');
     result[0] = sign;
     result[1] = '0' + (hour_offset / 10);

@@ -58,7 +58,6 @@ DECLARE_mInt32(meta_service_connection_age_base_seconds);
 //
 // Only works when meta_service_endpoint is set to a single host.
 DECLARE_mInt32(meta_service_idle_connection_timeout_ms);
-DECLARE_mInt32(meta_service_rpc_timeout_ms);
 DECLARE_mInt32(meta_service_rpc_retry_times);
 // default brpc timeout
 DECLARE_mInt32(meta_service_brpc_timeout_ms);
@@ -147,8 +146,6 @@ DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
 DECLARE_Bool(enable_cloud_tablet_report);
 
-DECLARE_mInt32(delete_bitmap_rpc_retry_times);
-
 DECLARE_mInt64(meta_service_rpc_reconnect_interval_ms);
 
 DECLARE_mInt32(meta_service_conflict_error_retry_times);
@@ -178,6 +175,7 @@ DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 
 // Packed file manager config
 DECLARE_mBool(enable_packed_file);
+DECLARE_mBool(enable_file_cache_write_index_file_only);
 DECLARE_mInt64(packed_file_size_threshold_bytes);
 DECLARE_mInt64(packed_file_time_threshold_ms);
 DECLARE_mInt64(packed_file_try_lock_timeout_ms);
@@ -200,19 +198,98 @@ DECLARE_mInt64(cluster_status_cache_refresh_interval_sec);
 // When version count exceeds this ratio of max_tablet_version_num, force compaction
 // even on read-only clusters (safety valve to prevent unbounded version growth)
 DECLARE_mDouble(compaction_rw_separation_version_threshold_ratio);
-
-DECLARE_mBool(enable_cache_read_from_peer);
-
 // Rate limit for warmup download in bytes per second, default 100MB/s
 // <= 0 means no limit
 DECLARE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second);
 
-DECLARE_mInt64(cache_read_from_peer_expired_seconds);
+DECLARE_mInt64(peer_candidate_cleanup_interval_s);
+DECLARE_mInt64(peer_candidate_expiry_s);
+DECLARE_mInt32(peer_rpc_failure_eviction_threshold);
+DECLARE_mInt32(peer_all_miss_cooldown_threshold);
+DECLARE_mInt64(peer_all_miss_cooldown_duration_s);
+
+DECLARE_mBool(enable_cache_read_from_peer);
+
+DECLARE_mBool(enable_peer_s3_race);
+DECLARE_mInt32(max_concurrent_peer_races);
+// When > 0, S3 read is delayed by this many ms after peer bthread launch so peer gets a head
+// start.  Useful in low-latency environments where peer is consistently faster than S3.
+// Default 0 disables the delay (both paths launch simultaneously).
+DECLARE_mInt32(peer_race_hedge_delay_ms);
+DECLARE_mString(peer_cache_fill_compute_group_id);
+DECLARE_mBool(enable_peer_server_cache_fill);
+DECLARE_mInt32(peer_server_cache_fill_timeout_ms);
+DECLARE_mInt32(max_concurrent_peer_server_fills);
+// Reject queued peer fetch tasks that wait too long in the peer fetch pool.
+DECLARE_mInt32(peer_fetch_queue_timeout_ms);
 
 // Base compaction output: only write index files to file cache, not data files
 DECLARE_mBool(enable_file_cache_write_base_compaction_index_only);
 
 // Cumulative compaction output: only write index files to file cache, not data files
 DECLARE_mBool(enable_file_cache_write_cumu_compaction_index_only);
+
+// MS RPC rate limiting config
+// Enable host-level rate limiting for MS RPCs to prevent burst traffic
+DECLARE_mBool(enable_ms_rpc_host_level_rate_limit);
+
+// Per-RPC QPS limit configs (per CPU core)
+// QPS limit = config_value * num_cores
+// Set to 0 to disable rate limiting for a specific RPC
+// Set to -1 to use ms_rpc_qps_default config value
+DECLARE_mInt32(ms_rpc_qps_default);
+DECLARE_mInt32(ms_rpc_qps_get_tablet_meta);
+DECLARE_mInt32(ms_rpc_qps_get_rowset);
+DECLARE_mInt32(ms_rpc_qps_prepare_rowset);
+DECLARE_mInt32(ms_rpc_qps_commit_rowset);
+DECLARE_mInt32(ms_rpc_qps_update_tmp_rowset);
+DECLARE_mInt32(ms_rpc_qps_commit_txn);
+DECLARE_mInt32(ms_rpc_qps_abort_txn);
+DECLARE_mInt32(ms_rpc_qps_precommit_txn);
+DECLARE_mInt32(ms_rpc_qps_get_obj_store_info);
+DECLARE_mInt32(ms_rpc_qps_start_tablet_job);
+DECLARE_mInt32(ms_rpc_qps_finish_tablet_job);
+DECLARE_mInt32(ms_rpc_qps_get_delete_bitmap);
+DECLARE_mInt32(ms_rpc_qps_update_delete_bitmap);
+DECLARE_mInt32(ms_rpc_qps_get_delete_bitmap_update_lock);
+DECLARE_mInt32(ms_rpc_qps_remove_delete_bitmap_update_lock);
+DECLARE_mInt32(ms_rpc_qps_get_instance);
+DECLARE_mInt32(ms_rpc_qps_prepare_restore_job);
+DECLARE_mInt32(ms_rpc_qps_commit_restore_job);
+DECLARE_mInt32(ms_rpc_qps_finish_restore_job);
+DECLARE_mInt32(ms_rpc_qps_list_snapshots);
+DECLARE_mInt32(ms_rpc_qps_get_cluster_status);
+DECLARE_mInt32(ms_rpc_qps_update_packed_file_info);
+
+// ============== Table-level backpressure handling config ==============
+
+// Enable MS backpressure response handling (table-level adaptive throttling)
+DECLARE_mBool(enable_ms_backpressure_handling);
+
+// Time window (seconds) for computing per-table QPS via bvar::PerSecond.
+// Larger window smooths out short-term spikes; smaller window reacts faster.
+// Immutable: takes effect only at counter creation time.
+DECLARE_Int32(ms_rpc_table_qps_window_sec);
+
+// ------------ Throttle upgrade config ------------
+
+// Minimum interval between throttle upgrades after receiving MS_BUSY (milliseconds)
+DECLARE_mInt32(ms_backpressure_upgrade_interval_ms);
+
+// Number of top-k tables to throttle on each upgrade
+DECLARE_mInt32(ms_backpressure_upgrade_top_k);
+
+// QPS decay ratio when upgrading throttle
+// New limit = current QPS * ratio (first time) or current limit * ratio (already limited)
+DECLARE_mDouble(ms_backpressure_throttle_ratio);
+
+// Floor value for table-level QPS limit
+// Throttle upgrade will not reduce QPS limit below this value
+DECLARE_mDouble(ms_rpc_table_qps_limit_floor);
+
+// ------------ Throttle downgrade config ------------
+
+// Time without MS_BUSY before triggering throttle downgrade (milliseconds)
+DECLARE_mInt32(ms_backpressure_downgrade_interval_ms);
 
 } // namespace doris::config

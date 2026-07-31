@@ -66,7 +66,8 @@ void JoinProbeLocalState<SharedStateArg, Derived>::_construct_mutable_join_block
         const auto& mark_column = assert_cast<const ColumnNullable&>(
                 *_join_block.get_by_position(_mark_column_id).column);
         auto& nested_column = mark_column.get_nested_column();
-        DCHECK(check_and_get_column<ColumnUInt8>(nested_column) != nullptr);
+        [[maybe_unused]] const auto& nested_uint8_column =
+                assert_cast<const ColumnUInt8&>(nested_column);
 #endif
     }
 }

@@ -1,4 +1,5 @@
-CREATE TABLE `parquet_predicate_table`(
+drop table if exists `parquet_predicate_table`;
+create table `parquet_predicate_table`(
 `column_primitive_integer` int,
 `column1_struct` struct<field0:bigint,field1:bigint>,
 `column_primitive_bigint` bigint
@@ -10,6 +11,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_predicate_table';
-
-msck repair table parquet_predicate_table;
-

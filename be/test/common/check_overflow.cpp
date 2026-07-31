@@ -21,7 +21,7 @@
 
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
-#include "util/io_helper.h"
+#include "exprs/function/cast/cast_to_basic_number_common.h"
 
 namespace doris {
 
@@ -37,7 +37,8 @@ struct CheckOverFlowTest : public testing::Test {
     Int128 to_i128(std::string str) {
         StringRef str_ref(str.data(), str.size());
         Int128 val;
-        EXPECT_TRUE(try_read_int_text(val, str_ref));
+        CastParameters params;
+        EXPECT_TRUE(CastToInt::from_string<false>(str_ref, val, params));
         return val;
     };
 

@@ -18,7 +18,7 @@
 suite("test_pythonudaf_nested_query") {
     // Test Python UDAFs in complex nested queries, subqueries, CTEs, and JOINs
     
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     
     try {
         // Create orders table
@@ -87,7 +87,7 @@ suite("test_pythonudaf_nested_query") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "TotalRevenueUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class TotalRevenueUDAF:
@@ -118,7 +118,7 @@ class TotalRevenueUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "OrderCountUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class OrderCountUDAF:
@@ -149,7 +149,7 @@ class OrderCountUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "AvgOrderValueUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class AvgOrderValueUDAF:

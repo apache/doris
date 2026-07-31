@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.parquet_alter_column_to_bigint`(
+drop table if exists `multi_catalog.parquet_alter_column_to_bigint`;
+
+create table `multi_catalog.parquet_alter_column_to_bigint`(
   `col_int` bigint, 
   `col_smallint` bigint, 
   `col_tinyint` bigint, 
@@ -26,5 +28,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1697217352', 
   'transient_lastDdlTime'='1697217352');
-
-msck repair table parquet_alter_column_to_bigint;

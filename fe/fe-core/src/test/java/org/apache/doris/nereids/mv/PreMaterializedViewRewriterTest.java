@@ -42,10 +42,9 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.BitSet;
 import java.util.HashMap;
@@ -62,12 +61,9 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
     public void testShouldNotRecordTmpPlanWhenNoMv() {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
-        new MockUp<SessionVariable>() {
-            @Mock
-            public BitSet getDisableNereidsRules() {
-                return disableNereidsRules;
-            }
-        };
+        SessionVariable spySv = Mockito.spy(connectContext.getSessionVariable());
+        Mockito.doReturn(disableNereidsRules).when(spySv).getDisableNereidsRules();
+        connectContext.setSessionVariable(spySv);
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         connectContext.getSessionVariable().setPreMaterializedViewRewriteStrategy(

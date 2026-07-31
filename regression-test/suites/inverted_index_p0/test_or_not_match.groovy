@@ -39,7 +39,7 @@ suite("test_or_not_match", "p0") {
     // load the json data
     streamLoad {
         table "${tableName}"
-        
+
         // set http request header params
         set 'read_json_by_line', 'true'
         set 'format', 'json'
@@ -64,7 +64,7 @@ suite("test_or_not_match", "p0") {
 
     sql "set enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     qt_sql "select request from ${tableName} where request like '1.0' or not request MATCH 'GETA' order by request limit 2;"
 }

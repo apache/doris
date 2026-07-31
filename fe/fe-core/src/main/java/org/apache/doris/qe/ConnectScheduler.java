@@ -160,9 +160,13 @@ public class ConnectScheduler {
     private class TimeoutChecker extends TimerTask {
         @Override
         public void run() {
-            long now = System.currentTimeMillis();
-            connectPoolMgr.timeoutChecker(now);
-            flightSqlConnectPoolMgr.timeoutChecker(now);
+            try {
+                long now = System.currentTimeMillis();
+                connectPoolMgr.timeoutChecker(now);
+                flightSqlConnectPoolMgr.timeoutChecker(now);
+            } catch (Throwable t) {
+                LOG.warn("failed to check connection timeout", t);
+            }
         }
     }
 }

@@ -18,9 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
@@ -46,11 +45,11 @@ public class Uuid extends UniqueFunction
      * constructor with 0 argument.
      */
     public Uuid() {
-        this(StatementScopeIdGenerator.newExprId(), false);
+        this(VolatileIdentity.newVolatileIdentity());
     }
 
-    public Uuid(ExprId uniqueId, boolean ignoreUniqueId) {
-        super("uuid", uniqueId, ignoreUniqueId);
+    private Uuid(VolatileIdentity volatileIdentity) {
+        super("uuid", volatileIdentity);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -66,7 +65,7 @@ public class Uuid extends UniqueFunction
 
     @Override
     public Uuid withIgnoreUniqueId(boolean ignoreUniqueId) {
-        return new Uuid(uniqueId, ignoreUniqueId);
+        return new Uuid(volatileIdentity.withIgnoreUniqueId(ignoreUniqueId));
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

@@ -47,6 +47,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
@@ -54,6 +55,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
@@ -89,6 +91,9 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.ConnectorFactory;
+import org.apache.doris.connector.ConnectorPluginManager;
+import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
@@ -97,15 +102,10 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.SplitSourceManager;
-import org.apache.doris.datasource.es.EsExternalCatalog;
-import org.apache.doris.datasource.hive.HiveTransactionMgr;
-import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
-import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
+import org.apache.doris.datasource.MetastoreEventSyncDriver;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
+import org.apache.doris.datasource.split.SplitSourceManager;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
@@ -124,7 +124,6 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
@@ -213,6 +212,7 @@ import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.CreateDbInfo;
+import org.apache.doris.persist.CreateFunctionInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
@@ -235,6 +235,7 @@ import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
+import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
@@ -272,6 +273,7 @@ import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.StatisticsJobAppender;
 import org.apache.doris.statistics.StatisticsMetricCollector;
 import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
@@ -405,7 +407,9 @@ public class Env {
     private PartitionInfoCollector partitionInfoCollector;
     private CooldownConfHandler cooldownConfHandler;
     private ExternalMetaIdMgr externalMetaIdMgr;
-    private MetastoreEventsProcessor metastoreEventsProcessor;
+    // Connector-agnostic incremental metastore-event sync driver (Model B). Dormant until an HMS catalog is
+    // served by a PluginDrivenExternalCatalog whose connector exposes an event source.
+    private MetastoreEventSyncDriver metastoreEventSyncDriver;
 
     private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
     private LabelProcessor labelProcessor;
@@ -564,8 +568,6 @@ public class Env {
 
     private FollowerColumnSender followerColumnSender;
 
-    private HiveTransactionMgr hiveTransactionMgr;
-
     private TopicPublisherThread topicPublisherThread;
 
     private WorkloadGroupChecker workloadGroupCheckerThread;
@@ -608,7 +610,11 @@ public class Env {
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
-            .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
+            .<String, Supplier<MasterDaemon>>builder()
+            .put("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler)
+            .put("table_stream_partition_offset_cleanup_interval_second",
+                    this::getTableStreamManager)
+            .build();
 
     private TSOService tsoService;
 
@@ -756,7 +762,7 @@ public class Env {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
         this.externalMetaIdMgr = new ExternalMetaIdMgr();
-        this.metastoreEventsProcessor = new MetastoreEventsProcessor();
+        this.metastoreEventSyncDriver = new MetastoreEventSyncDriver();
         this.jobManager = new JobManager<>();
         this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
@@ -857,7 +863,6 @@ public class Env {
         this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
-        this.hiveTransactionMgr = new HiveTransactionMgr();
         this.binlogManager = new BinlogManager();
         this.constraintManager = new ConstraintManager();
         this.binlogGcer = new BinlogGcer();
@@ -1033,8 +1038,8 @@ public class Env {
         return externalMetaIdMgr;
     }
 
-    public MetastoreEventsProcessor getMetastoreEventsProcessor() {
-        return metastoreEventsProcessor;
+    public MetastoreEventSyncDriver getMetastoreEventSyncDriver() {
+        return metastoreEventSyncDriver;
     }
 
     public KeyManagerStore getKeyManagerStore() {
@@ -1087,14 +1092,6 @@ public class Env {
     // For unit test only
     public Checkpoint getCheckpointer() {
         return checkpointer;
-    }
-
-    public HiveTransactionMgr getHiveTransactionMgr() {
-        return hiveTransactionMgr;
-    }
-
-    public static HiveTransactionMgr getCurrentHiveTransactionMgr() {
-        return getCurrentEnv().getHiveTransactionMgr();
     }
 
     public DNSCache getDnsCache() {
@@ -1215,6 +1212,9 @@ public class Env {
         // init filesystem plugin manager (before any storage backend access)
         initFileSystemPluginManager();
 
+        // init connector plugin manager (before any catalog access)
+        initConnectorPluginManager();
+
         cloneClusterSnapshot();
 
         // 2. get cluster id and role (Observer or Follower)
@@ -1231,6 +1231,7 @@ public class Env {
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
         loadImage(this.imageDir); // load image file
+        seedSelfLocalResourceGroup();
         migrateConstraintsFromTables(); // migrate old table-based constraints
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
@@ -1259,6 +1260,23 @@ public class Env {
         queryCancelWorker.start();
 
         StmtExecutor.initBlockSqlAstNames();
+    }
+
+    private static void seedSelfLocalResourceGroup() {
+        Env env = getCurrentEnv();
+        String selfNodeName = env.getNodeName();
+        if (Strings.isNullOrEmpty(selfNodeName)) {
+            LOG.debug("skip seeding local resource group because self node name is not initialized");
+            return;
+        }
+
+        Frontend selfFrontend = env.frontends.get(selfNodeName);
+        if (selfFrontend == null) {
+            LOG.debug("skip seeding local resource group because self frontend {} is not found", selfNodeName);
+            return;
+        }
+
+        selfFrontend.setLocalResourceGroup(Config.local_resource_group);
     }
 
     // wait until FE is ready.
@@ -1381,6 +1399,7 @@ public class Env {
                 isFirstTimeStartUp = true;
                 Frontend self = new Frontend(role, nodeName, selfNode.getHost(),
                         selfNode.getPort());
+                self.setLocalResourceGroup(Config.local_resource_group);
                 // Set self alive to true, the BDBEnvironment.getReplicationGroupAdmin() will rely on this to get
                 // helper node, before the heartbeat thread is started.
                 self.setIsAlive(true);
@@ -1456,8 +1475,7 @@ public class Env {
                 getClusterIdFromStorage(storage);
                 token = storage.getToken();
                 try {
-                    String url = "http://" + NetUtils
-                            .getHostPortInAccessibleFormat(rightHelperNode.getHost(), Config.http_port) + "/check";
+                    String url = HttpURLUtil.buildInternalFeUrl(rightHelperNode.getHost(), "/check", null);
                     HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
@@ -1553,9 +1571,8 @@ public class Env {
             try {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
-                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
-                        + "/role?host=" + selfNode.getHost()
-                        + "&port=" + selfNode.getPort();
+                String queryParams = "host=" + selfNode.getHost() + "&port=" + selfNode.getPort();
+                String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/role", queryParams);
                 HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                 if (conn.getResponseCode() != 200) {
                     LOG.warn("failed to get fe node type from helper node: {}. response code: {}", helperNode,
@@ -1589,7 +1606,8 @@ public class Env {
             }
 
             LOG.info("get fe node type {}, name {} from {}:{}:{}", role, nodeName,
-                    helperNode.getHost(), helperNode.getHost(), Config.http_port);
+                    helperNode.getHost(), helperNode.getPort(),
+                    HttpURLUtil.getHttpPort());
             rightHelperNode = helperNode;
             break;
         }
@@ -1818,10 +1836,30 @@ public class Env {
 
             toMasterProgress = "log master info";
             this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
-                    Config.http_port,
+                    HttpURLUtil.getHttpPort(),
                     Config.rpc_port);
             editLog.logMasterInfo(masterInfo);
             LOG.info("logMasterInfo:{}", masterInfo);
+
+            if (Boolean.getBoolean(FeConstants.DROP_BACKENDS_KEY)) {
+                LOG.info("drop_backends is set, dropping all backends...");
+                try {
+                    SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+                    List<Backend> bes = systemInfoService.getAllClusterBackendsNoException().values()
+                            .stream().collect(Collectors.toList());
+                    if (Config.isNotCloudMode()) {
+                        for (Backend be : bes) {
+                            systemInfoService.dropBackend(be.getHost(), be.getHeartbeatPort());
+                        }
+                    } else {
+                        ((CloudSystemInfoService) systemInfoService).updateCloudBackends(Collections.emptyList(), bes);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("failed to drop backends", e);
+                }
+                System.clearProperty(FeConstants.DROP_BACKENDS_KEY);
+                LOG.info("finished dropping all backends");
+            }
 
             // for master, the 'isReady' is set behind.
             // but we are sure that all metadata is replayed if we get here.
@@ -1844,6 +1882,7 @@ public class Env {
 
             MetricRepo.init();
 
+            seedSelfLocalResourceGroup();
             toMasterProgress = "finished";
             canRead.set(true);
             isReady.set(true);
@@ -2004,6 +2043,7 @@ public class Env {
             cooldownConfHandler.start();
         }
         streamLoadRecordMgr.start();
+        tableStreamManager.start();
         tabletLoadIndexRecorderMgr.start();
         new InternalSchemaInitializer().start();
         getRefreshManager().start();
@@ -2049,7 +2089,8 @@ public class Env {
         // fe disk updater
         feDiskUpdater.start();
 
-        metastoreEventsProcessor.start();
+        // Dormant pre-flip: only drives PluginDrivenExternalCatalogs whose connector exposes an event source.
+        metastoreEventSyncDriver.start();
 
         dnsCache.start();
 
@@ -2119,6 +2160,19 @@ public class Env {
         LOG.info("FileSystemPluginManager initialized with plugin root: {}", pluginRoot);
     }
 
+    private void initConnectorPluginManager() {
+        ConnectorPluginManager connectorPluginManager = new ConnectorPluginManager();
+        connectorPluginManager.loadBuiltins();
+        String pluginRoot = Config.connector_plugin_root;
+        if (pluginRoot != null && !pluginRoot.isEmpty()) {
+            Path rootPath = Paths.get(pluginRoot);
+            connectorPluginManager.loadPlugins(Collections.singletonList(rootPath));
+        }
+        ConnectorFactory.initPluginManager(connectorPluginManager);
+        LOG.info("ConnectorPluginManager initialized, plugin root: {}, registered types: {}",
+                pluginRoot, connectorPluginManager.getRegisteredTypes());
+    }
+
     // Set global variable 'lower_case_table_names' only when the cluster is initialized.
     private void initLowerCaseTableNames() {
         if (Config.lower_case_table_names > 2 || Config.lower_case_table_names < 0) {
@@ -2164,6 +2218,7 @@ public class Env {
     private void checkCurrentNodeExist() {
         boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
         if (metadataFailureRecovery) {
+            updateRecoveryFrontendHostIfNeeded();
             return;
         }
 
@@ -2180,6 +2235,56 @@ public class Env {
         }
     }
 
+    // During backup-restore recovery, the restored metadata may contain FE entries with old IP
+    // addresses from the source cluster. Find the FE entry by node name and update its host to
+    // the current node's actual address. This must run before CloudClusterChecker starts to
+    // prevent it from dropping the only FE and leaving the BDB group empty.
+    private void updateRecoveryFrontendHostIfNeeded() {
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+        Frontend selfFe = frontends.get(nodeName);
+        if (selfFe == null) {
+            LOG.error("Recovery mode: frontend with node name '{}' not found in metadata. "
+                    + "Available frontends: {}. Will exit.", nodeName, frontends.keySet());
+            System.exit(-1);
+        }
+
+        if (selfFe.getRole() != role) {
+            LOG.error("Recovery mode: role mismatch for frontend '{}': expected={}, actual={}. Will exit.",
+                    nodeName, role, selfFe.getRole());
+            System.exit(-1);
+        }
+
+        if (selfFe.getHost().equals(selfNode.getHost()) && selfFe.getEditLogPort() == selfNode.getPort()) {
+            LOG.info("Recovery mode: frontend '{}' already has correct address {}:{}",
+                    nodeName, selfNode.getHost(), selfNode.getPort());
+            return;
+        }
+
+        if (selfFe.getEditLogPort() != selfNode.getPort()) {
+            LOG.error("Recovery mode: edit_log_port mismatch for frontend '{}': restored={}, current={}. "
+                    + "Port migration during recovery is not supported. Will exit.",
+                    nodeName, selfFe.getEditLogPort(), selfNode.getPort());
+            System.exit(-1);
+        }
+
+        Frontend conflicting = checkFeExist(selfNode.getHost(), selfNode.getPort());
+        if (conflicting != null && !conflicting.getNodeName().equals(nodeName)) {
+            LOG.error("Recovery mode: another frontend '{}' already has address {}:{}. "
+                    + "Cannot update frontend '{}' to this address. Will exit.",
+                    conflicting.getNodeName(), selfNode.getHost(), selfNode.getPort(), nodeName);
+            System.exit(-1);
+        }
+
+        LOG.info("Recovery mode: updating frontend '{}' host from {} to {} to match current node",
+                nodeName, selfFe.getHost(), selfNode.getHost());
+        selfFe.setHost(selfNode.getHost());
+
+        editLog.logModifyFrontend(selfFe);
+        LOG.info("Recovery mode: frontend host update persisted to edit log");
+    }
+
     private void checkBeExecVersion() {
         if (Config.be_exec_version < Config.min_be_exec_version
                 || Config.be_exec_version > Config.max_be_exec_version) {
@@ -2191,8 +2296,7 @@ public class Env {
 
     protected boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
         try {
-            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
-                    + "/version";
+            String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/version", null);
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getFile(Storage.VERSION_FILE, dir));
@@ -2211,8 +2315,7 @@ public class Env {
         localImageVersion = storage.getLatestImageSeq();
 
         try {
-            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
-            String infoUrl = "http://" + hostPort + "/info";
+            String infoUrl = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/info", null);
             ResponseBody<StorageInfo> responseBody = MetaHelper
                     .doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000, StorageInfo.class);
             if (responseBody.getCode() != RestApiStatusCode.OK.code) {
@@ -2222,7 +2325,7 @@ public class Env {
             StorageInfo info = responseBody.getData();
             long version = info.getImageSeq();
             if (version > localImageVersion) {
-                String url = "http://" + hostPort + "/image?version=" + version;
+                String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/image", "version=" + version);
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000,
@@ -2647,6 +2750,10 @@ public class Env {
         this.tableStreamManager.write(out);
         LOG.info("finished save TableStreamManager to image");
         return checksum;
+    }
+
+    public void replayTableStreamCleanup(TableStreamCleanupInfo info) {
+        tableStreamManager.replayTableStreamCleanup(info);
     }
 
     // Only called by checkpoint thread
@@ -4081,10 +4188,6 @@ public class Env {
             binlogConfig.appendToShowCreateTable(sb);
         }
 
-        // enable single replica compaction
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
-        sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
-
         // group commit interval ms
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
         sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
@@ -4196,7 +4299,7 @@ public class Env {
             }
         }
         sb.append("\n) ENGINE=");
-        sb.append(table.getType().name());
+        sb.append(table.getEngineTableTypeName());
 
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
@@ -4375,46 +4478,14 @@ public class Env {
             addTableComment(table, sb);
             sb.append("\n-- Internal Elasticsearch tables are deprecated. Please use ES Catalog instead.");
         } else if (table.getType() == TableType.HIVE) {
-            HiveTable hiveTable = (HiveTable) table;
-
-            addTableComment(hiveTable, sb);
-
-            // properties
-            sb.append("\nPROPERTIES (\n");
-            sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
-            sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new DatasourcePrintableMap<>(hiveTable.getHiveProperties(),
-                    " = ", true, true, hidePassword).toString());
-            sb.append("\n)");
+            addTableComment(table, sb);
+            sb.append("\n-- Internal Hive tables are deprecated. Please use Hive Catalog instead.");
         } else if (table.getType() == TableType.JDBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");
-        } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
+        } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable;
-            if (table instanceof IcebergExternalTable) {
-                icebergExternalTable = (IcebergExternalTable) table;
-            } else if (table instanceof IcebergSysExternalTable) {
-                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
-            } else {
-                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
-            }
-            if (icebergExternalTable.hasSortOrder()) {
-                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
-            }
-            sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
-            sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
-            while (iterator.hasNext()) {
-                Entry<String, String> prop = iterator.next();
-                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
-                if (iterator.hasNext()) {
-                    sb.append(",");
-                }
-            }
-            sb.append("\n)");
         }
-
         createTableStmt.add(sb + ";");
 
         // 2. add partition
@@ -4584,7 +4655,7 @@ public class Env {
             }
         }
         sb.append("\n) ENGINE=");
-        sb.append(table.getType().name());
+        sb.append(table.getEngineTableTypeName());
 
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
@@ -4741,9 +4812,6 @@ public class Env {
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
             sb.append(")");
-        } else if (table.getType() == TableType.JDBC_EXTERNAL_TABLE) {
-            JdbcExternalTable jdbcTable = (JdbcExternalTable) table;
-            addTableComment(jdbcTable, sb);
         } else if (table.getType() == TableType.ODBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal ODBC tables are deprecated. Please use JDBC Catalog instead.");
@@ -4769,66 +4837,59 @@ public class Env {
             addTableComment(table, sb);
             sb.append("\n-- Internal Elasticsearch tables are deprecated. Please use ES Catalog instead.");
         } else if (table.getType() == TableType.HIVE) {
-            HiveTable hiveTable = (HiveTable) table;
-
-            addTableComment(hiveTable, sb);
-
-            // properties
-            sb.append("\nPROPERTIES (\n");
-            sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
-            sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new DatasourcePrintableMap<>(hiveTable.getHiveProperties(),
-                    " = ", true, true, hidePassword).toString());
-            sb.append("\n)");
+            addTableComment(table, sb);
+            sb.append("\n-- Internal Hive tables are deprecated. Please use Hive Catalog instead.");
         } else if (table.getType() == TableType.JDBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");
-        } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
+        } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable;
-            if (table instanceof IcebergExternalTable) {
-                icebergExternalTable = (IcebergExternalTable) table;
-            } else if (table instanceof IcebergSysExternalTable) {
-                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
+            boolean isSysTable = table instanceof PluginDrivenSysExternalTable;
+            PluginDrivenExternalTable pluginExternalTable;
+            if (table instanceof PluginDrivenSysExternalTable) {
+                // Mirror the legacy paimon unwrap: a system table ($snapshots etc.) renders the
+                // DDL of its source table. Check the sys subclass FIRST (it extends
+                // PluginDrivenExternalTable).
+                pluginExternalTable = ((PluginDrivenSysExternalTable) table).getSourceTable();
+            } else if (table instanceof PluginDrivenExternalTable) {
+                pluginExternalTable = (PluginDrivenExternalTable) table;
             } else {
-                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
+                throw new RuntimeException("Unexpected plugin table type: " + table.getClass().getSimpleName());
             }
-            if (icebergExternalTable.hasSortOrder()) {
-                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
-            }
-            sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
-            sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
-            while (iterator.hasNext()) {
-                Entry<String, String> prop = iterator.next();
-                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
-                if (iterator.hasNext()) {
-                    sb.append(",");
+            // Render the legacy connector DDL (ORDER BY / PARTITION BY pre-rendered by the connector, then
+            // LOCATION + PROPERTIES) for SHOW CREATE TABLE parity, gated on the connector's
+            // SUPPORTS_SHOW_CREATE_DDL capability. The capability replaces the legacy paimon-only engine-name
+            // gate and is the credential-leak guard (FIX-SHOWCREATE-PLUGIN-PROPS): JDBC/ES/Trino connectors,
+            // whose getTableProperties() returns connection props including passwords, do NOT declare it and
+            // stay comment-only; paimon and (post-cutover) iceberg do declare it.
+            if (pluginExternalTable.supportsShowCreateDdl()) {
+                // Clause order mirrors the legacy iceberg arm: ORDER BY, then PARTITION BY, then LOCATION,
+                // then PROPERTIES. The sort clause renders for sys tables too (from the unwrapped source);
+                // PARTITION BY is suppressed for system tables ($snapshots etc.), matching the legacy gate
+                // that rendered partitions only for the data table.
+                String sortClause = pluginExternalTable.getShowSortClause();
+                if (!sortClause.isEmpty()) {
+                    sb.append("\n").append(sortClause);
                 }
-            }
-            sb.append("\n)");
-        } else if (table.getType() == TableType.PAIMON_EXTERNAL_TABLE) {
-            addTableComment(table, sb);
-            PaimonExternalTable paimonExternalTable;
-            if (table instanceof PaimonExternalTable) {
-                paimonExternalTable = (PaimonExternalTable) table;
-            } else if (table instanceof PaimonSysExternalTable) {
-                paimonExternalTable = ((PaimonSysExternalTable) table).getSourceTable();
-            } else {
-                throw new RuntimeException("Unexpected Paimon table type: " + table.getClass().getSimpleName());
-            }
-            Map<String, String> properties = paimonExternalTable.getTableProperties();
-            sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
-            sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Entry<String, String> prop = iterator.next();
-                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
-                if (iterator.hasNext()) {
-                    sb.append(",");
+                if (!isSysTable) {
+                    String partitionClause = pluginExternalTable.getShowPartitionClause();
+                    if (!partitionClause.isEmpty()) {
+                        sb.append("\n").append(partitionClause);
+                    }
                 }
+                sb.append("\nLOCATION '").append(pluginExternalTable.getShowLocation()).append("'");
+                sb.append("\nPROPERTIES (");
+                Map<String, String> properties = pluginExternalTable.getTableProperties();
+                Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Entry<String, String> prop = iterator.next();
+                    sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                    if (iterator.hasNext()) {
+                        sb.append(",");
+                    }
+                }
+                sb.append("\n)");
             }
-            sb.append("\n)");
         }
 
         createTableStmt.add(sb + ";");
@@ -5808,7 +5869,7 @@ public class Env {
                 throw new DdlException("Same rollup name");
             }
 
-            Map<String, Long> indexNameToIdMap = table.getIndexNameToId();
+            Map<String, Long> indexNameToIdMap = table.getMutableIndexNameToId();
             if (indexNameToIdMap.get(rollupName) == null) {
                 throw new DdlException("Rollup index[" + rollupName + "] does not exists");
             }
@@ -5842,7 +5903,7 @@ public class Env {
         olapTable.writeLock();
         try {
             String rollupName = olapTable.getIndexNameById(indexId);
-            Map<String, Long> indexNameToIdMap = olapTable.getIndexNameToId();
+            Map<String, Long> indexNameToIdMap = olapTable.getMutableIndexNameToId();
             indexNameToIdMap.remove(rollupName);
             indexNameToIdMap.put(newRollupName, indexId);
 
@@ -6239,8 +6300,6 @@ public class Env {
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
                 .buildDisableAutoCompaction()
-                .buildEnableSingleReplicaCompaction()
-                .buildEnableTso()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildVerticalCompactionNumColumnsPerGroup()
@@ -6262,9 +6321,7 @@ public class Env {
 
     public void updateBinlogConfig(Database db, OlapTable table, BinlogConfig newBinlogConfig) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
-
         table.setBinlogConfig(newBinlogConfig);
-
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         newBinlogConfig.toProperties());
@@ -6312,7 +6369,7 @@ public class Env {
                     break;
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
                     BinlogConfig newBinlogConfig = new BinlogConfig();
-                    newBinlogConfig.mergeFromProperties(properties);
+                    newBinlogConfig.mergeFromProperties(properties, true);
                     olapTable.setBinlogConfig(newBinlogConfig);
                     break;
                 default:
@@ -6450,8 +6507,16 @@ public class Env {
         if (StringUtils.isNotEmpty(lastDb)) {
             ctx.setDatabase(lastDb);
         }
-        if (catalogIf instanceof EsExternalCatalog) {
-            ctx.setDatabase(EsExternalCatalog.DEFAULT_DB);
+        // A data source whose metadata model has no database layer can name the single database Doris
+        // presents for it; the connector owns that name. Asked of the provider, not the connector, because
+        // switching to a catalog must not force it to initialize. Applied after the remembered database on
+        // purpose: such a catalog has exactly one database, so there is nothing else to return to.
+        Map<String, String> catalogProps = catalogIf.getProperties();
+        String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
+        if (catalogType != null) {
+            ConnectorFactory.findProvider(catalogType, catalogProps)
+                    .flatMap(ConnectorProvider::defaultDatabaseOnUse)
+                    .ifPresent(ctx::setDatabase);
         }
     }
 
@@ -6670,6 +6735,12 @@ public class Env {
         db.replayAddFunction(function);
     }
 
+    public void replayCreateFunctions(CreateFunctionInfo info) throws MetaNotFoundException {
+        for (Function function : info.getFunctions()) {
+            replayCreateFunction(function);
+        }
+    }
+
     public void replayCreateGlobalFunction(Function function) {
         globalFunctionMgr.replayAddFunction(function);
     }
@@ -6690,6 +6761,9 @@ public class Env {
      */
     public void setMutableConfigWithCallback(String key, String value) throws ConfigException {
         ConfigBase.setMutableConfig(key, value);
+        if ("ldap_default_roles".equals(key)) {
+            getAuth().getLdapManager().refresh(true, null);
+        }
         if (configtoThreads.get(key) != null) {
             try {
                 // not atomic. maybe delay to aware. but acceptable.

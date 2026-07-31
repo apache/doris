@@ -17,6 +17,6 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------filter(( not (o_comment like '%special%requests%')))
+------------------------------filter(( not (orders.o_comment like '%special%requests%')))
 --------------------------------PhysicalOlapScan[orders]
 

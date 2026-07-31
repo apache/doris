@@ -17,9 +17,12 @@
 
 package org.apache.doris.cdcclient.source.deserialize;
 
+import org.apache.doris.cdcclient.utils.SchemaChangeOperation;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
@@ -35,17 +38,17 @@ public class DeserializeResult {
 
     private final Type type;
     private final List<String> records;
-    private final List<String> ddls;
+    private final List<SchemaChangeOperation> schemaChanges;
     private final Map<TableId, TableChanges.TableChange> updatedSchemas;
 
     private DeserializeResult(
             Type type,
             List<String> records,
-            List<String> ddls,
+            List<SchemaChangeOperation> schemaChanges,
             Map<TableId, TableChanges.TableChange> updatedSchemas) {
         this.type = type;
         this.records = records;
-        this.ddls = ddls;
+        this.schemaChanges = schemaChanges;
         this.updatedSchemas = updatedSchemas;
     }
 
@@ -54,9 +57,10 @@ public class DeserializeResult {
     }
 
     public static DeserializeResult schemaChange(
-            List<String> ddls, Map<TableId, TableChanges.TableChange> updatedSchemas) {
+            List<SchemaChangeOperation> schemaChanges,
+            Map<TableId, TableChanges.TableChange> updatedSchemas) {
         return new DeserializeResult(
-                Type.SCHEMA_CHANGE, Collections.emptyList(), ddls, updatedSchemas);
+                Type.SCHEMA_CHANGE, Collections.emptyList(), schemaChanges, updatedSchemas);
     }
 
     /**
@@ -64,10 +68,10 @@ public class DeserializeResult {
      * coordinator should execute DDLs first, then write the records.
      */
     public static DeserializeResult schemaChange(
-            List<String> ddls,
+            List<SchemaChangeOperation> schemaChanges,
             Map<TableId, TableChanges.TableChange> updatedSchemas,
             List<String> records) {
-        return new DeserializeResult(Type.SCHEMA_CHANGE, records, ddls, updatedSchemas);
+        return new DeserializeResult(Type.SCHEMA_CHANGE, records, schemaChanges, updatedSchemas);
     }
 
     public static DeserializeResult empty() {
@@ -82,8 +86,16 @@ public class DeserializeResult {
         return records;
     }
 
+    public List<SchemaChangeOperation> getSchemaChanges() {
+        return schemaChanges;
+    }
+
     public List<String> getDdls() {
-        return ddls;
+        return schemaChanges == null
+                ? null
+                : schemaChanges.stream()
+                        .map(SchemaChangeOperation::getSql)
+                        .collect(Collectors.toList());
     }
 
     public Map<TableId, TableChanges.TableChange> getUpdatedSchemas() {

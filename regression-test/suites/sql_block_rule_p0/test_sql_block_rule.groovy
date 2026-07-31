@@ -22,6 +22,10 @@ suite("test_sql_block_rule", "nonConcurrent") {
     """
 
     sql """
+        DROP SQL_BLOCK_RULE if exists test_rule_require_partition_filter
+    """
+
+    sql """
         DROP SQL_BLOCK_RULE if exists test_rule_tablet
     """
 
@@ -77,19 +81,21 @@ suite("test_sql_block_rule", "nonConcurrent") {
 
     checkNereidsExecute("SHOW SQL_BLOCK_RULE")
 
-    qt_select1 """
-                SHOW SQL_BLOCK_RULE
-              """
+    def showRuleRows = sql """SHOW SQL_BLOCK_RULE"""
+    assertEquals(1, showRuleRows.size())
+    assertEquals("test_rule_sql", showRuleRows[0][0])
+    assertEquals("SELECT abcd FROM table_2", showRuleRows[0][1])
+    assertEquals("true", showRuleRows[0][6].toString())
+    assertEquals("true", showRuleRows[0][7].toString())
+    assertEquals("false", showRuleRows[0][8].toString())
 
-    qt_select2 """
-                SHOW SQL_BLOCK_RULE FOR test_rule_sql
-              """
+    def showSingleRuleRows = sql """SHOW SQL_BLOCK_RULE FOR test_rule_sql"""
+    assertEquals(1, showSingleRuleRows.size())
+    assertEquals(showRuleRows[0], showSingleRuleRows[0])
 
     checkNereidsExecute("DROP SQL_BLOCK_RULE if exists test_rule_sql")
 
-    qt_select3_notexist """
-                SHOW SQL_BLOCK_RULE
-              """
+    assertTrue(sql("""SHOW SQL_BLOCK_RULE""").isEmpty())
 
     sql """
                 CREATE SQL_BLOCK_RULE if not exists test_rule_sql
@@ -100,9 +106,12 @@ suite("test_sql_block_rule", "nonConcurrent") {
                 PROPERTIES("sql"="SELECT \\\\* FROM table_2", "global"= "true", "enable"= "true")
               """              
 
-    order_qt_select4_exist """
-                SHOW SQL_BLOCK_RULE
-              """
+    def showAllRuleRows = sql("""SHOW SQL_BLOCK_RULE""").sort { a, b -> a[0] <=> b[0] }
+    assertEquals(2, showAllRuleRows.size())
+    assertEquals("test_rule_sql", showAllRuleRows[0][0])
+    assertEquals("false", showAllRuleRows[0][8].toString())
+    assertEquals("test_rule_sql1", showAllRuleRows[1][0])
+    assertEquals("false", showAllRuleRows[1][8].toString())
 
     sql """
                 DROP SQL_BLOCK_RULE if exists test_rule_sql,test_rule_sql1
@@ -122,9 +131,7 @@ suite("test_sql_block_rule", "nonConcurrent") {
         exception "sql hits sql block rule: test_rule_num, reach tablet_num : 1"
     }
 */
-    qt_select5_not_exist """
-                SHOW SQL_BLOCK_RULE
-              """
+    assertTrue(sql("""SHOW SQL_BLOCK_RULE""").isEmpty())
 
     sql """
                 DROP SQL_BLOCK_RULE if exists test_rule_num
@@ -221,6 +228,80 @@ suite("test_sql_block_rule", "nonConcurrent") {
         sql """
             drop SQL_BLOCK_RULE if exists test_rule_partition;
         """
+    }
+
+    sql """delete from table_2 where abcd = '1'"""
+    sql """
+        CREATE SQL_BLOCK_RULE if not exists test_rule_require_partition_filter PROPERTIES (
+            "require_partition_filter" = "true",
+            "global" = "true",
+            "enable" = "true");
+    """
+    try {
+        test {
+            sql("""SELECT * FROM a_partitioned_table_for_sql_block_rule;""", false)
+            exception """sql hits sql block rule: test_rule_require_partition_filter, missing partition filter"""
+        }
+
+        test {
+            sql("""SELECT * FROM a_partitioned_table_for_sql_block_rule WHERE val = 5;""", false)
+            exception """sql hits sql block rule: test_rule_require_partition_filter, missing partition filter"""
+        }
+
+        def filteredPartitionRows = sql """
+            SELECT id
+            FROM a_partitioned_table_for_sql_block_rule
+            WHERE id = 1
+            ORDER BY id
+        """
+        assertEquals(1, filteredPartitionRows.size())
+        assertEquals("1", filteredPartitionRows[0][0].toString())
+
+        def explicitlySelectedPartitionRows = sql """
+            SELECT id
+            FROM a_partitioned_table_for_sql_block_rule PARTITION(p1)
+            ORDER BY id
+        """
+        assertEquals(1, explicitlySelectedPartitionRows.size())
+        assertEquals("1", explicitlySelectedPartitionRows[0][0].toString())
+
+        def tabletsInPartition = sql """SHOW TABLETS FROM a_partitioned_table_for_sql_block_rule PARTITION(p1)"""
+        assertTrue(tabletsInPartition.size() > 0)
+        sql """
+            SELECT count(*)
+            FROM a_partitioned_table_for_sql_block_rule TABLET(${tabletsInPartition[0][0]})
+        """
+
+        test {
+            sql("""
+                INSERT INTO table_2
+                SELECT cast(id as varchar(150)), cast('2024-01-01 00:00:00' as datetime)
+                FROM a_partitioned_table_for_sql_block_rule
+            """, false)
+            exception """sql hits sql block rule: test_rule_require_partition_filter, missing partition filter"""
+        }
+
+        sql """
+            INSERT INTO table_2
+            SELECT cast(id as varchar(150)), cast('2024-01-01 00:00:00' as datetime)
+            FROM a_partitioned_table_for_sql_block_rule
+            WHERE id = 1
+        """
+        def insertedRows = sql """
+            SELECT count(*)
+            FROM table_2
+            WHERE abcd = '1' AND create_time = '2024-01-01 00:00:00'
+        """
+        assertEquals("1", insertedRows[0][0].toString())
+
+        def showPartitionFilterRuleRows = sql """SHOW SQL_BLOCK_RULE FOR test_rule_require_partition_filter"""
+        assertEquals(1, showPartitionFilterRuleRows.size())
+        assertEquals("true", showPartitionFilterRuleRows[0][8].toString())
+    } finally {
+        sql """
+            drop SQL_BLOCK_RULE if exists test_rule_require_partition_filter;
+        """
+        sql """delete from table_2 where abcd = '1'"""
     }
 
     sql """

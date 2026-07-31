@@ -223,14 +223,23 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
         }
 
+        // Output aliases must not be used to resolve physical Hive column indices.
+        explain {
+            sql "select name as lazy_alias from orc_topn_lazy_mat_table order by id limit 10;"
+            contains("VMaterializeNode")
+            contains("column_descs_lists[[`name` text NULL]]")
+            contains("column_idxs_lists: [[1]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
         explain {
             sql """ select a.name,length(a.name),a.value,b.*,a.* from  parquet_topn_lazy_mat_table as a    
             join  orc_topn_lazy_mat_table as b on a.id = b.id order by a.name    limit 10 """
-            contains("projectList:[name, length(a.name), value, id, name, value, active, score, file_id, id, name, value, active, score, file_id]")
-            contains("column_descs_lists[[`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL], [`value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
-            contains("locations: [[5, 6, 7, 8, 9], [10, 11, 12, 13]]")
-            contains("column_idxs_lists: [[1, 2, 3, 4, 5], [2, 3, 4, 5]]")
-            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table, __DORIS_GLOBAL_ROWID_COL__parquet_topn_lazy_mat_table]")
+            contains("projectList:[name, FunctionCallExpr{type=int}, value, id, name, value, active, score, file_id, id, name, value, active, score, file_id]")
+            contains("column_descs_lists[[`value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL], [`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
+            contains("locations: [[3, 4, 5, 6], [7, 8, 9, 10, 11]]")
+            contains("column_idxs_lists: [[2, 3, 4, 5], [1, 2, 3, 4, 5]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__parquet_topn_lazy_mat_table, __DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
         }
 
         runTopNLazyMatTests()

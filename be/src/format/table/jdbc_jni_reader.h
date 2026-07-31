@@ -75,7 +75,10 @@ public:
      * Before reading, replaces block columns of special types with string columns.
      * After reading, casts the string data back to the target types.
      */
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
     std::map<std::string, std::string> _jdbc_params;

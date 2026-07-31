@@ -78,6 +78,7 @@ public:
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_block(const Block* block) override;
+    Status flush_single_block(const Block* block, int32_t segment_id) override;
 
     Status build(RowsetSharedPtr& rowset) override {
         return Status::NotSupported("BetaRowsetWriterV2::build is not supported");
@@ -112,6 +113,10 @@ public:
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
+
+    int32_t get_allocated_segment_id() override {
+        return _segment_creator.get_allocated_segment_id();
+    };
 
     int32_t next_segment_id() { return _segment_creator.next_segment_id(); };
 

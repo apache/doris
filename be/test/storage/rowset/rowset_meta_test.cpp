@@ -303,4 +303,156 @@ TEST_F(RowsetMetaTest, TestMergeRowsetMetaBothEmpty) {
     EXPECT_EQ(rowset_meta_1.num_segments(), 5);
 }
 
+TEST_F(RowsetMetaTest, TestSegmentsKeyBoundsAggregation) {
+    auto make_bounds = [](std::string min_key, std::string max_key) {
+        KeyBoundsPB kb;
+        kb.set_min_key(std::move(min_key));
+        kb.set_max_key(std::move(max_key));
+        return kb;
+    };
+
+    // Prepare three per-segment bounds whose overall min is "a01" and overall max is "z99".
+    // Intentionally unordered so that the aggregation must scan all entries.
+    std::vector<KeyBoundsPB> per_segment;
+    per_segment.push_back(make_bounds("m50", "z99"));
+    per_segment.push_back(make_bounds("a01", "k10"));
+    per_segment.push_back(make_bounds("f20", "r80"));
+
+    // Save and restore truncation config to keep the test deterministic.
+    int32_t saved_truncation = config::segments_key_bounds_truncation_threshold;
+    config::segments_key_bounds_truncation_threshold = -1;
+    auto restore = std::shared_ptr<void>(nullptr, [&](void*) {
+        config::segments_key_bounds_truncation_threshold = saved_truncation;
+    });
+
+    // 1. aggregate=true -> single [overall_min, overall_max] entry, flag set.
+    {
+        RowsetMeta rs_meta;
+        rs_meta.set_num_segments(per_segment.size());
+        rs_meta.set_segments_key_bounds(per_segment, /*aggregate_into_single=*/true);
+
+        std::vector<KeyBoundsPB> out;
+        rs_meta.get_segments_key_bounds(&out);
+        ASSERT_EQ(out.size(), 1);
+        EXPECT_EQ(out[0].min_key(), "a01");
+        EXPECT_EQ(out[0].max_key(), "z99");
+        EXPECT_TRUE(rs_meta.is_segments_key_bounds_aggregated());
+
+        // first_key/last_key must still return the global min/max.
+        KeyBoundsPB first;
+        KeyBoundsPB last;
+        ASSERT_TRUE(rs_meta.get_first_segment_key_bound(&first));
+        ASSERT_TRUE(rs_meta.get_last_segment_key_bound(&last));
+        EXPECT_EQ(first.min_key(), "a01");
+        EXPECT_EQ(last.max_key(), "z99");
+    }
+
+    // 2. aggregate=false (default) -> per-segment entries preserved, flag unset.
+    {
+        RowsetMeta rs_meta;
+        rs_meta.set_num_segments(per_segment.size());
+        rs_meta.set_segments_key_bounds(per_segment);
+
+        std::vector<KeyBoundsPB> out;
+        rs_meta.get_segments_key_bounds(&out);
+        ASSERT_EQ(out.size(), per_segment.size());
+        EXPECT_FALSE(rs_meta.is_segments_key_bounds_aggregated());
+        for (size_t i = 0; i < per_segment.size(); ++i) {
+            EXPECT_EQ(out[i].min_key(), per_segment[i].min_key());
+            EXPECT_EQ(out[i].max_key(), per_segment[i].max_key());
+        }
+    }
+
+    // 3. aggregate=true with empty input -> nothing written, flag untouched.
+    {
+        RowsetMeta rs_meta;
+        rs_meta.set_segments_key_bounds({}, /*aggregate_into_single=*/true);
+
+        std::vector<KeyBoundsPB> out;
+        rs_meta.get_segments_key_bounds(&out);
+        EXPECT_EQ(out.size(), 0);
+        EXPECT_FALSE(rs_meta.is_segments_key_bounds_aggregated());
+    }
+
+    // 4. aggregate=true called twice -> result reflects the latest call only.
+    {
+        RowsetMeta rs_meta;
+        rs_meta.set_segments_key_bounds(per_segment, /*aggregate_into_single=*/true);
+        std::vector<KeyBoundsPB> second;
+        second.push_back(make_bounds("b00", "c00"));
+        rs_meta.set_segments_key_bounds(second, /*aggregate_into_single=*/true);
+
+        std::vector<KeyBoundsPB> out;
+        rs_meta.get_segments_key_bounds(&out);
+        ASSERT_EQ(out.size(), 1);
+        EXPECT_EQ(out[0].min_key(), "b00");
+        EXPECT_EQ(out[0].max_key(), "c00");
+        EXPECT_TRUE(rs_meta.is_segments_key_bounds_aggregated());
+    }
+
+    // 5. aggregated flag must be reset when switching from aggregate=true to
+    //    aggregate=false on the same instance.
+    {
+        RowsetMeta rs_meta;
+        rs_meta.set_segments_key_bounds(per_segment, /*aggregate_into_single=*/true);
+        ASSERT_TRUE(rs_meta.is_segments_key_bounds_aggregated());
+
+        rs_meta.set_segments_key_bounds(per_segment, /*aggregate_into_single=*/false);
+        EXPECT_FALSE(rs_meta.is_segments_key_bounds_aggregated());
+
+        std::vector<KeyBoundsPB> out;
+        rs_meta.get_segments_key_bounds(&out);
+        EXPECT_EQ(out.size(), per_segment.size());
+    }
+
+    // 6. aggregated flag must be reset when calling with aggregate=true but an
+    //    empty input after a prior aggregated call.
+    {
+        RowsetMeta rs_meta;
+        rs_meta.set_segments_key_bounds(per_segment, /*aggregate_into_single=*/true);
+        ASSERT_TRUE(rs_meta.is_segments_key_bounds_aggregated());
+
+        rs_meta.set_segments_key_bounds({}, /*aggregate_into_single=*/true);
+        EXPECT_FALSE(rs_meta.is_segments_key_bounds_aggregated());
+
+        std::vector<KeyBoundsPB> out;
+        rs_meta.get_segments_key_bounds(&out);
+        EXPECT_TRUE(out.empty());
+    }
+}
+
+TEST_F(RowsetMetaTest, TestSegmentsKeyBoundsAggregationTruncation) {
+    // Aggregated entry is still subject to truncation.
+    int32_t saved_truncation = config::segments_key_bounds_truncation_threshold;
+    bool saved_random = config::random_segments_key_bounds_truncation;
+    config::segments_key_bounds_truncation_threshold = 4;
+    config::random_segments_key_bounds_truncation = false;
+    auto restore = std::shared_ptr<void>(nullptr, [&](void*) {
+        config::segments_key_bounds_truncation_threshold = saved_truncation;
+        config::random_segments_key_bounds_truncation = saved_random;
+    });
+
+    auto make_bounds = [](std::string min_key, std::string max_key) {
+        KeyBoundsPB kb;
+        kb.set_min_key(std::move(min_key));
+        kb.set_max_key(std::move(max_key));
+        return kb;
+    };
+
+    std::vector<KeyBoundsPB> per_segment;
+    per_segment.push_back(make_bounds("aaaaaaa", "bbbbbbb"));
+    per_segment.push_back(make_bounds("ccccccc", "ddddddd"));
+
+    RowsetMeta rs_meta;
+    rs_meta.set_segments_key_bounds(per_segment, /*aggregate_into_single=*/true);
+
+    std::vector<KeyBoundsPB> out;
+    rs_meta.get_segments_key_bounds(&out);
+    ASSERT_EQ(out.size(), 1);
+    EXPECT_EQ(out[0].min_key(), std::string("aaaa"));
+    EXPECT_EQ(out[0].max_key(), std::string("dddd"));
+    EXPECT_TRUE(rs_meta.is_segments_key_bounds_aggregated());
+    EXPECT_TRUE(rs_meta.is_segments_key_bounds_truncated());
+}
+
 } // namespace doris

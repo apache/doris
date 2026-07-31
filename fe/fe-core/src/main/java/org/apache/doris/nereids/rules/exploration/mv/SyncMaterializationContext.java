@@ -122,13 +122,18 @@ public class SyncMaterializationContext extends MaterializationContext {
             return scanPlan.accept(new DefaultPlanRewriter<Void>() {
                 @Override
                 public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
-                    if (!queryStructInfoRelations.get(0).getTable().getFullQualifiers().equals(
+                    LogicalOlapScan queryScan = (LogicalOlapScan) queryStructInfoRelations.get(0);
+                    if (!queryScan.getTable().getFullQualifiers().equals(
                             olapScan.getTable().getFullQualifiers())) {
                         // Only the same table, we can do partition prue
                         return olapScan;
                     }
-                    return olapScan.withSelectedPartitionIds(
-                            ((LogicalOlapScan) queryStructInfoRelations.get(0)).getSelectedPartitionIds());
+                    // Carry partition-prunable predicates from the original query scan onto
+                    // the rewritten MV scan so the post-processor can still drop the
+                    // predicates that have already been enforced by partition pruning.
+                    return olapScan
+                            .withSelectedPartitionIds(queryScan.getSelectedPartitionIds())
+                            .withPartitionPrunablePredicates(queryScan.getPartitionPrunablePredicates());
                 }
             }, null);
         }

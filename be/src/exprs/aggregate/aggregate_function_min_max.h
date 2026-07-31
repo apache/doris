@@ -35,8 +35,10 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_string.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_string.h"
@@ -46,7 +48,6 @@
 #include "core/type_limit.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 
 namespace doris {
 class Arena;
@@ -69,6 +70,9 @@ private:
     typename PrimitiveTypeTraits<T>::CppType value;
 
 public:
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    static constexpr bool NeedCheckColumnType = true;
+
     SingleValueDataFixed() = default;
     SingleValueDataFixed(bool has_value_, typename PrimitiveTypeTraits<T>::CppType value_)
             : has_value(has_value_), value(value_) {}
@@ -95,10 +99,14 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).get_data().push_back(
-                    value);
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&, TypeCheckOnRelease::DISABLE>(
+                    to)
+                    .get_data()
+                    .push_back(value);
         } else {
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_default();
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&, TypeCheckOnRelease::DISABLE>(
+                    to)
+                    .insert_default();
         }
     }
 
@@ -212,6 +220,9 @@ private:
     typename PrimitiveTypeTraits<T>::CppType value;
 
 public:
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    static constexpr bool NeedCheckColumnType = true;
+
     SingleValueDataDecimal() = default;
     SingleValueDataDecimal(bool has_value_, typename PrimitiveTypeTraits<T>::CppType value_)
             : has_value(has_value_), value(value_) {}
@@ -238,10 +249,13 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_data(
-                    (const char*)&value, 0);
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&, TypeCheckOnRelease::DISABLE>(
+                    to)
+                    .insert_data((const char*)&value, 0);
         } else {
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_default();
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&, TypeCheckOnRelease::DISABLE>(
+                    to)
+                    .insert_default();
         }
     }
 
@@ -354,7 +368,7 @@ private:
     // However, considering compatibility with future upgrades, no changes will be made here.
     Int32 size = -1;    /// -1 indicates that there is no value.
     Int32 capacity = 0; /// power of two or zero
-    std::unique_ptr<char[]> large_data;
+    DorisUniqueBufferPtr<char> large_data;
 
 public:
     static constexpr Int32 AUTOMATIC_STORAGE_SIZE = 64;
@@ -365,6 +379,9 @@ private:
     char small_data[MAX_SMALL_STRING_SIZE]; /// Including the terminating zero.
 
 public:
+    using ColVecType = ColumnString;
+    static constexpr bool NeedCheckColumnType = true;
+
     ~SingleValueDataString() = default;
 
     constexpr static bool IsFixedLength = false;
@@ -377,9 +394,10 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<ColumnString&>(to).insert_data(get_data(), size);
+            assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(get_data(),
+                                                                                    size);
         } else {
-            assert_cast<ColumnString&>(to).insert_default();
+            assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_default();
         }
     }
 
@@ -387,7 +405,7 @@ public:
         if (size != -1) {
             size = -1;
             capacity = 0;
-            large_data = nullptr;
+            large_data.reset();
         }
     }
 
@@ -414,7 +432,7 @@ public:
             } else {
                 if (capacity < rhs_size) {
                     capacity = (Int32)round_up_to_power_of_two_or_zero(rhs_size);
-                    large_data.reset(new char[capacity]);
+                    large_data = DorisUniqueBufferPtr<char>(capacity);
                 }
 
                 size = rhs_size;
@@ -442,7 +460,7 @@ public:
             if (capacity < value_size) {
                 /// Don't free large_data here.
                 capacity = (Int32)round_up_to_power_of_two_or_zero(value_size);
-                large_data.reset(new char[capacity]);
+                large_data = DorisUniqueBufferPtr<char>(capacity);
             }
 
             size = value_size;
@@ -520,6 +538,8 @@ public:
     }
 };
 
+static_assert(sizeof(SingleValueDataString) == SingleValueDataString::AUTOMATIC_STORAGE_SIZE);
+
 struct SingleValueDataComplexType {
 private:
     using Self = SingleValueDataComplexType;
@@ -530,6 +550,8 @@ private:
     int be_exec_version = -1;
 
 public:
+    static constexpr bool NeedCheckColumnType = false;
+
     SingleValueDataComplexType() = default;
     SingleValueDataComplexType(const DataTypes& argument_types, int be_version) {
         column_type = argument_types[0];
@@ -807,6 +829,20 @@ public:
         this->data(place).insert_result_into(to);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (Data::NeedCheckColumnType) {
+            this->template check_argument_column_type<typename Data::ColVecType>(columns[0]);
+        }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        if constexpr (Data::NeedCheckColumnType) {
+            this->template check_result_column_type_as<typename Data::ColVecType>(to);
+        }
+    }
+
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {
@@ -930,7 +966,9 @@ public:
                     this->data(place).reset();
                     if (has_null) {
                         const auto& null_map_data =
-                                assert_cast<const ColumnUInt8*>(columns[1])->get_data();
+                                assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
+                                        columns[1])
+                                        ->get_data();
                         for (size_t i = current_frame_start; i < current_frame_end; ++i) {
                             if (null_map_data[i] == 0) {
                                 this->data(place).change_if_better(*columns[0], i, arena);

@@ -16,8 +16,8 @@
 // under the License.
 
 // Test general limit pushdown to storage layer for DUP_KEYS and UNIQUE_KEYS (MOW).
-// This exercises the non-topn limit path where VCollectIterator enforces
-// general_read_limit with filter_block_conjuncts applied before counting.
+// This exercises the non-topn limit path where SegmentIterator applies
+// general_read_limit after pushed filters and before lazy materialization.
 
 suite("test_general_limit_pushdown") {
 
@@ -49,8 +49,8 @@ suite("test_general_limit_pushdown") {
         SELECT k1, k2 FROM dup_limit_pushdown LIMIT 10
     """
 
-    // LIMIT with WHERE clause — filter_block_conjuncts must be applied before
-    // limit counting, otherwise we may get fewer rows than requested.
+    // LIMIT with WHERE clause -- pushed filters must be applied before limit
+    // counting, otherwise we may get fewer rows than requested.
     // k1 > 10 matches 40 rows, LIMIT 15 should return exactly 15.
     order_qt_dup_filter_limit """
         SELECT k1, k2 FROM dup_limit_pushdown WHERE k1 > 10 LIMIT 15
@@ -63,7 +63,7 @@ suite("test_general_limit_pushdown") {
     """
 
     // LIMIT with complex predicate (function-based, may not push into storage predicates).
-    // This exercises the filter_block_conjuncts path for predicates that remain as conjuncts.
+    // This exercises the SegmentIterator common-expr path for predicates that remain as conjuncts.
     order_qt_dup_complex_filter_limit """
         SELECT k1, k2 FROM dup_limit_pushdown WHERE abs(k1 - 25) < 10 LIMIT 8
     """
@@ -192,7 +192,7 @@ suite("test_general_limit_pushdown") {
 
     // ---- MOW with DELETEs ----
     // Verify __DORIS_DELETE_SIGN__ predicate (in _conjuncts) is correctly
-    // handled after being moved to filter_block_conjuncts.
+    // handled after being pushed into SegmentIterator.
     sql "DROP TABLE IF EXISTS mow_delete_limit_pushdown"
     sql """
         CREATE TABLE mow_delete_limit_pushdown (

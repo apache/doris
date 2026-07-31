@@ -20,30 +20,39 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class StopRoutineLoadCommandTest {
 
-    @Mocked
     private ConnectContext connectContext;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
 
-    private void runBefore() {
-        new Expectations() {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-            }
-        };
+    @BeforeEach
+    public void setUp() {
+        connectContext = Mockito.mock(ConnectContext.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getState()).thenReturn(new QueryState());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
     }
 
     @Test
     public void test() throws Exception {
-        runBefore();
         LabelNameInfo labelNameInfo = new LabelNameInfo("testDB", "label0");
         StopRoutineLoadCommand command = new StopRoutineLoadCommand(labelNameInfo);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));

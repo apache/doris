@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -267,8 +268,14 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     @Override
+    public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+            PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(cteAnchor);
+    }
+
+    @Override
     public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
-        return skipPruneThis(cteProducer);
+        return skipPruneThisAndFirstLevelChildren(cteProducer);
     }
 
     @Override
@@ -311,6 +318,10 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     private Plan skipPruneThis(Plan plan) {
         return pruneChildren(plan, plan.getOutputExprIdBitSet());
+    }
+
+    private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
+        return pruneChildren(plan, plan.getChildrenOutputExprIdBitSet());
     }
 
     // some rules want to match the aggregate which contains all the group by keys and aggregate functions

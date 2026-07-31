@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -187,6 +188,10 @@ protected:
     PipelineTask() : _index(0) {}
 
 private:
+    friend class HybridTaskScheduler;
+
+    void _stop_accepting_submit();
+
     // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
     bool _wait_to_start();
     // Whether this task is blocked during execution (read dependency, write dependency)
@@ -204,6 +209,7 @@ private:
     // otherwise return true.
     bool _try_to_reserve_memory(const size_t reserve_size, OperatorBase* op);
     bool _should_trigger_revoking(const size_t reserve_size) const;
+    size_t _get_revocable_size() const;
 
     const TUniqueId _query_id;
     const uint32_t _index;
@@ -270,7 +276,15 @@ private:
     Dependency* _blocked_dep = nullptr;
 
     Dependency* _memory_sufficient_dependency;
-    std::mutex _dependency_lock;
+    // Protects dependency containers and the raw Dependency pointers they contain. It also
+    // serializes forced dependency unblocking with close()/finalize(): set_ready() may synchronously
+    // call wake_up() and submit this task, so close()/finalize() must not clear operator/shared
+    // state until forced unblocking finishes. wake_up() must not take this lock.
+    std::mutex _dependency_lifecycle_lock;
+    // Guards _accept_submit and keeps HybridTaskScheduler::submit() from reading _sink/_operators
+    // in is_blockable() while terminal close/finalize is closing the submit gate.
+    std::mutex _blockable_check_lock;
+    bool _accept_submit = true;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

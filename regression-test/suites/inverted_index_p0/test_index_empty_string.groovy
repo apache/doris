@@ -41,13 +41,13 @@ suite("test_index_empty_string", "p0"){
  	    "replication_allocation" = "tag.location.default: 1"
 	);
     """
-    
-    sql """ 
-        INSERT INTO $indexTblName VALUES 
-        (1, '', '1'), 
+
+    sql """
+        INSERT INTO $indexTblName VALUES
+        (1, '', '1'),
         (2, '2', '');
-    """ 
-    sql """ set enable_common_expr_pushdown = true """
+    """
+    sql """ set enable_segment_limit_pushdown = true """
     qt_sql "SELECT count() FROM $indexTblName WHERE a match '';"
     qt_sql "SELECT count() FROM $indexTblName WHERE b match '';"
 }

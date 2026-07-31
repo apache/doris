@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -328,6 +329,12 @@ public class TransactionState implements Writable {
     @Getter
     @Setter
     private long commitTSO = -1;
+
+    // stream update infos of this transaction
+    @Getter
+    @Setter
+    @SerializedName(value = "sui")
+    private List<TableStreamUpdateInfo> streamUpdateInfos;
 
     public TransactionState() {
         this.dbId = -1;

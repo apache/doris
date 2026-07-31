@@ -18,7 +18,7 @@
 suite("test_pythonudf_inline_complex") {
     // Test complex Python UDF using Inline mode
     
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     try {
         // Test 1: Array processing
         sql """ DROP FUNCTION IF EXISTS py_array_sum(ARRAY<INT>); """
@@ -104,9 +104,9 @@ def evaluate(first_name, last_name):
         qt_select_format_name """ SELECT py_format_name('john', 'doe') AS result; """
         
         // Test 5: Numeric range validation
-        sql """ DROP FUNCTION IF EXISTS py_in_range(INT, INT, INT); """
+        sql """ DROP FUNCTION IF EXISTS py_in_range_inline(INT, INT, INT); """
         sql """
-        CREATE FUNCTION py_in_range(INT, INT, INT) 
+        CREATE FUNCTION py_in_range_inline(INT, INT, INT) 
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
@@ -121,14 +121,14 @@ def evaluate(value, min_val, max_val):
 \$\$;
         """
         
-        qt_select_in_range_true """ SELECT py_in_range(50, 0, 100) AS result; """
-        qt_select_in_range_false """ SELECT py_in_range(150, 0, 100) AS result; """
+        qt_select_in_range_true """ SELECT py_in_range_inline(50, 0, 100) AS result; """
+        qt_select_in_range_false """ SELECT py_in_range_inline(150, 0, 100) AS result; """
         
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_array_sum(ARRAY<INT>);")
         try_sql("DROP FUNCTION IF EXISTS py_reverse_string(STRING);")
         try_sql("DROP FUNCTION IF EXISTS py_weighted_avg(DOUBLE, DOUBLE, DOUBLE, DOUBLE);")
         try_sql("DROP FUNCTION IF EXISTS py_format_name(STRING, STRING);")
-        try_sql("DROP FUNCTION IF EXISTS py_in_range(INT, INT, INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_in_range_inline(INT, INT, INT);")
     }
 }

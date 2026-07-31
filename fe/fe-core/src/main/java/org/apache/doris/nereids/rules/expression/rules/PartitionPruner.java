@@ -36,11 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
@@ -51,7 +47,6 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -70,6 +65,20 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     public enum PartitionTableType {
         OLAP,
         EXTERNAL
+    }
+
+    /** Result of partition prune. */
+    public static final class PartitionPruneResult<K extends Comparable<K>> {
+        public final List<K> partitions;
+        public final Optional<Expression> prunedPartitionPredicate;
+        public final boolean hasPartitionPredicate;
+
+        public PartitionPruneResult(List<K> partitions, Optional<Expression> prunedPartitionPredicate,
+                boolean hasPartitionPredicate) {
+            this.partitions = partitions;
+            this.prunedPartitionPredicate = prunedPartitionPredicate;
+            this.hasPartitionPredicate = hasPartitionPredicate;
+        }
     }
 
     private PartitionPruner(List<OnePartitionEvaluator<?>> partitions, Expression partitionPredicate) {
@@ -133,14 +142,25 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType) {
-        return prune(partitionSlots, partitionPredicate, idToPartitions,
+        PartitionPruneResult<K> result = pruneWithResult(partitionSlots, partitionPredicate, idToPartitions,
                 cascadesContext, partitionTableType, Optional.empty());
+        return Pair.of(result.partitions, result.prunedPartitionPredicate);
     }
 
     /**
      * prune partition with `idToPartitions` as parameter.
      */
     public static <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> prune(List<Slot> partitionSlots,
+            Expression partitionPredicate,
+            Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
+            PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
+        PartitionPruneResult<K> result = pruneWithResult(partitionSlots, partitionPredicate, idToPartitions,
+                cascadesContext, partitionTableType, sortedPartitionRanges);
+        return Pair.of(result.partitions, result.prunedPartitionPredicate);
+    }
+
+    /** prune partition and return partition predicate info. */
+    public static <K extends Comparable<K>> PartitionPruneResult<K> pruneWithResult(List<Slot> partitionSlots,
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
@@ -157,7 +177,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
     }
 
-    private static <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> pruneInternal(
+    private static <K extends Comparable<K>> PartitionPruneResult<K> pruneInternal(
             List<Slot> partitionSlots,
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
@@ -174,10 +194,11 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                 partitionPredicate, new ExpressionRewriteContext(cascadesContext));
         if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
             // The partition column predicate is always true and can be deleted, the partition cannot be pruned
-            return Pair.of(Utils.fastToImmutableList(idToPartitions.keySet()), Optional.of(originalPartitionPredicate));
+            return new PartitionPruneResult<>(Utils.fastToImmutableList(idToPartitions.keySet()),
+                    Optional.of(originalPartitionPredicate), false);
         } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
             // The partition column predicate is always false, and all partitions can be pruned.
-            return Pair.of(ImmutableList.of(), Optional.empty());
+            return new PartitionPruneResult<>(ImmutableList.<K>of(), Optional.empty(), true);
         }
 
         if (sortedPartitionRanges.isPresent()) {
@@ -188,10 +209,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                         sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
                         expandThreshold, predicateRanges
                 );
+                boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
                 if (res.second) {
-                    return Pair.of(res.first, Optional.of(originalPartitionPredicate));
+                    return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
+                            hasPartitionPredicate);
                 } else {
-                    return Pair.of(res.first, Optional.empty());
+                    return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
                 }
             }
         }
@@ -199,11 +222,18 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         Pair<List<K>, Boolean> res = sequentialFiltering(
                 idToPartitions, partitionSlots, partitionPredicate, cascadesContext, expandThreshold
         );
+        boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
         if (res.second) {
-            return Pair.of(res.first, Optional.of(originalPartitionPredicate));
+            return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
+                    hasPartitionPredicate);
         } else {
-            return Pair.of(res.first, Optional.empty());
+            return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
         }
+    }
+
+    private static <K extends Comparable<K>> boolean hasEffectivePartitionPredicate(
+            List<K> selectedPartitions, int totalPartitions) {
+        return selectedPartitions.size() != totalPartitions;
     }
 
     /**
@@ -353,24 +383,6 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             }
             // only have false result: Can be pruned out. have other exprs: CanNot be pruned out
             return Pair.of(true, false);
-        }
-    }
-
-    /** remove predicates that are always true*/
-    public static Plan prunePredicate(boolean skipPrunePredicate, Optional<Expression> prunedPredicates,
-            LogicalFilter<? extends Plan> filter, LogicalRelation scan) {
-        if (!skipPrunePredicate && prunedPredicates.isPresent()) {
-            Set<Expression> conjuncts = new LinkedHashSet<>(filter.getConjuncts());
-            Expression deletedPredicate = prunedPredicates.get();
-            Set<Expression> deletedPredicateSet = ExpressionUtils.extractConjunctionToSet(deletedPredicate);
-            conjuncts.removeAll(deletedPredicateSet);
-            if (conjuncts.isEmpty()) {
-                return scan;
-            } else {
-                return filter.withConjunctsAndChild(conjuncts, scan);
-            }
-        } else {
-            return filter.withChildren(ImmutableList.of(scan));
         }
     }
 }

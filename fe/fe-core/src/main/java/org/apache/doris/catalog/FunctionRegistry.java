@@ -306,19 +306,32 @@ public class FunctionRegistry {
         }
     }
 
-    public void dropUdf(String dbName, String name, List<DataType> argTypes) {
+    public void dropUdf(String dbName, String name, List<DataType> argTypes, boolean hasVarArgs) {
         if (dbName == null) {
             dbName = GLOBAL_FUNCTION;
         }
         synchronized (name2UdfBuilders) {
             Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
             builders.getOrDefault(name, Lists.newArrayList())
-                    .removeIf(builder -> ((UdfBuilder) builder).getArgTypes().equals(argTypes));
+                    .removeIf(builder -> {
+                        UdfBuilder udfBuilder = (UdfBuilder) builder;
+                        return udfBuilder.getArgTypes().equals(argTypes)
+                                && udfBuilder.hasVarArguments() == hasVarArgs;
+                    });
 
             // the name will be used when show functions, so remove the name when it's dropped
             if (builders.getOrDefault(name, Lists.newArrayList()).isEmpty()) {
                 builders.remove(name);
             }
+        }
+    }
+
+    public void dropUdfByDb(String dbName) {
+        if (dbName == null) {
+            dbName = GLOBAL_FUNCTION;
+        }
+        synchronized (name2UdfBuilders) {
+            name2UdfBuilders.remove(dbName);
         }
     }
 

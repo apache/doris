@@ -42,12 +42,25 @@ public:
     VBloomPredicate(const TExprNode& node);
     ~VBloomPredicate() override = default;
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
 
     Status execute_runtime_filter(VExprContext* context, const Block* block,
                                   const uint8_t* __restrict filter, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override;
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override;
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override;
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override;
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
+    bool can_evaluate_dictionary_filter() const override;
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
@@ -59,10 +72,17 @@ public:
     std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const override { return _filter; }
 
     uint64_t get_digest(uint64_t seed) const override;
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto cloned = VBloomPredicate::create_shared(clone_texpr_node());
+        cloned->set_filter(_filter);
+        *cloned_expr = std::move(cloned);
+        return Status::OK();
+    }
 
 private:
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
-                       Selector* selector, size_t count, ColumnPtr& result_column) const;
+                       const Selector* selector, size_t count, ColumnPtr& result_column) const;
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     inline static const std::string EXPR_NAME = "bloom_predicate";

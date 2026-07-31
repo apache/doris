@@ -29,8 +29,12 @@ namespace doris::segment_v2 {
 
 class VariantStatsCaculator {
 public:
+    // `footer_column_offset` is the index of the first footer entry that belongs to this init()'s `column_ids`.
+    // Required because SegmentWriter::init() can be invoked multiple times (vertical compaction) against
+    // an ever-growing footer; without the offset every additional init() would re-scan the whole footer.
     explicit VariantStatsCaculator(SegmentFooterPB* footer, TabletSchemaSPtr tablet_schema,
-                                   const std::vector<uint32_t>& column_ids);
+                                   const std::vector<uint32_t>& column_ids,
+                                   int footer_column_offset = 0);
 
     // Calculate variant statistics for the given column and block
     Status calculate_variant_stats(const Block* block, size_t row_pos, size_t num_rows);

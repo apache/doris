@@ -20,7 +20,7 @@
 #include <mutex>
 
 #include "exec/pipeline/dependency.h"
-#include "exprs/vruntimefilter_wrapper.h"
+#include "exprs/runtime_filter_expr.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
@@ -56,7 +56,7 @@ public:
 private:
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(RuntimeState* state,
-                                     const std::vector<VRuntimeFilterPtr>& vexprs,
+                                     const std::vector<RuntimeFilterExprPtr>& vexprs,
                                      VExprContextSPtrs& conjuncts,
                                      const RowDescriptor& row_descriptor);
 

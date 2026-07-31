@@ -62,6 +62,8 @@ suite("nereids_scalar_fn_U") {
 
 	def result = sql """select uniform(1, 100, random()*10000) from numbers("number" = "10");"""
 	assertTrue(result.size() == 10)
+	def doubleResult = sql """select uniform(1.23, 100.100, random()*10000) from numbers("number" = "10");"""
+	assertTrue(doubleResult.size() == 10)
 	test {
 		sql """select uniform(100, 1, random()*10000) from numbers("number" = "10");"""
 		exception "uniform's min should be less than max"

@@ -73,10 +73,10 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_index_failure_injection," +
     "test_information_schema_external," +
     "test_profile," +
+    "test_paimon_gcs," +
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_paimon_gcs," +
-    "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
     "test_iceberg_overwrite_with_wrong_partition," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
@@ -190,6 +190,7 @@ oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
 oceanbase_port=2881
+oceanbase_cdc_port=2883
 db2_11_port=50000
 
 // trino-connector catalog test config

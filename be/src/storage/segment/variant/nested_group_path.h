@@ -65,6 +65,38 @@ inline std::string strip_nested_group_marker(std::string_view path) {
     return out;
 }
 
+inline std::string strip_root_nested_group_path(std::string_view path) {
+    if (path == kRootNestedGroupPath) {
+        return {};
+    }
+    const std::string root_prefix = std::string(kRootNestedGroupPath) + ".";
+    if (path.starts_with(root_prefix)) {
+        return std::string(path.substr(root_prefix.size()));
+    }
+    return std::string(path);
+}
+
+inline std::string build_nested_group_logical_child_path(std::string_view variant_name,
+                                                         std::string_view group_logical_path,
+                                                         std::string_view child_relative_path) {
+    std::string path(variant_name);
+    auto append_path = [&path](std::string_view part) {
+        if (part.empty()) {
+            return;
+        }
+        if (!path.empty()) {
+            path.push_back('.');
+        }
+        path.append(part);
+    };
+
+    const std::string group_path =
+            strip_root_nested_group_path(strip_nested_group_marker(group_logical_path));
+    append_path(group_path);
+    append_path(child_relative_path);
+    return path;
+}
+
 inline std::string build_nested_group_offsets_column_name(std::string_view variant_name,
                                                           std::string_view full_path) {
     std::string name;

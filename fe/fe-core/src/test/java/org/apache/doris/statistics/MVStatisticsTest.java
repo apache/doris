@@ -19,20 +19,18 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Tested;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
 
 public class MVStatisticsTest extends TestWithFeService {
 
-    @Injectable
-    StatisticsCache statisticsCache;
+    StatisticsCache statisticsCache = Mockito.mock(StatisticsCache.class);
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -48,32 +46,20 @@ public class MVStatisticsTest extends TestWithFeService {
         createMv("CREATE MATERIALIZED VIEW mv1 AS SELECT col3 as a1 , SUM(COL2) FROM t1 group by col3");
     }
 
-    @Tested
-
     @Test
     public void testCreate() throws Exception {
-        new MockUp<StatisticsRepository>() {
-        };
-        new MockUp<StatisticsUtil>() {
+        try (MockedStatic<StatisticsUtil> mockedStatsUtil =
+                     Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedStatsUtil.when(() -> StatisticsUtil.execUpdate(Mockito.anyString()))
+                    .thenReturn(null);
 
-            @Mock
-            public void execUpdate(String sql) throws Exception {}
-        };
-        new MockUp<OlapAnalysisTask>(OlapAnalysisTask.class) {
+            AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+            Field f = AnalysisManager.class.getDeclaredField("statisticsCache");
+            f.setAccessible(true);
+            f.set(analysisManager, statisticsCache);
 
-            @Mock
-            public void execSQL(String sql) throws Exception {}
-        };
-        new MockUp<Env>() {
-
-            @Mock
-            public StatisticsCache getStatisticsCache() {
-                return statisticsCache;
-            }
-        };
-        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        Deencapsulation.setField(analysisManager, "statisticsCache", statisticsCache);
-        getSqlStmtExecutor("analyze table t1");
-        Thread.sleep(3000);
+            getSqlStmtExecutor("analyze table t1");
+            Thread.sleep(3000);
+        }
     }
 }

@@ -46,8 +46,13 @@
 
 namespace doris {
 
+namespace io {
+class RemoteScanCacheWriteLimiter;
+} // namespace io
+
 class PipelineFragmentContext;
 class PipelineTask;
+class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
 
@@ -190,12 +195,6 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
     const TQueryOptions& query_options() const { return _query_options; }
-    bool should_be_shuffled_agg(int node_id) const {
-        return _query_options.__isset.shuffled_agg_ids &&
-               std::any_of(_query_options.shuffled_agg_ids.begin(),
-                           _query_options.shuffled_agg_ids.end(),
-                           [&](const int id) -> bool { return id == node_id; });
-    }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
@@ -203,6 +202,10 @@ public:
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
     TUniqueId query_id() const { return _query_id; }
+
+    // Expose task-level query progress counters for runtime statistics reporting.
+    void add_total_task_num(int delta);
+    void inc_finished_task_num();
 
     ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
@@ -246,6 +249,10 @@ public:
     ObjectPool obj_pool;
 
     std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
+
+    io::RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter() const {
+        return _remote_scan_cache_write_limiter.get();
+    }
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -313,6 +320,7 @@ public:
     Status reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
+    // Task-level progress counters for current query.
     friend class QueryTaskController;
 
     int _timeout_second;
@@ -325,6 +333,7 @@ private:
 
     void _init_resource_context();
     void _init_query_mem_tracker();
+    static bool _should_initialize_file_cache_query_context(const TQueryOptions& query_options);
 
     std::unordered_map<int, RuntimePredicate> _runtime_predicates;
 
@@ -398,6 +407,7 @@ private:
     std::map<std::pair<TUniqueId, int>, RecCTEScanLocalState*> _cte_scan;
     std::mutex _cte_scan_lock;
     std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
+    std::unique_ptr<io::RemoteScanCacheWriteLimiter> _remote_scan_cache_write_limiter;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

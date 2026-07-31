@@ -228,4 +228,50 @@ TEST_F(RuntimeFilterSelectivityTest, different_thresholds) {
     }
 }
 
+// Regression test: with default sampling_frequency (-1), update_judge_counter()
+// always resets because (_judge_counter++) >= -1 is always true.
+// This was the root cause of the selectivity accumulation bug.
+TEST_F(RuntimeFilterSelectivityTest, default_sampling_frequency_always_resets) {
+    RuntimeFilterSelectivity selectivity;
+    // Don't set sampling_frequency — defaults to DISABLE_SAMPLING (-1)
+
+    // Accumulate selectivity data: low filter rate -> should be always_true
+    selectivity.update_judge_selectivity(-1, 2000, 50000, 0.1);
+    // With default -1, maybe_always_true_can_ignore returns false (disabled)
+    EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
+
+    // Now call update_judge_counter — with -1, it immediately resets
+    selectivity.update_judge_counter();
+    // Verify: accumulated data has been wiped out by the reset
+    // Even after setting a valid sampling_frequency, the previously accumulated
+    // selectivity data is gone
+    selectivity.set_sampling_frequency(100);
+    // always_true was reset to false by the premature reset
+    EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
+}
+
+// Verify that setting sampling_frequency correctly prevents premature reset
+TEST_F(RuntimeFilterSelectivityTest, proper_sampling_frequency_preserves_accumulation) {
+    RuntimeFilterSelectivity selectivity;
+    selectivity.set_sampling_frequency(32);
+
+    // Accumulate selectivity: low filter rate
+    selectivity.update_judge_selectivity(-1, 2000, 50000, 0.1);
+    EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
+
+    // Counter increments don't reset before reaching sampling_frequency.
+    // Post-increment semantics: check uses old value, so need 33 calls total
+    // to trigger reset (counter must reach 32 before comparison fires).
+    for (int i = 0; i < 32; i++) {
+        selectivity.update_judge_counter();
+    }
+    // Still always_true because counter value 31 was compared last (31 >= 32 → false)
+    EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
+
+    // 33rd call: counter=32, 32 >= 32 → true → triggers reset
+    selectivity.update_judge_counter();
+    // After reset, needs re-evaluation
+    EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
+}
+
 } // namespace doris

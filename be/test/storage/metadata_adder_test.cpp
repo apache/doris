@@ -21,7 +21,6 @@
 
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
-#include "storage/field.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -123,7 +122,7 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
     {
         auto fs = io::global_local_filesystem();
         TabletColumnPtr int_column = create_int_key(0);
-        StorageField* int_field = StorageFieldFactory::create(*int_column);
+        const TabletColumn* int_field = int_column.get();
         auto int_data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
 
         // 1 load first column
@@ -161,7 +160,7 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
         // load second column
         segment_v2::ColumnIndexMetaPB index_meta2;
         TabletColumnPtr varchar_column = create_varchar_key(0);
-        StorageField* str_field = StorageFieldFactory::create(*varchar_column);
+        const TabletColumn* str_field = varchar_column.get();
         auto str_data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
 
         std::string file2 = kTestDir + "/copy_obj2";
@@ -193,9 +192,6 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
 
         ASSERT_TRUE(MetadataAdder<segment_v2::ZoneMapIndexReader>::get_all_segments_size() ==
                     mem_size2 + mem_size);
-
-        delete int_field;
-        delete str_field;
     }
 
     ASSERT_TRUE(MetadataAdder<segment_v2::ZoneMapIndexReader>::get_all_segments_size() == 0);

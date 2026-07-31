@@ -34,11 +34,10 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewComma
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.Disabled;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.List;
@@ -46,17 +45,12 @@ import java.util.Set;
 
 public class MaterializedViewHandlerTest {
     @Test
-    public void testDifferentBaseTable(@Injectable CreateMaterializedViewCommand createMaterializedViewCommand,
-                                       @Injectable Database db,
-                                       @Injectable OlapTable olapTable) {
-        new Expectations() {
-            {
-                createMaterializedViewCommand.getBaseIndexName();
-                result = "t1";
-                olapTable.getName();
-                result = "t2";
-            }
-        };
+    public void testDifferentBaseTable() {
+        CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(createMaterializedViewCommand.getBaseIndexName()).thenReturn("t1");
+        Mockito.when(olapTable.getName()).thenReturn("t2");
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView", createMaterializedViewCommand,
@@ -68,20 +62,14 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testNotNormalTable(@Injectable CreateMaterializedViewCommand createMaterializedViewCommand,
-                                   @Injectable Database db,
-                                   @Injectable OlapTable olapTable) {
+    public void testNotNormalTable() {
+        CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
         final String baseIndexName = "t1";
-        new Expectations() {
-            {
-                createMaterializedViewCommand.getBaseIndexName();
-                result = baseIndexName;
-                olapTable.getName();
-                result = baseIndexName;
-                olapTable.getState();
-                result = OlapTable.OlapTableState.ROLLUP;
-            }
-        };
+        Mockito.when(createMaterializedViewCommand.getBaseIndexName()).thenReturn(baseIndexName);
+        Mockito.when(olapTable.getName()).thenReturn(baseIndexName);
+        Mockito.when(olapTable.getState()).thenReturn(OlapTable.OlapTableState.ROLLUP);
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView", createMaterializedViewCommand,
@@ -93,22 +81,15 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testErrorBaseIndexName(@Injectable CreateMaterializedViewCommand createMaterializedViewCommand,
-                                       @Injectable Database db,
-                                       @Injectable OlapTable olapTable) {
+    public void testErrorBaseIndexName() {
+        CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
         final String baseIndexName = "t1";
-        new Expectations() {
-            {
-                createMaterializedViewCommand.getBaseIndexName();
-                result = baseIndexName;
-                olapTable.getName();
-                result = baseIndexName;
-                olapTable.getState();
-                result = OlapTable.OlapTableState.NORMAL;
-                olapTable.getIndexIdByName(baseIndexName);
-                result = null;
-            }
-        };
+        Mockito.when(createMaterializedViewCommand.getBaseIndexName()).thenReturn(baseIndexName);
+        Mockito.when(olapTable.getName()).thenReturn(baseIndexName);
+        Mockito.when(olapTable.getState()).thenReturn(OlapTable.OlapTableState.NORMAL);
+        Mockito.when(olapTable.getIndexIdByName(baseIndexName)).thenReturn(null);
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView",
@@ -120,31 +101,21 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testRollupReplica(@Injectable CreateMaterializedViewCommand createMaterializedViewCommand,
-                                  @Injectable Database db,
-                                  @Injectable OlapTable olapTable,
-                                  @Injectable Partition partition,
-                                  @Injectable MaterializedIndex materializedIndex) {
+    public void testRollupReplica() {
+        CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex materializedIndex = Mockito.mock(MaterializedIndex.class);
         final String baseIndexName = "t1";
         final Long baseIndexId = new Long(1);
-        new Expectations() {
-            {
-                createMaterializedViewCommand.getBaseIndexName();
-                result = baseIndexName;
-                olapTable.getName();
-                result = baseIndexName;
-                olapTable.getState();
-                result = OlapTable.OlapTableState.NORMAL;
-                olapTable.getIndexIdByName(baseIndexName);
-                result = baseIndexId;
-                olapTable.getPartitions();
-                result = Lists.newArrayList(partition);
-                partition.getIndex(baseIndexId);
-                result = materializedIndex;
-                materializedIndex.getState();
-                result = MaterializedIndex.IndexState.SHADOW;
-            }
-        };
+        Mockito.when(createMaterializedViewCommand.getBaseIndexName()).thenReturn(baseIndexName);
+        Mockito.when(olapTable.getName()).thenReturn(baseIndexName);
+        Mockito.when(olapTable.getState()).thenReturn(OlapTable.OlapTableState.NORMAL);
+        Mockito.when(olapTable.getIndexIdByName(baseIndexName)).thenReturn(baseIndexId);
+        Mockito.when(olapTable.getPartitions()).thenReturn(Lists.newArrayList(partition));
+        Mockito.when(partition.getIndex(baseIndexId)).thenReturn(materializedIndex);
+        Mockito.when(materializedIndex.getState()).thenReturn(MaterializedIndex.IndexState.SHADOW);
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView",
@@ -156,17 +127,12 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testDuplicateMVName(@Injectable CreateMaterializedViewCommand createMaterializedViewCommand,
-                                    @Injectable OlapTable olapTable) {
+    public void testDuplicateMVName() {
+        CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
         final String mvName = "mv1";
-        new Expectations() {
-            {
-                olapTable.hasMaterializedIndex(mvName);
-                result = true;
-                createMaterializedViewCommand.getMVName();
-                result = mvName;
-            }
-        };
+        Mockito.when(olapTable.hasMaterializedIndex(mvName)).thenReturn(true);
+        Mockito.when(createMaterializedViewCommand.getMVName()).thenReturn(mvName);
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
@@ -178,16 +144,11 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testInvalidKeysType(@Injectable CreateMaterializedViewCommand createMaterializedViewCommand,
-                                    @Injectable OlapTable olapTable) {
-        new Expectations() {
-            {
-                olapTable.getRowStoreCol();
-                result = null;
-                olapTable.getKeysType();
-                result = KeysType.AGG_KEYS;
-            }
-        };
+    public void testInvalidKeysType() {
+        CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.getRowStoreCol()).thenReturn(null);
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.AGG_KEYS);
 
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
@@ -200,8 +161,9 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testDuplicateTable(@Injectable CreateMaterializedViewCommand createMaterializedViewCommand,
-                                   @Injectable OlapTable olapTable) {
+    public void testDuplicateTable() {
+        CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
         final String mvName = "mv1";
         final String columnName1 = "k1";
         SlotRef slot = new SlotRef(Type.VARCHAR, false);
@@ -218,20 +180,12 @@ public class MaterializedViewHandlerTest {
         mvColumnItem.setAggregationType(null, false);
         mvColumnItem.getBaseColumnNames().add(columnName1);
         List<MVColumnItem> list = Lists.newArrayList(mvColumnItem);
-        new Expectations() {
-            {
-                olapTable.hasMaterializedIndex(mvName);
-                result = false;
-                createMaterializedViewCommand.getMVName();
-                result = mvName;
-                createMaterializedViewCommand.getMVColumnItemList();
-                result = list;
-                olapTable.getKeysType();
-                result = KeysType.DUP_KEYS;
-                olapTable.getRowStoreCol();
-                result = null;
-            }
-        };
+        Mockito.when(olapTable.getBaseColumn(columnName1)).thenReturn(null);
+        Mockito.when(olapTable.hasMaterializedIndex(mvName)).thenReturn(false);
+        Mockito.when(createMaterializedViewCommand.getMVName()).thenReturn(mvName);
+        Mockito.when(createMaterializedViewCommand.getMVColumnItemList()).thenReturn(list);
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(olapTable.getRowStoreCol()).thenReturn(null);
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             List<Column> mvColumns = Deencapsulation.invoke(materializedViewHandler,
@@ -251,8 +205,9 @@ public class MaterializedViewHandlerTest {
     }
 
     @Disabled
-    public void checkInvalidPartitionKeyMV(@Injectable CreateMaterializedViewCommand createMaterializedViewCommand,
-                                           @Injectable OlapTable olapTable) throws DdlException {
+    public void checkInvalidPartitionKeyMV() throws DdlException {
+        CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
         final String mvName = "mv1";
         final String columnName1 = "k1";
 
@@ -272,20 +227,11 @@ public class MaterializedViewHandlerTest {
         List<MVColumnItem> list = Lists.newArrayList(mvColumnItem);
         Set<String> partitionColumnNames = Sets.newHashSet();
         partitionColumnNames.add(columnName1);
-        new Expectations() {
-            {
-                olapTable.hasMaterializedIndex(mvName);
-                result = false;
-                createMaterializedViewCommand.getMVName();
-                result = mvName;
-                createMaterializedViewCommand.getMVColumnItemList();
-                result = list;
-                olapTable.getKeysType();
-                result = KeysType.DUP_KEYS;
-                olapTable.getPartitionColumnNames();
-                result = partitionColumnNames;
-            }
-        };
+        Mockito.when(olapTable.hasMaterializedIndex(mvName)).thenReturn(false);
+        Mockito.when(createMaterializedViewCommand.getMVName()).thenReturn(mvName);
+        Mockito.when(createMaterializedViewCommand.getMVColumnItemList()).thenReturn(list);
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(olapTable.getPartitionColumnNames()).thenReturn(partitionColumnNames);
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
@@ -297,25 +243,17 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testCheckDropMaterializedView(@Injectable OlapTable olapTable, @Injectable Partition partition,
-                                              @Injectable MaterializedIndex materializedIndex) {
+    public void testCheckDropMaterializedView() {
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex materializedIndex = Mockito.mock(MaterializedIndex.class);
         String mvName = "mv_1";
-        new Expectations() {
-            {
-                olapTable.getName();
-                result = "table1";
-                olapTable.hasMaterializedIndex(mvName);
-                result = true;
-                olapTable.getIndexIdByName(mvName);
-                result = 1L;
-                olapTable.getSchemaHashByIndexId(1L);
-                result = 1;
-                olapTable.getPartitions();
-                result = Lists.newArrayList(partition);
-                partition.getIndex(1L);
-                result = materializedIndex;
-            }
-        };
+        Mockito.when(olapTable.getName()).thenReturn("table1");
+        Mockito.when(olapTable.hasMaterializedIndex(mvName)).thenReturn(true);
+        Mockito.when(olapTable.getIndexIdByName(mvName)).thenReturn(1L);
+        Mockito.when(olapTable.getSchemaHashByIndexId(1L)).thenReturn(1);
+        Mockito.when(olapTable.getPartitions()).thenReturn(Lists.newArrayList(partition));
+        Mockito.when(partition.getIndex(1L)).thenReturn(materializedIndex);
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkDropMaterializedView", mvName, olapTable);

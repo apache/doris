@@ -154,7 +154,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
                                            slot_desc->col_name()));
     }
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
     {
         int8_t k1 = -127;
         columns[0]->insert_data((const char*)&k1, sizeof(k1));
@@ -165,7 +165,8 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         int32_t k3 = -2147483647;
         columns[2]->insert_data((const char*)&k3, sizeof(k3));
 
-        res = delta_writer->write(&block, {0});
+        block.set_columns(std::move(columns));
+        res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
     }
     static_cast<void>(mem_limiter->init(100));

@@ -52,20 +52,52 @@ suite("topn") {
     }
 
     test {
+        sql """select topn(id,-1) from test_topn;"""
+        exception "topn requires second parameter must be a constant positive integer"
+    }
+
+    test {
+        sql """select topn(id,0) from test_topn;"""
+        exception "topn requires second parameter must be a constant positive integer"
+    }
+
+    test {
         sql """select topn_array(id,id) from test_topn;"""
     	exception "errCode = 2"
     }
+
     test {
         sql """select topn_array(id,1,id) from test_topn;"""
     	exception "errCode = 2"
     }
 
     test {
+        sql """select topn_array(id,-1) from test_topn;"""
+        exception "topn_array requires second parameter must be a constant positive integer"
+    }
+
+    test {
+        sql """select topn_array(id,0) from test_topn;"""
+        exception "topn_array requires second parameter must be a constant positive integer"
+    }
+
+    test {
         sql """select topn_weighted(id,id,id) from test_topn;"""
     	exception "errCode = 2"
     }
+
     test {
         sql """select topn_weighted(id,id,1,id) from test_topn;"""
     	exception "errCode = 2"
+    }
+
+    test {
+        sql """select topn_weighted(id,id,-1) from test_topn;"""
+        exception "topn_weighted requires third parameter must be a constant positive integer"
+    }
+
+    test {
+        sql """select topn_weighted(id,id,0) from test_topn;"""
+        exception "topn_weighted requires third parameter must be a constant positive integer"
     }
 }

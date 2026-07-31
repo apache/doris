@@ -50,7 +50,7 @@ public class OptimizeGroupExpressionJob extends Job {
         }
 
         countJobExecutionTimesOfGroupExpressions(groupExpression);
-        List<Rule> implementationRules = getRuleSet().getImplementationRules();
+        List<Rule> implementationRules = getImplementationRules();
         List<Rule> explorationRules = getExplorationRules(context.getCascadesContext());
 
         for (Rule rule : explorationRules) {
@@ -65,6 +65,14 @@ public class OptimizeGroupExpressionJob extends Job {
                 continue;
             }
             pushJob(new ApplyRuleJob(groupExpression, rule, context));
+        }
+    }
+
+    private List<Rule> getImplementationRules() {
+        if (context.getCascadesContext().getStatementContext().isDpHyp()) {
+            return getRuleSet().getDphyperImplementationRules();
+        } else {
+            return getRuleSet().getImplementationRules();
         }
     }
 
@@ -85,10 +93,9 @@ public class OptimizeGroupExpressionJob extends Job {
     private List<Rule> getJoinRules() {
         boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isDisableJoinReorder()
-                || context.getCascadesContext().isLeadingDisableJoinReorder()
-                || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
-                .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
+                || context.getCascadesContext().isLeadingDisableJoinReorder();
         boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
+        boolean isAfterDpHyper = context.getCascadesContext().getStatementContext().isAfterDpHyper();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();
         boolean isLeftZigZagTree = context.getCascadesContext().getConnectContext()
@@ -100,6 +107,8 @@ public class OptimizeGroupExpressionJob extends Job {
             return Collections.emptyList();
         } else if (isDpHyp) {
             return getRuleSet().getDPHypReorderRules();
+        } else if (isAfterDpHyper) {
+            return getRuleSet().getAfterDPHypReorderRules();
         } else if (isLeftZigZagTree) {
             return getRuleSet().getLeftZigZagTreeJoinReorder();
         } else if (isEnableBushyTree) {

@@ -61,7 +61,7 @@ static ColumnPtr make_const_column() {
 }
 
 static ColumnPtr make_nullable_column() {
-    return ColumnNullable::create(make_plain_column()->assume_mutable(),
+    return ColumnNullable::create(make_plain_column()->assert_mutable(),
                                   ColumnUInt8::create(NUM_ROWS, 0));
 }
 

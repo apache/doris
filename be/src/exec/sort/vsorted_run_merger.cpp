@@ -61,14 +61,22 @@ void VSortedRunMerger::init_timers(RuntimeProfile* profile) {
     _get_next_block_timer = ADD_TIMER(profile, "MergeGetNextBlock");
 }
 
-Status VSortedRunMerger::prepare(const std::vector<BlockSupplier>& input_runs) {
+Status VSortedRunMerger::prepare(
+        const std::vector<BlockSupplier>& input_runs,
+        const std::vector<BlockSupplierReadyChecker>& input_run_ready_checkers) {
     try {
-        for (const auto& supplier : input_runs) {
+        for (size_t i = 0; i < input_runs.size(); ++i) {
+            const auto& supplier = input_runs[i];
+            BlockSupplierReadyChecker ready_checker;
+            if (i < input_run_ready_checkers.size()) {
+                ready_checker = input_run_ready_checkers[i];
+            }
             if (_use_sort_desc) {
-                _cursors.emplace_back(BlockSupplierSortCursorImpl::create_shared(supplier, _desc));
+                _cursors.emplace_back(
+                        BlockSupplierSortCursorImpl::create_shared(supplier, _desc, ready_checker));
             } else {
                 _cursors.emplace_back(BlockSupplierSortCursorImpl::create_shared(
-                        supplier, _ordering_expr, _is_asc_order, _nulls_first));
+                        supplier, _ordering_expr, _is_asc_order, _nulls_first, ready_checker));
             }
         }
     } catch (const std::exception& e) {
@@ -150,8 +158,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         return Status::OK();
     } else {
         size_t num_columns = _priority_queue.top().impl->block->columns();
-        MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
                 output_block, *_priority_queue.top().impl->block);
+        auto& m_block = scoped_mutable_block.mutable_block();
         MutableColumns& merged_columns = m_block.mutable_columns();
 
         if (num_columns != merged_columns.size()) {
@@ -192,13 +201,19 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             }
 
             current->next();
-            if (_need_more_data(current)) {
+            const bool has_ready_block_or_eos =
+                    current->is_last(0) && !current->eof() && current->has_ready_block_or_eos();
+            if (has_ready_block_or_eos) {
                 do_insert();
+            }
+            if (_need_more_data(current, has_ready_block_or_eos)) {
+                do_insert();
+                scoped_mutable_block.restore();
                 return Status::OK();
             }
         }
         do_insert();
-        output_block->set_columns(std::move(merged_columns));
+        scoped_mutable_block.restore();
 
         if (merged_rows == 0) {
             *eos = true;
@@ -209,11 +224,20 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
     return Status::OK();
 }
 
-bool VSortedRunMerger::_need_more_data(MergeSortCursor& current) {
+bool VSortedRunMerger::_need_more_data(MergeSortCursor& current, bool has_ready_block_or_eos) {
     if (!current->is_last(0)) {
         _priority_queue.push(current);
         return false;
     } else if (current->eof()) {
+        return false;
+    } else if (has_ready_block_or_eos) {
+        {
+            ScopedTimer<MonotonicStopWatch> timer(_get_next_block_timer);
+            current->process_next();
+        }
+        if (!current->eof()) {
+            _priority_queue.push(current);
+        }
         return false;
     } else {
         _pending_cursor = current.impl;

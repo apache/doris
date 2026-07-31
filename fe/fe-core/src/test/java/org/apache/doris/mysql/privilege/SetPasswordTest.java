@@ -28,48 +28,39 @@ import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class SetPasswordTest {
 
     private Auth auth;
-    @Mocked
-    public Env env;
-    @Mocked
-    private EditLog editLog;
+    private Env env = Mockito.mock(Env.class);
+    private EditLog editLog = Mockito.mock(EditLog.class);
+    private MockedStatic<Env> mockedEnvStatic;
+    private MockedStatic<MysqlPassword> mockedMysqlPassword;
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
         auth = new Auth();
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedMysqlPassword = Mockito.mockStatic(MysqlPassword.class);
 
-                env.getAuth();
-                minTimes = 0;
-                result = auth;
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        mockedMysqlPassword.when(() -> MysqlPassword.checkPassword(Mockito.anyString())).thenReturn(new byte[10]);
+    }
 
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-
-                editLog.logCreateUser((PrivInfo) any);
-                minTimes = 0;
-
-                MysqlPassword.checkPassword(anyString);
-                minTimes = 0;
-                result = new byte[10];
-            }
-        };
+    @After
+    public void tearDown() {
+        mockedEnvStatic.close();
+        mockedMysqlPassword.close();
     }
 
     @Test

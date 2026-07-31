@@ -1,0 +1,7 @@
+[
+    {"id": 1, "c_struct": {"f1": 10, "f2": 3.14, "f3": "Emily"}},
+    {"id": 2, "c_struct": {"f1": 4, "f2": 1.5, "f3": null}},
+    {"id": 3, "c_struct": {"f1": 7, "f2": null, "f3": "Benjamin"}},
+    {"id": 4, "c_struct": {}},
+    {"id": 5, "c_struct": null}
+]

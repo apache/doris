@@ -47,9 +47,62 @@
 class SipHash;
 
 namespace doris {
+namespace {
+
+const ColumnArray::ColumnOffsets& check_array_offsets_column(const IColumn& offsets_column) {
+    const auto* offsets_concrete =
+            check_and_get_column<ColumnArray::ColumnOffsets>(&offsets_column);
+    if (!offsets_concrete) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
+        __builtin_unreachable();
+    }
+    return *offsets_concrete;
+}
+
+ColumnArray::ColumnOffsets::Ptr check_array_offsets_column_ptr(const ColumnPtr& offsets_column) {
+    return ColumnArray::ColumnOffsets::cast_to_column_ptr(
+            &check_array_offsets_column(*offsets_column));
+}
+
+ColumnArray::ColumnOffsets::MutablePtr assert_mutable_array_offsets(
+        MutableColumnPtr&& offsets_column) {
+    check_array_offsets_column(*offsets_column);
+    auto mutable_offsets = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+            assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                    offsets_column.get()));
+    offsets_column = nullptr;
+    return mutable_offsets;
+}
+
+void validate_array_offsets(const IColumn& nested_column, const IColumn& offsets_column) {
+    const auto& offsets_concrete = check_array_offsets_column(offsets_column);
+    if (!offsets_concrete.empty()) {
+        auto last_offset = offsets_concrete.get_data().back();
+
+        /// This will also prevent possible overflow in offset.
+        if (nested_column.size() != last_offset) {
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "nested_column's size {}, is not consistent with offsets_column's {}",
+                    nested_column.size(), last_offset);
+        }
+    }
+}
+
+void check_empty_array_data_without_offsets(const IColumn& nested_column) {
+    if (!nested_column.empty()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Not empty data passed to ColumnArray, but no offsets passed");
+        __builtin_unreachable();
+    }
+}
+
+} // namespace
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
-        : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
+        : data(std::move(nested_column)) {
+    static_cast<ColumnOffsets::Ptr&>(offsets) =
+            assert_mutable_array_offsets(std::move(offsets_column));
     // TODO(lihangyu) : we need to check the nullable attribute of array's data column.
     // but currently ColumnMap<ColumnString, ColumnString> is used to store sparse data of variant type,
     // so I temporarily disable this check.
@@ -63,24 +116,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
     //     }
     // #endif
     check_const_only_in_top_level();
-    const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
-
-    if (!offsets_concrete) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
-        __builtin_unreachable();
-    }
-
-    if (!offsets_concrete->empty() && data) {
-        auto last_offset = offsets_concrete->get_data().back();
-
-        /// This will also prevent possible overflow in offset.
-        if (data->size() != last_offset) {
-            throw doris::Exception(
-                    ErrorCode::INTERNAL_ERROR,
-                    "nested_column's size {}, is not consistent with offsets_column's {}",
-                    data->size(), last_offset);
-        }
-    }
+    validate_array_offsets(*static_cast<const IColumn::Ptr&>(data),
+                           *static_cast<const ColumnOffsets::Ptr&>(offsets));
 
     /** NOTE
       * Arrays with constant value are possible and used in implementation of higher order functions (see FunctionReplicate).
@@ -90,16 +127,16 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
     data = data->convert_to_full_column_if_const();
-    if (!data->empty()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Not empty data passed to ColumnArray, but no offsets passed");
-        __builtin_unreachable();
-    }
-    offsets = ColumnOffsets::create();
+    check_empty_array_data_without_offsets(*data);
+    static_cast<ColumnOffsets::Ptr&>(offsets) = ColumnOffsets::create();
 }
 
-void ColumnArray::shrink_padding_chars() {
-    data->shrink_padding_chars();
+ColumnArray::ColumnArray(SharedTag, ColumnPtr nested_column, ColumnPtr offsets_column) {
+    static_cast<IColumn::Ptr&>(data) = std::move(nested_column);
+    static_cast<ColumnOffsets::Ptr&>(offsets) = check_array_offsets_column_ptr(offsets_column);
+    check_const_only_in_top_level();
+    validate_array_offsets(*static_cast<const IColumn::Ptr&>(data),
+                           *static_cast<const ColumnOffsets::Ptr&>(offsets));
 }
 
 std::string ColumnArray::get_name() const {
@@ -815,35 +852,35 @@ size_t filter_generic_inplace(const Filter& filter, IColumn& src_data, ColumnOff
 ColumnArrayDataOffsets filter_return_new_dispatch(const Filter& filt, ssize_t result_size_hint,
                                                   const ColumnPtr& data,
                                                   const ColumnOffsets* offsets) {
-    if (typeid_cast<const ColumnUInt8*>(data.get()))
+    if (check_and_get_column<ColumnUInt8>(data.get()))
         return filter_number_return_new<TYPE_BOOLEAN>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnInt8*>(data.get()))
+    if (check_and_get_column<ColumnInt8>(data.get()))
         return filter_number_return_new<TYPE_TINYINT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnInt16*>(data.get()))
+    if (check_and_get_column<ColumnInt16>(data.get()))
         return filter_number_return_new<TYPE_SMALLINT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnInt32*>(data.get()))
+    if (check_and_get_column<ColumnInt32>(data.get()))
         return filter_number_return_new<TYPE_INT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnInt64*>(data.get()))
+    if (check_and_get_column<ColumnInt64>(data.get()))
         return filter_number_return_new<TYPE_BIGINT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnFloat32*>(data.get()))
+    if (check_and_get_column<ColumnFloat32>(data.get()))
         return filter_number_return_new<TYPE_FLOAT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnFloat64*>(data.get()))
+    if (check_and_get_column<ColumnFloat64>(data.get()))
         return filter_number_return_new<TYPE_DOUBLE>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnDate*>(data.get()))
+    if (check_and_get_column<ColumnDate>(data.get()))
         return filter_number_return_new<TYPE_DATE>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnDateV2*>(data.get()))
+    if (check_and_get_column<ColumnDateV2>(data.get()))
         return filter_number_return_new<TYPE_DATEV2>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnDateTime*>(data.get()))
+    if (check_and_get_column<ColumnDateTime>(data.get()))
         return filter_number_return_new<TYPE_DATETIME>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
+    if (check_and_get_column<ColumnDateTimeV2>(data.get()))
         return filter_number_return_new<TYPE_DATETIMEV2>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnTimeStampTz*>(data.get()))
+    if (check_and_get_column<ColumnTimeStampTz>(data.get()))
         return filter_number_return_new<TYPE_TIMESTAMPTZ>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnTimeV2*>(data.get()))
+    if (check_and_get_column<ColumnTimeV2>(data.get()))
         return filter_number_return_new<TYPE_TIMEV2>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnIPv4*>(data.get()))
+    if (check_and_get_column<ColumnIPv4>(data.get()))
         return filter_number_return_new<TYPE_IPV4>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnString*>(data.get()))
+    if (check_and_get_column<ColumnString>(data.get()))
         return filter_string_return_new(filt, result_size_hint, data, offsets);
     return filter_generic_return_new(filt, result_size_hint, data, offsets);
 }
@@ -861,7 +898,7 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
                                      res_null_map->get_data(), filt, result_size_hint);
 
         auto src_data = nullable_data_column->get_nested_column_ptr();
-        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        const auto* src_offsets = offsets.get();
         auto array_of_nested =
                 filter_return_new_dispatch(filt, result_size_hint, src_data, src_offsets);
 
@@ -870,7 +907,7 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
                 array_of_nested.offsets);
     } else {
         // filter offsets
-        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        const auto* src_offsets = offsets.get();
         auto array_of_nested =
                 filter_return_new_dispatch(filt, result_size_hint, data, src_offsets);
         return ColumnArray::create(array_of_nested.data, std::move(array_of_nested.offsets));
@@ -881,33 +918,33 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
 // In order not to destroy the original logic, the original logic is still retained here.
 size_t filter_inplace_dispatch(const Filter& filter, IColumn& src_data,
                                ColumnOffsets& src_offsets) {
-    if (typeid_cast<ColumnUInt8*>(&src_data))
+    if (check_and_get_column<ColumnUInt8>(&src_data))
         return filter_number_inplace<TYPE_BOOLEAN>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnInt8*>(&src_data))
+    if (check_and_get_column<ColumnInt8>(&src_data))
         return filter_number_inplace<TYPE_TINYINT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnInt16*>(&src_data))
+    if (check_and_get_column<ColumnInt16>(&src_data))
         return filter_number_inplace<TYPE_SMALLINT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnInt32*>(&src_data))
+    if (check_and_get_column<ColumnInt32>(&src_data))
         return filter_number_inplace<TYPE_INT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnInt64*>(&src_data))
+    if (check_and_get_column<ColumnInt64>(&src_data))
         return filter_number_inplace<TYPE_BIGINT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnFloat32*>(&src_data))
+    if (check_and_get_column<ColumnFloat32>(&src_data))
         return filter_number_inplace<TYPE_FLOAT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnFloat64*>(&src_data))
+    if (check_and_get_column<ColumnFloat64>(&src_data))
         return filter_number_inplace<TYPE_DOUBLE>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnDate*>(&src_data))
+    if (check_and_get_column<ColumnDate>(&src_data))
         return filter_number_inplace<TYPE_DATE>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnDateV2*>(&src_data))
+    if (check_and_get_column<ColumnDateV2>(&src_data))
         return filter_number_inplace<TYPE_DATEV2>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnDateTime*>(&src_data))
+    if (check_and_get_column<ColumnDateTime>(&src_data))
         return filter_number_inplace<TYPE_DATETIME>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnDateTimeV2*>(&src_data))
+    if (check_and_get_column<ColumnDateTimeV2>(&src_data))
         return filter_number_inplace<TYPE_DATETIMEV2>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnTimeStampTz*>(&src_data))
+    if (check_and_get_column<ColumnTimeStampTz>(&src_data))
         return filter_number_inplace<TYPE_TIMESTAMPTZ>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnTimeV2*>(&src_data))
+    if (check_and_get_column<ColumnTimeV2>(&src_data))
         return filter_number_inplace<TYPE_TIMEV2>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnIPv4*>(&src_data))
+    if (check_and_get_column<ColumnIPv4>(&src_data))
         return filter_number_inplace<TYPE_IPV4>(filter, src_data, src_offsets);
     return filter_generic_inplace(filter, src_data, src_offsets);
 }
@@ -917,17 +954,17 @@ size_t ColumnArray::filter(const Filter& filter) {
         return 0;
     }
 
-    if (auto* nullable_data_column = typeid_cast<ColumnNullable*>(data.get())) {
+    if (auto* nullable_data_column = check_and_get_column<ColumnNullable>(data.get())) {
         const auto result_size = filter_arrays_impl_only_data(
                 nullable_data_column->get_null_map_data(), get_offsets(), filter);
 
         auto& src_data = nullable_data_column->get_nested_column();
-        auto& src_offsets = assert_cast<ColumnOffsets&>(*offsets);
+        auto& src_offsets = *offsets;
         filter_inplace_dispatch(filter, src_data, src_offsets);
         return result_size;
     } else {
         auto& src_data = get_data();
-        auto& src_offsets = assert_cast<ColumnOffsets&>(*offsets);
+        auto& src_offsets = *offsets;
 
         return filter_inplace_dispatch(filter, src_data, src_offsets);
     }

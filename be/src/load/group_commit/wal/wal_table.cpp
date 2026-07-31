@@ -113,6 +113,12 @@ Status WalTable::_relay_wal_one_by_one() {
             doris::wal_fail << 1;
             LOG(WARNING) << "failed to replay wal=" << wal_info->get_wal_path()
                          << ", st=" << st.to_string();
+            {
+                std::lock_guard<std::mutex> lock(_replay_wal_lock);
+                _last_replay_wal_failed_reason =
+                        "failed to replay wal=" + wal_info->get_wal_path() +
+                        ", st=" + st.to_string().substr(0, 100);
+            }
             need_retry_wals.push_back(wal_info);
         }
     }
@@ -121,6 +127,9 @@ Status WalTable::_relay_wal_one_by_one() {
         _replaying_queue.clear();
         for (auto retry_wal_info : need_retry_wals) {
             _replay_wal_map.emplace(retry_wal_info->get_wal_path(), retry_wal_info);
+        }
+        if (_replay_wal_map.empty()) {
+            _last_replay_wal_failed_reason.clear();
         }
     }
     return Status::OK();
@@ -183,9 +192,14 @@ Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
             [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnRollback(result, request);
             });
-    auto result_status = Status::create<false>(result.status);
-    LOG(INFO) << "abort label " << label << ", st:" << st << ", result_status:" << result_status;
-    return result_status;
+    if (st.ok()) {
+        auto result_status = Status::create<false>(result.status);
+        LOG(INFO) << "abort label " << label << ", result_status:" << result_status;
+        return result_status;
+    } else {
+        LOG(WARNING) << "abort label " << label << ", rpc error:" << st;
+        return st;
+    }
 }
 
 Status WalTable::_replay_wal_internal(const std::string& wal) {
@@ -301,6 +315,11 @@ void WalTable::stop() {
 size_t WalTable::size() {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     return _replay_wal_map.size() + _replaying_queue.size();
+}
+
+std::string WalTable::get_last_replay_wal_failed_reason() const {
+    std::lock_guard<std::mutex> lock(_replay_wal_lock);
+    return _last_replay_wal_failed_reason;
 }
 
 Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,

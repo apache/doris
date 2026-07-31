@@ -37,7 +37,7 @@ suite("test_search_variant_dual_index_reader", "p0") {
     def tableName = "test_variant_dual_index_reader"
 
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     // Pin doc_mode to false to prevent CI flakiness from fuzzy testing.
     sql """ set default_variant_enable_doc_mode = false """
@@ -87,7 +87,7 @@ suite("test_search_variant_dual_index_reader", "p0") {
     // Before fix: returns empty because EQUAL_QUERY selects STRING_TYPE reader.
     // After fix: returns rows 1, 3 because MATCH_ANY_QUERY selects FULLTEXT reader.
     qt_dual_index_basic """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('admin', '{"default_field":"props.string_8","mode":"lucene"}')
         ORDER BY id
     """
@@ -95,7 +95,7 @@ suite("test_search_variant_dual_index_reader", "p0") {
     // Test 2: Multi-term AND search. Both "admin" and "access" must match.
     // Before fix: empty. After fix: row 3.
     qt_dual_index_and """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('admin access', '{"default_field":"props.string_8","mode":"lucene","default_operator":"AND"}')
         ORDER BY id
     """
@@ -103,14 +103,14 @@ suite("test_search_variant_dual_index_reader", "p0") {
     // Test 3: Search on a different subcolumn matching the same field_pattern.
     // Ensures the fix works across different subcolumns under the same pattern.
     qt_dual_index_other_field """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('hello', '{"default_field":"props.string_1","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 4: Field-qualified syntax with dual indexes.
     qt_dual_index_field_syntax """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('props.string_8:access', '{"mode":"lucene"}')
         ORDER BY id
     """
@@ -118,7 +118,7 @@ suite("test_search_variant_dual_index_reader", "p0") {
     // Test 5: Case-insensitive search (lowercase index).
     // "ADMIN" should match "admin user" and "admin access granted".
     qt_dual_index_case_insensitive """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('ADMIN', '{"default_field":"props.string_8","mode":"lucene"}')
         ORDER BY id
     """
@@ -126,7 +126,7 @@ suite("test_search_variant_dual_index_reader", "p0") {
     // Test 6: Verify MATCH_ANY also works as baseline (uses MATCH query type directly,
     // so it always picks FULLTEXT reader — this should work both before and after the fix).
     qt_dual_index_match_baseline """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE props['string_8'] MATCH_ANY 'admin'
         ORDER BY id
     """

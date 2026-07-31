@@ -1,0 +1,219 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Thread safety annotation macros and annotated mutex wrappers for
+// Clang's -Wthread-safety static analysis.
+// Reference: https://clang.llvm.org/docs/ThreadSafetyAnalysis.html
+
+#pragma once
+
+#include <mutex>
+#include <shared_mutex>
+
+#ifdef BE_TEST
+namespace doris {
+void mock_random_sleep();
+} // namespace doris
+#endif
+
+// Enable thread safety attributes only with clang.
+// The attributes can be safely erased when compiling with other compilers.
+#if defined(__clang__) && (!defined(SWIG))
+#define THREAD_ANNOTATION_ATTRIBUTE__(x) __attribute__((x))
+#else
+#define THREAD_ANNOTATION_ATTRIBUTE__(x) // no-op
+#endif
+
+#define CAPABILITY(x) THREAD_ANNOTATION_ATTRIBUTE__(capability(x))
+
+#define SCOPED_CAPABILITY THREAD_ANNOTATION_ATTRIBUTE__(scoped_lockable)
+
+#define GUARDED_BY(x) THREAD_ANNOTATION_ATTRIBUTE__(guarded_by(x))
+
+#define PT_GUARDED_BY(x) THREAD_ANNOTATION_ATTRIBUTE__(pt_guarded_by(x))
+
+#define ACQUIRED_BEFORE(...) THREAD_ANNOTATION_ATTRIBUTE__(acquired_before(__VA_ARGS__))
+
+#define ACQUIRED_AFTER(...) THREAD_ANNOTATION_ATTRIBUTE__(acquired_after(__VA_ARGS__))
+
+#define REQUIRES(...) THREAD_ANNOTATION_ATTRIBUTE__(requires_capability(__VA_ARGS__))
+
+#define REQUIRES_SHARED(...) THREAD_ANNOTATION_ATTRIBUTE__(requires_shared_capability(__VA_ARGS__))
+
+#define ACQUIRE(...) THREAD_ANNOTATION_ATTRIBUTE__(acquire_capability(__VA_ARGS__))
+
+#define ACQUIRE_SHARED(...) THREAD_ANNOTATION_ATTRIBUTE__(acquire_shared_capability(__VA_ARGS__))
+
+#define RELEASE(...) THREAD_ANNOTATION_ATTRIBUTE__(release_capability(__VA_ARGS__))
+
+#define RELEASE_SHARED(...) THREAD_ANNOTATION_ATTRIBUTE__(release_shared_capability(__VA_ARGS__))
+
+#define TRY_ACQUIRE(...) THREAD_ANNOTATION_ATTRIBUTE__(try_acquire_capability(__VA_ARGS__))
+
+#define TRY_ACQUIRE_SHARED(...) \
+    THREAD_ANNOTATION_ATTRIBUTE__(try_acquire_shared_capability(__VA_ARGS__))
+
+#define EXCLUDES(...) THREAD_ANNOTATION_ATTRIBUTE__(locks_excluded(__VA_ARGS__))
+
+#define ASSERT_CAPABILITY(x) THREAD_ANNOTATION_ATTRIBUTE__(assert_capability(x))
+
+#define ASSERT_SHARED_CAPABILITY(x) THREAD_ANNOTATION_ATTRIBUTE__(assert_shared_capability(x))
+
+#define RETURN_CAPABILITY(x) THREAD_ANNOTATION_ATTRIBUTE__(lock_returned(x))
+
+#define NO_THREAD_SAFETY_ANALYSIS THREAD_ANNOTATION_ATTRIBUTE__(no_thread_safety_analysis)
+
+// Annotated mutex wrapper for use with Clang thread safety analysis.
+// Wraps std::mutex and provides the CAPABILITY annotation so that
+// GUARDED_BY / REQUIRES / etc. annotations can reference it.
+class CAPABILITY("mutex") AnnotatedMutex {
+public:
+    void lock() ACQUIRE() { _mutex.lock(); }
+    void unlock() RELEASE() { _mutex.unlock(); }
+    bool try_lock() TRY_ACQUIRE(true) { return _mutex.try_lock(); }
+
+    // Access the underlying std::mutex (e.g., for std::condition_variable).
+    // Use with care — this bypasses thread safety annotations.
+    std::mutex& native_handle() { return _mutex; }
+
+private:
+    std::mutex _mutex;
+};
+
+// Annotated shared mutex wrapper for use with Clang thread safety analysis.
+// Wraps std::shared_mutex and provides both exclusive and shared capability
+// operations so GUARDED_BY / REQUIRES_SHARED / etc. can reference it.
+class CAPABILITY("mutex") AnnotatedSharedMutex {
+public:
+    void lock() ACQUIRE() { _mutex.lock(); }
+    void unlock() RELEASE() { _mutex.unlock(); }
+    bool try_lock() TRY_ACQUIRE(true) { return _mutex.try_lock(); }
+
+    void lock_shared() ACQUIRE_SHARED() { _mutex.lock_shared(); }
+    void unlock_shared() RELEASE_SHARED() { _mutex.unlock_shared(); }
+    bool try_lock_shared() TRY_ACQUIRE_SHARED(true) { return _mutex.try_lock_shared(); }
+
+    // Access the underlying std::shared_mutex (e.g., for std::condition_variable_any).
+    // Use with care — this bypasses thread safety annotations.
+    std::shared_mutex& native_handle() { return _mutex; }
+
+private:
+    std::shared_mutex _mutex;
+};
+
+// RAII scoped lock guard annotated for thread safety analysis.
+// In BE_TEST builds, injects a random sleep before acquiring and after
+// releasing the lock to exercise concurrent code paths.
+template <typename MutexType>
+class SCOPED_CAPABILITY LockGuard {
+public:
+    explicit LockGuard(MutexType& mu) ACQUIRE(mu) : _mu(mu) {
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+        _mu.lock();
+    }
+    ~LockGuard() RELEASE() {
+        _mu.unlock();
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+    }
+
+    LockGuard(const LockGuard&) = delete;
+    LockGuard& operator=(const LockGuard&) = delete;
+
+private:
+    MutexType& _mu;
+};
+
+// RAII scoped shared lock guard annotated for thread safety analysis.
+// In BE_TEST builds, injects a random sleep before acquiring and after
+// releasing the lock to exercise concurrent code paths.
+template <typename MutexType>
+class SCOPED_CAPABILITY SharedLockGuard {
+public:
+    explicit SharedLockGuard(MutexType& mu) ACQUIRE_SHARED(mu) : _mu(mu) {
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+        _mu.lock_shared();
+    }
+    ~SharedLockGuard() RELEASE() {
+        _mu.unlock_shared();
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+    }
+
+    SharedLockGuard(const SharedLockGuard&) = delete;
+    SharedLockGuard& operator=(const SharedLockGuard&) = delete;
+
+private:
+    MutexType& _mu;
+};
+
+// RAII unique lock annotated for thread safety analysis.
+// Supports manual lock/unlock while preserving capability tracking.
+template <typename MutexType>
+class SCOPED_CAPABILITY UniqueLock {
+public:
+    explicit UniqueLock(MutexType& mu) ACQUIRE(mu) : _mu(&mu), _locked(true) {
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+        _mu->lock();
+    }
+
+    UniqueLock(MutexType& mu, std::adopt_lock_t) REQUIRES(mu) : _mu(&mu), _locked(true) {}
+
+    UniqueLock(MutexType& mu, std::defer_lock_t) EXCLUDES(mu) : _mu(&mu), _locked(false) {}
+
+    ~UniqueLock() RELEASE() {
+        if (_locked) {
+            _mu->unlock();
+#ifdef BE_TEST
+            doris::mock_random_sleep();
+#endif
+        }
+    }
+
+    void lock() ACQUIRE() {
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+        _mu->lock();
+        _locked = true;
+    }
+
+    void unlock() RELEASE() {
+        _mu->unlock();
+        _locked = false;
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+    }
+
+    bool owns_lock() const { return _locked; }
+
+    UniqueLock(const UniqueLock&) = delete;
+    UniqueLock& operator=(const UniqueLock&) = delete;
+
+private:
+    MutexType* _mu;
+    bool _locked;
+};

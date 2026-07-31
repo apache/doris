@@ -75,7 +75,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto num = block.get_by_position(arguments[FunctionType::param_num_idx])
                            .column->convert_to_full_column_if_const();
-        num = num->is_nullable()
+        num = is_column_nullable(*num)
                       ? assert_cast<const ColumnNullable*>(num.get())->get_nested_column_ptr()
                       : num;
         auto value = block.get_by_position(arguments[FunctionType::param_val_idx])
@@ -99,7 +99,7 @@ public:
         }
         auto clone = value->clone_empty();
         clone->reserve(input_rows_count);
-        clone->assume_mutable()->insert_indices_from(*value, array_sizes.data(),
+        clone->assert_mutable()->insert_indices_from(*value, array_sizes.data(),
                                                      array_sizes.data() + offset);
         if (!clone->is_nullable()) {
             clone = ColumnNullable::create(std::move(clone), ColumnUInt8::create(clone->size(), 0));

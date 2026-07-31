@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundType;
@@ -38,14 +39,16 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -64,6 +67,7 @@ import java.util.stream.Collectors;
  *  window frame (RANGE between UNBOUNDED PRECEDING and CURRENT ROW)
  */
 public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, Void> {
+    private static final BigDecimal MAX_ROWS_OFFSET_VALUE = BigDecimal.valueOf(Long.MAX_VALUE);
 
     private WindowExpression windowExpression;
 
@@ -85,13 +89,11 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
     /**
      * step 2: check windowFunction in window
      */
-    public Expression checkWindowFunction() {
-        // todo: visitNtile()
-
+    public void checkWindowFunction() {
         // in checkWindowFrameBeforeFunc() we have confirmed that both left and right boundary are set as long as
         // windowFrame exists, therefore in all following visitXXX functions we don't need to check whether the right
         // boundary is null.
-        return windowExpression.accept(this, null);
+        windowExpression.accept(this, null);
     }
 
     /**
@@ -183,14 +185,14 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         // case 5
         // check correctness of left boundary and right boundary
         if (left.hasOffset() && right.hasOffset()) {
-            double leftOffsetValue = ((Literal) left.getBoundOffset().get()).getDouble();
-            double rightOffsetValue = ((Literal) right.getBoundOffset().get()).getDouble();
+            BigDecimal leftOffsetValue = getBoundOffsetValue(left);
+            BigDecimal rightOffsetValue = getBoundOffsetValue(right);
             if (left.asPreceding() && right.asPreceding()) {
-                Preconditions.checkArgument(leftOffsetValue >= rightOffsetValue, "WindowFrame with "
+                Preconditions.checkArgument(leftOffsetValue.compareTo(rightOffsetValue) >= 0, "WindowFrame with "
                         + "PRECEDING boundary requires that leftBoundOffset >= rightBoundOffset");
             } else if (left.asFollowing() && right.asFollowing()) {
-                Preconditions.checkArgument(leftOffsetValue <= rightOffsetValue, "WindowFrame with "
-                        + "FOLLOWING boundary requires that leftBoundOffset >= rightBoundOffset");
+                Preconditions.checkArgument(leftOffsetValue.compareTo(rightOffsetValue) <= 0, "WindowFrame with "
+                        + "FOLLOWING boundary requires that leftBoundOffset <= rightBoundOffset");
             }
         }
 
@@ -200,9 +202,9 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
     /**
      * check boundOffset of FrameBoundary if it exists:
      * 1 boundOffset should be Literal, but this restriction can be removed after completing FoldConstant
-     * 2 boundOffset should be positive
-     * 2 boundOffset should be a positive INTEGER if FrameUnitsType == ROWS
-     * 3 boundOffset should be a positive INTEGER or DECIMAL if FrameUnitsType == RANGE
+     * 2 boundOffset should be an INTEGER if FrameUnitsType == ROWS
+     * 3 boundOffset should be an INTEGER or DECIMAL if FrameUnitsType == RANGE
+     * 4 boundOffset should be positive
      */
     private void checkFrameBoundOffset(FrameBoundary frameBoundary) {
         Expression offset = frameBoundary.getBoundOffset().get();
@@ -211,21 +213,31 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         Preconditions.checkArgument(offset.isLiteral(), "BoundOffset of WindowFrame must be Literal");
 
         // case 2
-        boolean isPositive = ((Literal) offset).getDouble() > 0;
-        Preconditions.checkArgument(isPositive, "BoundOffset of WindowFrame must be positive");
-
-        // case 3
         FrameUnitsType frameUnits = windowExpression.getWindowFrame().get().getFrameUnits();
         if (frameUnits == FrameUnitsType.ROWS) {
             Preconditions.checkArgument(offset.getDataType().isIntegralType(),
                     "BoundOffset of ROWS WindowFrame must be an Integer");
         }
 
-        // case 4
+        // case 3
         if (frameUnits == FrameUnitsType.RANGE) {
             Preconditions.checkArgument(offset.getDataType().isNumericType(),
                     "BoundOffset of RANGE WindowFrame must be an Integer or Decimal");
         }
+
+        // case 4
+        BigDecimal offsetValue = getBoundOffsetValue(frameBoundary);
+        boolean isPositive = offsetValue.compareTo(BigDecimal.ZERO) > 0;
+        Preconditions.checkArgument(isPositive, "BoundOffset of WindowFrame must be positive");
+
+        if (frameUnits == FrameUnitsType.ROWS) {
+            Preconditions.checkArgument(offsetValue.compareTo(MAX_ROWS_OFFSET_VALUE) <= 0,
+                    "BoundOffset of ROWS WindowFrame must not exceed " + Long.MAX_VALUE);
+        }
+    }
+
+    private BigDecimal getBoundOffsetValue(FrameBoundary frameBoundary) {
+        return new BigDecimal(((Literal) frameBoundary.getBoundOffset().get()).getStringValue());
     }
 
     /* ********************************************************************************************
@@ -246,20 +258,12 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
             throw new AnalysisException("Lag must have three parameters");
         }
 
-        Expression column = lag.child(0);
         Expression offset = lag.getOffset();
-        Expression defaultValue = lag.getDefaultValue();
         WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.ROWS,
                 FrameBoundary.newPrecedingBoundary(), FrameBoundary.newPrecedingBoundary(offset));
         windowExpression = windowExpression.withWindowFrame(requiredFrame);
 
-        // check if the class of lag's column matches defaultValue, and cast it
-        if (!TypeCoercionUtils.implicitCast(column.getDataType(), defaultValue.getDataType()).isPresent()) {
-            throw new AnalysisException("DefaultValue's Datatype of LAG() cannot match its relevant column. The column "
-                + "type is " + column.getDataType() + ", but the defaultValue type is " + defaultValue.getDataType());
-        }
-        return lag.withChildren(ImmutableList.of(column, offset,
-                TypeCoercionUtils.castIfNotMatchType(defaultValue, column.getDataType())));
+        return lag;
     }
 
     /**
@@ -275,20 +279,12 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
             throw new AnalysisException("Lead must have three parameters");
         }
 
-        Expression column = lead.child(0);
         Expression offset = lead.getOffset();
-        Expression defaultValue = lead.getDefaultValue();
         WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.ROWS,
                 FrameBoundary.newPrecedingBoundary(), FrameBoundary.newFollowingBoundary(offset));
         windowExpression = windowExpression.withWindowFrame(requiredFrame);
 
-        // check if the class of lag's column matches defaultValue, and cast it
-        if (!TypeCoercionUtils.implicitCast(column.getDataType(), defaultValue.getDataType()).isPresent()) {
-            throw new AnalysisException("DefaultValue's Datatype of LEAD() can't match its relevant column. The column "
-                + "type is " + column.getDataType() + ", but the defaultValue type is " + defaultValue.getDataType());
-        }
-        return lead.withChildren(ImmutableList.of(column, offset,
-            TypeCoercionUtils.castIfNotMatchType(defaultValue, column.getDataType())));
+        return lead;
     }
 
     /**
@@ -476,12 +472,21 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
             // e.g. (3 preceding, unbounded following) -> (unbounded preceding, 3 following)
             windowExpression = windowExpression.withWindowFrame(wf.reverseWindow());
 
-            // reverse WindowFunction, which is used only for first_value() and last_value()
+            // adjust window functions whose result depends on the order within the frame.
             Expression windowFunction = windowExpression.getFunction();
             if (windowFunction instanceof FirstOrLastValue) {
-                // windowExpression = windowExpression.withChildren(
-                //         ImmutableList.of(((FirstOrLastValue) windowFunction).reverse()));
                 windowExpression = windowExpression.withFunction(((FirstOrLastValue) windowFunction).reverse());
+            } else if (windowFunction instanceof NthValue) {
+                NthValue nthValue = (NthValue) windowFunction;
+                Expression reversedOffset;
+                Expression offset = nthValue.getArgument(1);
+                if (offset instanceof BigIntLiteral) {
+                    reversedOffset = new BigIntLiteral(-((BigIntLiteral) offset).getValue());
+                } else {
+                    reversedOffset = new Subtract(new IntegerLiteral(0), nthValue.child(1));
+                }
+                windowExpression = windowExpression.withFunction(
+                        nthValue.withChildren(ImmutableList.of(nthValue.child(0), reversedOffset)));
             }
         }
     }

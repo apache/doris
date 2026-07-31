@@ -1,7 +1,10 @@
 use `default`;
 
 
-CREATE TABLE json_nested_complex_table (
+drop table if exists json_nested_complex_table;
+
+
+create table json_nested_complex_table (
     user_ID STRING,
     user_PROFILE STRUCT<
         name: STRING,
@@ -30,6 +33,3 @@ CREATE TABLE json_nested_complex_table (
 
 LOCATION
   '/user/doris/preinstalled_data/json/json_nested_complex_table';
-
-
-msck repair table json_nested_complex_table;

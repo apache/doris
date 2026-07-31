@@ -122,6 +122,76 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
 
         qt_final_data """ SELECT * FROM ${currentDb}.${dorisTable} ORDER BY name """
 
+        // snapshot_split_key / snapshot_split_size / snapshot_parallelism are materialized
+        // into split metadata at CREATE and are never re-read; ALTER must reject them.
+        sql """PAUSE JOB where jobname = '${jobName}'"""
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
+            def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
+            s.size() == 1 && s.get(0).get(0) == "PAUSED"
+        })
+
+        test {
+            sql """
+                ALTER JOB ${jobName}
+                INSERT INTO ${currentDb}.${dorisTable} (name, age)
+                SELECT name, age FROM cdc_stream(
+                    "type"               = "mysql",
+                    "jdbc_url"           = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url"         = "${driver_url}",
+                    "driver_class"       = "com.mysql.cj.jdbc.Driver",
+                    "user"               = "root",
+                    "password"           = "123456",
+                    "database"           = "${mysqlDb}",
+                    "table"              = "${mysqlTable}",
+                    "offset"             = "initial",
+                    "snapshot_split_key" = "age"
+                )
+            """
+            exception "snapshot_split_key"
+        }
+
+        test {
+            sql """
+                ALTER JOB ${jobName}
+                INSERT INTO ${currentDb}.${dorisTable} (name, age)
+                SELECT name, age FROM cdc_stream(
+                    "type"                = "mysql",
+                    "jdbc_url"            = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url"          = "${driver_url}",
+                    "driver_class"        = "com.mysql.cj.jdbc.Driver",
+                    "user"                = "root",
+                    "password"            = "123456",
+                    "database"            = "${mysqlDb}",
+                    "table"               = "${mysqlTable}",
+                    "offset"              = "initial",
+                    "snapshot_split_key"  = "name",
+                    "snapshot_split_size" = "2048"
+                )
+            """
+            exception "snapshot_split_size"
+        }
+
+        test {
+            sql """
+                ALTER JOB ${jobName}
+                INSERT INTO ${currentDb}.${dorisTable} (name, age)
+                SELECT name, age FROM cdc_stream(
+                    "type"                 = "mysql",
+                    "jdbc_url"             = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url"           = "${driver_url}",
+                    "driver_class"         = "com.mysql.cj.jdbc.Driver",
+                    "user"                 = "root",
+                    "password"             = "123456",
+                    "database"             = "${mysqlDb}",
+                    "table"                = "${mysqlTable}",
+                    "offset"               = "initial",
+                    "snapshot_split_key"   = "name",
+                    "snapshot_parallelism" = "4"
+                )
+            """
+            exception "snapshot_parallelism"
+        }
+
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${dorisTable} force"""
     }

@@ -193,11 +193,13 @@ suite ("partition_curd_union_rewrite") {
     insert into lineitem values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
-    // wait partition is invalid
-    sleep(5000)
-    mv_rewrite_success(all_partition_sql, mv_name)
+    // wait partition is invalid — use deterministic wait instead of fixed sleep
+    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
+    mv_rewrite_success(all_partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    mv_rewrite_success(partition_sql, mv_name)
+    mv_rewrite_success(partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 
     sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
@@ -207,11 +209,13 @@ suite ("partition_curd_union_rewrite") {
     insert into lineitem values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-21', '2023-10-21', '2023-10-21', 'a', 'b', 'yyyyyyyyy');
     """
-    // Wait partition is invalid
-    sleep(5000)
-    mv_rewrite_success(all_partition_sql, mv_name)
+    // Wait partition is invalid — use deterministic wait instead of fixed sleep
+    waitingPartitionIsExpected(mv_name, "p_20231021_20231022", false)
+    mv_rewrite_success(all_partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    mv_rewrite_success(partition_sql, mv_name)
+    mv_rewrite_success(partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 
     // Test when base table delete partition test
@@ -219,10 +223,12 @@ suite ("partition_curd_union_rewrite") {
     waitingMTMVTaskFinished(getJobName(db, mv_name))
     sql """ ALTER TABLE lineitem DROP PARTITION IF EXISTS p_20231021 FORCE;
     """
-    // Wait partition is invalid
-    sleep(3000)
-    mv_rewrite_success(all_partition_sql, mv_name)
+    // Wait partition is invalid — use deterministic wait instead of fixed sleep
+    waitingPartitionIsExpected(mv_name, "p_20231021_20231022", false)
+    mv_rewrite_success(all_partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    mv_rewrite_success(partition_sql, mv_name)
+    mv_rewrite_success(partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 }

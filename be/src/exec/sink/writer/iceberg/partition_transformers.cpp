@@ -18,11 +18,27 @@
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 
 #include <any>
+#include <cmath>
 
 #include "core/types.h"
 #include "format/table/iceberg/partition_spec.h"
 
 namespace doris {
+
+namespace {
+
+template <typename T>
+std::string floating_point_partition_value_to_string(T value) {
+    if (std::isnan(value)) {
+        return "NaN";
+    }
+    if (std::isinf(value)) {
+        return value > 0 ? "Infinity" : "-Infinity";
+    }
+    return std::to_string(value);
+}
+
+} // namespace
 
 const std::chrono::sys_days PartitionColumnTransformUtils::EPOCH = std::chrono::sys_days(
         std::chrono::year {1970} / std::chrono::January / std::chrono::day {1});
@@ -225,10 +241,10 @@ std::string PartitionColumnTransform::get_partition_value(const DataTypePtr type
             return std::to_string(std::any_cast<Int64>(value));
         }
         case TYPE_FLOAT: {
-            return std::to_string(std::any_cast<Float32>(value));
+            return floating_point_partition_value_to_string(std::any_cast<Float32>(value));
         }
         case TYPE_DOUBLE: {
-            return std::to_string(std::any_cast<Float64>(value));
+            return floating_point_partition_value_to_string(std::any_cast<Float64>(value));
         }
         case TYPE_VARCHAR:
         case TYPE_CHAR:

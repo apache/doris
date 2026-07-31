@@ -138,9 +138,15 @@ public abstract class AnalyzeCommand extends Command implements ForwardWithSync 
         return analyzeProperties.usingSqlForExternalTable();
     }
 
+    /**
+     * Validate analyze command properties.
+     */
     public void validate(ConnectContext ctx) throws UserException {
         if (analyzeProperties != null) {
             analyzeProperties.check();
+        }
+        if (analyzeProperties.hasCollectHotValue() && getAnalysisMethod() == AnalysisInfo.AnalysisMethod.SAMPLE) {
+            throw new AnalysisException("Sample analyze always collects hot value");
         }
     }
 

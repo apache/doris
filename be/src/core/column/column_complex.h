@@ -260,7 +260,7 @@ MutableColumnPtr ColumnComplexType<T>::clone_resized(size_t size) const {
     auto res = this->create();
 
     if (size > 0) {
-        auto& new_col = assert_cast<Self&>(*res);
+        auto& new_col = *res;
         size_t count = std::min(size, data.size());
         new_col.insert_range_from(*this, 0, count);
         if (size > count) {

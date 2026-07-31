@@ -27,9 +27,9 @@ RUN yum install -y byacc patch automake libtool perf vim make which file ncurses
 # clean cache
 RUN yum clean all
 
-# install maven 3.6.3
+# install maven 3.9.9
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
-    wget -q -O /tmp/apache-maven.tar.gz https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
+    wget -q -O /tmp/apache-maven.tar.gz https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz && \
     tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 && \
     rm -f /tmp/apache-maven.tar.gz && \
     ln -s /usr/share/maven/bin/mvn /usr/bin/mvn

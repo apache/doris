@@ -22,12 +22,16 @@
 #include <memory>
 #include <string>
 
-#include "common/config.h"
 #include "exprs/create_predicate_function.h"
 #include "gtest/internal/gtest-internal.h"
 #include "testutil/column_helper.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
+
+static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
+        "ColumnStr.convert_column_if_overflow.max_string_size";
 
 // mock
 class HybridSetTest : public testing::Test {
@@ -547,7 +551,7 @@ TEST_F(HybridSetTest, FindBatch) {
     ASSERT_EQ(result_column->get_data()[6], 0);
     ASSERT_EQ(result_column->get_data()[7], 0);
 
-    // Only bloom fitler need to handle nullaware(VRuntimeFilterWrapper::execute),
+    // Only bloom fitler need to handle nullaware(RuntimeFilterExpr::execute),
     // So HybridSet will return false when find null value.
     string_set2->find_batch_nullable(*string_column, string_column->size(),
                                      nullmap_column->get_data(), result_column->get_data());
@@ -661,9 +665,14 @@ TEST_F(HybridSetTest, StringValueSet) {
     }
 
     // test ColumnStr64
-    auto string_overflow_size = config::string_overflow_size;
-    config::string_overflow_size = 10;
-    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
+                                             {{"max_string_size", "10"}});
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
+        config::enable_debug_points = origin_enable_debug_points;
+    });
 
     ColumnPtr string64_column = string_column->clone()->convert_column_if_overflow();
     ASSERT_TRUE(string64_column->is_column_string64());

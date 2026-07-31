@@ -20,7 +20,7 @@ package org.apache.doris.catalog.constraint;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.base.Preconditions;

@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class TableStreamBuildFactory {
     public static class BuildParams {
@@ -54,14 +55,15 @@ public class TableStreamBuildFactory {
         Preconditions.checkNotNull(params.tableStreamName, "Stream name isn't initialized.");
         Preconditions.checkNotNull(params.baseTable, "Stream base table isn't initialized.");
         List<Column> schema = new java.util.ArrayList<>(params.baseTable.getBaseSchema());
-
+        // filter irrelevant invisible columns
+        schema = schema.stream().filter(Column::isVisible).collect(Collectors.toList());
         // extra columns
-        Column changeTypeColumn = new Column(Column.STREAM_CHANGE_TYPE_COL, Type.VARCHAR);
         Column sequenceColumn = new Column(Column.STREAM_SEQ_COL, Type.BIGINT);
-        changeTypeColumn.setIsVisible(false);
         sequenceColumn.setIsVisible(false);
-        schema.add(changeTypeColumn);
         schema.add(sequenceColumn);
+        Column changeTypeColumn = new Column(Column.STREAM_CHANGE_TYPE_COL, Type.VARCHAR);
+        changeTypeColumn.setIsVisible(false);
+        schema.add(changeTypeColumn);
         switch (params.baseTable.getType()) {
             case OLAP:
                 return new OlapTableStream(params.tableStreamName, schema, params.baseTable);

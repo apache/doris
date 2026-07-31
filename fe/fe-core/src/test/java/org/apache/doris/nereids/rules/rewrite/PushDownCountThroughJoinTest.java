@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -153,6 +154,31 @@ class PushDownCountThroughJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         // shouldn't rewrite.
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushDownAggThroughJoin())
+                .matches(
+                        logicalAggregate(
+                                logicalJoin(
+                                        logicalOlapScan(),
+                                        logicalOlapScan()
+                                )
+                        )
+                );
+    }
+
+    @Test
+    void testCountNullNotPushedDown() {
+        // count(null) should NOT be treated as count(*) and should NOT be pushed down.
+        // NullLiteral is neither isCountStar() nor instanceof Slot,
+        // so the rule's predicate rejects the aggregate.
+        Alias countNull = new Count(NullLiteral.INSTANCE).alias("countNull");
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .aggGroupUsingIndex(ImmutableList.of(0),
+                        ImmutableList.of(scan1.getOutput().get(0), countNull))
+                .build();
+
+        // Should NOT rewrite — aggregate stays above the original join.
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushDownAggThroughJoin())
                 .matches(

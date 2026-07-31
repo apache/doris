@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.DorisParser;
@@ -85,6 +86,15 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitSetPassword(ctx);
     }
 
+    // grant user identity clause
+    @Override
+    public UserDesc visitGrantUserIdentify(DorisParser.GrantUserIdentifyContext ctx) {
+        if (ctx.pwd != null) {
+            encryptPassword(ctx.pwd.getStartIndex(), ctx.pwd.getStopIndex());
+        }
+        return super.visitGrantUserIdentify(ctx);
+    }
+
     // set ldap password clause
     @Override
     public SetVarOp visitSetLdapAdminPassword(DorisParser.SetLdapAdminPasswordContext ctx) {
@@ -101,6 +111,30 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
                     context.fileProperties.stop.getStopIndex());
         }
         return super.visitCreateCatalog(ctx);
+    }
+
+    // create repository clause (CREATE [READ ONLY] REPOSITORY ... WITH <backend> ... PROPERTIES(...))
+    @Override
+    public LogicalPlan visitCreateRepository(DorisParser.CreateRepositoryContext ctx) {
+        if (ctx.storageBackend() != null && ctx.storageBackend().properties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.storageBackend().properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitCreateRepository(ctx);
+    }
+
+    // alter repository clause (ALTER REPOSITORY ... PROPERTIES(...))
+    @Override
+    public LogicalPlan visitAlterRepository(DorisParser.AlterRepositoryContext ctx) {
+        if (ctx.propertyClause() != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.propertyClause();
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitAlterRepository(ctx);
     }
 
     // create table clause

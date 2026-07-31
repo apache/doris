@@ -36,6 +36,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 class LocalFileSystemTest {
 
@@ -217,5 +218,192 @@ class LocalFileSystemTest {
             Assertions.assertEquals(5, in.getPos());
             Assertions.assertEquals('F', (char) in.read());
         }
+    }
+
+    // --- toPath / scheme handling ---
+
+    @Test
+    void unsupportedSchemeRejected() {
+        LocalFileSystem fs = createFs();
+        Assertions.assertThrows(IOException.class,
+                () -> fs.exists(Location.of("s3://bucket/key")));
+    }
+
+    @Test
+    void opaqueFileUriRejected() {
+        LocalFileSystem fs = createFs();
+        Assertions.assertThrows(IOException.class,
+                () -> fs.exists(Location.of("file:foo")));
+    }
+
+    // --- exists with symlinks ---
+
+    @Test
+    void existsReturnsTrueForBrokenSymlink() throws IOException {
+        Path target = tempDir.resolve("missing-target");
+        Path link = tempDir.resolve("broken-link");
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (UnsupportedOperationException | IOException e) {
+            // Skip on platforms without symlink support
+            return;
+        }
+        Assertions.assertTrue(createFs().exists(loc(link)));
+    }
+
+    // --- delete: symlink safety ---
+
+    @Test
+    void deleteRecursiveDoesNotFollowSymlinkToOutsideDir() throws IOException {
+        Path victimDir = tempDir.resolve("victim");
+        Files.createDirectories(victimDir);
+        Path victimFile = victimDir.resolve("important.dat");
+        Files.writeString(victimFile, "do-not-delete");
+
+        Path workDir = tempDir.resolve("work");
+        Files.createDirectories(workDir);
+        Path link = workDir.resolve("link");
+        try {
+            Files.createSymbolicLink(link, victimDir);
+        } catch (UnsupportedOperationException | IOException e) {
+            return;
+        }
+
+        createFs().delete(loc(workDir), true);
+        Assertions.assertFalse(Files.exists(workDir));
+        Assertions.assertTrue(Files.exists(victimFile),
+                "symlink target contents must not be deleted");
+    }
+
+    @Test
+    void deleteRecursiveOnSymlinkRemovesOnlyLink() throws IOException {
+        Path victimDir = tempDir.resolve("victim2");
+        Files.createDirectories(victimDir);
+        Path victimFile = victimDir.resolve("x.dat");
+        Files.writeString(victimFile, "x");
+
+        Path link = tempDir.resolve("dirlink");
+        try {
+            Files.createSymbolicLink(link, victimDir);
+        } catch (UnsupportedOperationException | IOException e) {
+            return;
+        }
+
+        createFs().delete(loc(link), true);
+        Assertions.assertFalse(Files.exists(link, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        Assertions.assertTrue(Files.exists(victimFile));
+    }
+
+    // --- rename ---
+
+    @Test
+    void renameDoesNotNpeOnSingleSegmentDst() throws IOException {
+        Path src = tempDir.resolve("rename-src.txt");
+        Files.writeString(src, "data");
+        // Use a single-segment local URI whose Path has no parent. Ensure the target file
+        // does not exist beforehand.
+        Path dstAbs = tempDir.resolve("rename-single.txt");
+        Files.deleteIfExists(dstAbs);
+
+        LocalFileSystem fs = createFs();
+        // Build a Location that resolves to dstAbs via local:// scheme; getParent() of the
+        // resolved path is non-null in this case, but the helper must still not NPE for the
+        // common case. Round-trip via the standard helper.
+        fs.rename(loc(src), loc(dstAbs));
+        Assertions.assertTrue(Files.exists(dstAbs));
+    }
+
+    // --- create() atomicity ---
+
+    @Test
+    void createIsAtomicWithRespectToExisting() throws IOException {
+        Path file = tempDir.resolve("atomic-create.txt");
+        DorisOutputFile outputFile = createFs().newOutputFile(loc(file));
+        try (OutputStream out = outputFile.create()) {
+            out.write("first".getBytes(StandardCharsets.UTF_8));
+        }
+        // Second create() must throw without truncating the existing file.
+        Assertions.assertThrows(IOException.class, outputFile::create);
+        Assertions.assertEquals("first", Files.readString(file));
+    }
+
+    // --- list: scheme preservation + symlink reporting ---
+
+    @Test
+    void listReportsSymlinkToDirAsNonDirectory() throws IOException {
+        Path realDir = tempDir.resolve("real");
+        Files.createDirectories(realDir);
+        Path link = tempDir.resolve("dlink");
+        try {
+            Files.createSymbolicLink(link, realDir);
+        } catch (UnsupportedOperationException | IOException e) {
+            return;
+        }
+
+        LocalFileSystem fs = createFs();
+        boolean linkSeen = false;
+        try (FileIterator it = fs.list(loc(tempDir))) {
+            while (it.hasNext()) {
+                FileEntry e = it.next();
+                if (e.location().uri().endsWith("dlink")) {
+                    linkSeen = true;
+                    Assertions.assertFalse(e.isDirectory(),
+                            "symlink-to-dir must be reported as non-directory");
+                }
+            }
+        }
+        Assertions.assertTrue(linkSeen);
+    }
+
+    @Test
+    void listPreservesLocalScheme() throws IOException {
+        Files.writeString(tempDir.resolve("entry.txt"), "x");
+        LocalFileSystem fs = createFs();
+        Location dir = Location.of("local://" + tempDir.toAbsolutePath().toString().replaceFirst("^/+", ""));
+        try (FileIterator it = fs.list(dir)) {
+            Assertions.assertTrue(it.hasNext());
+            FileEntry e = it.next();
+            Assertions.assertTrue(e.location().uri().startsWith("local://"),
+                    "expected local:// scheme but got " + e.location().uri());
+        }
+    }
+
+    // --- renameDirectory ---
+
+    @Test
+    void renameDirectoryInvokesCallbackWhenSrcMissing() throws IOException {
+        LocalFileSystem fs = createFs();
+        AtomicBoolean called = new AtomicBoolean(false);
+        fs.renameDirectory(loc(tempDir.resolve("missing-src")),
+                loc(tempDir.resolve("dst")),
+                () -> called.set(true));
+        Assertions.assertTrue(called.get());
+    }
+
+    @Test
+    void renameDirectoryMovesAtomicallyWhenSrcExists() throws IOException {
+        Path src = tempDir.resolve("dir-src");
+        Files.createDirectories(src);
+        Files.writeString(src.resolve("f.txt"), "v");
+        Path dst = tempDir.resolve("dir-dst");
+
+        LocalFileSystem fs = createFs();
+        AtomicBoolean called = new AtomicBoolean(false);
+        fs.renameDirectory(loc(src), loc(dst), () -> called.set(true));
+        Assertions.assertFalse(called.get());
+        Assertions.assertFalse(Files.exists(src));
+        Assertions.assertEquals("v", Files.readString(dst.resolve("f.txt")));
+    }
+
+    // --- LocalSeekableInputStream: getPos after close ---
+
+    @Test
+    void getPosThrowsAfterClose() throws IOException {
+        Path file = tempDir.resolve("close-pos.txt");
+        Files.writeString(file, "abc");
+        DorisInputStream in = createFs().newInputFile(loc(file)).newStream();
+        in.close();
+        IOException ex = Assertions.assertThrows(IOException.class, in::getPos);
+        Assertions.assertEquals("Stream is closed", ex.getMessage());
     }
 }

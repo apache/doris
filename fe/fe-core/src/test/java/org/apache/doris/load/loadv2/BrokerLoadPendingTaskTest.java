@@ -30,13 +30,10 @@ import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collection;
 import java.util.List;
@@ -112,35 +109,40 @@ public class BrokerLoadPendingTaskTest {
     }
 
     @Test
-    public void testExecuteTask(@Injectable BrokerLoadJob brokerLoadJob,
-                                @Injectable BrokerFileGroup brokerFileGroup,
-                                @Injectable BrokerDesc brokerDesc,
-                                @Mocked Env env) throws UserException {
-        Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
-        List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
-        brokerFileGroups.add(brokerFileGroup);
-        FileGroupAggKey aggKey = new FileGroupAggKey(1L, null);
-        aggKeyToFileGroups.put(aggKey, brokerFileGroups);
-        new Expectations() {
-            {
-                env.getNextId();
-                result = 1L;
-                brokerFileGroup.getFilePaths();
-                result = "hdfs://localhost:8900/test_column";
-            }
-        };
+    public void testExecuteTask() throws UserException {
+        BrokerLoadJob brokerLoadJob = Mockito.mock(BrokerLoadJob.class);
+        BrokerFileGroup brokerFileGroup = Mockito.mock(BrokerFileGroup.class);
+        BrokerDesc brokerDesc = Mockito.mock(BrokerDesc.class);
+        Env env = Mockito.mock(Env.class);
 
-        new MockUp<FileSystemFactory>() {
-            @Mock
-            public org.apache.doris.filesystem.FileSystem getFileSystem(BrokerDesc desc) {
-                return new SingleFileSystem(1L);
-            }
-        };
+        MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+        MockedStatic<FileSystemFactory> mockedFsFactory = Mockito.mockStatic(FileSystemFactory.class);
+        try {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getNextId()).thenReturn(1L);
+            Mockito.when(brokerFileGroup.getFilePaths())
+                    .thenReturn(Lists.newArrayList("hdfs://localhost:8900/test_column"));
 
-        BrokerLoadPendingTask brokerLoadPendingTask = new BrokerLoadPendingTask(brokerLoadJob, aggKeyToFileGroups, brokerDesc, LoadTask.Priority.NORMAL);
-        brokerLoadPendingTask.executeTask();
-        BrokerPendingTaskAttachment brokerPendingTaskAttachment = Deencapsulation.getField(brokerLoadPendingTask, "attachment");
-        Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
-        Assert.assertEquals(1L, brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0).size);
+            mockedFsFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
+                    .thenReturn(new SingleFileSystem(1L));
+
+            Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
+            List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
+            brokerFileGroups.add(brokerFileGroup);
+            FileGroupAggKey aggKey = new FileGroupAggKey(1L, null);
+            aggKeyToFileGroups.put(aggKey, brokerFileGroups);
+
+            BrokerLoadPendingTask brokerLoadPendingTask = new BrokerLoadPendingTask(brokerLoadJob,
+                    aggKeyToFileGroups, brokerDesc, LoadTask.Priority.NORMAL);
+            brokerLoadPendingTask.executeTask();
+            BrokerPendingTaskAttachment brokerPendingTaskAttachment =
+                    Deencapsulation.getField(brokerLoadPendingTask, "attachment");
+            Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
+            Assert.assertEquals(1L,
+                    brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0).size);
+        } finally {
+            mockedFsFactory.close();
+            mockedEnv.close();
+        }
     }
 }

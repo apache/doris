@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.config;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.tls.server.HttpServerTlsProviderFactory;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,7 +40,7 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
 
     @Override
     public void customize(ConfigurableJettyWebServerFactory factory) {
-
+        HttpServerTlsProviderFactory.create().customize(factory);
         // Set HTTP header size for all connectors
         factory.addServerCustomizers(server -> {
             for (org.eclipse.jetty.server.Connector connector : server.getConnectors()) {
@@ -50,6 +51,9 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
                     if (httpFactory != null) {
                         HttpConfiguration httpConfig = httpFactory.getHttpConfiguration();
                         httpConfig.setRequestHeaderSize(Config.jetty_server_max_http_header_size);
+                        // Apply the unconsumed request content read limit to every HTTP connector.
+                        httpConfig.setMaxUnconsumedRequestContentReads(
+                                Config.jetty_server_max_unconsumed_request_content_reads);
                     }
                 }
             }

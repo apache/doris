@@ -20,16 +20,8 @@ package org.apache.doris.cdcclient.utils;
 import org.apache.doris.cdcclient.common.DorisType;
 
 import org.apache.flink.util.Preconditions;
-import org.apache.kafka.connect.data.Field;
-import org.apache.kafka.connect.data.Schema;
-
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 import io.debezium.relational.Column;
-import io.debezium.relational.history.TableChanges;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,69 +31,11 @@ public class SchemaChangeHelper {
     private static final Logger LOG = LoggerFactory.getLogger(SchemaChangeHelper.class);
     private static final String ADD_DDL = "ALTER TABLE %s ADD COLUMN %s %s";
     private static final String DROP_DDL = "ALTER TABLE %s DROP COLUMN %s";
+    private static final int MAX_DECIMAL128_PRECISION = 38;
+    private static final int MAX_CHAR_LENGTH = 255;
+    private static final int MAX_VARCHAR_LENGTH = 65533;
 
     private SchemaChangeHelper() {}
-
-    // ─── Schema diff result ────────────────────────────────────────────────────
-
-    /**
-     * Holds the result of a full schema comparison between an after-schema and stored TableChange.
-     */
-    public static class SchemaDiff {
-        /** Fields present in afterSchema but absent from stored. */
-        public final List<Field> added;
-
-        /** Column names present in stored but absent from afterSchema. */
-        public final List<String> dropped;
-
-        /** Same-named columns whose Doris type or default value differs. */
-        public final Map<String, Field> modified;
-
-        public SchemaDiff(List<Field> added, List<String> dropped, Map<String, Field> modified) {
-            this.added = added;
-            this.dropped = dropped;
-            this.modified = modified;
-        }
-
-        public boolean isEmpty() {
-            return added.isEmpty() && dropped.isEmpty() && modified.isEmpty();
-        }
-    }
-
-    // ─── Schema-diff helpers (Kafka Connect schema ↔ stored TableChange) ──────
-
-    /**
-     * Name-only schema diff: compare field names in {@code afterSchema} against the stored {@link
-     * TableChanges.TableChange}, detecting added and dropped columns by name only.
-     *
-     * <p>Only support add and drop and not support modify and rename
-     *
-     * <p>When {@code stored} is null or empty, both lists are empty (no baseline to diff against).
-     */
-    public static SchemaDiff diffSchemaByName(Schema afterSchema, TableChanges.TableChange stored) {
-        List<Field> added = new ArrayList<>();
-        List<String> dropped = new ArrayList<>();
-
-        if (afterSchema == null || stored == null || stored.getTable() == null) {
-            return new SchemaDiff(added, dropped, new LinkedHashMap<>());
-        }
-
-        // Detect added: fields present in afterSchema but absent from stored
-        for (Field field : afterSchema.fields()) {
-            if (stored.getTable().columnWithName(field.name()) == null) {
-                added.add(field);
-            }
-        }
-
-        // Detect dropped: columns present in stored but absent from afterSchema
-        for (Column col : stored.getTable().columns()) {
-            if (afterSchema.field(col.name()) == null) {
-                dropped.add(col.name());
-            }
-        }
-
-        return new SchemaDiff(added, dropped, new LinkedHashMap<>());
-    }
 
     // ─── Quoting helpers ──────────────────────────────────────────────────────
 
@@ -116,40 +50,6 @@ public class SchemaChangeHelper {
     /** Return a fully-qualified {@code `db`.`table`} identifier string. */
     public static String quoteTableIdentifier(String db, String table) {
         return identifier(db) + "." + identifier(table);
-    }
-
-    /**
-     * Format a default value (already a plain Java string, not a raw SQL expression) into a form
-     * suitable for a Doris {@code DEFAULT} clause.
-     *
-     * <p>The caller is expected to pass a <em>deserialized</em> value — e.g. obtained from the
-     * Kafka Connect schema via {@code field.schema().defaultValue().toString()} — rather than a raw
-     * PG SQL expression. This avoids having to strip PG-specific type casts ({@code ::text}, etc.).
-     *
-     * <ul>
-     *   <li>SQL keywords ({@code NULL}, {@code CURRENT_TIMESTAMP}, {@code TRUE}, {@code FALSE}) are
-     *       returned as-is.
-     *   <li>Numeric literals are returned as-is (no quotes).
-     *   <li>Everything else is wrapped in single quotes.
-     * </ul>
-     */
-    public static String quoteDefaultValue(String defaultValue) {
-        if (defaultValue == null) {
-            return null;
-        }
-        if (defaultValue.equalsIgnoreCase("current_timestamp")
-                || defaultValue.equalsIgnoreCase("null")
-                || defaultValue.equalsIgnoreCase("true")
-                || defaultValue.equalsIgnoreCase("false")) {
-            return defaultValue;
-        }
-        try {
-            Double.parseDouble(defaultValue);
-            return defaultValue;
-        } catch (NumberFormatException ignored) {
-            // fall through
-        }
-        return "'" + defaultValue.replace("'", "''") + "'";
     }
 
     /** Escape single quotes inside a COMMENT string. */
@@ -169,16 +69,23 @@ public class SchemaChangeHelper {
      * @param table target table
      * @param colName column name
      * @param colType Doris column type string (including optional NOT NULL)
-     * @param defaultValue optional DEFAULT value; {@code null} = omit DEFAULT clause
+     */
+    public static String buildAddColumnSql(
+            String db, String table, String colName, String colType) {
+        return buildAddColumnSql(db, table, colName, colType, null);
+    }
+
+    /**
+     * Build {@code ALTER TABLE ... ADD COLUMN} SQL with an optional column comment.
+     *
+     * @param db target database
+     * @param table target table
+     * @param colName column name
+     * @param colType Doris column type string
      * @param comment optional COMMENT; {@code null}/empty = omit COMMENT clause
      */
     public static String buildAddColumnSql(
-            String db,
-            String table,
-            String colName,
-            String colType,
-            String defaultValue,
-            String comment) {
+            String db, String table, String colName, String colType, String comment) {
         StringBuilder sb =
                 new StringBuilder(
                         String.format(
@@ -186,9 +93,6 @@ public class SchemaChangeHelper {
                                 quoteTableIdentifier(db, table),
                                 identifier(colName),
                                 colType));
-        if (defaultValue != null) {
-            sb.append(" DEFAULT ").append(quoteDefaultValue(defaultValue));
-        }
         appendComment(sb, comment);
         return sb.toString();
     }
@@ -203,6 +107,130 @@ public class SchemaChangeHelper {
     /** Convert a Debezium Column to a Doris column type string (via PG type name). */
     public static String columnToDorisType(Column column) {
         return pgTypeNameToDorisType(column.typeName(), column.length(), column.scale().orElse(-1));
+    }
+
+    /** Convert a Debezium MySQL Column to a Doris column type string. */
+    public static String mysqlColumnToDorisType(Column column) {
+        Preconditions.checkNotNull(column.typeName());
+        String mysqlTypeName = column.typeName().toUpperCase();
+        String[] typeFields = mysqlTypeName.split(" ");
+        String mysqlType = typeFields[0];
+        boolean unsigned = typeFields.length > 1 && "UNSIGNED".equals(typeFields[1]);
+        int length = column.length();
+        int scale = column.scale().orElse(-1);
+        switch (mysqlType) {
+            case "BOOLEAN":
+            case "BOOL":
+                return DorisType.BOOLEAN;
+            case "TINYINT":
+                return unsigned ? DorisType.SMALLINT : DorisType.TINYINT;
+            case "SMALLINT":
+            case "INT2":
+            case "YEAR":
+                return unsigned ? DorisType.INT : DorisType.SMALLINT;
+            case "MEDIUMINT":
+            case "INT":
+            case "INTEGER":
+            case "INT3":
+            case "INT4":
+                return unsigned ? DorisType.BIGINT : DorisType.INT;
+            case "BIGINT":
+            case "INT8":
+                return unsigned ? DorisType.LARGEINT : DorisType.BIGINT;
+            case "FLOAT":
+            case "FLOAT4":
+                return DorisType.FLOAT;
+            case "DOUBLE":
+            case "FLOAT8":
+            case "REAL":
+                return DorisType.DOUBLE;
+            case "DECIMAL":
+            case "DEC":
+            case "FIXED":
+            case "NUMERIC":
+                {
+                    int precision = length > 0 ? length : 10;
+                    if (unsigned) {
+                        precision++;
+                    }
+                    if (precision > MAX_DECIMAL128_PRECISION) {
+                        return DorisType.STRING;
+                    }
+                    int decimalScale = scale >= 0 ? scale : 0;
+                    return String.format("%s(%d, %d)", DorisType.DECIMAL, precision, decimalScale);
+                }
+            case "DATE":
+                return DorisType.DATE;
+            case "DATETIME":
+            case "TIMESTAMP":
+                {
+                    int timeScale = mysqlTimeScale(length, scale);
+                    return String.format("%s(%d)", DorisType.DATETIME, timeScale);
+                }
+            case "CHAR":
+            case "NCHAR":
+                return charToDorisType(length);
+            case "VARCHAR":
+            case "NVARCHAR":
+                return varcharToDorisType(length);
+            case "BIT":
+                return length == 1 ? DorisType.BOOLEAN : DorisType.STRING;
+            case "JSON":
+                return DorisType.JSON;
+            case "TINYBLOB":
+            case "BLOB":
+            case "MEDIUMBLOB":
+            case "LONGBLOB":
+            case "BINARY":
+            case "VARBINARY":
+            case "TIME":
+            case "TINYTEXT":
+            case "TEXT":
+            case "MEDIUMTEXT":
+            case "LONGTEXT":
+            case "STRING":
+            case "SET":
+            case "ENUM":
+                return DorisType.STRING;
+            default:
+                LOG.warn("Unrecognized MySQL type '{}', defaulting to STRING", mysqlTypeName);
+                return DorisType.STRING;
+        }
+    }
+
+    private static int mysqlTimeScale(int length, int scale) {
+        if (scale >= 0 && scale <= 6) {
+            return scale;
+        }
+        if (length >= 0 && length <= 6) {
+            return length;
+        }
+        return 0;
+    }
+
+    private static String charToDorisType(int length) {
+        if (length <= 0) {
+            return DorisType.STRING;
+        }
+        int len = length * 3;
+        if (len > MAX_VARCHAR_LENGTH) {
+            return DorisType.STRING;
+        }
+        if (len > MAX_CHAR_LENGTH) {
+            return String.format("%s(%d)", DorisType.VARCHAR, len);
+        }
+        return String.format("%s(%d)", DorisType.CHAR, len);
+    }
+
+    private static String varcharToDorisType(int length) {
+        if (length <= 0) {
+            return DorisType.STRING;
+        }
+        int len = length * 3;
+        if (len > MAX_VARCHAR_LENGTH) {
+            return DorisType.STRING;
+        }
+        return String.format("%s(%d)", DorisType.VARCHAR, len);
     }
 
     /** Map a PostgreSQL native type name to a Doris type string. */
@@ -233,22 +261,15 @@ public class SchemaChangeHelper {
                 return DorisType.DOUBLE;
             case "numeric":
                 {
-                    int p = length > 0 ? Math.min(length, 38) : 38;
+                    if (length > MAX_DECIMAL128_PRECISION) {
+                        return DorisType.STRING;
+                    }
+                    int p = length > 0 ? length : 38;
                     int s = scale >= 0 ? scale : 9;
                     return String.format("%s(%d, %d)", DorisType.DECIMAL, p, s);
                 }
             case "bpchar":
-                {
-                    if (length <= 0) {
-                        return DorisType.STRING;
-                    }
-                    int len = length * 3;
-                    if (len > 255) {
-                        return String.format("%s(%s)", DorisType.VARCHAR, len);
-                    } else {
-                        return String.format("%s(%s)", DorisType.CHAR, len);
-                    }
-                }
+                return charToDorisType(length);
             case "date":
                 return DorisType.DATE;
             case "timestamp":

@@ -45,6 +45,7 @@ public:
     Status open(RuntimeState* state) override;
     Status terminate(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
 private:
     friend class SetSinkOperatorX<is_intersect>;
@@ -60,6 +61,10 @@ private:
 
     std::shared_ptr<RuntimeFilterProducerHelperSet> _runtime_filter_producer_helper;
     std::shared_ptr<CountedFinishDependency> _finish_dependency;
+    // Snapshot of hash table size taken in sink(eos) before set_ready(). The probe side can
+    // modify the hash table via _refresh_hash_table() after set_ready(), so close() must use
+    // this saved value instead of calling get_hash_table_size() again.
+    uint64_t _build_hash_table_size = 0;
 };
 
 template <bool is_intersect>
@@ -107,10 +112,12 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return _is_colocate ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                               _partition_exprs)
+                            : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                               _partition_exprs);
     }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;

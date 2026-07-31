@@ -28,8 +28,8 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/cast/cast_to_string.h"
 #include "gtest/gtest_pred_impl.h" // IWYU pragma: keep
-#include "util/io_helper.h"
 
 namespace doris {
 TEST(VFieldTest, field_string) {

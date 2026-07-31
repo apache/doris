@@ -112,21 +112,14 @@ Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
         columns.resize(column_size);
         for (auto i = 0; i < column_size; i++) {
             if (mem_reuse) {
-                columns[i] = block->get_by_position(i).column->assume_mutable();
+                columns[i] = IColumn::mutate(std::move(block->get_by_position(i).column));
             } else {
                 columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
             }
         }
         // fill block
         RETURN_IF_ERROR(_fill_block_with_remote_data(columns));
-        if (_meta_eos == true) {
-            if (block->rows() == 0) {
-                *eof = true;
-            }
-            break;
-        }
-        // Before really use the Block, must clear other ptr of column in block
-        // So here need do std::move and clear in `columns`
+        const bool empty_result = columns.empty() || columns.front()->empty();
         if (!mem_reuse) {
             int column_index = 0;
             for (const auto slot_desc : _tuple_desc->slots()) {
@@ -135,7 +128,13 @@ Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
                                                     slot_desc->col_name()));
             }
         } else {
-            columns.clear();
+            block->set_columns(std::move(columns));
+        }
+        if (_meta_eos == true) {
+            if (empty_result) {
+                *eof = true;
+            }
+            break;
         }
         VLOG_ROW << "VMetaScanNode output rows: " << block->rows();
     } while (block->rows() == 0 && !(*eof));
@@ -233,9 +232,6 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     VLOG_CRITICAL << "MetaScanner::_fetch_metadata";
     TFetchSchemaTableDataRequest request;
     switch (meta_scan_range.metadata_type) {
-    case TMetadataType::HUDI:
-        RETURN_IF_ERROR(_build_hudi_metadata_request(meta_scan_range, &request));
-        break;
     case TMetadataType::BACKENDS:
         RETURN_IF_ERROR(_build_backends_metadata_request(meta_scan_range, &request));
         break;
@@ -295,26 +291,6 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         return status;
     }
     _batch_data = std::move(result.data_batch);
-    return Status::OK();
-}
-
-Status MetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                 TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "MetaScanner::_build_hudi_metadata_request";
-    if (!meta_scan_range.__isset.hudi_params) {
-        return Status::InternalError("Can not find THudiMetadataParams from meta_scan_range.");
-    }
-
-    // create request
-    request->__set_cluster_name("");
-    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
-
-    // create TMetadataTableRequestParams
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::HUDI);
-    metadata_table_params.__set_hudi_metadata_params(meta_scan_range.hudi_params);
-
-    request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
 }
 

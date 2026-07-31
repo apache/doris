@@ -68,7 +68,7 @@ public class ArraysOverlap extends ScalarFunction implements ExplicitlyCastableS
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child(0).getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
                     || ((ArrayType) argType).getItemType().isVariantType()
                     || ((ArrayType) argType).getItemType().isJsonType())) {

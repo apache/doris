@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "core/column/column_string.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -29,6 +30,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "service/http/http_client.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -37,21 +39,12 @@ public:
     static constexpr const char* SEPARATOR = "\n";
     static constexpr uint8_t SEPARATOR_SIZE = sizeof(*SEPARATOR);
 
-    // 128K tokens is a relatively small context limit among mainstream AIs.
-    // currently, token count is conservatively approximated by size; this is a safe lower bound.
-    // a more efficient and accurate token calculation method may be introduced.
-    static constexpr size_t MAX_CONTEXT_SIZE = 128 * 1024;
-
     ColumnString::Chars data;
     bool inited = false;
 
     void add(StringRef ref) {
         auto delta_size = ref.size + (inited ? SEPARATOR_SIZE : 0);
-        if (handle_overflow(delta_size)) {
-            throw Exception(ErrorCode::OUT_OF_BOUND,
-                            "Failed to add data: combined context size exceeded "
-                            "maximum limit even after processing");
-        }
+        handle_overflow(delta_size);
         append_data(ref.data, ref.size);
     }
 
@@ -64,11 +57,7 @@ public:
         _task = rhs._task;
 
         size_t delta_size = (inited ? SEPARATOR_SIZE : 0) + rhs.data.size();
-        if (handle_overflow(delta_size)) {
-            throw Exception(ErrorCode::OUT_OF_BOUND,
-                            "Failed to merge data: combined context size exceeded "
-                            "maximum limit even after processing");
-        }
+        handle_overflow(delta_size);
 
         if (!inited) {
             inited = true;
@@ -151,15 +140,20 @@ public:
                 throw Exception(ErrorCode::NOT_FOUND, "AI resource not found: " + resource_name);
             }
             _ai_config = it->second;
+            normalize_endpoint(_ai_config);
 
             _ai_adapter = AIAdapterFactory::create_adapter(_ai_config.provider_type);
             _ai_adapter->init(_ai_config);
         }
     }
 
-    static void set_query_context(QueryContext* context) { _ctx = context; }
+    void set_query_context(QueryContext* context) { _ctx = context; }
 
     const std::string& get_task() const { return _task; }
+
+#ifdef BE_TEST
+    static void normalize_endpoint_for_test(AIResource& config) { normalize_endpoint(config); }
+#endif
 
 private:
     Status send_request_to_ai(const std::string& request_body, std::string& response) const {
@@ -194,16 +188,44 @@ private:
         return client->execute_post_request(request_body, &response);
     }
 
-    // handle overflow situations when adding content.
-    bool handle_overflow(size_t additional_size) {
-        if (additional_size + data.size() <= MAX_CONTEXT_SIZE) {
-            return false;
+    // Treat the context window as a soft batching trigger instead of a hard reject.
+    void handle_overflow(size_t additional_size) {
+        const size_t max_context_size = get_ai_context_window_size();
+        if (additional_size + data.size() <= max_context_size || !inited) {
+            return;
         }
 
         process_current_context();
+    }
 
-        // check if there is still an overflow after replacement.
-        return (additional_size + data.size() > MAX_CONTEXT_SIZE);
+    size_t get_ai_context_window_size() const {
+        DORIS_CHECK(_ctx);
+
+        return static_cast<size_t>(_ctx->query_options().ai_context_window_size);
+    }
+
+    static void normalize_endpoint(AIResource& config) {
+        if (iequal(config.provider_type, "GEMINI")) {
+            if (!config.endpoint.ends_with("v1") && !config.endpoint.ends_with("v1beta")) {
+                return;
+            }
+
+            std::string model_name = config.model_name;
+            if (!model_name.starts_with("models/")) {
+                model_name = "models/" + model_name;
+            }
+
+            config.endpoint += "/";
+            config.endpoint += model_name;
+            config.endpoint += ":generateContent";
+            return;
+        }
+
+        if (config.endpoint.ends_with("v1/completions")) {
+            static constexpr std::string_view legacy_suffix = "v1/completions";
+            config.endpoint.replace(config.endpoint.size() - legacy_suffix.size(),
+                                    legacy_suffix.size(), "v1/chat/completions");
+        }
     }
 
     void append_data(const void* source, size_t size) {
@@ -226,7 +248,7 @@ private:
         inited = !data.empty();
     }
 
-    static QueryContext* _ctx;
+    QueryContext* _ctx = nullptr;
     AIResource _ai_config;
     std::shared_ptr<AIAdapter> _ai_adapter;
     std::string _task;
@@ -243,7 +265,7 @@ public:
 
     void set_query_context(QueryContext* context) override {
         if (context) {
-            AggregateFunctionAIAggData::set_query_context(context);
+            _ctx = context;
         }
     }
 
@@ -252,6 +274,11 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     bool is_blockable() const override { return true; }
+
+    void create(AggregateDataPtr __restrict place) const override {
+        new (place) AggregateFunctionAIAggData;
+        data(place).set_query_context(_ctx);
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
@@ -282,7 +309,16 @@ public:
         }
     }
 
-    void reset(AggregateDataPtr place) const override { data(place).reset(); }
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnString>(columns[0]);
+        this->template check_argument_column_type<ColumnString>(columns[1]);
+        this->template check_argument_column_type<ColumnString>(columns[2]);
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        data(place).reset();
+        data(place).set_query_context(_ctx);
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
@@ -296,13 +332,23 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
         data(place).read(buf);
+        data(place).set_query_context(_ctx);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         std::string result = data(place)._execute_task();
         DCHECK(!result.empty()) << "AI returns an empty result";
-        assert_cast<ColumnString&>(to).insert_data(result.data(), result.size());
+        assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(result.data(),
+                                                                                result.size());
     }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        this->template check_result_column_type_as<ColumnString>(to);
+    }
+
+private:
+    QueryContext* _ctx = nullptr;
 };
 
 } // namespace doris

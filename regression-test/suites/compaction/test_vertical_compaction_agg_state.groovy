@@ -51,7 +51,7 @@ suite("test_vertical_compaction_agg_state") {
         AGGREGATE  KEY(`user_id`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
-        PROPERTIES ( "replication_num" = "1" );
+        PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES

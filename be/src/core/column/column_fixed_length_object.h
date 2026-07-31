@@ -68,7 +68,7 @@ public:
         auto res = create(_item_size);
 
         if (size > 0) {
-            auto& new_col = assert_cast<Self&>(*res);
+            auto& new_col = *res;
             new_col.resize(size);
             auto* new_data = new_col._data.data();
 
@@ -117,6 +117,10 @@ public:
 
     StringRef get_data_at(size_t n) const override {
         return {reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size};
+    }
+
+    StringRef get_raw_data() const override {
+        return {reinterpret_cast<const char*>(_data.data()), _data.size()};
     }
 
     void insert(const Field& x) override {

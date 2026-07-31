@@ -20,6 +20,7 @@ package org.apache.doris.load;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.FeConstants;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -31,6 +32,13 @@ import java.io.FileOutputStream;
 
 public class TabletLoadInfoTest {
     private FakeEnv fakeEnv;
+
+    @After
+    public void tearDown() {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+    }
 
     @Test
     public void testSerialization() throws Exception {

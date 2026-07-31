@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
@@ -165,5 +166,47 @@ class DateTimeExtractAndTransformTest {
         DecimalV3Literal dec = new DecimalV3Literal(big);
         Assertions.assertThrows(AnalysisException.class,
                 () -> DateTimeExtractAndTransform.fromUnixTime(dec));
+    }
+
+    @Test
+    void testConvertTzDstTransition() {
+        // Spring gap maps skipped local times to the transition instant.
+        Assertions.assertEquals(
+                new DateTimeV2Literal("2021-03-28 01:00:00"),
+                DateTimeExtractAndTransform.convertTz(
+                        new DateTimeV2Literal("2021-03-28 02:15:00"),
+                        new VarcharLiteral("Europe/Paris"),
+                        new VarcharLiteral("UTC")));
+        Assertions.assertEquals(
+                new DateTimeV2Literal("2021-03-28 01:00:00"),
+                DateTimeExtractAndTransform.convertTz(
+                        new DateTimeV2Literal("2021-03-28 02:00:00"),
+                        new VarcharLiteral("Europe/Paris"),
+                        new VarcharLiteral("UTC")));
+        Assertions.assertEquals(
+                new DateTimeV2Literal("2021-03-28 01:00:00"),
+                DateTimeExtractAndTransform.convertTz(
+                        new DateTimeV2Literal("2021-03-28 03:00:00"),
+                        new VarcharLiteral("Europe/Paris"),
+                        new VarcharLiteral("UTC")));
+        // Fall overlap uses the pre-transition offset.
+        Assertions.assertEquals(
+                new DateTimeV2Literal("2021-10-31 00:15:00"),
+                DateTimeExtractAndTransform.convertTz(
+                        new DateTimeV2Literal("2021-10-31 02:15:00"),
+                        new VarcharLiteral("Europe/Paris"),
+                        new VarcharLiteral("UTC")));
+        Assertions.assertEquals(
+                new DateTimeV2Literal("2021-10-31 00:00:00"),
+                DateTimeExtractAndTransform.convertTz(
+                        new DateTimeV2Literal("2021-10-31 02:00:00"),
+                        new VarcharLiteral("Europe/Paris"),
+                        new VarcharLiteral("UTC")));
+        Assertions.assertEquals(
+                new DateTimeV2Literal("2021-10-31 02:00:00"),
+                DateTimeExtractAndTransform.convertTz(
+                        new DateTimeV2Literal("2021-10-31 03:00:00"),
+                        new VarcharLiteral("Europe/Paris"),
+                        new VarcharLiteral("UTC")));
     }
 }

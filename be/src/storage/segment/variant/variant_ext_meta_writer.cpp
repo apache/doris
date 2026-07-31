@@ -39,8 +39,8 @@ Status VariantExtMetaWriter::_ensure_inited(Writers* w) {
     dict_opts.write_ordinal_index = true;
     dict_opts.encoding = PREFIX_ENCODING;
     dict_opts.compression = _comp;
-    const TypeInfo* dict_type = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
-    w->key_writer = std::make_unique<IndexedColumnWriter>(dict_opts, dict_type, _fw);
+    w->key_writer = std::make_unique<IndexedColumnWriter>(dict_opts,
+                                                          FieldType::OLAP_FIELD_TYPE_VARCHAR, _fw);
     RETURN_IF_ERROR(w->key_writer->init());
 
     w->inited = true;

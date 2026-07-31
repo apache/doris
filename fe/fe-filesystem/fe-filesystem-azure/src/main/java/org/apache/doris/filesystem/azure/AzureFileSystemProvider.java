@@ -18,10 +18,15 @@
 package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.spi.AzureBlobEndpointSignals;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for Azure Blob Storage.
@@ -29,32 +34,114 @@ import java.util.Map;
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
  * <p>Identified by the presence of {@code AZURE_ACCOUNT_NAME}, {@code azure.account_name},
- * or an endpoint containing {@code blob.core.windows.net}.
+ * or an endpoint that contains a known Azure Blob Storage host suffix from one of the
+ * sovereign clouds.
  */
-public class AzureFileSystemProvider implements FileSystemProvider {
+public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSystemProperties> {
+
+    private static final String STORAGE_TYPE_KEY = "_STORAGE_TYPE_";
+    private static final String STORAGE_TYPE_AZURE = "AZURE";
+    private static final String PROVIDER_KEY = "provider";
+    private static final String[] ACCOUNT_NAME_KEYS = {
+            AzureFileSystemProperties.ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME"};
+    private static final String[] ENDPOINT_KEYS = {
+            AzureFileSystemProperties.ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
+            "AZURE_ENDPOINT"};
+
+    /**
+     * Recognised Azure Blob Storage host suffixes across sovereign clouds.
+     * Includes Azure Public, Azure China, Azure US Government, and the deprecated
+     * Azure Germany cloud (still spec'd for completeness).
+     */
+    private static final List<String> AZURE_BLOB_HOST_SUFFIXES = Arrays.asList(
+            "blob.core.windows.net",
+            "blob.core.chinacloudapi.cn",
+            "blob.core.usgovcloudapi.net",
+            "blob.core.cloudapi.de");
 
     @Override
     public boolean supports(Map<String, String> properties) {
-        if (properties.containsKey(AzureObjStorage.PROP_ACCOUNT_NAME)) {
+        if (isExplicitAzure(properties)) {
             return true;
         }
-        if (properties.containsKey(AzureObjStorage.PROP_ACCOUNT_NAME_ALT)) {
+        if (firstPresent(properties, ACCOUNT_NAME_KEYS) != null) {
             return true;
         }
-        String endpoint = properties.get(AzureObjStorage.PROP_ENDPOINT);
+        String endpoint = firstPresent(properties, ENDPOINT_KEYS);
         if (endpoint == null) {
-            endpoint = properties.get(AzureObjStorage.PROP_ENDPOINT_ALT);
+            return false;
         }
-        return endpoint != null && endpoint.contains("blob.core.windows.net");
+        for (String suffix : AZURE_BLOB_HOST_SUFFIXES) {
+            if (endpoint.contains(suffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public AzureFileSystemProperties bind(Map<String, String> properties) {
+        return AzureFileSystemProperties.of(properties);
+    }
+
+    @Override
+    public FileSystem create(AzureFileSystemProperties properties) throws IOException {
+        return new AzureFileSystem(new AzureObjStorage(properties));
+    }
+
+    @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return Boolean.parseBoolean(properties.getOrDefault("fs.azure.support", "false"));
+    }
+
+    /**
+     * Probe-context key carrying fe-core's {@code Config.azure_blob_host_suffixes} into the
+     * routing guess (the plugin cannot see fe-core Config; fe-core's bind registry injects the
+     * live, admin-extensible list into a probe view of the properties). Comma-separated.
+     * Referenced by fe-core; the value is owned by the shared predicate.
+     */
+    public static final String HOST_SUFFIXES_PROBE_KEY = AzureBlobEndpointSignals.HOST_SUFFIXES_PROBE_KEY;
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // Verbatim port of fe-core AzureProperties.guessIsMe: provider=azure, or an endpoint
+        // alias whose HOST carries a recognised Azure Blob/DFS suffix. The suffix predicate
+        // (endpoint alias list, host extraction, dot-anchored endsWith, probe-injected live
+        // suffix list) is shared with the S3-compatible fallback providers via
+        // AzureBlobEndpointSignals so their mutual exclusion can never drift from this claim.
+        if ("azure".equalsIgnoreCase(properties.get(PROVIDER_KEY))) {
+            return true;
+        }
+        return AzureBlobEndpointSignals.guessIsAzureBlobEndpoint(properties);
     }
 
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        return new AzureFileSystem(new AzureObjStorage(properties));
+        return create(bind(properties));
     }
 
     @Override
     public String name() {
         return "AZURE";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(AzureFileSystemProperties.class);
+    }
+
+    private boolean isExplicitAzure(Map<String, String> properties) {
+        return STORAGE_TYPE_AZURE.equalsIgnoreCase(properties.get(STORAGE_TYPE_KEY))
+                || "azure".equalsIgnoreCase(properties.get(PROVIDER_KEY));
+    }
+
+    private String firstPresent(Map<String, String> properties, String[] names) {
+        for (String name : names) {
+            String value = properties.get(name);
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

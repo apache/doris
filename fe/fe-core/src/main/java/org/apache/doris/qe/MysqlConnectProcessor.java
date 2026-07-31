@@ -82,6 +82,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         handleStmtClose(stmtId);
     }
 
+    private void handleStmtReset() {
+        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        int stmtId = packetBuf.getInt();
+        handleStmtResetById(stmtId);
+    }
+
     private String getPacket() {
         byte[] bytes = packetBuf.array();
         StringBuilder printB = new StringBuilder();
@@ -120,7 +126,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         // null bitmap
         String stmtStr = "";
         try {
-            StatementContext statementContext = prepCtx.statementContext;
+            StatementContext statementContext = prepCtx.getStatementContext();
             if (paramCount > 0) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
@@ -214,8 +220,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
         if (preparedStatementContext == null) {
             LOG.warn("No such statement in context, stmtId:{}", stmtId);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
-                    "msg: Not supported such prepared statement");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
+                    String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_execute", stmtId));
             return;
         }
         handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext, packetBuf, null);
@@ -248,6 +254,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
         ctx.setCommand(command);
         ctx.setStartTime();
+        resolveWorkloadGroupName();
 
         switch (command) {
             case COM_INIT_DB:

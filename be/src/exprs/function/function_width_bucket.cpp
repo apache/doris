@@ -81,7 +81,7 @@ public:
         DataTypePtr expr_type = block.get_by_position(arguments[0]).type;
 
         if (!_execute_by_type(*expr_ptr, *min_value_ptr, *max_value_ptr, num_buckets,
-                              *nested_column_ptr, expr_type)) {
+                              nested_column_ptr, expr_type)) {
             return Status::InvalidArgument("Unsupported type for width_bucket: {}",
                                            expr_type->get_name());
         }
@@ -94,36 +94,39 @@ private:
     template <typename ColumnType>
     void _execute(const IColumn& expr_column, const IColumn& min_value_column,
                   const IColumn& max_value_column, const int64_t num_buckets,
-                  IColumn& nested_column) const {
+                  ColumnInt64::MutablePtr& nested_column) const {
         const auto& expr_column_concrete = assert_cast<const ColumnType&>(expr_column);
         const auto& min_value_column_concrete = assert_cast<const ColumnType&>(min_value_column);
         const auto& max_value_column_concrete = assert_cast<const ColumnType&>(max_value_column);
-        auto& nested_column_concrete = assert_cast<ColumnInt64&>(nested_column);
+        auto& nested_column_concrete = *nested_column;
 
         size_t input_rows_count = expr_column.size();
+        const auto* expr_data = expr_column_concrete.get_data().data();
+        const auto* min_value_data = min_value_column_concrete.get_data().data();
+        const auto* max_value_data = max_value_column_concrete.get_data().data();
+        auto* nested_data = nested_column_concrete.get_data().data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto min_value = min_value_column_concrete.get_data()[i];
-            auto max_value = max_value_column_concrete.get_data()[i];
+            auto min_value = min_value_data[i];
+            auto max_value = max_value_data[i];
             auto average_value = (max_value - min_value) / (1.0 * num_buckets);
-            if (expr_column_concrete.get_data()[i] < min_value) {
+            if (expr_data[i] < min_value) {
                 continue;
-            } else if (expr_column_concrete.get_data()[i] >= max_value) {
-                nested_column_concrete.get_data()[i] = num_buckets + 1;
+            } else if (expr_data[i] >= max_value) {
+                nested_data[i] = num_buckets + 1;
             } else {
                 if ((max_value - min_value) / num_buckets == 0) {
                     continue;
                 }
-                nested_column_concrete.get_data()[i] =
-                        (int64_t)(1 +
-                                  (expr_column_concrete.get_data()[i] - min_value) / average_value);
+                nested_data[i] = (int64_t)(1 + (expr_data[i] - min_value) / average_value);
             }
         }
     }
 
     bool _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
                           const IColumn& max_value_column, const int64_t num_buckets,
-                          IColumn& nested_column_column, DataTypePtr& expr_type) const {
+                          ColumnInt64::MutablePtr& nested_column_column,
+                          DataTypePtr& expr_type) const {
         switch (expr_type->get_primitive_type()) {
         case PrimitiveType::TYPE_TINYINT:
             _execute<ColumnInt8>(expr_column, min_value_column, max_value_column, num_buckets,

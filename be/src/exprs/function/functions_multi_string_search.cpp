@@ -147,13 +147,19 @@ private:
     /// Handles nullable column by setting result to 0 if the input is null
     void handle_nullable_column(const ColumnPtr& column, PaddedPODArray<ResultType>& vec_res,
                                 size_t input_rows_count) const {
-        if (column->is_nullable()) {
-            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& null_map = column_nullable->get_null_map_data();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
+            const auto& null_map = nullable->get_null_map_data();
             for (size_t i = 0; i != input_rows_count; ++i) {
-                if (null_map[i] == 1) {
+                if (null_map[i]) {
                     vec_res[i] = 0;
                 }
+            }
+        } else if (const auto* const_column = check_and_get_column<ColumnConst>(column.get());
+                   const_column && is_column_nullable(const_column->get_data_column())) {
+            const auto& const_nullable =
+                    assert_cast<const ColumnNullable&>(const_column->get_data_column());
+            if (const_nullable.get_null_map_data()[0]) {
+                std::fill(vec_res.begin(), vec_res.begin() + input_rows_count, 0);
             }
         }
     }
@@ -291,7 +297,7 @@ struct FunctionMultiMatchAnyImpl {
         size_t prev_needles_offset = 0;
 
         const auto& nested_column =
-                check_and_get_column<ColumnNullable>(needles_data)->get_nested_column();
+                assert_cast<const ColumnNullable&>(needles_data).get_nested_column();
         const auto* needles_data_string = check_and_get_column<ColumnString>(nested_column);
 
         if (!needles_data_string) {

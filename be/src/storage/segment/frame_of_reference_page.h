@@ -45,13 +45,9 @@ public:
             return Status::OK();
         }
         auto new_vals = reinterpret_cast<const CppType*>(vals);
-        if (_count == 0) {
-            _first_val = *new_vals;
-        }
         _encoder->put_batch(new_vals, *count);
         _count += *count;
         _raw_data_size += *count * sizeof(CppType);
-        _last_val = new_vals[*count - 1];
         return Status::OK();
     }
 
@@ -77,22 +73,6 @@ public:
 
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
-    Status get_first_value(void* value) const override {
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, &_first_val, sizeof(CppType));
-        return Status::OK();
-    }
-
-    Status get_last_value(void* value) const override {
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, &_last_val, sizeof(CppType));
-        return Status::OK();
-    }
-
 private:
     explicit FrameOfReferencePageBuilder(const PageBuilderOptions& options)
             : _options(options), _count(0), _finished(false) {}
@@ -103,8 +83,6 @@ private:
     bool _finished;
     std::unique_ptr<ForEncoder<CppType>> _encoder;
     faststring _buf;
-    CppType _first_val;
-    CppType _last_val;
     uint64_t _raw_data_size = 0;
 };
 

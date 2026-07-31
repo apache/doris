@@ -21,32 +21,29 @@ name: Code Formatter
 
 on:
   pull_request:
-  pull_request_target:
   workflow_dispatch:
   issue_comment:
     types: [ created ]
+
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   clang-format:
     name: "Clang Formatter"
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'pull_request') || (github.event_name == 'pull_request_target') ||
+      (github.event_name == 'pull_request') ||
       (github.event_name == 'issue_comment' &&
        github.event.comment.body == 'run buildall' &&
        github.actor == 'doris-robot' &&
        github.event.issue.user.login == 'github-actions[bot]')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        if: ${{ github.event_name != 'pull_request_target' }}
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
-
-      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
-        if: ${{ github.event_name == 'pull_request_target' }}
-        uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Checkout paths-filter
         run: |

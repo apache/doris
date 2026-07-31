@@ -27,7 +27,6 @@
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_timestamptz_impl.hpp"
-#include "util/io_helper.h"
 
 namespace doris {
 

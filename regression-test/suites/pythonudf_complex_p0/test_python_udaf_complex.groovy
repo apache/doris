@@ -21,7 +21,7 @@ suite("test_python_udaf_complex") {
 
     def pyPath = """${context.file.parent}/py_udf_complex_scripts/py_udf_complex.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     log.info("Python zip path: ${pyPath}".toString())
 
     try {
@@ -476,7 +476,7 @@ suite("test_python_udaf_complex") {
         );
         """
 
-        qt_json_array_agg """
+        order_qt_json_array_agg """
             SELECT category, py_json_array_agg(CAST(id AS STRING)) AS id_array
             FROM udaf_test_data
             GROUP BY category

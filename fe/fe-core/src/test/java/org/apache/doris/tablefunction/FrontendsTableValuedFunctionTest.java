@@ -26,10 +26,11 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.TMetaScanRange;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -38,41 +39,37 @@ public class FrontendsTableValuedFunctionTest {
     private static final String INTERNAL_CTL = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static final String INFO_DB = InfoSchemaDb.DATABASE_NAME;
 
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
-    private ConnectContext ctx;
+    private Env env = Mockito.mock(Env.class);
+    private AccessControllerManager accessControllerManager = Mockito.mock(AccessControllerManager.class);
+    private ConnectContext ctx = Mockito.mock(ConnectContext.class);
+
+    private MockedStatic<Env> mockedEnvStatic;
+    private MockedStatic<ConnectContext> mockedCtxStatic;
+
+    @After
+    public void tearDown() {
+        if (mockedCtxStatic != null) {
+            mockedCtxStatic.close();
+            mockedCtxStatic = null;
+        }
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+            mockedEnvStatic = null;
+        }
+    }
 
     private void mockContext(String selfHost, String currentConnectedFe) {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+        mockedCtxStatic = Mockito.mockStatic(ConnectContext.class);
+        mockedCtxStatic.when(ConnectContext::get).thenReturn(ctx);
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-
-                accessControllerManager.checkDbPriv(ctx, INTERNAL_CTL, INFO_DB, PrivPredicate.SELECT);
-                minTimes = 0;
-                result = true;
-
-                env.getSelfNode();
-                minTimes = 0;
-                result = new HostInfo(selfHost, 9010);
-
-                ctx.getCurrentConnectedFEIp();
-                minTimes = 0;
-                result = currentConnectedFe;
-            }
-        };
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(accessControllerManager.checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT)).thenReturn(true);
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo(selfHost, 9010));
+        Mockito.when(ctx.getCurrentConnectedFEIp()).thenReturn(currentConnectedFe);
     }
 
     @Test

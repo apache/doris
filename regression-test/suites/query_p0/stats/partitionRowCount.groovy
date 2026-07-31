@@ -35,7 +35,7 @@ suite("partitionRowCount") {
         sql """physical plan
             select * from partitionRowCountTable where a < 250;
             """
-        contains("PhysicalOlapScan[partitionRowCountTable partitions(2/3)]@0")
+        contains("PhysicalOlapScan[19]@0 ( table=partitionRowCountTable partitions(2/3)")
     }
 
 }

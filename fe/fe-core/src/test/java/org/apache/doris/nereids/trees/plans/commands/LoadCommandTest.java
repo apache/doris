@@ -118,6 +118,34 @@ public class LoadCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testLoadCommandWithMultipleFiles() {
+        String loadSql = "LOAD LABEL customer_multiple_files_test( "
+                + "     DATA INFILE(\"s3://bucket/customer/part-1\", "
+                + "         \"s3://bucket/customer/part-2\", "
+                + "         \"s3://bucket/customer/part-3\") "
+                + "     INTO TABLE customer"
+                + "  ) "
+                + "  WITH S3(  "
+                + "     \"s3.access_key\" = \"AK\", "
+                + "     \"s3.secret_key\" = \"SK\", "
+                + "     \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\",   "
+                + "     \"s3.region\" = \"ap-beijing\");";
+
+        List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser().parseMultiple(loadSql);
+        Assertions.assertFalse(statements.isEmpty());
+
+        LoadCommand command = (LoadCommand) statements.get(0).first;
+        List<NereidsDataDescription> dataDescriptions = command.getDataDescriptions();
+        Assertions.assertFalse(dataDescriptions.isEmpty());
+
+        List<String> filePaths = dataDescriptions.get(0).getFilePaths();
+        Assertions.assertEquals(3, filePaths.size());
+        Assertions.assertEquals("s3://bucket/customer/part-1", filePaths.get(0));
+        Assertions.assertEquals("s3://bucket/customer/part-2", filePaths.get(1));
+        Assertions.assertEquals("s3://bucket/customer/part-3", filePaths.get(2));
+    }
+
+    @Test
     public void testLoadCommand() throws Exception {
         String loadSql1 = "LOAD LABEL customer_lable_for_test( "
                 + "     DATA INFILE(\"s3://bucket/customer\") "

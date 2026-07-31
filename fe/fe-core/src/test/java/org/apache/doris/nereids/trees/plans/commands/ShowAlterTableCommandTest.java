@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -30,9 +31,12 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Map;
 
 public class ShowAlterTableCommandTest extends TestWithFeService {
     @Override
@@ -179,5 +183,37 @@ public class ShowAlterTableCommandTest extends TestWithFeService {
                 new StringLiteral("abc"));
         sa1 = new ShowAlterTableCommand("test", where22, null, 1, 0, ShowAlterTableCommand.AlterType.MV);
         sa1.handleShowAlterTable(connectContext, null);
+    }
+
+    @Test
+    void testTimeCompoundPredicateShouldKeepAndExpression() throws Exception {
+        Expression where = new And(
+                new GreaterThanEqual(new UnboundSlot(Lists.newArrayList("CreateTime")),
+                        new StringLiteral("2026-04-17 10:44:34")),
+                new LessThanEqual(new UnboundSlot(Lists.newArrayList("CreateTime")),
+                        new StringLiteral("2026-04-17 10:44:36")));
+
+        ShowAlterTableCommand sa1 = new ShowAlterTableCommand(
+                "test", where, null, -1, -1, ShowAlterTableCommand.AlterType.COLUMN);
+        sa1.validate(connectContext);
+
+        where = new And(
+                new GreaterThanEqual(new UnboundSlot(Lists.newArrayList("FinishTime")),
+                        new StringLiteral("2026-04-17 10:44:34")),
+                new LessThanEqual(new UnboundSlot(Lists.newArrayList("FinishTime")),
+                        new StringLiteral("2026-04-17 10:44:36")));
+
+        ShowAlterTableCommand sa2 = new ShowAlterTableCommand(
+                "test", where, null, -1, -1, ShowAlterTableCommand.AlterType.COLUMN);
+        sa2.validate(connectContext);
+
+        Field filterMapField = ShowAlterTableCommand.class.getDeclaredField("filterMap");
+        filterMapField.setAccessible(true);
+
+        Assertions.assertTrue(((Map<String, Expression>) filterMapField.get(sa1)).get("createtime") instanceof And,
+                "CreateTime compound predicate should be kept as AND expression");
+
+        Assertions.assertTrue(((Map<String, Expression>) filterMapField.get(sa2)).get("finishtime") instanceof And,
+                "FinishTime compound predicate should be kept as AND expression");
     }
 }

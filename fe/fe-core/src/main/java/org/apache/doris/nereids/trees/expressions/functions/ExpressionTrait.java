@@ -21,6 +21,8 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Variable;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -46,12 +48,42 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     @Developing
     default void checkLegalityAfterRewrite() {}
 
+    /**
+     * getArguments.
+     */
     default List<Expression> getArguments() {
-        return children();
+        boolean hasVariableArg = false;
+        for (Expression arg : children()) {
+            if (arg instanceof Variable) {
+                hasVariableArg = true;
+                break;
+            }
+        }
+        if (hasVariableArg) {
+            ImmutableList.Builder<Expression> arguments = ImmutableList.builder();
+            for (Expression arg : children()) {
+                if (arg instanceof Variable) {
+                    arguments.add(((Variable) arg).getRealExpression());
+                } else {
+                    arguments.add(arg);
+                }
+            }
+            return arguments.build();
+        } else {
+            return children();
+        }
     }
 
+    /**
+     * getArgument.
+     */
     default Expression getArgument(int index) {
-        return child(index);
+        Expression arg = child(index);
+        if (arg instanceof Variable) {
+            return ((Variable) arg).getRealExpression();
+        } else {
+            return arg;
+        }
     }
 
     default List<DataType> getArgumentsTypes() {
@@ -76,7 +108,7 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     /**
      * foldable() mainly use in fold expression. Udf and UniqueFunction are not foldable.
      * But if want to check an expression contains non-idempotent, such as `rand()`, `uuid()`, etc.,
-     * you should use Expression::containsUniqueFunction instead.
+     * you should use Expression::containsVolatileExpression instead.
      */
     default boolean foldable() {
         return true;
@@ -94,5 +126,17 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      */
     default boolean containsNondeterministic() {
         return anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic());
+    }
+
+    /**
+     * Identify whether the expression itself needs volatile identity.
+     * Only VolatileExpression is allowed to override this method.
+     */
+    default boolean isVolatile() {
+        return false;
+    }
+
+    default boolean containsVolatileExpression() {
+        return containsType(VolatileExpression.class) && anyMatch(expr -> ((ExpressionTrait) expr).isVolatile());
     }
 }

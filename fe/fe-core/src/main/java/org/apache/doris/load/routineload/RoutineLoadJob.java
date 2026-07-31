@@ -19,7 +19,6 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
-import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -49,6 +48,7 @@ import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
@@ -274,8 +274,10 @@ public abstract class RoutineLoadJob
     protected Expr deleteCondition;
     // TODO(ml): error sample
 
-    // save the latest 3 error log urls
-    private Queue<String> errorLogUrls = EvictingQueue.create(3);
+    // Save the latest 3 error log URLs in memory. The corresponding first error message
+    // uses the same lifecycle and should not be persisted with the job.
+    private transient Queue<String> errorLogUrls = EvictingQueue.create(3);
+    private transient String firstErrorMsg = "";
 
     @SerializedName("ccid")
     private String cloudClusterId;
@@ -439,17 +441,15 @@ public abstract class RoutineLoadJob
     protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
         if (routineLoadDesc != null) {
             if (routineLoadDesc.getColumnsInfo() != null) {
-                ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
-                if (columnsStmt.getColumns() != null) {
-                    columnDescs = new ImportColumnDescs();
-                    columnDescs.descs.addAll(columnsStmt.getColumns());
-                }
+                columnDescs = new ImportColumnDescs();
+                columnDescs.descs.addAll(routineLoadDesc.getColumnsInfo());
+
             }
             if (routineLoadDesc.getPrecedingFilter() != null) {
-                precedingFilter = routineLoadDesc.getPrecedingFilter().getExpr();
+                precedingFilter = routineLoadDesc.getPrecedingFilter();
             }
-            if (routineLoadDesc.getWherePredicate() != null) {
-                whereExpr = routineLoadDesc.getWherePredicate().getExpr();
+            if (routineLoadDesc.getFilter() != null) {
+                whereExpr = routineLoadDesc.getFilter();
             }
             if (routineLoadDesc.getColumnSeparator() != null) {
                 columnSeparator = routineLoadDesc.getColumnSeparator();
@@ -811,6 +811,10 @@ public abstract class RoutineLoadJob
         return errorLogUrls;
     }
 
+    public String getFirstErrorMsg() {
+        return Strings.nullToEmpty(firstErrorMsg);
+    }
+
     // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
     public void processTimeoutTasks() {
         writeLock();
@@ -832,9 +836,9 @@ public abstract class RoutineLoadJob
         }
     }
 
-    abstract void updateCloudProgress() throws UserException;
+    protected abstract void updateCloudProgress() throws UserException;
 
-    abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
+    protected abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
 
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
         return 0;
@@ -956,10 +960,7 @@ public abstract class RoutineLoadJob
                                 + "when current total rows is more than base or the filter ratio is more than the max")
                         .build());
             }
-            // reset currentTotalNum, currentErrorNum and otherMsg
-            this.jobStatistic.currentErrorRows = 0;
-            this.jobStatistic.currentTotalRows = 0;
-            this.otherMsg = "";
+            resetCurrentErrorStatistics();
             this.jobStatistic.currentAbortedTaskNum = 0;
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
@@ -979,11 +980,16 @@ public abstract class RoutineLoadJob
                         "current error rows is more than max_error_number "
                             + "or the max_filter_ratio is more than the value set"), isReplay);
             }
-            // reset currentTotalNum, currentErrorNum and otherMsg
-            this.jobStatistic.currentErrorRows = 0;
-            this.jobStatistic.currentTotalRows = 0;
-            this.otherMsg = "";
+            resetCurrentErrorStatistics();
         }
+    }
+
+    private void resetCurrentErrorStatistics() {
+        this.jobStatistic.currentErrorRows = 0;
+        this.jobStatistic.currentTotalRows = 0;
+        this.otherMsg = "";
+        this.errorLogUrls.clear();
+        this.firstErrorMsg = "";
     }
 
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
@@ -1003,7 +1009,11 @@ public abstract class RoutineLoadJob
         return 0L;
     }
 
-    abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
+    public void updateLag() throws UserException {
+    }
+
+    protected abstract RoutineLoadTaskInfo unprotectRenewTask(
+            RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
 
     // call before first scheduling
     // derived class can override this.
@@ -1406,8 +1416,10 @@ public abstract class RoutineLoadJob
             routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
-        if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
+        if (rlTaskTxnCommitAttachment != null
+                && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
             errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
+            firstErrorMsg = Strings.nullToEmpty(rlTaskTxnCommitAttachment.getFirstErrorMsg());
         }
 
         routineLoadTaskInfo.setTxnStatus(txnStatus);
@@ -1710,6 +1722,7 @@ public abstract class RoutineLoadJob
             row.add(userIdentity.getQualifiedUser());
             row.add(comment);
             row.add(getClusterInfo());
+            row.add(getFirstErrorMsg());
             return row;
         } finally {
             readUnlock();
@@ -1949,6 +1962,8 @@ public abstract class RoutineLoadJob
 
     @Override
     public void gsonPostProcess() throws IOException {
+        errorLogUrls = EvictingQueue.create(3);
+        firstErrorMsg = "";
         if (tableId == 0) {
             isMultiTable = true;
         }

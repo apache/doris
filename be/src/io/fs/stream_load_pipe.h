@@ -53,6 +53,15 @@ public:
     Status append(const char* data, size_t size) override;
     Status append(const ByteBufferPtr& buf) override;
 
+    virtual Status append_with_line_delimiter(const char* data, size_t size) {
+        RETURN_IF_ERROR(append(data, size));
+        return append("\n", 1);
+    }
+
+    virtual Status append_json(const char* data, size_t size) {
+        return append_and_flush(data, size);
+    }
+
     const Path& path() const override { return _path; }
 
     size_t size() const override { return 0; }

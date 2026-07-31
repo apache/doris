@@ -37,19 +37,14 @@ namespace doris {
 
 class VExprContext;
 
-void VLiteral::init(const TExprNode& node) {
-    Field field;
-    field = _data_type->get_field(node);
-    _column_ptr = _data_type->create_column_const(1, field);
-}
-
 Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     return Status::OK();
 }
 
-Status VLiteral::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                size_t count, ColumnPtr& result_column) const {
+Status VLiteral::execute_column_impl(VExprContext* context, const Block* block,
+                                     const Selector* selector, size_t count,
+                                     ColumnPtr& result_column) const {
     DCHECK(selector == nullptr || selector->size() == count);
     result_column = _column_ptr->clone_resized(count);
     DCHECK_EQ(result_column->size(), count);

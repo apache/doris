@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -195,6 +196,7 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
 
 Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                         const FileReaderOptions& opts) {
+    TEST_SYNC_POINT_CALLBACK("S3FileSystem::open_file_internal", &file, &opts);
     auto key = DORIS_TRY(get_key(file));
     *reader = DORIS_TRY(S3FileReader::create(_client, _bucket, key, opts.file_size, nullptr));
     return Status::OK();

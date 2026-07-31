@@ -31,7 +31,7 @@
 #include "exec/sort/heap_sorter.h"
 #include "exec/sort/sorter.h"
 #include "exec/sort/topn_sorter.h"
-#include "exec/sort/vsort_exec_exprs.h"
+#include "exprs/vexpr_fwd.h"
 #include "format/orc/vorc_reader.h"
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
@@ -54,25 +54,21 @@ public:
         std::vector<DataTypePtr> data_types {std::make_shared<DataTypeInt32>()};
         row_desc = std::make_unique<MockRowDescriptor>(data_types, &pool);
 
-        sort_exec_exprs._sort_tuple_slot_expr_ctxs.push_back(
-                VExprContext::create_shared(std::make_shared<MockSlotRef>(0)));
-
-        sort_exec_exprs._materialize_tuple = false;
-
-        sort_exec_exprs._ordering_expr_ctxs.push_back(
-                VExprContext::create_shared(std::make_shared<MockSlotRef>(0)));
+        ordering_expr_ctxs.push_back(VExprContext::create_shared(std::make_shared<MockSlotRef>(0)));
 
         switch (sort_type) {
         case TestSortType::FULL_SORT:
-            sorter = FullSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, &_state, nullptr);
+            sorter = FullSorter::create_unique(ordering_expr_ctxs, limit, offset, &pool,
+                                               is_asc_order, nulls_first, *row_desc, &_state,
+                                               nullptr);
             break;
         case TestSortType::TOPN_SORT:
-            sorter = TopNSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, &_state, nullptr);
+            sorter = TopNSorter::create_unique(ordering_expr_ctxs, limit, offset, &pool,
+                                               is_asc_order, nulls_first, *row_desc, &_state,
+                                               nullptr);
             break;
         case TestSortType::HEAP_SORT:
-            sorter = HeapSorter::create_unique(sort_exec_exprs, &_state, limit, offset, &pool,
+            sorter = HeapSorter::create_unique(ordering_expr_ctxs, &_state, limit, offset, &pool,
                                                is_asc_order, nulls_first, *row_desc);
             break;
         default:
@@ -114,7 +110,7 @@ public:
     TestSortType sort_type;
     int64_t limit;
     int64_t offset;
-    VSortExecExprs sort_exec_exprs;
+    VExprContextSPtrs ordering_expr_ctxs;
     ObjectPool pool;
     std::unique_ptr<MockRowDescriptor> row_desc;
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
@@ -179,7 +175,7 @@ TEST_F(SortTest, test_heap_sort) {
 }
 
 TEST_F(SortTest, test_sorter) {
-    VSortExecExprs sort_exec_exprs;
+    VExprContextSPtrs ordering_expr_ctxs;
     ObjectPool pool;
     std::unique_ptr<MockRowDescriptor> row_desc;
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
@@ -191,21 +187,15 @@ TEST_F(SortTest, test_sorter) {
     DataTypes data_types {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()};
     row_desc.reset(new MockRowDescriptor(data_types, &pool));
 
-    sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
-
-    sort_exec_exprs._materialize_tuple = true;
-
-    sort_exec_exprs._ordering_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
-
-    sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
+    ordering_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
     MockRuntimeState _state;
-    sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
+    sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
                                        *row_desc, &_state, nullptr);
 
     {
         Block src_block = ColumnHelper::create_block<DataTypeInt64>({4, 1, 2}, {10, 1, 3});
-        Block dest_block;
+        Block dest_block = src_block.clone_empty();
         auto st = sorter->partial_sort(src_block, dest_block);
         EXPECT_TRUE(st.ok()) << st.msg();
         std::cout << dest_block.dump_data() << std::endl;

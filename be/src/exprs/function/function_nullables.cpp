@@ -59,7 +59,7 @@ public:
             block.replace_by_position(
                     result, ColumnNullable::create(col, ColumnBool::create(input_rows_count, 0)));
         } else { // column is ColumnNullable
-            block.replace_by_position(result, col->clone_resized(input_rows_count));
+            block.replace_by_position(result, col);
         }
         return Status::OK();
     }
@@ -93,9 +93,9 @@ public:
                         data.name);
             }
             const ColumnPtr& nest_col = col_null->get_nested_column_ptr();
-            block.replace_by_position(result, nest_col->clone_resized(nest_col->size()));
+            block.replace_by_position(result, nest_col);
         } else {
-            block.replace_by_position(result, data.column->clone_resized(input_rows_count));
+            block.replace_by_position(result, data.column);
         }
         return Status::OK();
     }

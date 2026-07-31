@@ -77,9 +77,11 @@ public class SplitByRegexp extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (children().size() == 3) {
-            if (!child(2).isConstant() || !(child(2) instanceof IntegerLikeLiteral)
-                    || (((IntegerLikeLiteral) child(2)).getIntValue() < 0)) {
+        List<Expression> arguments = getArguments();
+        if (arguments.size() == 3) {
+            Expression thirdArgument = getArgument(2);
+            if (!thirdArgument.isConstant() || !(thirdArgument instanceof IntegerLikeLiteral)
+                    || (((IntegerLikeLiteral) thirdArgument).getIntValue() < 0)) {
                 throw new AnalysisException("the third parameter of "
                         + getName() + " function must be a positive constant: " + toSql());
             }

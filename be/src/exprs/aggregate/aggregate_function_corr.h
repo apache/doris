@@ -15,8 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cmath>
+#include <type_traits>
+
+#include "core/data_type/primitive_type.h"
+#include "core/string_buffer.hpp"
 #include "core/types.h"
-#include "util/io_helper.h"
 
 namespace doris {
 

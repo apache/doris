@@ -82,15 +82,18 @@ public class ResultReceiverConsumer {
             ReceiverContext context = new ReceiverContext(resultReceivers.get(i), i);
             contexts.add(context);
         }
-        this.readyOffsets = new ArrayBlockingQueue<>(resultReceivers.size());
+        this.readyOffsets = new ArrayBlockingQueue<>(Math.max(1, resultReceivers.size()));
         timeoutTs = timeoutDeadline;
     }
 
     public boolean isEos() {
-        return finishedReceivers == contexts.size();
+        return !contexts.isEmpty() && finishedReceivers == contexts.size();
     }
 
     public RowBatch getNext(Status status) throws TException, InterruptedException, ExecutionException, UserException {
+        if (contexts.isEmpty()) {
+            throw new UserException("There is no receiver.");
+        }
         if (!futureInitialized) {
             futureInitialized = true;
             for (ReceiverContext context : contexts) {

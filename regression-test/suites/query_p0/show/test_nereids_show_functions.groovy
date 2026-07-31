@@ -97,7 +97,7 @@ suite("test_nereids_show_functions") {
     assertTrue(res11[0][4].contains("NULLABLE_MODE="))
     assertTrue(res11[0][4].contains("ALIAS_OF="))
 
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     def suitePath = context.file.parent + "/../.."
 
     sql """ DROP FUNCTION IF EXISTS py_add(int, int) """

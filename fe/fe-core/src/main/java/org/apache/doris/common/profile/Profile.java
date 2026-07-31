@@ -109,7 +109,7 @@ public class Profile {
     // summaryProfile will be serialized to storage as JSON, and we can recover it from storage
     // recover of SummaryProfile is important, because it contains the meta information of the profile
     // we need it to construct memory index for profile retrieving.
-    private SummaryProfile summaryProfile = new SummaryProfile();
+    private SummaryProfile summaryProfile;
     // executionProfiles will be stored to storage as text, when getting profile content, we will read
     // from storage directly.
     List<ExecutionProfile> executionProfiles = Lists.newArrayList();
@@ -140,10 +140,12 @@ public class Profile {
     private String changedSessionVarCache = "";
 
     // Need default constructor for read from storage
-    public Profile() {}
+    public Profile() {
+        this.summaryProfile = new SummaryProfile();
+    }
 
     public Profile(boolean isEnable, int profileLevel, long autoProfileDurationMs) {
-        this.summaryProfile = new SummaryProfile();
+        this.summaryProfile = new SummaryProfile(isEnable);
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isQueryFinished = !isEnable;
         this.profileLevel = profileLevel;
@@ -346,6 +348,7 @@ public class Profile {
             LOG.info("DebugPoint:Profile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
         }
         // add summary to builder
+        updateProfileCompletionStateForDisplay();
         summaryProfile.prettyPrint(builder);
         if (!builder.isTruncated()) {
             getChangedSessionVars(builder);
@@ -597,6 +600,50 @@ public class Profile {
         return !Strings.isNullOrEmpty(profileStoragePath);
     }
 
+    public String getProfileCompletionState() {
+        if (profileHasBeenStored()) {
+            String storedState = summaryProfile.getSummary().getInfoString(SummaryProfile.PROFILE_COMPLETION_STATE);
+            if (!Strings.isNullOrEmpty(storedState)) {
+                return storedState;
+            }
+            return SummaryProfile.PROFILE_COMPLETION_STATE_UNKNOWN;
+        }
+
+        if (!isQueryFinished) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
+        }
+
+        for (int i = 0; i < executionProfiles.size(); i++) {
+            ExecutionProfile executionProfile = executionProfiles.get(i);
+            if (!executionProfile.isCompleted()) {
+                return SummaryProfile.PROFILE_COMPLETION_STATE_COLLECTING;
+            }
+        }
+        return SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE;
+    }
+
+    private String getProfileCompletionStateForStorage() {
+        if (!isQueryFinished) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
+        }
+
+        for (int i = 0; i < executionProfiles.size(); i++) {
+            ExecutionProfile executionProfile = executionProfiles.get(i);
+            if (!executionProfile.isCompleted()) {
+                return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+            }
+        }
+        return SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE;
+    }
+
+    private void updateProfileCompletionStateForStorage() {
+        summaryProfile.setProfileCompletionState(getProfileCompletionStateForStorage());
+    }
+
+    private void updateProfileCompletionStateForDisplay() {
+        summaryProfile.setProfileCompletionState(getProfileCompletionState());
+    }
+
     // Profile IO threads races with Coordinator threads.
     public void markQueryFinished() {
         try {
@@ -646,6 +693,7 @@ public class Profile {
             DataOutputStream memoryDataStream = new DataOutputStream(memoryStream);
 
             // Write summary profile and execution profile content to memory
+            updateProfileCompletionStateForStorage();
             this.summaryProfile.write(memoryDataStream);
 
             SafeStringBuilder builder = new SafeStringBuilder();

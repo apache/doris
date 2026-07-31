@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -67,11 +68,24 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
                 ImmutableList.Builder<NamedExpression> newProjections = ImmutableList.builder();
                 for (NamedExpression old : p.getProjects()) {
                     if (old instanceof SlotReference) {
+                        // replaceRootMap.get(old) is the original constant NamedExpression from
+                        // constExprs (each row owns a distinct ExprId, none equal to the new
+                        // UNION output ExprId), so it can be reused as-is.
                         newProjections.add((NamedExpression) FoldConstantRule.evaluate(replaceRootMap.get(old),
                                 expressionRewriteContext));
                     } else {
+                        // `old` must be an Alias (Nereids LogicalProject invariant for non-Slot
+                        // projections). Its ExprId equals the new UNION output ExprId, since
+                        // p.getOutput() becomes the UNION output below. Feeding the original
+                        // Alias into the rewriter would preserve that outer ExprId on every
+                        // constant row and collide with the UNION output. Reassign a fresh
+                        // ExprId on the Alias first, then run the SlotRef -> constant rewrite
+                        // and constant folding on the new Alias; this preserves the Alias'
+                        // name/qualifier/nameFromChild while breaking the ExprId collision.
+                        Alias oldAlias = (Alias) old;
+                        Alias reIdAlias = oldAlias.withExprId(StatementScopeIdGenerator.newExprId());
                         newProjections.add((NamedExpression) FoldConstantRule.evaluate(
-                                ExpressionUtils.replaceNameExpression(old, replaceMap), expressionRewriteContext));
+                                ExpressionUtils.replace(reIdAlias, replaceMap), expressionRewriteContext));
                     }
                 }
                 newConstExprs.add(newProjections.build());
@@ -90,7 +104,7 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
             Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
             for (int i = 0; i < constExprs.size(); i++) {
                 NamedExpression ne = constExprs.get(i);
-                if (ne.containsUniqueFunction()) {
+                if (ne.containsVolatileExpression()) {
                     uniqueFunctionSlots.add(union.getOutput().get(i));
                 }
             }

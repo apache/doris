@@ -27,7 +27,6 @@
 #include "core/column/column_complex.h"
 #include "core/column/column_const.h"
 #include "core/string_buffer.hpp"
-#include "util/io_helper.h"
 #include "util/slice.h"
 
 namespace doris {

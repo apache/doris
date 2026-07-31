@@ -100,6 +100,7 @@ message POlapTableIndexSchema {
     required int32 schema_hash = 3;
     repeated ColumnPB columns_desc = 4;
     repeated TabletIndexPB indexes_desc = 5;
+    optional int64 row_binlog_id = 6;
 };
 
 message POlapTableSchemaParam {
@@ -122,5 +123,6 @@ message POlapTableSchemaParam {
     optional UniqueKeyUpdateModePB unique_key_update_mode = 15 [default = UPSERT];
     optional int32 sequence_map_col_unique_id = 16 [default = -1];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 17 [default = APPEND];
+    optional POlapTableIndexSchema row_binlog_index_schema = 18;
 };
 

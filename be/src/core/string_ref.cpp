@@ -94,19 +94,6 @@ StringRef StringRef::max_string_val() {
     return StringRef((char*)(&StringRef::MAX_CHAR), 1);
 }
 
-bool StringRef::start_with(char ch) const {
-    if (UNLIKELY(size == 0)) {
-        return false;
-    }
-    return data[0] == ch;
-}
-bool StringRef::end_with(char ch) const {
-    if (UNLIKELY(size == 0)) {
-        return false;
-    }
-    return data[size - 1] == ch;
-}
-
 bool StringRef::start_with(const StringRef& search_string) const {
     if (search_string.size == 0) {
         return true;

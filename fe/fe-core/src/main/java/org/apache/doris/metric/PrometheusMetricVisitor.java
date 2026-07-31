@@ -188,8 +188,20 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             }
         }
         final String fullName = prefix + String.join("_", names);
+        appendHistogram(fullName, histogram, tags);
+    }
+
+    @Override
+    public void visitHistogram(String prefix, String name, Histogram histogram, List<MetricLabel> labels) {
+        final String fullName = prefix + name.replace('.', '_');
+        List<String> tags = labels.stream()
+                .map(l -> l.getKey() + "=\"" + l.getValue() + "\"")
+                .collect(Collectors.toList());
+        appendHistogram(fullName, histogram, tags);
+    }
+
+    private void appendHistogram(String fullName, Histogram histogram, List<String> tags) {
         final String fullTag = String.join(",", tags);
-        // we should define metric name only once
         if (!metricNames.contains(fullName)) {
             sb.append(HELP).append(fullName).append(" ").append("\n");
             sb.append(TYPE).append(fullName).append(" ").append("summary\n");
@@ -198,15 +210,15 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         String delimiter = tags.isEmpty() ? "" : ",";
         Snapshot snapshot = histogram.getSnapshot();
         sb.append(fullName).append("{quantile=\"0.75\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get75thPercentile()).append("\n");
+                .append(snapshot.get75thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.95\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get95thPercentile()).append("\n");
+                .append(snapshot.get95thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.98\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get98thPercentile()).append("\n");
+                .append(snapshot.get98thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.99\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get99thPercentile()).append("\n");
+                .append(snapshot.get99thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.999\"").append(delimiter).append(fullTag).append("} ")
-            .append(snapshot.get999thPercentile()).append("\n");
+                .append(snapshot.get999thPercentile()).append("\n");
         sb.append(fullName).append("_sum{").append(fullTag).append("} ")
                 .append(histogram.getCount() * snapshot.getMean()).append("\n");
         sb.append(fullName).append("_count{").append(fullTag).append("} ")

@@ -29,7 +29,15 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -47,8 +55,16 @@ public class SmallFileMgr {
 
     private static final String FILE_PREFIX = "FILE:";
 
+    private static final String PKCS12_SUFFIX = ".p12";
+
+    /** JCA-required placeholder; a public-CA-only truststore has no secret to protect. */
+    public static final String TRUSTSTORE_PASSWORD = "changeit";
+
     /** In-memory cache: "file_id:md5" -> absolute local file path */
     private static final Map<String, String> MEM_CACHE = new ConcurrentHashMap<>();
+
+    /** In-memory cache for PKCS12 truststores derived from PEM CA certs. */
+    private static final Map<String, String> PKCS12_CACHE = new ConcurrentHashMap<>();
 
     /**
      * Per-key locks to serialize concurrent downloads of the same file, preventing tmp file
@@ -216,9 +232,86 @@ public class SmallFileMgr {
         }
     }
 
+    /**
+     * Resolve a FILE: reference to a PKCS12 truststore path, converting the PEM on first access.
+     * For connectors (e.g. Debezium MySQL) that require JKS/PKCS12 rather than raw PEM.
+     *
+     * @param filePath FILE reference, format: FILE:{file_id}:{md5}
+     * @return absolute local path to the PKCS12 truststore
+     */
+    public static String getPkcs12TruststorePath(String filePath) {
+        return pkcs12TruststorePath(getFilePath(filePath));
+    }
+
+    /** Package-private overload that accepts a custom local directory, used for testing. */
+    static String getPkcs12TruststorePath(
+            String feMasterAddress, String filePath, String clusterToken, String localDir) {
+        return pkcs12TruststorePath(getFilePath(feMasterAddress, filePath, clusterToken, localDir));
+    }
+
+    private static String pkcs12TruststorePath(String pemPath) {
+        String cached = PKCS12_CACHE.get(pemPath);
+        if (cached != null && new File(cached).exists()) {
+            return cached;
+        }
+        Object lock = DOWNLOAD_LOCKS.computeIfAbsent(pemPath + PKCS12_SUFFIX, k -> new Object());
+        synchronized (lock) {
+            String doubleChecked = PKCS12_CACHE.get(pemPath);
+            if (doubleChecked != null && new File(doubleChecked).exists()) {
+                return doubleChecked;
+            }
+            String p12Path = pemPath + PKCS12_SUFFIX;
+            if (!new File(p12Path).exists()) {
+                convertPemToPkcs12(pemPath, p12Path);
+            }
+            PKCS12_CACHE.put(pemPath, p12Path);
+            return p12Path;
+        }
+    }
+
+    private static void convertPemToPkcs12(String pemPath, String p12Path) {
+        Path tmpFile;
+        try {
+            Path p12 = Paths.get(p12Path);
+            tmpFile = Files.createTempFile(p12.getParent(), "p12-", ".tmp");
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to create tmp file for PKCS12 truststore", e);
+        }
+        try {
+            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            keyStore.load(null);
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            try (InputStream in = new FileInputStream(pemPath)) {
+                // A CA PEM may contain a chain (intermediate + root); import each with a
+                // distinct alias, otherwise later entries overwrite earlier ones.
+                int i = 0;
+                for (Certificate cert : cf.generateCertificates(in)) {
+                    keyStore.setCertificateEntry("ca" + (i++), cert);
+                }
+            }
+            try (OutputStream os = Files.newOutputStream(tmpFile)) {
+                keyStore.store(os, TRUSTSTORE_PASSWORD.toCharArray());
+            }
+            Files.move(
+                    tmpFile,
+                    Paths.get(p12Path),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+            LOG.info("Generated PKCS12 truststore: {}", p12Path);
+        } catch (Exception e) {
+            try {
+                Files.deleteIfExists(tmpFile);
+            } catch (IOException ignored) {
+                // best effort
+            }
+            throw new RuntimeException("Failed to convert PEM to PKCS12: " + pemPath, e);
+        }
+    }
+
     /** Clears the in-memory cache. Exposed for testing. */
     static void clearCache() {
         MEM_CACHE.clear();
+        PKCS12_CACHE.clear();
         DOWNLOAD_LOCKS.clear();
     }
 }

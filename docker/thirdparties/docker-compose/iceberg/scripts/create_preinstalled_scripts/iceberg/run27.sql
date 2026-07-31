@@ -1,7 +1,7 @@
 use demo.test_db;
 
-
-create table if not exists test_rewrite_data_with_update (
+drop table if exists test_rewrite_data_with_update;
+create table test_rewrite_data_with_update (
   id INT,
   name STRING
 )
@@ -21,7 +21,8 @@ update test_rewrite_data_with_update set name = "bb"  where id = 1;
 
 
 
-create table if not exists test_rewrite_data_with_delete (
+drop table if exists test_rewrite_data_with_delete;
+create table test_rewrite_data_with_delete (
   id INT,
   name STRING
 )

@@ -213,6 +213,30 @@ public class CreateViewTest {
     }
 
     @Test
+    public void testCreateViewWithAliasStarOverAggregateSubquery() throws Exception {
+        String createViewSql = "create view test.alias_star_agg_view as "
+                + "with sale2 as (select 1 as pack_factory, 2 as area, 3 as purchase_month, "
+                + "4 as label_model, 50000 as mile_range), "
+                + "sale3 as ("
+                + "select c.*, s.id, s.id * 10000 as mile_range "
+                + "from (select pack_factory, area, purchase_month, label_model, "
+                + "max(mile_range) / 10000 as max_range "
+                + "from sale2 group by pack_factory, area, purchase_month, label_model) c "
+                + "join (select 1 as id) s where s.id <= max_range) "
+                + "select * from sale3";
+        ExceptionChecker.expectThrowsNoException(() -> createView(createViewSql));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("alias_star_agg_view");
+        Assert.assertFalse(view.getInlineViewDef().contains("group by c."));
+        Assert.assertFalse(view.getInlineViewDef().contains("select c.pack_factory"));
+
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext,
+                "EXPLAIN select * from test.alias_star_agg_view");
+        Assert.assertFalse(explainString.contains("Unknown column"));
+    }
+
+    @Test
     public void testViewRejectVarbinary() throws Exception {
         ExceptionChecker.expectThrowsWithMsg(
                 org.apache.doris.common.AnalysisException.class,

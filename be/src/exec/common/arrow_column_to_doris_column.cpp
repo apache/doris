@@ -100,10 +100,12 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
                                     ColumnPtr& doris_column, const DataTypePtr& type,
                                     size_t num_elements, const cctz::time_zone& ctz) {
-    RETURN_IF_ERROR(type->get_serde()->read_column_from_arrow(
-            doris_column->assume_mutable_ref(), arrow_column, arrow_batch_cur_idx,
-            arrow_batch_cur_idx + num_elements, ctz));
-    return Status::OK();
+    auto mutable_column = IColumn::mutate(std::move(doris_column));
+    auto status = type->get_serde()->read_column_from_arrow(
+            *mutable_column, arrow_column, arrow_batch_cur_idx, arrow_batch_cur_idx + num_elements,
+            ctz);
+    doris_column = std::move(mutable_column);
+    return status;
 }
 
 } // namespace doris

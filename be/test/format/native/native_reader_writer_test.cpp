@@ -98,7 +98,7 @@ static void fill_array_column(Block& block, size_t rows) {
         auto& array_col = assert_cast<ColumnArray&>(nested);
         auto& offsets = array_col.get_offsets();
         auto& data = array_col.get_data();
-        auto mutable_data = data.assume_mutable();
+        auto mutable_data = data.assert_mutable();
 
         for (size_t i = 0; i < rows; ++i) {
             if (i % 5 == 0) {
@@ -144,8 +144,8 @@ static void fill_map_column(Block& block, size_t rows) {
                 auto& keys = assert_cast<ColumnMap&>(nested).get_keys();
                 auto& values = assert_cast<ColumnMap&>(nested).get_values();
 
-                auto mutable_keys = keys.assume_mutable();
-                auto mutable_values = values.assume_mutable();
+                auto mutable_keys = keys.assert_mutable();
+                auto mutable_values = values.assert_mutable();
 
                 std::string k1 = "k" + std::to_string(i);
                 std::string k2 = "k" + std::to_string(i + 1);
@@ -187,8 +187,8 @@ static void fill_struct_column(Block& block, size_t rows) {
                 nullable_col->insert_default();
             } else {
                 null_map.push_back(0);
-                auto mutable_field0 = fields[0]->assume_mutable();
-                auto mutable_field1 = fields[1]->assume_mutable();
+                auto mutable_field0 = fields[0]->assert_mutable();
+                auto mutable_field1 = fields[1]->assert_mutable();
                 // int field
                 mutable_field0->insert(Field::create_field<PrimitiveType::TYPE_INT>(
                         static_cast<int32_t>(i * 100)));
@@ -495,7 +495,7 @@ TEST_F(NativeReaderWriterTest, round_trip_native_file_large_rows) {
         for (size_t col = 0; col < src_block.columns(); ++col) {
             const auto& src_col = *src_block.get_by_position(col).column;
             const auto& dst_col_holder = *sub_block.get_by_position(col).column;
-            auto dst_mutable = dst_col_holder.assume_mutable();
+            auto dst_mutable = dst_col_holder.assert_mutable();
             dst_mutable->insert_range_from(src_col, offset, len);
         }
         st = transformer.write(sub_block);
@@ -527,7 +527,8 @@ TEST_F(NativeReaderWriterTest, round_trip_native_file_large_rows) {
                 total_read_rows = read_rows;
                 first_block = false;
             } else {
-                MutableBlock merged_mutable(&merged_block);
+                ScopedMutableBlock scoped_merged_mutable(&merged_block);
+                auto& merged_mutable = scoped_merged_mutable.mutable_block();
                 Status add_st = merged_mutable.add_rows(&dst_block, 0, read_rows);
                 ASSERT_TRUE(add_st.ok()) << add_st;
                 total_read_rows += read_rows;
@@ -757,10 +758,9 @@ TEST_F(NativeReaderWriterTest, get_columns_and_parsed_schema) {
     NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
 
     std::unordered_map<std::string, DataTypePtr> name_to_type;
-    std::unordered_set<std::string> missing_cols;
-    st = reader_impl.get_columns(&name_to_type, &missing_cols);
+    st = reader_impl.get_columns(&name_to_type);
     ASSERT_TRUE(st.ok()) << st;
-    ASSERT_TRUE(missing_cols.empty());
+    ASSERT_TRUE(reader_impl.missing_cols().empty());
 
     // All columns from src_block should appear in name_to_type.
     for (size_t i = 0; i < src_block.columns(); ++i) {
@@ -1069,7 +1069,7 @@ static Block create_all_types_test_block() {
         auto& array_col = assert_cast<ColumnArray&>(nested);
         auto& offsets = array_col.get_offsets();
         auto& data = array_col.get_data();
-        auto mutable_data = data.assume_mutable();
+        auto mutable_data = data.assert_mutable();
 
         mutable_data->insert(
                 Field::create_field<PrimitiveType::TYPE_INT>(static_cast<int32_t>(10)));
@@ -1098,8 +1098,8 @@ static Block create_all_types_test_block() {
         auto& keys = assert_cast<ColumnMap&>(nested).get_keys();
         auto& values = assert_cast<ColumnMap&>(nested).get_values();
 
-        auto mutable_keys = keys.assume_mutable();
-        auto mutable_values = values.assume_mutable();
+        auto mutable_keys = keys.assert_mutable();
+        auto mutable_values = values.assert_mutable();
 
         mutable_keys->insert(Field::create_field<PrimitiveType::TYPE_VARCHAR>(std::string("key1")));
         mutable_values->insert(
@@ -1130,8 +1130,8 @@ static Block create_all_types_test_block() {
 
         auto& struct_col = assert_cast<ColumnStruct&>(nested);
         const auto& fields = struct_col.get_columns();
-        auto mutable_field0 = fields[0]->assume_mutable();
-        auto mutable_field1 = fields[1]->assume_mutable();
+        auto mutable_field0 = fields[0]->assert_mutable();
+        auto mutable_field1 = fields[1]->assert_mutable();
 
         mutable_field0->insert(
                 Field::create_field<PrimitiveType::TYPE_INT>(static_cast<int32_t>(999)));

@@ -25,11 +25,6 @@ suite("test_compaction_profile_action", "p0") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
 
-    String backend_id = backendId_to_backendIP.keySet()[0]
-    def beHost = backendId_to_backendIP[backend_id]
-    def beHttpPort = backendId_to_backendHttpPort[backend_id]
-    def baseUrl = "http://${beHost}:${beHttpPort}/api/compaction/profile"
-
     try {
         // Step 2: Create table, insert data, trigger compaction, wait for completion
         sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -64,6 +59,10 @@ suite("test_compaction_profile_action", "p0") {
         assertTrue(tablets.size() > 0)
         def tablet = tablets[0]
         String tablet_id = tablet.TabletId
+        String backend_id = tablet.BackendId
+        def beHost = backendId_to_backendIP[backend_id]
+        def beHttpPort = backendId_to_backendHttpPort[backend_id]
+        def baseUrl = "http://${beHost}:${beHttpPort}/api/compaction/profile"
 
         // Trigger compaction and wait for completion
         trigger_and_wait_compaction(tableName, "cumulative")
@@ -121,9 +120,6 @@ suite("test_compaction_profile_action", "p0") {
         // Verify field values are reasonable
         assertTrue(profile.compaction_id > 0, "compaction_id should be positive")
         assertTrue(profile.cost_time_ms >= 0, "cost_time_ms should be non-negative")
-        assertTrue(profile.input_data_size > 0, "input_data_size should be positive")
-        assertTrue(profile.input_rowsets_count > 0, "input_rowsets_count should be positive")
-        assertTrue(profile.input_row_num > 0, "input_row_num should be positive")
 
         // Step 6: Test top_n filter - ?top_n=1 returns exactly 1 record
         def (code2, out2, err2) = curl("GET", baseUrl + "?top_n=1")
@@ -144,6 +140,12 @@ suite("test_compaction_profile_action", "p0") {
             assertEquals(Long.parseLong(tablet_id), p.tablet_id,
                     "All returned profiles should match the requested tablet_id")
         }
+
+        // Verify field values using profile from our specific tablet
+        def tabletProfile = json3.compaction_profiles[0]
+        assertTrue(tabletProfile.input_data_size > 0, "input_data_size should be positive")
+        assertTrue(tabletProfile.input_rowsets_count > 0, "input_rowsets_count should be positive")
+        assertTrue(tabletProfile.input_row_num > 0, "input_row_num should be positive")
 
         // Step 8: Test compact_type filter - ?compact_type=cumulative
         def (code4, out4, err4) = curl("GET", baseUrl + "?compact_type=cumulative")

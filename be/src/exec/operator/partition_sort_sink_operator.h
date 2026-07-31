@@ -22,6 +22,7 @@
 #include "exec/common/partition_sort_utils.h"
 #include "exec/operator/operator.h"
 #include "exec/sort/partition_sorter.h"
+#include "exprs/vexpr_fwd.h"
 
 namespace doris {
 
@@ -41,7 +42,7 @@ private:
     friend class PartitionSortSinkOperatorX;
 
     // Expressions and parameters used for build _sort_description
-    VSortExecExprs _vsort_exec_exprs;
+    VExprContextSPtrs _ordering_expr_ctxs;
     VExprContextSPtrs _partition_expr_ctxs;
     int64_t _sorted_partition_input_rows = 0;
     std::vector<PartitionDataPtr> _value_places;
@@ -91,12 +92,13 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
-            return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
+            return DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                    _distribute_exprs);
         }
-        return {ExchangeType::PASSTHROUGH};
+        return {TLocalPartitionType::PASSTHROUGH};
     }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
@@ -115,7 +117,7 @@ private:
     VExprContextSPtrs _partition_expr_ctxs;
     const std::vector<TExpr> _distribute_exprs;
     // Expressions and parameters used for build _sort_description
-    VSortExecExprs _vsort_exec_exprs;
+    VExprContextSPtrs _ordering_expr_ctxs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 

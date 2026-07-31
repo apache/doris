@@ -18,19 +18,20 @@
 package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
-import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
-import org.apache.logging.log4j.Level;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.List;
@@ -39,60 +40,49 @@ public class LdapAuthenticatorTest {
     private static final String USER_NAME = "user";
     private static final String IP = "192.168.1.1";
 
-    @Mocked
-    private LdapManager ldapManager;
-
-    @Mocked
-    private Auth auth;
+    private LdapManager ldapManager = Mockito.mock(LdapManager.class);
+    private Auth auth = Mockito.mock(Auth.class);
+    private Env env = Mockito.mock(Env.class);
+    private MockedStatic<Env> mockedEnvStatic;
 
     private LdapAuthenticator ldapAuthenticator = new LdapAuthenticator();
     private AuthenticateRequest request = new AuthenticateRequest(USER_NAME, new ClearPassword("123"), IP);
 
+    @Before
+    public void setUp() {
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.getLdapManager()).thenReturn(ldapManager);
+    }
+
+    @After
+    public void tearDown() {
+        mockedEnvStatic.close();
+    }
+
     private void setCheckPassword(boolean res) {
-        new Expectations() {
-            {
-                ldapManager.checkUserPasswd(anyString, anyString);
-                minTimes = 0;
-                result = res;
-            }
-        };
+        Mockito.when(ldapManager.checkUserPasswd(Mockito.anyString(), Mockito.anyString())).thenReturn(res);
     }
 
     private void setCheckPasswordException() {
-        new Expectations() {
-            {
-                ldapManager.checkUserPasswd(anyString, anyString);
-                minTimes = 0;
-                result = new RuntimeException("exception");
-            }
-        };
+        Mockito.when(ldapManager.checkUserPasswd(Mockito.anyString(), Mockito.anyString()))
+                .thenThrow(new RuntimeException("exception"));
     }
 
     private void setGetUserInDoris(boolean res) {
-        new Expectations() {
-            {
-                if (res) {
-                    List<UserIdentity> list = Lists.newArrayList(new UserIdentity(USER_NAME, IP));
-                    auth.getUserIdentityForLdap(anyString, anyString);
-                    minTimes = 0;
-                    result = list;
-                } else {
-                    auth.getCurrentUserIdentity((UserIdentity) any);
-                    minTimes = 0;
-                    result = null;
-                }
-            }
-        };
+        if (res) {
+            List<UserIdentity> list = Lists.newArrayList(new UserIdentity(USER_NAME, IP));
+            Mockito.when(auth.getUserIdentityForLdap(Mockito.anyString(), Mockito.anyString())).thenReturn(list);
+        } else {
+            Mockito.when(auth.getUserIdentityForLdap(Mockito.anyString(), Mockito.anyString()))
+                    .thenReturn(Lists.newArrayList());
+            Mockito.when(auth.getCurrentUserIdentity(Mockito.any(UserIdentity.class))).thenReturn(null);
+        }
     }
 
     private void setLdapUserExist(boolean res) {
-        new Expectations() {
-            {
-                ldapManager.doesUserExist(anyString);
-                minTimes = 0;
-                result = res;
-            }
-        };
+        Mockito.when(ldapManager.doesUserExist(Mockito.anyString())).thenReturn(res);
     }
 
     @Test
@@ -111,20 +101,6 @@ public class LdapAuthenticatorTest {
         setGetUserInDoris(true);
         AuthenticateResponse response = ldapAuthenticator.authenticate(request);
         Assert.assertFalse(response.isSuccess());
-    }
-
-    @Test
-    public void testAuthenticateLogsInfoWithoutThreshold() throws IOException {
-        setCheckPassword(true);
-        setGetUserInDoris(true);
-        try (TestLogAppender appender = TestLogAppender.attach(LdapAuthenticator.class)) {
-            AuthenticateResponse response = ldapAuthenticator.authenticate(request);
-            Assert.assertTrue(response.isSuccess());
-            Assert.assertTrue(appender.contains(Level.DEBUG,
-                    "LdapAuthenticator.authenticate: user=user, success=true, elapsed="));
-            Assert.assertFalse(appender.contains(Level.WARN,
-                    "LdapAuthenticator.authenticate slow: user=user"));
-        }
     }
 
     @Test
@@ -153,18 +129,6 @@ public class LdapAuthenticatorTest {
         Assert.assertTrue(ldapAuthenticator.canDeal("ss"));
         setLdapUserExist(false);
         Assert.assertFalse(ldapAuthenticator.canDeal("ss"));
-    }
-
-    @Test
-    public void testCanDealLogsInfoWithoutThreshold() {
-        setLdapUserExist(true);
-        try (TestLogAppender appender = TestLogAppender.attach(LdapAuthenticator.class)) {
-            Assert.assertTrue(ldapAuthenticator.canDeal("ss"));
-            Assert.assertTrue(appender.contains(Level.DEBUG,
-                    "LdapAuthenticator.canDeal: user=ss, result=true, elapsed="));
-            Assert.assertFalse(appender.contains(Level.WARN,
-                    "LdapAuthenticator.canDeal slow: user=ss"));
-        }
     }
 
     @Test

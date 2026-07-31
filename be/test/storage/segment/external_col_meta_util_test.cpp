@@ -21,12 +21,16 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "core/field.h"
 #include "gtest/gtest.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/local_file_system.h"
+#include "io/io_common.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_writer.h"
 #include "storage/segment/variant/variant_ext_meta_writer.h"
@@ -43,6 +47,54 @@ using namespace doris;
 namespace {
 
 constexpr std::string_view kTestDir = "./ut_dir/external_col_meta_util_test";
+
+struct RecordedRead {
+    size_t offset = 0;
+    ReaderType reader_type = ReaderType::UNKNOWN;
+    const TUniqueId* query_id = nullptr;
+    io::FileCacheStatistics* file_cache_stats = nullptr;
+    io::RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr;
+    bool is_index_data = false;
+};
+
+class RecordingFileReader final : public io::FileReader {
+public:
+    explicit RecordingFileReader(io::FileReaderSPtr delegate)
+            : _delegate(std::move(delegate)), _path(_delegate->path()) {}
+
+    Status close() override { return _delegate->close(); }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _delegate->size(); }
+    bool closed() const override { return _delegate->closed(); }
+    const std::string& get_data_dir_path() override { return _delegate->get_data_dir_path(); }
+    int64_t mtime() const override { return _delegate->mtime(); }
+
+    const std::vector<RecordedRead>& records() const { return _records; }
+    void clear_records() { _records.clear(); }
+    void set_cache_key_suffix(std::string_view suffix) {
+        _path = io::Path(_delegate->path().native() + std::string(suffix));
+    }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        RecordedRead record {.offset = offset};
+        if (io_ctx != nullptr) {
+            record.reader_type = io_ctx->reader_type;
+            record.query_id = io_ctx->query_id;
+            record.file_cache_stats = io_ctx->file_cache_stats;
+            record.remote_scan_cache_write_limiter = io_ctx->remote_scan_cache_write_limiter;
+            record.is_index_data = io_ctx->is_index_data;
+        }
+        _records.push_back(record);
+        return _delegate->read_at(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    io::FileReaderSPtr _delegate;
+    io::Path _path;
+    std::vector<RecordedRead> _records;
+};
 
 // Helper to create a clean local test directory and return absolute path + filename.
 std::string make_test_file_path(const std::string& file_name) {
@@ -389,6 +441,117 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     EXPECT_TRUE(has);
 }
 
+TEST(ExternalColMetaUtilTest, VariantExternalMetaReaderPassesCacheLimiterToIndexedColumnReads) {
+    SegmentFooterPB footer;
+    const int32_t root_uid = 1;
+    ColumnMetaPB* root = footer.add_columns();
+    root->set_unique_id(root_uid);
+    root->set_type(int(FieldType::OLAP_FIELD_TYPE_VARIANT));
+    {
+        PathInData root_path("v1");
+        root_path.to_protobuf(root->mutable_column_path_info(),
+                              /*parent_col_unique_id=*/root_uid);
+    }
+
+    ColumnMetaPB* non_sparse = footer.add_columns();
+    non_sparse->set_unique_id(2);
+    non_sparse->set_type(int(FieldType::OLAP_FIELD_TYPE_INT));
+    {
+        PathInData full_path("v1.key0");
+        full_path.to_protobuf(non_sparse->mutable_column_path_info(),
+                              /*parent_col_unique_id=*/root_uid);
+        non_sparse->set_none_null_size(123);
+    }
+
+    std::string file_path = make_test_file_path("variant_ext_meta_limiter.bin");
+    io::FileWriterPtr fw;
+    auto fs = io::global_local_filesystem();
+    Status st = fs->create_file(file_path, &fw);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+
+    std::vector<ColumnMetaPB> out_metas;
+    {
+        VariantExtMetaWriter ext_writer(fw.get(), CompressionTypePB::LZ4);
+        st = ext_writer.externalize_from_footer(&footer, &out_metas);
+        ASSERT_TRUE(st.ok()) << st.to_json();
+    }
+    footer.clear_column_meta_entries();
+    footer.set_col_meta_region_start(fw->bytes_appended());
+    for (const auto& meta : out_metas) {
+        std::string meta_bytes;
+        ASSERT_TRUE(meta.SerializeToString(&meta_bytes));
+        ASSERT_TRUE(fw->append(Slice(meta_bytes)).ok());
+        auto* entry = footer.add_column_meta_entries();
+        entry->set_unique_id(meta.unique_id());
+        entry->set_length(meta_bytes.size());
+    }
+    st = append_footer_trailer(fw.get(), &footer);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    ASSERT_TRUE(fw->close().ok());
+
+    io::FileReaderSPtr fr;
+    io::FileReaderOptions opts;
+    st = fs->open_file(file_path, &fr, &opts);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    auto recording_fr = std::make_shared<RecordingFileReader>(fr);
+
+    TUniqueId query_id;
+    query_id.hi = 100;
+    query_id.lo = 200;
+    io::RemoteScanCacheWriteLimiter limiter(query_id, 1024);
+    OlapReaderStatistics reader_stats;
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.query_id = &query_id;
+    io_ctx.remote_scan_cache_write_limiter = &limiter;
+
+    auto reset_recording = [&](std::string_view suffix) {
+        recording_fr->set_cache_key_suffix(suffix);
+        recording_fr->clear_records();
+    };
+    auto expect_recorded_reads_with_limiter = [&](std::string_view label) {
+        const auto& records = recording_fr->records();
+        ASSERT_FALSE(records.empty()) << label;
+        for (const auto& record : records) {
+            EXPECT_EQ(record.reader_type, ReaderType::READER_QUERY) << label;
+            EXPECT_EQ(record.query_id, &query_id) << label;
+            EXPECT_EQ(record.file_cache_stats, &reader_stats.file_cache_stats) << label;
+            EXPECT_EQ(record.remote_scan_cache_write_limiter, &limiter) << label;
+            EXPECT_TRUE(record.is_index_data) << label;
+        }
+        recording_fr->clear_records();
+    };
+
+    VariantExternalMetaReader reader;
+    auto footer_sp = std::make_shared<SegmentFooterPB>();
+    footer_sp->CopyFrom(footer);
+    st = reader.init_from_footer(footer_sp, recording_fr, root_uid, &reader_stats, &io_ctx);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    ASSERT_TRUE(reader.available());
+
+    ColumnMetaPB loaded_meta;
+    reset_recording("#lookup_meta_by_path");
+    st = reader.lookup_meta_by_path("key0", &loaded_meta, &reader_stats, &io_ctx);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    expect_recorded_reads_with_limiter("lookup_meta_by_path");
+    EXPECT_EQ(loaded_meta.none_null_size(), 123);
+
+    SubcolumnColumnMetaInfo meta_tree;
+    VariantStatistics stats;
+    reset_recording("#load_all_once");
+    st = reader.load_all_once(&meta_tree, &stats, &reader_stats, &io_ctx);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    expect_recorded_reads_with_limiter("load_all_once");
+    EXPECT_EQ(stats.subcolumns_non_null_size.at("key0"), 123);
+
+    bool has = false;
+    reset_recording("#has_prefix");
+    st = reader.has_prefix("key", &has, &reader_stats, &io_ctx);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    expect_recorded_reads_with_limiter("has_prefix");
+    EXPECT_TRUE(has);
+}
+
 // End-to-end test: use ExternalColMetaUtil to write external ColumnMeta region + CMO
 // into a V3 segment-like file, then read footer back and verify:
 //  - footer.version() is V3
@@ -494,7 +657,7 @@ TEST(ExternalColMetaUtilTest, BuildSegmentAndVerifyDataAndFooterMeta) {
     TabletSchemaSPtr tablet_schema = create_schema(columns, UNIQUE_KEYS);
     // Enable external ColumnMetaPB so that SegmentWriter produces a V3 footer with
     // externalized column meta region + column_meta_entries.
-    tablet_schema->set_external_segment_meta_used_default(true);
+    tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
     // 2. Use existing build_segment helper (SegmentWriter-based) to write a segment file.
     SegmentWriterOptions opts;

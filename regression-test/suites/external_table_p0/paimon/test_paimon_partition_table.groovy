@@ -52,6 +52,74 @@ suite("test_paimon_partition_table", "p0,external") {
            String baseQueryName = "qt_show_partition_${tableName}"
            "$baseQueryName" """show partitions from ${tableName};"""
        }
+
+        sql """set force_jni_scanner=true"""
+
+        def salesByDateRows = sql """select sale_date from sales_by_date order by sale_date"""
+        assertEquals(
+                ["2024-01-15", "2024-01-15", "2024-01-16", "2024-01-16", "2024-01-17"],
+                salesByDateRows.collect { row -> row[0].toString() })
+
+        def salesByDateFilteredRows = sql """
+                select sale_date
+                from sales_by_date
+                where sale_date = '2024-01-16'
+                order by sale_date
+        """
+        assertEquals(
+                ["2024-01-16", "2024-01-16"],
+                salesByDateFilteredRows.collect { row -> row[0].toString() })
+
+        def salesByRegionRows = sql """select region from sales_by_region order by region"""
+        assertEquals(
+                ["China-Beijing", "Japan-Tokyo", "USA-California"],
+                salesByRegionRows.collect { row -> row[0].toString() })
+
+        def salesByDateRegionRows = sql """
+                select sale_date, region
+                from sales_by_date_region
+                order by sale_date, region
+        """
+        assertEquals(
+                [
+                        ["2024-01-15", "China-Beijing"],
+                        ["2024-01-15", "Japan-Tokyo"],
+                        ["2024-01-15", "USA-California"],
+                        ["2024-01-16", "China-Shanghai"],
+                        ["2024-01-16", "Japan-Osaka"],
+                        ["2024-01-16", "USA-New York"],
+                ],
+                salesByDateRegionRows.collect { row -> [row[0].toString(), row[1].toString()] })
+
+        def eventsByHourRows = sql """
+                select hour_partition
+                from events_by_hour
+                where hour_partition in ('2024-01-15-10', '2024-01-15-14')
+                order by hour_partition
+        """
+        assertEquals(
+                ["2024-01-15-10", "2024-01-15-10", "2024-01-15-14", "2024-01-15-14"],
+                eventsByHourRows.collect { row -> row[0].toString() })
+
+        def logsByDateHierarchyRows = sql """
+                select year_val, month_val, day_val
+                from logs_by_date_hierarchy
+                where year_val = 2024 and month_val = 1
+                order by day_val, year_val, month_val
+        """
+        assertEquals(
+                [
+                        [2024, 1, 15],
+                        [2024, 1, 15],
+                        [2024, 1, 16],
+                        [2024, 1, 16],
+                        [2024, 1, 17],
+                ],
+                logsByDateHierarchyRows.collect { row ->
+                    [(row[0] as Integer), (row[1] as Integer), (row[2] as Integer)]
+                })
+
+        sql """set force_jni_scanner=false"""
 /*
 mysql> show partitions from sales_by_date;
 +----------------------+--------------+-------------+-----------------+-----------+
@@ -65,7 +133,7 @@ mysql> show partitions from sales_by_date;
 FileSizeInBytes maybe changed, when upgrade paimon version.
 */
     } finally {
+         sql """set force_jni_scanner=false"""
          sql """drop catalog if exists ${catalog_name}"""
     }
 }
-

@@ -93,11 +93,11 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, int node_id,
+                                         const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink)
-        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
-                            std::numeric_limits<int>::max()),
+        : DataSinkOperatorX(operator_id, node_id, node_id),
           _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCOL
                              ? TResultSinkType::MYSQL_PROTOCOL
                              : sink.type),
@@ -132,7 +132,7 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status ResultSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) {
+Status ResultSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());

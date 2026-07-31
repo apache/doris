@@ -23,6 +23,8 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Function.NullableMode;
 
+import com.google.common.base.Strings;
+
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
  * Converts {@link Function} and its subclasses to their SQL representations.
  */
 public class FunctionToSqlConverter {
+    private static final long DEFAULT_EXPIRATION_TIME = 360;
 
     /**
      * Converts a {@link Function} (or subclass) to its SQL representation.
@@ -54,13 +57,13 @@ public class FunctionToSqlConverter {
         if (fn.isGlobal()) {
             sb.append("GLOBAL ");
         }
-        sb.append("FUNCTION ");
+        sb.append(fn.isUDTFunction() ? "TABLES FUNCTION " : "FUNCTION ");
 
         if (ifNotExists) {
             sb.append("IF NOT EXISTS ");
         }
         sb.append(fn.signatureString())
-                .append(" RETURNS " + fn.getReturnType())
+                .append(" RETURNS " + getScalarFunctionReturnTypeSql(fn))
                 .append(" PROPERTIES (");
         sb.append("\n  \"SYMBOL\"=").append("\"" + fn.getSymbolName() + "\"");
         if (fn.getPrepareFnSymbol() != null) {
@@ -75,13 +78,48 @@ public class FunctionToSqlConverter {
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+            sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
+        } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
+            appendFileIfPresent(sb, fn, true);
+            boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
+            sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+            sb.append(",\n  \"RUNTIME_VERSION\"=").append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\"");
+            appendExpirationTimeIfNeeded(sb, fn);
+            sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
         } else {
             sb.append(",\n  \"OBJECT_FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
         }
         sb.append(",\n  \"TYPE\"=").append("\"" + fn.getBinaryType() + "\"");
-        sb.append("\n);");
+        if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF && !Strings.isNullOrEmpty(fn.getFunctionCode())) {
+            // Preserve inline Python UDF bodies so SHOW CREATE FUNCTION output can be replayed directly.
+            sb.append("\n)\nAS $$\n").append(fn.getFunctionCode()).append("\n$$;");
+        } else {
+            sb.append("\n);");
+        }
         return sb.toString();
+    }
+
+    private static String getScalarFunctionReturnTypeSql(ScalarFunction fn) {
+        if (fn.isUDTFunction()) {
+            return new ArrayType(fn.getReturnType()).toSql();
+        }
+        return fn.getReturnType().toSql();
+    }
+
+    private static void appendExpirationTimeIfNeeded(StringBuilder sb, Function fn) {
+        if (fn.getExpirationTime() != DEFAULT_EXPIRATION_TIME) {
+            sb.append(",\n  \"EXPIRATION_TIME\"=").append("\"" + fn.getExpirationTime() + "\"");
+        }
+    }
+
+    private static void appendFileIfPresent(StringBuilder sb, Function fn, boolean hasLeadingComma) {
+        if (fn.getLocation() != null) {
+            if (hasLeadingComma) {
+                sb.append(",");
+            }
+            sb.append("\n  \"FILE\"=").append("\"" + fn.getLocation().toString() + "\"");
+        }
     }
 
     /**
@@ -125,12 +163,31 @@ public class FunctionToSqlConverter {
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
+            sb.append("\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\",");
+        } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
+            appendFileIfPresent(sb, fn, false);
+            if (fn.getLocation() != null) {
+                sb.append(",");
+            }
+            boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
+            sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
+            sb.append("\n  \"RUNTIME_VERSION\"=")
+                    .append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\",");
+            if (fn.getExpirationTime() != DEFAULT_EXPIRATION_TIME) {
+                sb.append("\n  \"EXPIRATION_TIME\"=").append("\"" + fn.getExpirationTime() + "\",");
+            }
+            sb.append("\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\",");
         } else {
             sb.append("\n  \"OBJECT_FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
         }
         sb.append("\n  \"TYPE\"=").append("\"" + fn.getBinaryType() + "\"");
-        sb.append("\n);");
+        if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF && !Strings.isNullOrEmpty(fn.getFunctionCode())) {
+            // Preserve inline Python UDAF bodies so SHOW CREATE FUNCTION output can be replayed directly.
+            sb.append("\n)\nAS $$\n").append(fn.getFunctionCode()).append("\n$$;");
+        } else {
+            sb.append("\n);");
+        }
         return sb.toString();
     }
 

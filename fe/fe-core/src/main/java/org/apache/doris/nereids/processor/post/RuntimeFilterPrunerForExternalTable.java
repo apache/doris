@@ -21,7 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -49,14 +49,12 @@ public class RuntimeFilterPrunerForExternalTable extends PlanPostProcessor {
         plan = plan.accept(this, ctx);
         RuntimeFilterContext rfCtx = ctx.getRuntimeFilterContext();
         for (RuntimeFilter rf : rfCtx.getNereidsRuntimeFilter()) {
-            AbstractPhysicalJoin join = rf.getBuilderNode();
-            if (join instanceof PhysicalHashJoin) {
-                List<Plan> joinAncestors = getAncestors(rf.getBuilderNode());
-                for (int i = 0; i < rf.getTargetScans().size(); i++) {
-                    PhysicalRelation scan = rf.getTargetScans().get(i);
-                    if (canPrune(scan, joinAncestors)) {
-                        rfCtx.removeFilters(rf.getTargetSlots().get(i).getExprId(), (PhysicalHashJoin) join);
-                    }
+            AbstractPhysicalPlan builder = rf.getBuilderNode();
+            if (builder instanceof PhysicalHashJoin) {
+                List<Plan> joinAncestors = getAncestors(builder);
+                PhysicalRelation scan = rf.getTargetScan();
+                if (canPrune(scan, joinAncestors)) {
+                    rfCtx.removeFilters(rf.getTargetSlot().getExprId(), (PhysicalHashJoin) builder);
                 }
             }
         }

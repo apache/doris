@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_predefine_index_type", "p0"){ 
+suite("test_variant_predefine_index_type", "p0"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
 
@@ -42,13 +42,25 @@ suite("test_variant_predefine_index_type", "p0"){
                                           (3, '{"path" : {"int" : 789, "decimal" : 789.789123456789, "string" : "hello"}}'),
                                           (4, '{"path" : {"int" : 100, "decimal" : 100.100123456789, "string" : "world"}}'),
                                           (5, '{"path" : {"int" : 111, "decimal" : 111.111111111111, "string" : "hello"}}')"""
-    
+
     qt_sql """ select variant_type(var) from ${tableName} """
     qt_sql """select * from ${tableName} order by id"""
     sql """ set profile_level = 2"""
     sql """ set inverted_index_skip_threshold = 0 """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
+
+    sql """ set enable_segment_limit_pushdown = false """
+    qt_count_on_index_with_segment_limit_disabled """
+        select count() from ${tableName} where cast(var['path']['int'] as int) = 789
+    """
+    sql """ set enable_count_on_index_pushdown = false """
+    qt_match_with_segment_limit_disabled """
+        select id from ${tableName} where var['path']['string'] match 'hello' order by id
+    """
+    sql """ set enable_count_on_index_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
+
     qt_sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
     qt_sql """ select count() from ${tableName} where cast(var['path']['decimal'] as DECIMAL(15, 12)) = 789.789123456789 """
     qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """
@@ -88,27 +100,26 @@ suite("test_variant_predefine_index_type", "p0"){
         "storage_format" = "V2",
         "inverted_index_storage_format" = "V2",
         "light_schema_change" = "true",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
         "disable_auto_compaction" = "true"
         );
-    """ 
+    """
     for (int i = 0; i < 10; i++) {
         sql """
             INSERT INTO objects (id, overflow_properties)
-            VALUES 
+            VALUES
         (6, '{"color":"Bright Red","description":"A bright red circular object with a metallic shine","shape":"Large Circle","tags":["metallic","reflective"]}'),
         (7, '{"color":"Deep Blue","description":"Opaque square made of plastic in deep blue","shape":"Small Square","tags":["opaque","plastic"]}'),
         (8, '{"color":"Green","description":"Tall green triangle carved from wood","shape":"Tall Triangle","tags":["matte","wood"]}'),
         (9, '{"color":"Reddish Orange","description":"Glossy ceramic hexagon with reddish orange tint","shape":"Flat Hexagon","tags":["glossy","ceramic"]}'),
-            (10, '{"color":"Yellow","description":"Shiny yellow circular badge","shape":"Wide Circle","tags":["shiny","plastic"]}');    
+            (10, '{"color":"Yellow","description":"Shiny yellow circular badge","shape":"Wide Circle","tags":["shiny","plastic"]}');
         """
     }
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
     sql "set enable_match_without_inverted_index = false"
-    qt_sql "select count() from objects where (overflow_properties['color'] MATCH_PHRASE 'Blue')"    
-    qt_sql "select count() from objects where (array_contains(cast(overflow_properties['tags'] as array<string>), 'plastic'))"   
+    qt_sql "select count() from objects where (overflow_properties['color'] MATCH_PHRASE 'Blue')"
+    qt_sql "select count() from objects where (array_contains(cast(overflow_properties['tags'] as array<string>), 'plastic'))"
     qt_sql "select cast(overflow_properties['color'] as string) from objects where overflow_properties['color'] IS NOT NULL and id = 6 limit 1"
     qt_sql "select overflow_properties['color'] from objects where overflow_properties['color'] IS NOT NULL and id = 6 limit 1"
 }

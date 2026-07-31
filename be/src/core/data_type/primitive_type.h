@@ -47,7 +47,7 @@ class ColumnVarbinary;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
 struct Array;
-struct Tuple;
+struct Struct;
 struct Map;
 struct FieldWithDataType;
 using VariantMap = std::map<PathInData, FieldWithDataType>;
@@ -92,10 +92,12 @@ class DataTypeHLL;
 class DataTypeJsonb;
 class DataTypeArray;
 class DataTypeMap;
+class DataTypeNullable;
 class DataTypeVariant;
 class DataTypeStruct;
 class DataTypeBitMap;
 class DataTypeQuantileState;
+using DataTypeNullablePtr = std::shared_ptr<const DataTypeNullable>;
 template <PrimitiveType T>
 class ColumnVector;
 using ColumnUInt8 = ColumnVector<TYPE_BOOLEAN>;
@@ -487,7 +489,7 @@ struct PrimitiveTypeTraits<TYPE_MAP> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRUCT> {
-    using CppType = Tuple;
+    using CppType = Struct;
     using StorageFieldType = CppType;
     using DataType = DataTypeStruct;
     using ColumnType = ColumnStruct;

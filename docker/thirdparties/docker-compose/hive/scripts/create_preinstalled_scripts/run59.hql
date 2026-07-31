@@ -1,4 +1,5 @@
-CREATE TABLE `string_col_dict_plain_mixed_orc`(
+drop table if exists `string_col_dict_plain_mixed_orc`;
+create table `string_col_dict_plain_mixed_orc`(
   `col0` int,
   `col1` string,
   `col2` double,
@@ -15,6 +16,3 @@ LOCATION
   '/user/doris/preinstalled_data/orc_table/string_col_dict_plain_mixed_orc'
 TBLPROPERTIES (
   'orc.compress'='ZLIB');
-
-msck repair table string_col_dict_plain_mixed_orc;
-

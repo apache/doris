@@ -107,6 +107,22 @@ TEST_F(LoadUtilTest, ParseTest) {
         EXPECT_EQ(TFileCompressType::DEFLATE, compress_type);
     }
     {
+        // CSV, ZSTD
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("CSV", "ZSTD", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_CSV_PLAIN, format_type);
+        EXPECT_EQ(TFileCompressType::ZSTD, compress_type);
+    }
+    {
+        // "", ZSTD
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("", "ZSTD", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_CSV_PLAIN, format_type);
+        EXPECT_EQ(TFileCompressType::ZSTD, compress_type);
+    }
+    {
         // JSON, ""
         TFileFormatType::type format_type;
         TFileCompressType::type compress_type;
@@ -179,6 +195,14 @@ TEST_F(LoadUtilTest, ParseTest) {
         EXPECT_EQ(TFileCompressType::DEFLATE, compress_type);
     }
     {
+        // JSON, ZSTD
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("JSON", "ZSTD", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
+        EXPECT_EQ(TFileCompressType::ZSTD, compress_type);
+    }
+    {
         // JSON, unkonw
         TFileFormatType::type format_type;
         TFileCompressType::type compress_type;
@@ -202,6 +226,23 @@ TEST_F(LoadUtilTest, ParseTest) {
         EXPECT_EQ(TFileFormatType::FORMAT_ORC, format_type);
         EXPECT_EQ(TFileCompressType::PLAIN, compress_type);
     }
+}
+
+TEST_F(LoadUtilTest, IsCompressedLoadTest) {
+    EXPECT_FALSE(LoadUtil::is_compressed_load(TFileCompressType::PLAIN,
+                                              TFileFormatType::FORMAT_CSV_PLAIN));
+    EXPECT_FALSE(LoadUtil::is_compressed_load(TFileCompressType::UNKNOWN,
+                                              TFileFormatType::FORMAT_CSV_PLAIN));
+    EXPECT_TRUE(LoadUtil::is_compressed_load(TFileCompressType::ZSTD,
+                                             TFileFormatType::FORMAT_CSV_PLAIN));
+    EXPECT_TRUE(
+            LoadUtil::is_compressed_load(TFileCompressType::PLAIN, TFileFormatType::FORMAT_CSV_GZ));
+    EXPECT_TRUE(LoadUtil::is_compressed_load(TFileCompressType::UNKNOWN,
+                                             TFileFormatType::FORMAT_CSV_DEFLATE));
+    EXPECT_TRUE(LoadUtil::is_compressed_load(TFileCompressType::SNAPPYBLOCK,
+                                             TFileFormatType::FORMAT_CSV_PLAIN));
+    EXPECT_FALSE(
+            LoadUtil::is_compressed_load(TFileCompressType::PLAIN, TFileFormatType::FORMAT_JSON));
 }
 
 } // namespace doris

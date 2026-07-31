@@ -41,8 +41,12 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class AuthenticationPluginAuthenticatorTest {
@@ -51,6 +55,7 @@ class AuthenticationPluginAuthenticatorTest {
     private AuthenticationPluginManager pluginManager;
     private AuthenticationPlugin plugin;
     private MockedStatic<Env> envMockedStatic;
+    private String originalAuthenticationPluginsDir;
 
     private static final String USER_NAME = "alice";
     private static final String REMOTE_IP = "127.0.0.1";
@@ -62,6 +67,7 @@ class AuthenticationPluginAuthenticatorTest {
         auth = Mockito.mock(Auth.class);
         pluginManager = Mockito.mock(AuthenticationPluginManager.class);
         plugin = Mockito.mock(AuthenticationPlugin.class);
+        originalAuthenticationPluginsDir = org.apache.doris.common.Config.authentication_plugins_dir;
 
         envMockedStatic = Mockito.mockStatic(Env.class);
         envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
@@ -134,7 +140,7 @@ class AuthenticationPluginAuthenticatorTest {
                 authPacket,
                 handshakePacket).orElseThrow(() -> new AssertionError("request is required"));
 
-        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, request.getCredentialType());
+        Assertions.assertEquals(CredentialType.OAUTH_TOKEN, request.getCredentialType());
         Assertions.assertArrayEquals("token-from-client".getBytes(StandardCharsets.UTF_8), request.getCredential());
 
         AuthenticateResponse response = authenticator.authenticate(request);
@@ -142,13 +148,58 @@ class AuthenticationPluginAuthenticatorTest {
 
         ArgumentCaptor<AuthenticationRequest> requestCaptor = ArgumentCaptor.forClass(AuthenticationRequest.class);
         Mockito.verify(plugin).authenticate(requestCaptor.capture(), Mockito.any());
-        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, requestCaptor.getValue().getCredentialType());
+        Assertions.assertEquals(CredentialType.OAUTH_TOKEN, requestCaptor.getValue().getCredentialType());
         Assertions.assertArrayEquals("token-from-client".getBytes(StandardCharsets.UTF_8),
                 requestCaptor.getValue().getCredential());
     }
 
+    @Test
+    void testAuthenticatePropagatesCredentialExpirationFromPluginResult() throws Exception {
+        long expiresAtMillis = 1_700_000_000_000L;
+        Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+        Mockito.when(plugin.authenticate(Mockito.any(), Mockito.any()))
+                .thenReturn(AuthenticationResult.success(BasicPrincipal.builder()
+                        .name("external_alice")
+                        .authenticator("oidc")
+                        .build(), Collections.emptySet(), expiresAtMillis));
+        Mockito.when(auth.getUserIdentityForExternalAuth("alice", "127.0.0.1"))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, String> integrationProperties = new HashMap<>();
+        integrationProperties.put("enable_jit_user", "true");
+        AuthenticationPluginAuthenticator authenticator = new AuthenticationPluginAuthenticator(
+                "oidc", integrationProperties, pluginManager);
+
+        AuthenticateResponse response = authenticator.authenticate(AuthenticateRequest.builder()
+                .userName("alice")
+                .remoteHost("127.0.0.1")
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential("token".getBytes(StandardCharsets.UTF_8))
+                .build());
+
+        Assertions.assertTrue(response.isSuccess());
+        Assertions.assertTrue(response.getCredentialExpiresAtMillis().isPresent());
+        Assertions.assertEquals(expiresAtMillis, response.getCredentialExpiresAtMillis().getAsLong());
+    }
+
+    @Test
+    void testEnsurePluginFactoryLoadedSupportsMultiplePluginRoots() throws Exception {
+        org.apache.doris.common.Config.authentication_plugins_dir = "/tmp/auth-root-a, /tmp/auth-root-b";
+        Mockito.when(pluginManager.hasFactory("oidc")).thenReturn(false, true);
+
+        new AuthenticationPluginAuthenticator("oidc", new HashMap<>(), pluginManager);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Path>> pluginRootsCaptor = ArgumentCaptor.forClass((Class) List.class);
+        Mockito.verify(pluginManager).loadAll(pluginRootsCaptor.capture(), Mockito.any());
+        Assertions.assertEquals(
+                Arrays.asList(Paths.get("/tmp/auth-root-a"), Paths.get("/tmp/auth-root-b")),
+                pluginRootsCaptor.getValue());
+    }
+
     @AfterEach
     void tearDown() {
+        org.apache.doris.common.Config.authentication_plugins_dir = originalAuthenticationPluginsDir;
         if (envMockedStatic != null) {
             envMockedStatic.close();
         }

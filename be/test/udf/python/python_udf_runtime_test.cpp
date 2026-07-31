@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <boost/process.hpp>
@@ -132,6 +133,76 @@ TEST_F(PythonUDFRuntimeTest, ProcessPtrIsSharedPtr) {
     EXPECT_FALSE(ptr);
 }
 
+TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsExitedForExitedChild) {
+    bp::ipstream output;
+    bp::child child("/bin/bash", "-c", "exit 7", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+
+    int exit_status = 0;
+    auto result = PythonUDFProcess::wait_child_exit(child.id(), std::chrono::milliseconds(1000),
+                                                    &exit_status);
+    child.detach();
+
+    EXPECT_TRUE(result == PythonUDFProcess::ChildExitWaitResult::EXITED ||
+                result == PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
+    if (result == PythonUDFProcess::ChildExitWaitResult::EXITED) {
+        EXPECT_TRUE(WIFEXITED(exit_status));
+        EXPECT_EQ(WEXITSTATUS(exit_status), 7);
+    }
+}
+
+TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsTimeoutForRunningChild) {
+    bp::ipstream output;
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    ASSERT_TRUE(child.running());
+
+    int exit_status = 0;
+    auto result = PythonUDFProcess::wait_child_exit(child.id(), std::chrono::milliseconds(20),
+                                                    &exit_status);
+
+    EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::TIMEOUT);
+
+    child.terminate();
+    child.wait();
+}
+
+TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsAlreadyReapedForReapedChild) {
+    bp::ipstream output;
+    bp::child child("/bin/true", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    pid_t child_pid = child.id();
+    child.wait();
+
+    int exit_status = 0;
+    auto result = PythonUDFProcess::wait_child_exit(child_pid, std::chrono::milliseconds(0),
+                                                    &exit_status);
+
+    EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
+}
+
+TEST_F(PythonUDFRuntimeTest, BackgroundReaperReapsQueuedChild) {
+    bp::ipstream output;
+    bp::child child("/bin/bash", "-c", "sleep 0.1; exit 0", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    pid_t child_pid = child.id();
+
+    // Do not try to force the real "SIGKILLed but still not reapable" case in UT. That usually
+    // needs kernel-level uninterruptible sleep. The behavior we must guarantee is that once such a
+    // pid is handed off, the background reaper keeps waitpid ownership until the child exits.
+    child.detach();
+    PythonUDFProcess::enqueue_child_for_reap(child_pid);
+
+    bool reaped = PythonUDFProcess::wait_background_reaped_for_test(
+            child_pid, std::chrono::milliseconds(5000));
+    EXPECT_TRUE(reaped);
+
+    int exit_status = 0;
+    auto result = PythonUDFProcess::wait_child_exit(child_pid, std::chrono::milliseconds(0),
+                                                    &exit_status);
+    EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
+}
+
 // Test socket file path generation for various PIDs
 TEST_F(PythonUDFRuntimeTest, SocketPathGenerationEdgeCases) {
     // Minimum PID
@@ -205,9 +276,10 @@ TEST_F(PythonUDFRuntimeTest, FlightServerPathTemplate) {
 // ============================================================================
 
 TEST_F(PythonUDFRuntimeTest, ShutdownTerminatesProcess) {
-    // Use /bin/cat which blocks waiting for stdin - reliable and fast
+    // Use sleep instead of a stdin-driven command. In CI, stdin may be closed and
+    // commands like cat can exit before running() is checked.
     bp::ipstream output;
-    bp::child child("/bin/cat", bp::std_out > output);
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     ASSERT_TRUE(child.valid());
     ASSERT_TRUE(child.running());
@@ -229,7 +301,7 @@ TEST_F(PythonUDFRuntimeTest, ShutdownTerminatesProcess) {
 
 TEST_F(PythonUDFRuntimeTest, ShutdownIdempotent) {
     bp::ipstream output;
-    bp::child child("/bin/cat", bp::std_out > output);
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     PythonUDFProcess process(std::move(child), std::move(output));
 
@@ -247,7 +319,7 @@ TEST_F(PythonUDFRuntimeTest, ShutdownIdempotent) {
 TEST_F(PythonUDFRuntimeTest, ShutdownWithStubbornProcess) {
     // Create a process that ignores SIGTERM - tests the SIGKILL fallback path
     bp::ipstream output;
-    bp::child child("/bin/bash", "-c", "trap '' TERM; cat", bp::std_out > output);
+    bp::child child("/bin/bash", "-c", "trap '' TERM; exec sleep 60", bp::std_out > output);
 
     PythonUDFProcess process(std::move(child), std::move(output));
     EXPECT_TRUE(process.is_alive());
@@ -259,13 +331,34 @@ TEST_F(PythonUDFRuntimeTest, ShutdownWithStubbornProcess) {
     EXPECT_FALSE(process.is_alive());
 }
 
+TEST_F(PythonUDFRuntimeTest, ShutdownEnqueuesBackgroundReapWhenSigkillWaitTimesOut) {
+    bp::ipstream output;
+    bp::child child("/bin/bash", "-c", "trap '' TERM; exec sleep 60", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    pid_t child_pid = child.id();
+
+    PythonUDFProcess process(std::move(child), std::move(output));
+    ASSERT_TRUE(process.is_alive());
+
+    // SIGKILL not becoming reapable inside a short bounded wait is rare and depends on kernel
+    // state, so force only the wait results here. This covers the shutdown handoff contract:
+    // a pid that was killed but not reaped synchronously must be owned by the background reaper.
+    PythonUDFProcess::force_child_exit_timeouts_for_test(2);
+    process.shutdown();
+    PythonUDFProcess::force_child_exit_timeouts_for_test(0);
+
+    EXPECT_TRUE(process.is_shutdown());
+    EXPECT_TRUE(PythonUDFProcess::wait_background_reaped_for_test(child_pid,
+                                                                  std::chrono::milliseconds(5000)));
+}
+
 // ============================================================================
 // PythonUDFProcess remove_unix_socket() tests
 // ============================================================================
 
 TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketExistingFile) {
     bp::ipstream output;
-    bp::child child("/bin/cat", bp::std_out > output);
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     pid_t child_pid = child.id();
     PythonUDFProcess process(std::move(child), std::move(output));
@@ -284,7 +377,7 @@ TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketExistingFile) {
 
 TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketNonExistent) {
     bp::ipstream output;
-    bp::child child("/bin/cat", bp::std_out > output);
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     pid_t child_pid = child.id();
     PythonUDFProcess process(std::move(child), std::move(output));
@@ -300,7 +393,7 @@ TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketNonExistent) {
 
 TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketIsDirectory) {
     bp::ipstream output;
-    bp::child child("/bin/cat", bp::std_out > output);
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     pid_t child_pid = child.id();
 
@@ -326,7 +419,7 @@ TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketIsDirectory) {
 
 TEST_F(PythonUDFRuntimeTest, ToStringFormat) {
     bp::ipstream output;
-    bp::child child("/bin/cat", bp::std_out > output);
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     pid_t child_pid = child.id();
     PythonUDFProcess process(std::move(child), std::move(output));
@@ -350,7 +443,7 @@ TEST_F(PythonUDFRuntimeTest, ToStringFormat) {
 
 TEST_F(PythonUDFRuntimeTest, GetUri) {
     bp::ipstream output;
-    bp::child child("/bin/cat", bp::std_out > output);
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     pid_t child_pid = child.id();
     PythonUDFProcess process(std::move(child), std::move(output));
@@ -367,7 +460,7 @@ TEST_F(PythonUDFRuntimeTest, GetUri) {
 
 TEST_F(PythonUDFRuntimeTest, GetSocketFilePath) {
     bp::ipstream output;
-    bp::child child("/bin/cat", bp::std_out > output);
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     pid_t child_pid = child.id();
     PythonUDFProcess process(std::move(child), std::move(output));
@@ -389,8 +482,8 @@ TEST_F(PythonUDFRuntimeTest, GetSocketFilePath) {
 
 TEST_F(PythonUDFRuntimeTest, ProcessEquality) {
     bp::ipstream output1, output2;
-    bp::child child1("/bin/cat", bp::std_out > output1);
-    bp::child child2("/bin/cat", bp::std_out > output2);
+    bp::child child1("/bin/sleep", "60", bp::std_out > output1);
+    bp::child child2("/bin/sleep", "60", bp::std_out > output2);
 
     PythonUDFProcess process1(std::move(child1), std::move(output1));
     PythonUDFProcess process2(std::move(child2), std::move(output2));
@@ -410,7 +503,7 @@ TEST_F(PythonUDFRuntimeTest, DestructorCallsShutdown) {
     pid_t child_pid;
     {
         bp::ipstream output;
-        bp::child child("/bin/cat", bp::std_out > output);
+        bp::child child("/bin/sleep", "60", bp::std_out > output);
         child_pid = child.id();
 
         PythonUDFProcess process(std::move(child), std::move(output));
@@ -431,7 +524,7 @@ TEST_F(PythonUDFRuntimeTest, DestructorCallsShutdown) {
 
 TEST_F(PythonUDFRuntimeTest, IsAliveReflectsState) {
     bp::ipstream output;
-    bp::child child("/bin/cat", bp::std_out > output);
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     PythonUDFProcess process(std::move(child), std::move(output));
 

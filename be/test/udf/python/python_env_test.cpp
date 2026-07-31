@@ -53,7 +53,9 @@ protected:
     // which causes pclose() to get ECHILD because the kernel auto-reaps children.
     // We reset SIGCHLD to SIG_DFL for the duration of each test to mimic production
     // behaviour, and restore the original handler afterwards.
-    sighandler_t old_sigchld_ = SIG_DFL;
+    // sighandler_t is a glibc-only typedef; use a plain function-pointer type so
+    // this also builds on macOS (where signal() uses sig_t).
+    void (*old_sigchld_)(int) = SIG_DFL;
 
     void SetUp() override {
         test_dir_ = fs::temp_directory_path().string() + "/python_env_test_" +

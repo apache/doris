@@ -19,23 +19,22 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.scan.FileScanNode;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -43,7 +42,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -52,7 +51,6 @@ import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -63,29 +61,28 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -238,6 +235,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         return RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv(), Optional.empty());
     }
 
+    protected DatabaseIf<?> getTargetDatabase(TableIf targetTable) {
+        return targetTable.getDatabase();
+    }
+
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         return initPlan(ctx, executor, true);
     }
@@ -259,14 +260,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
+            DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth
             if (needAuthCheck(targetTableIf) && !Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
-                            targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
+                    .checkTblPriv(ConnectContext.get(), targetDatabase.getCatalog().getName(),
+                            targetDatabase.getFullName(), targetTableIf.getName(),
                             PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                        targetTableIf.getDatabase().getFullName()
+                        targetDatabase.getFullName()
                                 + "." + Util.getTempTableDisplayName(targetTableIf.getName()));
             }
             BuildInsertExecutorResult buildResult;
@@ -283,6 +285,26 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             lineagePlan = Optional.ofNullable(analyzedPlan);
             if (!needBeginTransaction) {
                 return insertExecutor;
+            }
+
+            List<TableStreamUpdateInfo> infos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
+            if (!infos.isEmpty()) {
+                if (!Config.enable_feature_binlog) {
+                    throw new AnalysisException("Insert plan with Table stream failed."
+                            + " should enable binlog feature in FE config.");
+                }
+                // put offset into executor
+                insertExecutor.setStreamUpdateInfos(infos);
+                insertExecutor.registerListener(new InsertExecutorListener() {
+                    @Override
+                    public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor,
+                                               long jobId) throws Exception {
+                        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                                .getTransactionState(insertExecutor.getDatabase().getId(),
+                                        insertExecutor.getTxnId());
+                        transactionState.setStreamUpdateInfos(insertExecutor.getStreamUpdateInfos());
+                    }
+                });
             }
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
@@ -395,8 +417,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             (targetTableIf instanceof RemoteDorisExternalTable) ? "_remote_"
                                     + Env.getCurrentEnv().getClusterId() : "", ctx.queryId().hi, ctx.queryId().lo));
 
-            // check branch
-            if (branchName.isPresent() && !(physicalSink instanceof PhysicalIcebergTableSink)) {
+            // check branch: only iceberg supports INSERT INTO a named branch. An iceberg table is
+            // plugin-driven (generic sink), so admit it via the connector's supportsWriteBranch()
+            // capability — without which the branch would be silently dropped and the write would land
+            // on the table's default ref.
+            if (branchName.isPresent() && !connectorSupportsWriteBranch(targetTableIf)) {
                 throw new AnalysisException("Only support insert data into iceberg table's branch");
             }
 
@@ -447,13 +472,22 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     if (getLogicalQuery().containsType(InlineTable.class)) {
                         jobId = -1;
                     }
+                    // Do not register internal group commit loads to LoadManager.
+                    // Internal group commit is identified by DMLCommandType.GROUP_COMMIT, which is set
+                    // by the parser when the target table is specified via tableId (doris_internal_table_id).
+                    // The actual commit is managed by BE group commit mechanism, so these jobs will
+                    // never transition to a completed state through FE, causing a memory leak if registered.
+                    if (((PhysicalOlapTableSink<?>) physicalSink).getDmlCommandType() == DMLCommandType.GROUP_COMMIT) {
+                        jobId = -1;
+                    }
                     if (targetTableIf instanceof RemoteDorisExternalTable) {
                         executorFactory = ExecutorFactory.from(
                                 planner,
                                 dataSink,
                                 physicalSink,
                                 () -> new RemoteOlapInsertExecutor(
-                                        ctx, (RemoteOlapTable) olapTable, label, planner, insertCtx, emptyInsert, jobId)
+                                        ctx, (RemoteOlapTable) olapTable, label, planner, insertCtx, emptyInsert,
+                                        jobId)
                         );
                     } else {
                         executorFactory = ExecutorFactory.from(
@@ -461,7 +495,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                 dataSink,
                                 physicalSink,
                                 () -> new OlapInsertExecutor(
-                                        ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId)
+                                        ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId, jobId != -1)
                         );
                     }
                 }
@@ -472,98 +506,45 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                     && coordinator.getQueryOptions().isEnableMemtableOnSinkNode();
                     coordinator.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
                 });
-            } else if (physicalSink instanceof PhysicalHiveTableSink) {
+            } else if (physicalSink instanceof PhysicalConnectorTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
-                if (hiveExternalTable.isHiveTransactionalTable()) {
-                    throw new UserException("Not supported insert into hive transactional table.");
-                }
-
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert, jobId)
-                );
-                // set hive query options
-            } else if (physicalSink instanceof PhysicalIcebergTableSink) {
-                boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
-                IcebergInsertCommandContext icebergInsertCtx = insertCtx
-                        .map(insertCommandContext -> (IcebergInsertCommandContext) insertCommandContext)
-                        .orElseGet(IcebergInsertCommandContext::new);
-                branchName.ifPresent(notUsed -> icebergInsertCtx.setBranchName(branchName));
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
-                                Optional.of(icebergInsertCtx),
-                                emptyInsert, jobId
-                        )
-                );
-            } else if (physicalSink instanceof PhysicalMaxComputeTableSink) {
-                boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                MaxComputeExternalTable mcExternalTable = (MaxComputeExternalTable) targetTableIf;
-                MCInsertCommandContext mcInsertCtx = insertCtx
-                        .map(insertCommandContext -> (MCInsertCommandContext) insertCommandContext)
-                        .orElseGet(MCInsertCommandContext::new);
-                if (mcInsertCtx.getStaticPartitionSpec() == null
-                        && originLogicalQuery instanceof UnboundMaxComputeTableSink) {
-                    UnboundMaxComputeTableSink<?> mcSink =
-                            (UnboundMaxComputeTableSink<?>) originLogicalQuery;
-                    if (mcSink.hasStaticPartition()) {
+                ExternalTable externalTable = (ExternalTable) targetTableIf;
+                PluginDrivenInsertCommandContext pluginCtx = insertCtx
+                        .map(insertCommandContext -> (PluginDrivenInsertCommandContext) insertCommandContext)
+                        .orElseGet(PluginDrivenInsertCommandContext::new);
+                // Thread the @branch target onto the generic write context so the connector points the
+                // commit at the branch (iceberg validates it in beginWrite). The guard above already
+                // rejected @branch for connectors without supportsWriteBranch().
+                branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
+                if (pluginCtx.getStaticPartitionSpec().isEmpty()
+                        && originLogicalQuery instanceof UnboundConnectorTableSink) {
+                    UnboundConnectorTableSink<?> pluginSink =
+                            (UnboundConnectorTableSink<?>) originLogicalQuery;
+                    if (pluginSink.hasStaticPartition()) {
                         Map<String, String> staticSpec = Maps.newHashMap();
                         for (Map.Entry<String, Expression> e
-                                : mcSink.getStaticPartitionKeyValues().entrySet()) {
+                                : pluginSink.getStaticPartitionKeyValues().entrySet()) {
                             if (e.getValue() instanceof Literal) {
                                 staticSpec.put(e.getKey(),
                                         ((Literal) e.getValue()).getStringValue());
                             }
                         }
-                        mcInsertCtx.setStaticPartitionSpec(staticSpec);
+                        pluginCtx.setStaticPartitionSpec(staticSpec);
                     }
                 }
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new MCInsertExecutor(ctx, mcExternalTable, label, planner,
-                                Optional.of(mcInsertCtx),
-                                emptyInsert, jobId
-                        )
-                );
-            } else if (physicalSink instanceof PhysicalJdbcTableSink) {
-                boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                List<Column> cols = ((PhysicalJdbcTableSink<?>) physicalSink).getCols();
-                List<Slot> slots = physicalSink.getOutput();
-                if (physicalSink.children().size() == 1) {
-                    if (physicalSink.child(0) instanceof PhysicalOneRowRelation
-                            || physicalSink.child(0) instanceof PhysicalUnion) {
-                        for (int i = 0; i < cols.size(); i++) {
-                            if (!(cols.get(i).isAllowNull()) && slots.get(i).nullable()) {
-                                throw new AnalysisException("Column `" + cols.get(i).getName()
-                                        + "` is not nullable, but the inserted value is nullable.");
-                            }
-                        }
-                    }
-                }
-                JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) targetTableIf;
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert, jobId)
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new PluginDrivenInsertExecutor(ctx, externalTable, label, planner,
+                                Optional.of(pluginCtx),
+                                emptyInsert, jobId)
                 );
             } else if (physicalSink instanceof PhysicalDictionarySink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 Dictionary dictionary = (Dictionary) targetTableIf;
+                DatabaseIf<?> database = getTargetDatabase(dictionary);
                 // insertCtx is not useful for dictionary. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new DictionaryInsertExecutor(
-                                ctx, dictionary, label, planner, insertCtx, emptyInsert, jobId));
+                                ctx, database, dictionary, label, planner, insertCtx, emptyInsert, jobId));
             } else if (physicalSink instanceof PhysicalBlackholeSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 // insertCtx is not useful for blackhole. so keep it empty is ok.
@@ -635,10 +616,24 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             return;
         }
         for (PlanFragment fragment : planner.getFragments()) {
-            if (fragment.getPlanRoot() instanceof FileScanNode) {
-                FileScanNode fileScanNode = (FileScanNode) fragment.getPlanRoot();
+            // The FE local-shuffle planner may wrap the fragment root with one or more
+            // LocalExchangeNodes (e.g. a PASSTHROUGH fan-out above a serial FileScanNode).
+            // Peel those off before checking the actual operator, otherwise streaming /
+            // S3 INSERTs leave LoadStatistic.fileNum and totalFileSizeB at 0 and tests
+            // like job_p0.streaming_job.test_streaming_insert_job that inspect
+            // loadStatistic.fileNumber / fileSize fail.
+            PlanNode root = fragment.getPlanRoot();
+            while (root instanceof LocalExchangeNode && !root.getChildren().isEmpty()) {
+                root = root.getChild(0);
+            }
+            if (root instanceof FileScanNode) {
+                FileScanNode fileScanNode = (FileScanNode) root;
+                // Prefer distinct file count; fall back to split count for batch-mode scans.
+                int fileNum = fileScanNode.getSelectedFileNum() >= 0
+                        ? fileScanNode.getSelectedFileNum()
+                        : (int) fileScanNode.getSelectedSplitNum();
                 Env.getCurrentEnv().getLoadManager().getLoadJob(getJobId())
-                        .addLoadFileInfo((int) fileScanNode.getSelectedSplitNum(), fileScanNode.getTotalFileSize());
+                        .addLoadFileInfo(fileNum, fileScanNode.getTotalFileSize());
             }
         }
     }
@@ -726,6 +721,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             return true;
         }
         return false;
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table accepts an {@code INSERT INTO t@branch(name)} only if its
+     * connector declares {@code supportsWriteBranch()}. Connectors with no branch concept must be
+     * rejected here (fail loud) instead of reaching the generic sink, which would silently drop the
+     * branch and write to the table's default ref. Mirrors {@code allowInsertOverwrite}'s connector
+     * capability probe.
+     */
+    private static boolean connectorSupportsWriteBranch(TableIf targetTable) {
+        if (!(targetTable instanceof PluginDrivenExternalTable)) {
+            return false;
+        }
+        // Per-handle: a heterogeneous gateway supports write-to-branch for its iceberg tables but not its hive.
+        return ((PluginDrivenExternalTable) targetTable).connectorSupportsWriteBranch();
     }
 
     @Override

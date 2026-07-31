@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -38,8 +39,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
@@ -207,7 +207,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, command.getName(), command.isReadOnly(), command.getLocation(),
-                command.getStorageProperties());
+                command.getStorageAdapter());
 
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
         if (!st.ok()) {
@@ -242,7 +242,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             // Create new Repository instance with merged properties
             Repository newRepo = new Repository(
                     oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
-                    oldRepo.getLocation(), StorageProperties.createPrimary(mergedProps)
+                    oldRepo.getLocation(), StorageAdapter.of(mergedProps)
             );
             // Verify the repository can be connected with new settings
             if (!newRepo.ping()) {
@@ -501,6 +501,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
             OlapTable olapTbl = (OlapTable) tbl;
             tbl.readLock();
             try {
+                if (olapTbl.needRowBinlog()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Do not support backup table with binlog<Row> enabled: " + olapTbl.getName());
+                }
                 if (!Config.ignore_backup_tmp_partitions && olapTbl.existTempPartitions()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                             "Do not support backup table " + olapTbl.getName() + " with temp partitions");

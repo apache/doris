@@ -107,6 +107,8 @@ public:
 #define CONF_Doubles(name, defaultstr) DEFINE_FIELD(std::vector<double>, name, defaultstr, false)
 #define CONF_Strings(name, defaultstr) \
     DEFINE_FIELD(std::vector<std::string>, name, defaultstr, false)
+#define CONF_mStrings(name, defaultstr) \
+    DEFINE_FIELD(std::vector<std::string>, name, defaultstr, true)
 #define CONF_mBool(name, defaultstr) DEFINE_FIELD(bool, name, defaultstr, true)
 #define CONF_mInt16(name, defaultstr) DEFINE_FIELD(int16_t, name, defaultstr, true)
 #define CONF_mInt32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, true)
@@ -128,6 +130,7 @@ public:
 #define CONF_Int64s(name, defaultstr) DECLARE_FIELD(std::vector<int64_t>, name)
 #define CONF_Doubles(name, defaultstr) DECLARE_FIELD(std::vector<double>, name)
 #define CONF_Strings(name, defaultstr) DECLARE_FIELD(std::vector<std::string>, name)
+#define CONF_mStrings(name, defaultstr) DECLARE_FIELD(std::vector<std::string>, name)
 #define CONF_mBool(name, defaultstr) DECLARE_FIELD(bool, name)
 #define CONF_mInt16(name, defaultstr) DECLARE_FIELD(int16_t, name)
 #define CONF_mInt32(name, defaultstr) DECLARE_FIELD(int32_t, name)
@@ -180,5 +183,10 @@ std::pair<bool, std::string> set_config(std::unordered_map<std::string, std::str
                                         bool need_persist, const std::string& custom_conf_path);
 
 std::shared_mutex* get_mutable_string_config_lock();
+
+std::string show_config(const std::string& conf_name);
+
+std::pair<bool, std::string> update_config(const std::string& configs, bool persist,
+                                           const std::string& custom_conf_path);
 
 } // namespace doris::cloud::config

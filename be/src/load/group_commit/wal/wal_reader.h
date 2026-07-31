@@ -16,22 +16,28 @@
 // under the License.
 
 #pragma once
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "load/group_commit/wal/wal_file_reader.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
 struct ScannerCounter;
-class WalReader : public GenericReader {
+
+/// WAL-specific initialization context.
+/// Extends ReaderInitContext with output tuple descriptor (unique to WAL reader).
+struct WalInitContext final : public ReaderInitContext {
+    const TupleDescriptor* output_tuple_descriptor = nullptr;
+};
+
+class WalReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(WalReader);
 
 public:
     WalReader(RuntimeState* state);
     ~WalReader() override = default;
     Status init_reader(const TupleDescriptor* tuple_descriptor);
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
 
     Status close() override {
         if (_wal_reader) {
@@ -39,6 +45,11 @@ public:
         }
         return Status::OK();
     }
+
+protected:
+    // ---- Unified init_reader(ReaderInitContext*) overrides ----
+    Status _open_file_reader(ReaderInitContext* ctx) override;
+    Status _do_init_reader(ReaderInitContext* ctx) override;
 
 private:
     RuntimeState* _state = nullptr;

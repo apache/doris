@@ -17,23 +17,12 @@
 
 package org.apache.doris.nereids.mv;
 
-import org.apache.doris.catalog.MTMV;
-import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.BitSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * Test mv rewrite when base table id is lager then integer
@@ -43,26 +32,9 @@ public class MvTableIdIsLongTest extends SqlTestBase {
     @Test
     void testMvRewriteWhenBaseTableIdIsLong() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
-        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
-        new MockUp<SessionVariable>() {
-            @Mock
-            public BitSet getDisableNereidsRules() {
-                return disableNereidsRules;
-            }
-        };
-        new MockUp<MTMVRelationManager>() {
-            @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid,
-                    Map<List<String>, Set<String>> queryUsedPartitions) {
-                return true;
-            }
-        };
-        new MockUp<MTMV>() {
-            @Mock
-            public boolean canBeCandidate() {
-                return true;
-            }
-        };
+
+        installValidRelationManager();
+
         connectContext.getState().setIsQuery(true);
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
@@ -71,6 +43,7 @@ public class MvTableIdIsLongTest extends SqlTestBase {
                 + "        PROPERTIES ('replication_num' = '1') \n"
                 + "        as select T1.id from T1 inner join T2 "
                 + "on T1.id = T2.id;");
+        mockCandidateMtmv("mv1");
         CascadesContext c1 = createCascadesContext(
                 "select T1.id from T1 inner join T2 "
                         + "on T1.id = T2.id "

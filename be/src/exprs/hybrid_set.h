@@ -20,6 +20,8 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <pdqsort.h>
 
+#include <cstring>
+
 #include "common/object_pool.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -27,6 +29,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exec/runtime_filter/utils.h"
+#include "exprs/bitset_container.h"
 #include "exprs/filter_base.h"
 
 namespace doris {
@@ -135,6 +138,12 @@ struct IsFixedContainer : std::false_type {};
 template <typename T, size_t N>
 struct IsFixedContainer<FixedContainer<T, N>> : std::true_type {};
 
+template <typename T>
+struct IsBitSetContainer : std::false_type {};
+
+template <typename T>
+struct IsBitSetContainer<BitSetContainer<T>> : std::true_type {};
+
 /**
  * Dynamic Container uses phmap::flat_hash_set.
  * @tparam T Element Type
@@ -196,6 +205,34 @@ public:
     virtual bool find(const void* data) const = 0;
     // use in vectorize execute engine
     virtual bool find(const void* data, size_t) const = 0;
+
+    virtual void find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
+                                      uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values + row * value_width) ? 1 : 0;
+        }
+    }
+
+    virtual void find_batch_raw_fixed_negative(const uint8_t* values, size_t rows,
+                                               size_t value_width, uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values + row * value_width) ? 0 : 1;
+        }
+    }
+
+    virtual void find_batch_raw_binary(const StringRef* values, size_t rows,
+                                       uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values[row].data, values[row].size) ? 1 : 0;
+        }
+    }
+
+    virtual void find_batch_raw_binary_negative(const StringRef* values, size_t rows,
+                                                uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values[row].data, values[row].size) ? 0 : 1;
+        }
+    }
 
     virtual void find_batch(const doris::IColumn& column, size_t rows,
                             doris::ColumnUInt8::Container& results,
@@ -261,11 +298,10 @@ public:
                                    "HybridSet::insert_range_from method (data.size() = {}).",
                                    start, end, column->size());
         }
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
 
             const ElementType* data = (ElementType*)col.get_raw_data().data;
             for (size_t i = start; i < end; i++) {
@@ -290,6 +326,26 @@ public:
     }
 
     bool find(const void* data, size_t /*unused*/) const override { return find(data); }
+
+    void find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
+                              uint8_t* matches) const override {
+        DORIS_CHECK_EQ(value_width, sizeof(ElementType));
+        for (size_t row = 0; row < rows; ++row) {
+            ElementType value;
+            std::memcpy(&value, values + row * sizeof(ElementType), sizeof(ElementType));
+            matches[row] &= _set.find(value) ? 1 : 0;
+        }
+    }
+
+    void find_batch_raw_fixed_negative(const uint8_t* values, size_t rows, size_t value_width,
+                                       uint8_t* matches) const override {
+        DORIS_CHECK_EQ(value_width, sizeof(ElementType));
+        for (size_t row = 0; row < rows; ++row) {
+            ElementType value;
+            std::memcpy(&value, values + row * sizeof(ElementType), sizeof(ElementType));
+            matches[row] &= _set.find(value) ? 0 : 1;
+        }
+    }
 
     void find_batch(const doris::IColumn& column, size_t rows,
                     doris::ColumnUInt8::Container& results,
@@ -454,10 +510,9 @@ public:
                                    "StringSet::insert_range_from method (data.size() = {}).",
                                    start, end, column->size());
         }
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
                 _insert_fixed_len_string(
                         assert_cast<const ColumnString64&>(nullable->get_nested_column()),
@@ -658,10 +713,9 @@ public:
                                    "StringSet::insert_range_from method (data.size() = {}).",
                                    start, end, column->size());
         }
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
                 _insert_fixed_len_string(
                         assert_cast<const ColumnString64&>(nullable->get_nested_column()),

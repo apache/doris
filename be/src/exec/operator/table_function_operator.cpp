@@ -279,11 +279,10 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
     IColumn* value_col_ptr = nullptr;
     ColumnInt32* pos_col_ptr = nullptr;
     if (is_posexplode) {
-        if (out_col->is_nullable()) {
+        if (is_column_nullable(*out_col)) {
             auto* nullable = assert_cast<ColumnNullable*>(out_col.get());
             struct_col_ptr = assert_cast<ColumnStruct*>(nullable->get_nested_column_ptr().get());
-            outer_struct_nullmap_ptr =
-                    assert_cast<ColumnUInt8*>(nullable->get_null_map_column_ptr().get());
+            outer_struct_nullmap_ptr = nullable->get_null_map_column_ptr().get();
         } else {
             struct_col_ptr = assert_cast<ColumnStruct*>(out_col.get());
         }
@@ -337,14 +336,13 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
                     reinterpret_cast<const char*>(segment_ctx.seg_positions.data()),
                     segment_ctx.seg_positions.size());
             // Write nested values to the struct's value sub-column
-            DCHECK(value_col_ptr->is_nullable())
+            DCHECK(is_column_nullable(*value_col_ptr))
                     << "posexplode fast path requires nullable value column";
             auto* val_nullable = assert_cast<ColumnNullable*>(value_col_ptr);
             val_nullable->get_nested_column_ptr()->insert_range_from(
                     *_block_fast_path_ctx.nested_col, segment_ctx.seg_nested_start,
                     segment_ctx.seg_nested_count);
-            auto* val_nullmap =
-                    assert_cast<ColumnUInt8*>(val_nullable->get_null_map_column_ptr().get());
+            auto* val_nullmap = val_nullable->get_null_map_column_ptr().get();
             auto& val_nullmap_data = val_nullmap->get_data();
             const size_t old_size = val_nullmap_data.size();
             val_nullmap_data.resize(old_size + segment_ctx.seg_nested_count);
@@ -360,13 +358,12 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
             if (outer_struct_nullmap_ptr) {
                 outer_struct_nullmap_ptr->insert_many_defaults(segment_ctx.seg_nested_count);
             }
-        } else if (out_col->is_nullable()) {
+        } else if (is_column_nullable(*out_col)) {
             auto* out_nullable = assert_cast<ColumnNullable*>(out_col.get());
             out_nullable->get_nested_column_ptr()->insert_range_from(
                     *_block_fast_path_ctx.nested_col, segment_ctx.seg_nested_start,
                     segment_ctx.seg_nested_count);
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(out_nullable->get_null_map_column_ptr().get());
+            auto* nullmap_column = out_nullable->get_null_map_column_ptr().get();
             auto& nullmap_data = nullmap_column->get_data();
             const size_t old_size = nullmap_data.size();
             nullmap_data.resize(old_size + segment_ctx.seg_nested_count);
@@ -485,8 +482,9 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
     }
 
     auto& p = _parent->cast<TableFunctionOperatorX>();
-    MutableBlock m_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, p._output_slots);
+    auto scoped_mutable_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(output_block, p._output_slots);
+    auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& columns = m_block.mutable_columns();
 
     for (int i = 0; i < p._fn_num; i++) {
@@ -560,6 +558,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
     for (auto index : p._useless_slot_indexs) {
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
+    scoped_mutable_block.restore();
 
     {
         SCOPED_TIMER(_filter_timer); // 3. eval conjuncts
@@ -577,8 +576,9 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
                                                                         Block* output_block,
                                                                         bool* eos) {
     auto& p = _parent->cast<TableFunctionOperatorX>();
-    MutableBlock m_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, p._output_slots);
+    auto scoped_mutable_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(output_block, p._output_slots);
+    auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& columns = m_block.mutable_columns();
     auto child_slot_count = p._child_slots.size();
     for (int i = 0; i < p._fn_num; i++) {
@@ -647,7 +647,7 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
     for (auto index : p._useless_slot_indexs) {
         columns[index]->insert_many_defaults(output_row_count - columns[index]->size());
     }
-    output_block->set_columns(std::move(columns));
+    scoped_mutable_block.restore();
 
     /**
     Handle the outer conjuncts after unnest. Currently, only left outer is supported.
@@ -745,8 +745,9 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
                 }
             }
             if (!null_row_indices.empty()) {
-                MutableBlock m_block2 = VectorizedUtils::build_mutable_mem_reuse_block(
+                auto scoped_mutable_block2 = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
                         output_block, p._output_slots);
+                auto& m_block2 = scoped_mutable_block2.mutable_block();
                 MutableColumns& columns2 = m_block2.mutable_columns();
                 for (auto index : p._output_slot_indexs) {
                     auto src_column = _child_block->get_by_position(index).column;
@@ -758,7 +759,6 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
                     columns2[index]->insert_many_defaults(null_row_indices.size());
                 }
                 columns2[child_slot_count]->insert_many_defaults(null_row_indices.size());
-                output_block->set_columns(std::move(columns2));
             }
             _child_rows_has_output.clear();
             _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()

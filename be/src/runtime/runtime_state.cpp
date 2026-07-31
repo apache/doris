@@ -499,7 +499,7 @@ Status RuntimeState::register_producer_runtime_filter(
         DORIS_CHECK(pfc);
         (*producer_filter)->set_stage(pfc->rec_cte_stage());
     }
-    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
+    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merge_producer_filter(
             _query_ctx, desc, *producer_filter));
     return Status::OK();
 }
@@ -508,7 +508,8 @@ Status RuntimeState::register_consumer_runtime_filter(
         const TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
         std::shared_ptr<RuntimeFilterConsumer>* consumer_filter) {
     _registered_runtime_filter_ids.insert(desc.filter_id);
-    bool need_merge = desc.has_remote_targets || need_local_merge;
+    bool need_merge = desc.has_remote_targets || need_local_merge ||
+                      (desc.__isset.force_local_merge && desc.force_local_merge);
     RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
     RETURN_IF_ERROR(mgr->register_consumer_filter(this, desc, node_id, consumer_filter));
     // Stamp the consumer with the current recursive CTE stage so that incoming publish RPCs

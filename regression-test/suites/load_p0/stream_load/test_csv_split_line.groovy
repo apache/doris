@@ -142,8 +142,7 @@ suite("test_csv_split_line", "p0") {
         "colocate_with" = "__global__crm_user_group",
         "storage_format" = "V2",
         "enable_unique_key_merge_on_write" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
     ); 
     """        
         

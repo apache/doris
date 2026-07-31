@@ -41,7 +41,7 @@ suite("test_icu_analyzer", "p0"){
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql """ select * from ${indexTbName1} where b match_phrase 'images hm_bg.jpg'; """
         qt_sql """ select * from ${indexTbName1} where b match_phrase 'อย ใน'; """

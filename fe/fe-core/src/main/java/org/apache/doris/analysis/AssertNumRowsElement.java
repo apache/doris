@@ -48,9 +48,9 @@ public class AssertNumRowsElement {
         }
     }
 
-    private long desiredNumOfRows;
-    private String subqueryString;
-    private Assertion assertion;
+    private final long desiredNumOfRows;
+    private final String subqueryString;
+    private final Assertion assertion;
 
     public AssertNumRowsElement(long desiredNumOfRows, String subqueryString, Assertion assertion) {
         this.desiredNumOfRows = desiredNumOfRows;

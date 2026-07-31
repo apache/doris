@@ -34,6 +34,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
@@ -42,6 +43,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
+#include "core/string_ref.h"
 #include "core/value/timestamptz_value.h"
 #include "exec/common/util.hpp"
 #include "exec/pipeline/pipeline_task.h"
@@ -69,12 +71,25 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 
 namespace doris {
 
 class RowDescriptor;
 class RuntimeState;
+
+ZoneMapFilterResult VExpr::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    return unsupported_zonemap_filter(ctx);
+}
+
+ZoneMapFilterResult VExpr::evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const {
+    return ZoneMapFilterResult::kUnsupported;
+}
+
+ZoneMapFilterResult VExpr::evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const {
+    return ZoneMapFilterResult::kUnsupported;
+}
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
@@ -161,6 +176,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
     }
     case TYPE_STRING: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(data, &node));
+        break;
+    }
+    case TYPE_VARBINARY: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARBINARY>(data, &node));
         break;
     }
     case TYPE_IPV4: {
@@ -338,20 +357,6 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
 
 namespace doris {
 
-bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
-    if (expr.node_type() == TExprNodeType::SEARCH_EXPR) {
-        return true;
-    }
-    const auto& children = expr.children();
-
-    auto is_a_slot = std::any_of(children.begin(), children.end(),
-                                 [](const auto& child) { return is_acting_on_a_slot(*child); });
-
-    return is_a_slot ? true
-                     : (expr.node_type() == TExprNodeType::SLOT_REF ||
-                        expr.node_type() == TExprNodeType::VIRTUAL_SLOT_REF);
-}
-
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
           _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE) {
@@ -381,6 +386,51 @@ VExpr::VExpr(DataTypePtr type, bool is_slotref)
     }
 }
 
+TExprNode VExpr::clone_texpr_node() const {
+    TExprNode node;
+    node.__set_node_type(_node_type);
+    node.__set_opcode(_opcode);
+    node.__set_type(create_type_desc(remove_nullable(_data_type)->get_primitive_type(),
+                                     static_cast<int>(_data_type->get_precision()),
+                                     static_cast<int>(_data_type->get_scale())));
+    node.__set_is_nullable(_data_type->is_nullable());
+    node.__set_num_children(get_num_children());
+    node.__set_fn(_fn);
+    return node;
+}
+
+Status VExpr::clone_node(VExprSPtr* cloned_expr) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+    return Status::NotSupported("Cannot clone expression {} for file-local rewrite", expr_name());
+}
+
+Status VExpr::deep_clone(VExprSPtr* cloned_expr,
+                         const VExprCloneNodeOverride& clone_node_override) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+
+    VExprSPtr cloned;
+    if (clone_node_override) {
+        RETURN_IF_ERROR(clone_node_override(*this, &cloned));
+    }
+    if (cloned == nullptr) {
+        RETURN_IF_ERROR(clone_node(&cloned));
+    }
+    DORIS_CHECK(cloned != nullptr);
+
+    VExprSPtrs cloned_children;
+    cloned_children.reserve(_children.size());
+    for (const auto& child : _children) {
+        DORIS_CHECK(child != nullptr);
+        VExprSPtr cloned_child;
+        RETURN_IF_ERROR(child->deep_clone(&cloned_child, clone_node_override));
+        cloned_children.push_back(std::move(cloned_child));
+    }
+    cloned->set_children(std::move(cloned_children));
+    cloned->reset_prepare_state();
+    *cloned_expr = std::move(cloned);
+    return Status::OK();
+}
+
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
     ++context->_depth_num;
     if (context->_depth_num > config::max_depth_of_expr_tree) {
@@ -408,6 +458,15 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
+}
+
+void VExpr::reset_prepare_state() {
+    _prepared = false;
+    _prepare_finished = false;
+    _open_finished = false;
+    for (auto& child : _children) {
+        child->reset_prepare_state();
+    }
 }
 
 void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
@@ -760,8 +819,9 @@ Status VExpr::get_const_col(VExprContext* context,
         return Status::OK();
     }
 
-    if (_constant_col != nullptr) {
-        DCHECK(column_wrapper != nullptr);
+    if (_constant_col != nullptr && column_wrapper == nullptr) {
+        return Status::OK();
+    } else if (_constant_col != nullptr) {
         *column_wrapper = _constant_col;
         return Status::OK();
     }
@@ -995,7 +1055,39 @@ size_t VExpr::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-bool VExpr::fast_execute(VExprContext* context, Selector* selector, size_t count,
+Status VExpr::execute_column(VExprContext* context, const Block* block, const Selector* selector,
+                             size_t count, ColumnPtr& result_column) const {
+    RETURN_IF_ERROR(execute_column_impl(context, block, selector, count, result_column));
+    if (result_column->size() != count) {
+        return Status::InternalError("Expr {} return column size {} not equal to expected size {}",
+                                     expr_name(), result_column->size(), count);
+    }
+    DCHECK(selector == nullptr || selector->size() == count);
+    // Validate type match. ColumnNothing is exempt (used as a placeholder in tests/stubs).
+    if (!check_and_get_column<ColumnNothing>(result_column.get())) {
+        auto result_type = execute_type(block);
+        if (result_type != nullptr) {
+            Status st = result_type->check_column(*result_column);
+            if (!st.ok()) {
+                // Nullable(T) may legitimately produce a non-nullable T column when all rows are
+                // non-null (use_default_implementation_for_nulls optimization). Allow this.
+                const auto* nullable_type =
+                        check_and_get_data_type<DataTypeNullable>(result_type.get());
+                if (nullable_type && !check_and_get_column<ColumnNullable>(result_column.get())) {
+                    st = nullable_type->get_nested_type()->check_column(*result_column);
+                }
+            }
+            if (!st.ok()) {
+                return Status::InternalError(
+                        "Expr {} return column type mismatch: declared={}, actual={}", expr_name(),
+                        result_type->get_name(), result_column->get_name());
+            }
+        }
+    }
+    return Status::OK();
+}
+
+bool VExpr::fast_execute(VExprContext* context, const Selector* selector, size_t count,
                          ColumnPtr& result_column) const {
     if (context->get_index_context() &&
         context->get_index_context()->get_index_result_column().contains(this)) {
@@ -1019,7 +1111,9 @@ Status VExpr::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
+        size_t rows_of_segment, roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats,
+        bool enable_result_cache, AnnRangeSearchEvaluationResult& result) {
+    result = {};
     return Status::OK();
 }
 
@@ -1035,14 +1129,6 @@ void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params
             return;
         }
     }
-}
-
-bool VExpr::ann_range_search_executedd() {
-    return _has_been_executed;
-}
-
-bool VExpr::ann_dist_is_fulfilled() const {
-    return _virtual_column_is_fulfilled;
 }
 
 Status VExpr::execute_filter(VExprContext* context, const Block* block,

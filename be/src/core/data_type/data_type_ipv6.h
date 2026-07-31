@@ -42,9 +42,6 @@ namespace doris {
 class DataTypeIPv6 final : public DataTypeNumberBase<PrimitiveType::TYPE_IPV6> {
 public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_IPV6; }
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_IPV6;
-    }
     const std::string get_family_name() const override { return "IPv6"; }
     std::string do_get_name() const override { return "IPv6"; }
 

@@ -33,8 +33,8 @@
 #include "exec/sort/hybrid_sorter.h"
 #include "exec/sort/sort_cursor.h"
 #include "exec/sort/sort_description.h"
-#include "exec/sort/vsort_exec_exprs.h"
 #include "exec/sort/vsorted_run_merger.h"
+#include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
@@ -101,26 +101,26 @@ private:
 
 class Sorter {
 public:
-    Sorter(VSortExecExprs& vsort_exec_exprs, RuntimeState* state, int64_t limit, int64_t offset,
-           ObjectPool* pool, std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first)
-            : _vsort_exec_exprs(vsort_exec_exprs),
+    Sorter(const VExprContextSPtrs& ordering_expr_ctxs, RuntimeState* state, int64_t limit,
+           int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
+           std::vector<bool>& nulls_first)
+            : _ordering_expr_ctxs(ordering_expr_ctxs),
               _limit(limit),
               _offset(offset),
               _pool(pool),
               _is_asc_order(is_asc_order),
               _nulls_first(nulls_first),
-              _materialize_sort_exprs(vsort_exec_exprs.need_materialize_tuple()),
               _hybrid_sorter(state->enable_use_hybrid_sort()) {}
 #ifdef BE_TEST
-    VSortExecExprs mock_vsort_exec_exprs;
+    VExprContextSPtrs mock_ordering_expr_ctxs;
     std::vector<bool> mock_is_asc_order;
     std::vector<bool> mock_nulls_first;
     Sorter()
-            : _vsort_exec_exprs(mock_vsort_exec_exprs),
+            : _ordering_expr_ctxs(mock_ordering_expr_ctxs),
               _is_asc_order(mock_is_asc_order),
               _nulls_first(mock_nulls_first) {}
     SortDescription& get_mutable_sort_description() { return _sort_description; }
-    const VSortExecExprs& get_vsort_exec_exprs() const { return _vsort_exec_exprs; }
+    const VExprContextSPtrs& get_ordering_expr_ctxs() const { return _ordering_expr_ctxs; }
 #endif
 
     virtual ~Sorter() = default;
@@ -159,7 +159,7 @@ protected:
     Status _prepare_sort_columns(Block& src_block, Block& dest_block, bool reversed = false);
     bool _enable_spill = false;
     SortDescription _sort_description;
-    VSortExecExprs& _vsort_exec_exprs;
+    const VExprContextSPtrs& _ordering_expr_ctxs;
     int64_t _limit;
     int64_t _offset;
     ObjectPool* _pool = nullptr;
@@ -171,7 +171,6 @@ protected:
     RuntimeProfile::Counter* _partial_sort_counter = nullptr;
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
-    bool _materialize_sort_exprs;
     HybridSorter _hybrid_sorter;
 };
 
@@ -179,8 +178,8 @@ class FullSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(FullSorter);
 
 public:
-    FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
-               std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
+    FullSorter(const VExprContextSPtrs& ordering_expr_ctxs, int64_t limit, int64_t offset,
+               ObjectPool* pool, std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
                const RowDescriptor& row_desc, RuntimeState* state, RuntimeProfile* profile);
 
     ~FullSorter() override = default;

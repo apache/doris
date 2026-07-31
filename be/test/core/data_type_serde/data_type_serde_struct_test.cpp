@@ -42,7 +42,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type/primitive_type.h"
 #include "core/field.h"
+#include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
@@ -55,6 +57,12 @@ class DataTypeStructSerDeTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {}
 };
+
+TEST_F(DataTypeStructSerDeTest, GetName) {
+    DataTypeStructSerDe serde_struct({serde_int32, serde_str}, {"id", "name"});
+
+    EXPECT_EQ(serde_struct.get_name(), "Struct(id:INT, name:String)");
+}
 
 // Run with UBSan enabled to catch misalignment errors.
 TEST_F(DataTypeStructSerDeTest, ArrowMemNotAligned) {
@@ -144,10 +152,9 @@ TEST_F(DataTypeStructSerDeTest, ArrowMemNotAligned) {
     EXPECT_EQ(string_values_address % 4, 1);
 
     // 5.Test read_column_from_arrow
-    std::vector<ColumnPtr> vector_columns;
-    vector_columns.emplace_back(ColumnInt32::create());
-    vector_columns.emplace_back(ColumnString::create());
-    auto ser_col = ColumnStruct::create(vector_columns);
+    // Create sub-columns exclusively (no extra refs) so that ColumnStruct::get_column()
+    // non-const path does not find use_count > 1.
+    auto ser_col = ColumnStruct::create(Columns {ColumnInt32::create(), ColumnString::create()});
     cctz::time_zone tz;
     DataTypeSerDeSPtrs elem_serdes = {serde_int32, serde_str};
     Strings field_names = {"int_field", "string_field"};
@@ -156,6 +163,107 @@ TEST_F(DataTypeStructSerDeTest, ArrowMemNotAligned) {
 
     auto st = serde_struct->read_column_from_arrow(*ser_col, arr.get(), 0, num_elements, tz);
     EXPECT_TRUE(st.ok());
+}
+
+// Regression test for OPENSOURCE-374: from_string (used by CAST string->struct, which is the
+// stream-load JSON path) must match struct sub-fields by name, tolerate missing fields, and
+// keep working for positional input. This covers every branch of DataTypeStructSerDe::_from_string.
+TEST_F(DataTypeStructSerDeTest, FromStringByFieldName) {
+    DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat32>());
+    DataTypePtr f3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    DataTypePtr st =
+            std::make_shared<DataTypeStruct>(DataTypes {f1, f2, f3}, Strings {"f1", "f2", "f3"});
+    auto serde = st->get_serde(1);
+    DataTypeSerDe::FormatOptions opt;
+
+    auto from_string = [&](const std::string& s, MutableColumnPtr& col) -> Status {
+        col = st->create_column();
+        std::string buf = s;
+        StringRef ref(buf.data(), buf.size());
+        return serde->from_string(ref, *col, opt);
+    };
+    // to_string is the inverse of from_string and always writes fields in schema order, so the
+    // input field order cancels out and we can compare results structurally.
+    auto to_string = [&](const MutableColumnPtr& col) -> std::string {
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        serde->to_string(*col, 0, bw, opt);
+        bw.commit();
+        auto s = out->get_data_at(0);
+        return std::string(s.data, s.size);
+    };
+    auto has = [](const Status& st, const std::string& sub) {
+        return st.to_string().find(sub) != std::string::npos;
+    };
+
+    MutableColumnPtr ordered;
+    MutableColumnPtr c;
+    ASSERT_TRUE(from_string(R"({"f1":1,"f2":2.5,"f3":"a"})", ordered).ok());
+
+    // 1) out-of-order keys are matched by name (the core fix)
+    ASSERT_TRUE(from_string(R"({"f2":2.5,"f1":1,"f3":"a"})", c).ok());
+    EXPECT_EQ(to_string(ordered), to_string(c));
+
+    // 2) field names are matched case-insensitively (input is lower-cased before lookup)
+    ASSERT_TRUE(from_string(R"({"F2":2.5,"F1":1,"F3":"a"})", c).ok());
+    EXPECT_EQ(to_string(ordered), to_string(c));
+
+    // 3) a missing field is filled with NULL (named mode tolerates fewer fields)
+    MutableColumnPtr with_null;
+    ASSERT_TRUE(from_string(R"({"f1":1,"f2":2.5,"f3":null})", with_null).ok());
+    ASSERT_TRUE(from_string(R"({"f2":2.5,"f1":1})", c).ok());
+    EXPECT_EQ(to_string(with_null), to_string(c));
+
+    // 4) positional input (no field names) still works
+    ASSERT_TRUE(from_string(R"({1,2.5,"a"})", c).ok());
+    EXPECT_EQ(to_string(ordered), to_string(c));
+
+    // 5) empty struct '{}' yields all-NULL fields
+    MutableColumnPtr empty;
+    ASSERT_TRUE(from_string("{}", empty).ok());
+    ASSERT_TRUE(from_string(R"({"f1":null,"f2":null,"f3":null})", c).ok());
+    EXPECT_EQ(to_string(c), to_string(empty));
+
+    // 6) an unknown field is ignored, missing schema fields become NULL (consistent with the
+    //    simdjson reader and PostgreSQL/Spark/Trino)
+    MutableColumnPtr f2_null;
+    ASSERT_TRUE(from_string(R"({"f1":1,"f2":null,"f3":"a"})", f2_null).ok());
+    ASSERT_TRUE(from_string(R"({"f1":1,"fx":2.5,"f3":"a"})", c).ok());
+    EXPECT_EQ(to_string(f2_null), to_string(c));
+
+    // 7) extra named fields beyond the schema are ignored (4 fields into a 3-field struct)
+    ASSERT_TRUE(from_string(R"({"f1":1,"f2":2.5,"f3":"a","f4":9})", c).ok());
+    EXPECT_EQ(to_string(ordered), to_string(c));
+
+    // --- error paths (each exercises a distinct branch / message) ---
+    // 8) name-value pair missing the collection delimiter, e.g. {"f1":1:"f2":2}
+    Status e = from_string(R"({"f1":1:"f2":2})", c);
+    EXPECT_FALSE(e.ok());
+    EXPECT_TRUE(has(e, "does not have collection delimiter"));
+
+    // 9) positional input whose count does not match the schema is rejected (too few or too
+    //    many) -- without field names the arity must be exact, same as PG/Spark/Trino
+    e = from_string(R"({1,2.5})", c); // 2 values into a 3-field struct
+    EXPECT_FALSE(e.ok());
+    EXPECT_TRUE(has(e, "not equal to schema field number"));
+    e = from_string(R"({1,2.5,a,9})", c); // 4 values into a 3-field struct
+    EXPECT_FALSE(e.ok());
+    EXPECT_TRUE(has(e, "not equal to schema field number"));
+
+    // 10) positional value not separated by the collection delimiter, e.g. {1,2.5:3}
+    e = from_string(R"({1,2.5:x})", c);
+    EXPECT_FALSE(e.ok());
+    EXPECT_TRUE(has(e, "not separated by collection_delim"));
+
+    // 11) bad framing (missing braces)
+    EXPECT_FALSE(from_string(R"("f1":1)", c).ok());
+
+    // 12) strict mode propagates a sub-field parse error
+    auto sc = st->create_column();
+    std::string sbuf = R"({"f1":"notanint","f2":2.5,"f3":"a"})";
+    StringRef sref(sbuf.data(), sbuf.size());
+    EXPECT_FALSE(serde->from_string_strict_mode(sref, *sc, opt).ok());
 }
 
 } // namespace doris

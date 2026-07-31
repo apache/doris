@@ -31,7 +31,7 @@
 suite("test_search_slash_in_term", "p0") {
     def tableName = "search_slash_in_term_test"
 
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -61,11 +61,18 @@ suite("test_search_slash_in_term", "p0") {
     // Wait for index building
     Thread.sleep(3000)
 
+    order_qt_segment_limit_disabled_still_pushes_search """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=false) */ id
+        FROM ${tableName}
+        WHERE search('title:AC/DC')
+        ORDER BY id
+    """
+
     // ============ Test 1: Slash in term with field prefix ============
     // title:AC/DC should parse as single term, standard analyzer tokenizes to "ac" and "dc"
     // With default OR operator, matches rows containing "ac" or "dc" in title
     order_qt_slash_in_term """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:AC/DC')
         ORDER BY id
@@ -75,7 +82,7 @@ suite("test_search_slash_in_term", "p0") {
     // title:AC\/DC should produce the same result as title:AC/DC
     // Groovy: \\\\/ -> SQL: \\/ -> DSL: \/ -> unescaped: /
     order_qt_escaped_slash_in_term """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:AC\\\\/DC')
         ORDER BY id
@@ -84,7 +91,7 @@ suite("test_search_slash_in_term", "p0") {
     // ============ Test 3: Slash in term with default_field (lucene mode) ============
     // Bare AC/DC with default_field should work
     order_qt_slash_bare_lucene """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('AC/DC', '{"default_field":"title","default_operator":"OR","minimum_should_match":0}')
         ORDER BY id
@@ -92,7 +99,7 @@ suite("test_search_slash_in_term", "p0") {
 
     // ============ Test 4: Escaped slash with default_field should match ============
     order_qt_escaped_slash_bare_lucene """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('AC\\\\/DC', '{"default_field":"title","default_operator":"OR","minimum_should_match":0}')
         ORDER BY id
@@ -100,7 +107,7 @@ suite("test_search_slash_in_term", "p0") {
 
     // ============ Test 5: Multiple slashes in term ============
     order_qt_multi_slash """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:path/to/file')
         ORDER BY id
@@ -109,7 +116,7 @@ suite("test_search_slash_in_term", "p0") {
     // ============ Test 6: Regex pattern still works ============
     // /[a-z]+/ should be parsed as regex, not as term with slashes
     order_qt_regex_still_works """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:/rock/')
         ORDER BY id
@@ -117,7 +124,7 @@ suite("test_search_slash_in_term", "p0") {
 
     // ============ Test 7: Slash in term with standard mode ============
     order_qt_slash_standard_mode """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('AC/DC', '{"default_field":"title","mode":"standard"}')
         ORDER BY id

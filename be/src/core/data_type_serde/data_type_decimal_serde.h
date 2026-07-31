@@ -49,7 +49,8 @@ public:
             : DataTypeSerDe(nesting_level),
               precision(precision_),
               scale(scale_),
-              scale_multiplier(decimal_scale_multiplier<typename FieldType::NativeType>(scale)) {}
+              scale_multiplier(decimal_scale_multiplier<typename FieldType::NativeType>(scale)),
+              _parquet_predicate_values(0, static_cast<UInt32>(scale)) {}
 
     std::string get_name() const override { return type_to_string(T); }
 
@@ -107,6 +108,36 @@ public:
                                  const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
+    Status read_column_from_decoded_values(IColumn& column,
+                                           const DecodedColumnView& view) const override;
+    Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                    const ParquetDecodeContext& context, size_t num_values,
+                                    ParquetMaterializationState& state) const override;
+    bool supports_parquet_raw_predicate(const ParquetDecodeContext& context) const override;
+    Status read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                      const ParquetDecodeContext& context, size_t num_values,
+                                      bool enable_strict_mode,
+                                      ParquetLogicalValueConsumer& consumer) const override;
+    size_t retained_parquet_raw_predicate_scratch_bytes() const override {
+        return _parquet_predicate_values.capacity() * sizeof(FieldType) +
+               _parquet_predicate_nulls.capacity();
+    }
+    size_t active_parquet_raw_predicate_scratch_bytes() const override {
+        return _parquet_predicate_values.size() * sizeof(FieldType) +
+               _parquet_predicate_nulls.size();
+    }
+    void release_parquet_raw_predicate_scratch(size_t max_retained_bytes) const override {
+        if (_parquet_predicate_values.capacity() * sizeof(FieldType) > max_retained_bytes) {
+            typename ColumnDecimal<T>::Container(0, static_cast<UInt32>(scale))
+                    .swap(_parquet_predicate_values);
+        }
+        if (_parquet_predicate_nulls.capacity() > max_retained_bytes) {
+            IColumn::Filter().swap(_parquet_predicate_nulls);
+        }
+    }
+    Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                   const ParquetDecodeContext& context) const override;
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
                                         int64_t row_idx, bool col_const,
                                         const FormatOptions& options) const override;
@@ -146,13 +177,15 @@ private:
     int precision;
     int scale;
     const typename FieldType::NativeType scale_multiplier;
+    mutable typename ColumnDecimal<T>::Container _parquet_predicate_values;
+    mutable IColumn::Filter _parquet_predicate_nulls;
 };
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
                                                    int64_t start, int64_t end) const {
     auto row_count = cast_set<int>(end - start);
-    const auto* col = check_and_get_column<ColumnDecimal<T>>(column);
+    const auto* col = assert_cast<const ColumnDecimal<T>*>(&column);
     auto* ptype = result.mutable_type();
     if constexpr (T == TYPE_DECIMALV2) {
         ptype->set_id(PGenericType::DECIMAL128);

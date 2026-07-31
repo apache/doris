@@ -20,6 +20,8 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -30,6 +32,42 @@ import java.util.Map;
 import java.util.Set;
 
 public class DistributionSpecHashTest {
+
+    @Test
+    public void testWithShuffleExprsSubset() {
+        ExprId e1 = new ExprId(1);
+        ExprId e2 = new ExprId(2);
+        ExprId e3 = new ExprId(3);
+        ExprId e4 = new ExprId(4);
+        ExprId e5 = new ExprId(5);
+        ExprId e6 = new ExprId(6);
+        Map<ExprId, Integer> map = Maps.newHashMap();
+        map.put(e1, 0);
+        map.put(e4, 0);
+        map.put(e2, 1);
+        map.put(e5, 1);
+        map.put(e3, 2);
+        map.put(e6, 2);
+        DistributionSpecHash origin = new DistributionSpecHash(
+                Lists.newArrayList(e1, e2, e3),
+                ShuffleType.EXECUTION_BUCKETED,
+                0L,
+                -1L,
+                Sets.newHashSet(0L),
+                Lists.newArrayList(Sets.newHashSet(e1, e4), Sets.newHashSet(e2, e5), Sets.newHashSet(e3, e6)),
+                map
+        );
+
+        // retain middle slot only (original index 1): map renumbered to 0 in the new spec
+        DistributionSpecHash middleOnly = origin.withShuffleExprs(ImmutableList.of(e2));
+        Assertions.assertEquals(Lists.newArrayList(e2), middleOnly.getOrderedShuffledColumns());
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableSet.of(e2, e5)), middleOnly.getEquivalenceExprIds());
+        Map<ExprId, Integer> expectedMiddle = Maps.newHashMap();
+        expectedMiddle.put(e2, 0);
+        expectedMiddle.put(e5, 0);
+        Assertions.assertEquals(expectedMiddle, middleOnly.getExprIdToEquivalenceSet());
+    }
 
     @Test
     public void testMerge() {

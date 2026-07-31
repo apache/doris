@@ -33,6 +33,7 @@
   * (~ 700 MB/sec, 15 million strings per second)
   */
 
+#include <cstddef>
 #include <string>
 #include <type_traits>
 
@@ -208,8 +209,6 @@ public:
 
 #undef ROTL
 #undef SIPROUND
-
-#include <cstddef>
 
 inline void sip_hash128(const char* data, const size_t size, char* out) {
     SipHash hash;

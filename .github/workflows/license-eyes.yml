@@ -18,7 +18,7 @@
 ---
 name: License Check
 on:
-  pull_request_target:
+  pull_request:
   push:
     branches:
       - master
@@ -26,12 +26,16 @@ on:
   issue_comment:
     types: [ created ]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   license-check:
     name: "License Check"
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'pull_request_target') ||
+      (github.event_name == 'pull_request') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'issue_comment' &&
        github.event.comment.body == 'run buildall' &&
@@ -39,16 +43,77 @@ jobs:
        github.event.issue.user.login == 'github-actions[bot]')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        if: ${{ github.event_name != 'pull_request_target' }}
-        uses: actions/checkout@v3
-
-      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
-        if: ${{ github.event_name == 'pull_request_target' }}
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Get changed files
+        if: github.event_name == 'pull_request'
+        id: changed-files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! all=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+            --paginate --jq '.[].filename' 2>/dev/null); then
+            echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(echo "$all" | wc -l)" -ge 3000 ]; then
+            echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if echo "$all" | grep -qxF '.licenserc.yaml'; then
+            echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! acmr=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+            --paginate --jq '.[] | select(.status != "removed") | .filename' 2>/dev/null); then
+            echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$acmr" ]; then
+            exit 0
+          fi
+          # Hand the list over as a file, not as a step output consumed through an
+          # environment variable: a single env string is capped at MAX_ARG_STRLEN
+          # (128KiB), and a large PR blows past it, so exec'ing the next step's
+          # shell fails with "Argument list too long". Keep it out of the
+          # workspace, where the full-config fallback would license-check it.
+          printf '%s\n' "$acmr" > "${RUNNER_TEMP}/licenserc-changed-files.txt"
+          echo "changed_files_file=${RUNNER_TEMP}/licenserc-changed-files.txt" >> "$GITHUB_OUTPUT"
+          echo "config_file=.licenserc-incremental.yaml" >> "$GITHUB_OUTPUT"
+
+      - name: Generate incremental licenserc
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.changed-files.outputs.changed_files_file != ''
+        env:
+          CHANGED_FILES_FILE: ${{ steps.changed-files.outputs.changed_files_file }}
+        run: |
+          python3 - <<'EOF'
+          import sys
+          # Prevent fork-supplied files from shadowing stdlib modules
+          sys.path = [p for p in sys.path if p not in ('', '.')]
+          import yaml, os
+
+          with open('.licenserc.yaml') as f:
+              config = yaml.safe_load(f)
+
+          with open(os.environ['CHANGED_FILES_FILE']) as f:
+              changed = [p.strip() for p in f if p.strip()]
+
+          config['header']['paths'] = changed
+
+          with open('.licenserc-incremental.yaml', 'w') as f:
+              yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+          EOF
 
       - name: Check License
-        uses: apache/skywalking-eyes@v0.2.0
+        if: >-
+          github.event_name != 'pull_request' ||
+          steps.changed-files.outputs.config_file != ''
+        uses: apache/skywalking-eyes@v0.8.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          config: ${{ steps.changed-files.outputs.config_file || '.licenserc.yaml' }}

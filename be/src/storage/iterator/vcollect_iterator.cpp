@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <ostream>
 #include <set>
@@ -29,18 +30,19 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/field.h"
-#include "exprs/vexpr_context.h"
 #include "io/io_common.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "storage/binlog.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset.h"
@@ -74,6 +76,10 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _merge = false;
     }
 
+    if (_reader->_reader_type == ReaderType::READER_BINLOG) {
+        _merge = false;
+    }
+
     // When data is none overlapping, no need to build heap to traverse data
     if (!ori_data_overlapping) {
         _merge = false;
@@ -82,30 +88,30 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
     }
     _is_reverse = is_reverse;
 
-    // use topn_next opt only for DUP_KEYS and UNIQUE_KEYS with MOW
-    if (_reader->_reader_context.read_orderby_key_limit > 0 &&
-        (_reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
-         (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-          _reader->_tablet->enable_unique_key_merge_on_write()))) {
+    // TopN limit. Whether we reach here is decided by the scanner;
+    // it only sets read_orderby_key_limit on the no-merge tablet types.
+    if (_reader->_reader_context.read_orderby_key_limit > 0) {
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
-    } else {
-        _topn_limit = 0;
+        DORIS_CHECK(_reader->_reader_context.general_read_limit <= 0);
     }
-
-    // General limit pushdown: only for non-merge path (DUP_KEYS or UNIQUE_KEYS with MOW).
-    // The scanner already guards this with _storage_no_merge(), but we also check !_merge
-    // here because _merge can be forced true by overlapping data (force_merge), in which
-    // case limit pushdown is not safe.
-    if (!_merge && _reader->_reader_context.general_read_limit > 0) {
-        _general_read_limit = _reader->_reader_context.general_read_limit;
+    // General limit is forwarded to SegmentIterator, which applies it after
+    // predicate/common-expr filtering and before lazy-reading non-predicate columns.
+    if (_reader->_reader_context.general_read_limit > 0) {
+        _general_read_limit = static_cast<size_t>(_reader->_reader_context.general_read_limit);
     }
 }
 
 Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
+    // Forward the local row budget to SegmentIterator. SegmentIterator applies
+    // it after its own predicate/common-expr filtering, so LIMIT and pushed
+    // conjuncts stay in the same layer.
     if (use_topn_next()) {
         rs_splits.rs_reader->set_topn_limit(_topn_limit);
         _rs_splits.push_back(rs_splits);
         return Status::OK();
+    }
+    if (_general_read_limit > 0) {
+        rs_splits.rs_reader->set_topn_limit(_general_read_limit);
     }
 
     _children.push_back(std::make_unique<Level0Iterator>(rs_splits.rs_reader, _reader));
@@ -117,6 +123,7 @@ Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
 // then merged with the base rowset.
 Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers) {
     if (use_topn_next()) {
+        DORIS_CHECK(_children.empty());
         return Status::OK();
     }
 
@@ -219,10 +226,16 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     }
 
     // if row cursors equal, compare data version.
-    // read data from higher version to lower version.
+    // By default, read data from higher version to lower version. If
+    // `_use_insert_order_when_same` is enabled, read from lower to higher.
     // for UNIQUE_KEYS just read the highest version and no need agg_update.
     // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
-    bool lower = (cmp_res != 0) ? (cmp_res < 0) : (lhs->version() < rhs->version());
+    // Tie-break direction depends on `_small_seq_first`:
+    //   - false (UNIQUE_KEYS sequence column): larger value sorts first (cmp_res < 0 => lhs sorts first).
+    //   - true  (row binlog TSO column):       smaller value sorts first (cmp_res > 0 => lhs sorts first).
+    bool lower = (cmp_res != 0) ? (_small_seq_first ? (cmp_res > 0) : (cmp_res < 0))
+                                : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
+                                                               : (lhs->version() < rhs->version()));
     lower ? lhs->set_same(true) : rhs->set_same(true);
 
     return lower;
@@ -253,42 +266,11 @@ Status VCollectIterator::next(Block* block) {
         return _topn_next(block);
     }
 
-    // Fast path: if general limit already reached, return EOF immediately
-    if (_general_read_limit > 0 && _general_rows_returned >= _general_read_limit) {
-        return Status::Error<END_OF_FILE>("");
-    }
-
     if (LIKELY(_inner_iter)) {
         auto st = _inner_iter->next(block);
         if (UNLIKELY(!st.ok())) {
             return st;
         }
-
-        // Apply filter_block_conjuncts that were moved from Scanner::_conjuncts.
-        // This must happen BEFORE limit counting so that _general_rows_returned
-        // reflects post-filter rows (same pattern as _topn_next).
-        // Intentionally not gated by _general_read_limit > 0:
-        // filter_block_conjuncts is only populated when the general-limit or
-        // topn branches move conjuncts into the storage layer (topn takes
-        // the _topn_next path and never reaches here).
-        if (!_reader->_reader_context.filter_block_conjuncts.empty()) {
-            RETURN_IF_ERROR(VExprContext::filter_block(
-                    _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
-        }
-
-        // Enforce general read limit: truncate block if needed
-        if (_general_read_limit > 0) {
-            _general_rows_returned += block->rows();
-            if (_general_rows_returned > _general_read_limit) {
-                // Truncate block to return exactly the remaining rows needed
-                int64_t excess = _general_rows_returned - _general_read_limit;
-                int64_t keep = block->rows() - excess;
-                DCHECK_GT(keep, 0);
-                block->set_num_rows(keep);
-                _general_rows_returned = _general_read_limit;
-            }
-        }
-
         return Status::OK();
     } else {
         return Status::Error<END_OF_FILE>("");
@@ -296,40 +278,34 @@ Status VCollectIterator::next(Block* block) {
 }
 
 Status VCollectIterator::_topn_next(Block* block) {
+    DORIS_CHECK(block != nullptr);
+    DORIS_CHECK(use_topn_next());
+    DORIS_CHECK(_reader->_reader_context.read_orderby_key_columns != nullptr);
+    DORIS_CHECK(!_reader->_reader_context.read_orderby_key_columns->empty());
+
     if (_topn_eof) {
         return Status::Error<END_OF_FILE>("");
     }
 
+    // `block` is reused below as the per-rowset read buffer. Keep TopN candidates in a
+    // separate mutable block with the same schema so stored row positions remain stable.
     auto clone_block = block->clone_empty();
-    /*
-    select id, "${tR2}",
-            l2_distance_approximate 
-        from ann_index_only_scan
-        where l2_distance_approximate < 10
-        order by id
-        limit 20;
-    where id is the orderby key column.
-    */
-    // Initialize virtual slot columns by schema (avoid runtime type checks):
-    // use _reader_context.vir_col_idx_to_type to construct real columns for those positions.
-    if (!_reader->_reader_context.vir_col_idx_to_type.empty()) {
-        const auto& idx_to_type = _reader->_reader_context.vir_col_idx_to_type;
-        for (const auto& kv : idx_to_type) {
-            size_t idx = kv.first;
-            if (idx < clone_block.columns()) {
-                clone_block.get_by_position(idx).column = kv.second->create_column();
-            }
-        }
+    // Initialize virtual slot columns by schema (avoid runtime type checks).
+    for (const auto& [cid, expr_ctx] : _reader->_reader_context.virtual_column_exprs) {
+        auto it = std::find(_reader->_return_columns.begin(), _reader->_return_columns.end(), cid);
+        DORIS_CHECK(it != _reader->_return_columns.end());
+        auto idx = cast_set<size_t>(std::distance(_reader->_return_columns.begin(), it));
+        DORIS_CHECK(idx < clone_block.columns());
+        clone_block.get_by_position(idx).column = expr_ctx->root()->data_type()->create_column();
     }
-    MutableBlock mutable_block = MutableBlock::build_mutable_block(&clone_block);
+    const size_t clone_block_columns = clone_block.columns();
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
 
-    if (!_reader->_reader_context.read_orderby_key_columns) {
-        return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                "read_orderby_key_columns should not be nullptr");
-    }
-
-    size_t first_sort_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
     const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;
+    for (auto column_idx : *sort_columns) {
+        DORIS_CHECK(column_idx < clone_block_columns);
+    }
+    size_t first_sort_column_idx = (*sort_columns)[0];
 
     BlockRowPosComparator row_pos_comparator(&mutable_block, sort_columns,
                                              _reader->_reader_context.read_orderby_key_reverse);
@@ -362,10 +338,6 @@ Status VCollectIterator::_topn_next(Block* block) {
                 }
             }
 
-            // filter block
-            RETURN_IF_ERROR(VExprContext::filter_block(
-                    _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
-
             // update read rows
             read_rows += block->rows();
 
@@ -393,6 +365,8 @@ Status VCollectIterator::_topn_next(Block* block) {
 
                     int res = 0;
                     for (auto k : *sort_columns) {
+                        DORIS_CHECK(k < block->columns());
+                        DORIS_CHECK(k < mutable_block.columns());
                         DCHECK(block->get_by_position(k).type->equals(
                                 *mutable_block.get_datatype_by_position(k)));
                         res = block->get_by_position(k).column->compare_at(
@@ -417,7 +391,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                 // create column that is not in mutable_block but in block
                 for (size_t j = mutable_block.columns(); j < block->columns(); ++j) {
                     auto col = block->get_by_position(j).clone_empty();
-                    mutable_block.mutable_columns().push_back(col.column->assume_mutable());
+                    mutable_block.mutable_columns().push_back(col.column->assert_mutable());
                     mutable_block.data_types().push_back(std::move(col.type));
                     mutable_block.get_names().push_back(std::move(col.name));
                 }
@@ -446,7 +420,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                                << mutable_block.rows() << " rows";
                     Block tmp_block = mutable_block.to_block();
                     clone_block = tmp_block.clone_empty();
-                    mutable_block = MutableBlock::build_mutable_block(&clone_block);
+                    mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
                     for (auto it = sorted_row_pos.begin(); it != sorted_row_pos.end(); it++) {
                         mutable_block.add_row(&tmp_block, cast_set<int>(*it));
                     }
@@ -487,7 +461,6 @@ Status VCollectIterator::_topn_next(Block* block) {
                << " sorted_row_pos.size()=" << sorted_row_pos.size()
                << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();
-
     _topn_eof = true;
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>("");
 }
@@ -724,7 +697,21 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
                 break;
             }
         }
-        _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(sequence_loc, _is_reverse));
+
+        int32_t tso_col_id = _reader->_tablet_schema->binlog_tso_col_idx();
+        if (tso_col_id >= 0) {
+            DCHECK(sequence_loc == -1);
+            for (int loc = 0; loc < _reader->_return_columns.size(); ++loc) {
+                if (_reader->_return_columns[loc] == static_cast<uint32_t>(tso_col_id)) {
+                    sequence_loc = loc;
+                    break;
+                }
+            }
+        }
+
+        _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(
+                sequence_loc, _is_reverse, _reader->_reader_context.use_insert_order_when_same,
+                tso_col_id >= 0));
         for (auto&& child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());
@@ -792,10 +779,17 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
             _heap->pop();
         } else {
             _ref.reset();
+            // Keep _ref and _cur_child consistent: once EOF is returned and the heap
+            // is drained, no further reads are valid. Resetting _cur_child here lets
+            // the nullptr guard in next(Block*)/next(IteratorRowRef*) actually fire if
+            // the caller mistakenly invokes us again (e.g. when an upstream scanner
+            // overrides *eof for non-empty blocks).
+            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
         _ref.reset();
+        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -834,11 +828,49 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
     }
 }
 
+// Estimate whether the output block has collected enough data to meet the byte budget.
+bool estimate_collected_enough(size_t present_bytes, size_t present_rows, int rows_to_merge,
+                               size_t preferred_block_size_bytes) {
+    DCHECK_GE(rows_to_merge, 0);
+
+    if (preferred_block_size_bytes == 0 || present_rows == 0) {
+        return false;
+    }
+
+    if (present_bytes >= preferred_block_size_bytes) {
+        return true;
+    }
+
+    // Predict total bytes after flushing the pending rows_to_merge.
+    const size_t total_rows = static_cast<size_t>(rows_to_merge) + present_rows;
+    // Guard against overflow: if multiplication would wrap, the budget is surely exceeded.
+    if (present_bytes > std::numeric_limits<size_t>::max() / total_rows) {
+        return true;
+    }
+    return present_bytes * total_rows / present_rows >= preferred_block_size_bytes;
+}
+
+bool VCollectIterator::Level1Iterator::collected_enough_rows(const MutableColumns& columns,
+                                                             int rows_to_merge) const {
+    if (!config::enable_adaptive_batch_size) {
+        return false;
+    }
+
+    const auto preferred_block_size_bytes = _reader->preferred_block_size_bytes();
+    if (preferred_block_size_bytes == 0) {
+        return false;
+    }
+
+    const auto present_bytes = Block::columns_byte_size(columns);
+    const auto present_rows = columns.empty() ? 0 : columns[0]->size();
+
+    return estimate_collected_enough(present_bytes, present_rows, rows_to_merge,
+                                     preferred_block_size_bytes);
+}
+
 Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     SCOPED_RAW_TIMER(&_reader->_stats.collect_iterator_merge_next_timer);
     int target_block_row = 0;
-    auto target_columns = block->mutate_columns();
-    size_t column_count = target_columns.size();
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
 
@@ -846,8 +878,11 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     for (size_t i = block->columns(); i < cur_row.block->columns(); ++i) {
         block->insert(cur_row.block->get_by_position(i).clone_empty());
     }
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
+    size_t column_count = target_columns.size();
 
-    auto batch_size = _reader->batch_size();
+    auto batch_size = _reader->batch_max_rows();
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
         _block_row_locations.resize(batch_size);
     }
@@ -877,7 +912,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
             }
-            block->set_columns(std::move(target_columns));
             return res;
         }
 
@@ -894,7 +928,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
                                                          continuous_row_in_block);
                 }
             }
-            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
         if (continuous_row_in_block == 0) {
@@ -910,6 +943,23 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             }
             continuous_row_in_block = 0;
             pre_row_ref = cur_row;
+        }
+
+        // Byte-budget check: _merge_next() has already advanced _ref to the next unread row,
+        // so it is safe to stop here without duplicating any data.
+        if (collected_enough_rows(target_columns, continuous_row_in_block)) {
+            if (continuous_row_in_block > 0) {
+                const auto& src_block = pre_row_ref.block;
+                for (size_t i = 0; i < column_count; ++i) {
+                    target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                         pre_row_ref.row_pos,
+                                                         continuous_row_in_block);
+                }
+            }
+            if (UNLIKELY(_reader->_reader_context.record_rowids)) {
+                _block_row_locations.resize(target_block_row);
+            }
+            return Status::OK();
         }
     } while (true);
 

@@ -54,10 +54,6 @@ public:
     const std::string get_family_name() const override { return "BitMap"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_BITMAP; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_BITMAP;
-    }
-
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
@@ -67,10 +63,6 @@ public:
     Status check_column(const IColumn& column) const override;
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
-
-    Field get_default() const override {
-        return Field::create_field<TYPE_BITMAP>(BitmapValue::empty_bitmap());
-    }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

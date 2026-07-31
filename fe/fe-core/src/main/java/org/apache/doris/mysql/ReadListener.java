@@ -26,6 +26,8 @@ import org.xnio.ChannelListener;
 import org.xnio.XnioIoThread;
 import org.xnio.conduits.ConduitStreamSourceChannel;
 
+import java.util.concurrent.RejectedExecutionException;
+
 /**
  * listener for handle mysql cmd.
  */
@@ -46,23 +48,36 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
         XnioIoThread.requireCurrentThread();
         ctx.suspendAcceptQuery();
         // start async query handle in task thread.
-        channel.getWorker().execute(() -> {
+        try {
+            channel.getWorker().execute(() -> {
+                ctx.setThreadLocalInfo();
+                try {
+                    connectProcessor.processOnce();
+                    if (!ctx.isKilled()) {
+                        ctx.resumeAcceptQuery();
+                    } else {
+                        ctx.stopAcceptQuery();
+                        ctx.cleanup();
+                    }
+                } catch (Throwable e) {
+                    LOG.warn("Exception happened in one session(" + ctx + ").", e);
+                    ctx.setKilled();
+                    ctx.cleanup();
+                } finally {
+                    ConnectContext.remove();
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            LOG.warn("Failed to submit query task for one session({}).", ctx, e);
+            // Keep the same ConnectContext thread-local lifecycle as the normal async path,
+            // so that cleanup()/close listener can access ConnectContext.get() if needed.
             ctx.setThreadLocalInfo();
             try {
-                connectProcessor.processOnce();
-                if (!ctx.isKilled()) {
-                    ctx.resumeAcceptQuery();
-                } else {
-                    ctx.stopAcceptQuery();
-                    ctx.cleanup();
-                }
-            } catch (Throwable e) {
-                LOG.warn("Exception happened in one session(" + ctx + ").", e);
                 ctx.setKilled();
                 ctx.cleanup();
             } finally {
                 ConnectContext.remove();
             }
-        });
+        }
     }
 }

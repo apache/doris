@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -31,6 +32,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
@@ -41,6 +43,7 @@
 #include "runtime/runtime_profile.h"
 #include "storage/olap_common.h"
 #include "storage/olap_scan_common.h"
+#include "storage/segment/adaptive_block_size_predictor.h"
 #include "storage/segment/condition_cache.h"
 
 namespace doris {
@@ -61,10 +64,28 @@ class FileScanner : public Scanner {
 
 public:
     static constexpr const char* NAME = "FileScanner";
+    static constexpr size_t ADAPTIVE_BATCH_INITIAL_PROBE_ROWS = 32;
 
     // sub profile name (for parquet/orc)
     static const std::string FileReadBytesProfile;
     static const std::string FileReadTimeProfile;
+
+#ifdef BE_TEST
+    void TEST_init_runtime_filter_partition_prune_ctxs(
+            const VExprContextSPtrs& conjuncts,
+            const std::unordered_map<SlotId, int>& partition_slot_index_map) {
+        _conjuncts = conjuncts;
+        _partition_slot_index_map = partition_slot_index_map;
+        _init_runtime_filter_partition_prune_ctxs();
+    }
+    const VExprContextSPtrs& TEST_runtime_filter_partition_prune_ctxs() const {
+        return _runtime_filter_partition_prune_ctxs;
+    }
+    static TPushAggOp::type TEST_effective_push_down_agg_type(
+            TPushAggOp::type agg_type, const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        return _effective_push_down_agg_type(agg_type, count_slot_ids);
+    }
+#endif
 
     FileScanner(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
@@ -90,7 +111,9 @@ public:
             : Scanner(state, profile),
               _params(params),
               _col_name_to_slot_id(colname_to_slot_id),
-              _real_tuple_desc(tuple_desc) {};
+              _real_tuple_desc(tuple_desc) {
+        _configure_file_scan_handlers();
+    };
 
     Status read_lines_from_range(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
                                  Block* result_block, const ExternalFileMappingInfo& external_info,
@@ -107,10 +130,15 @@ protected:
 
     Status _get_next_reader();
 
+    // Build a ReaderInitContext with shared fields from FileScanner members.
+    void _fill_base_init_context(ReaderInitContext* ctx);
+
     // TODO: cast input block columns type to string.
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
     void _collect_profile_before_close() override;
+
+    bool _should_update_load_counters() const override;
 
     // fe will add skip_bitmap_col to _input_tuple_desc iff the target olaptable has skip_bitmap_col
     // and the current load is a flexible partial update
@@ -126,12 +154,10 @@ protected:
     bool _cur_reader_eof = false;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
-    // col names from _file_slot_descs
-    std::vector<std::string> _file_col_names;
+    // Unified column descriptors for init_reader (includes file, partition, missing, synthesized cols)
+    std::vector<ColumnDescriptor> _column_descs;
 
-    // Partition source slot descriptors
-    std::vector<SlotDescriptor*> _partition_slot_descs;
-    // Partition slot id to index in _partition_slot_descs
+    // Partition slot id to partition key index (for matching columns_from_path)
     std::unordered_map<SlotId, int> _partition_slot_index_map;
     // created from param.expr_of_dest_slot
     // For query, it saves default value expr of all dest columns, or nullptr for NULL.
@@ -140,6 +166,7 @@ protected:
     // dest slot name to index in _dest_vexpr_ctx;
     std::unordered_map<std::string, int> _dest_slot_name_to_idx;
     // col name to default value expr
+    // TODO: only used by json reader. Could we delete this?
     std::unordered_map<std::string, VExprContextSPtr> _col_default_value_ctx;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
@@ -152,8 +179,6 @@ protected:
     // Get from GenericReader, save the existing columns in file to their type.
     std::unordered_map<std::string, DataTypePtr> _slot_lower_name_to_col_type;
     // Get from GenericReader, save columns that required by scan but not exist in file.
-    // These columns will be filled by default value or null.
-    std::unordered_set<std::string> _missing_cols;
 
     // The col lowercase name of source file to type of source file.
     std::map<std::string, DataTypePtr> _source_file_col_name_types;
@@ -185,14 +210,12 @@ protected:
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
-    std::unique_ptr<io::IOContext> _io_ctx;
+    std::shared_ptr<io::IOContext> _io_ctx;
 
     // Whether to fill partition columns from path, default is true.
-    bool _fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
     std::unordered_map<std::string, bool> _partition_value_is_null;
-    std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
     // idx of skip_bitmap_col in _input_tuple_desc
     int32_t _skip_bitmap_col_idx {-1};
@@ -214,6 +237,10 @@ private:
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
     RuntimeProfile::Counter* _file_read_time_counter = nullptr;
     RuntimeProfile::Counter* _runtime_filter_partition_pruned_range_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_predicted_rows_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_actual_bytes_before_truncate_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_actual_bytes_after_truncate_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     // single slot filter conjuncts
@@ -230,14 +257,14 @@ private:
     // otherwise, point to _output_tuple_desc
     const TupleDescriptor* _real_tuple_desc = nullptr;
 
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
-                                                                                           -1};
-    bool _need_iceberg_rowid_column = false;
-    int _iceberg_rowid_column_pos = -1;
-    // for iceberg row lineage
-    RowLineageColumns _row_lineage_columns;
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
+
+    Status (FileScanner::*_init_src_block_handler)(Block* block) = nullptr;
+    Status (FileScanner::*_process_src_block_after_read_handler)(Block* block) = nullptr;
+    bool (FileScanner::*_should_push_down_predicates_handler)(
+            TFileFormatType::type format_type) const = nullptr;
+    bool (FileScanner::*_should_enable_condition_cache_handler)() const = nullptr;
 
     // Condition cache for external tables
     uint64_t _condition_cache_digest = 0;
@@ -245,20 +272,27 @@ private:
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_hit_count = 0;
+    std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
+
+    void _configure_file_scan_handlers();
 
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
+    Status _init_src_block_for_load(Block* block);
+    Status _init_src_block_for_query(Block* block);
+    Status _process_src_block_after_read(Block* block);
+    Status _process_src_block_after_read_for_load(Block* block);
+    Status _process_src_block_after_read_for_query(Block* block);
     Status _check_output_block_types();
     Status _cast_to_input_block(Block* block);
-    Status _fill_columns_from_path(size_t rows);
-    Status _fill_missing_columns(size_t rows);
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
     Status _generate_partition_columns();
-    Status _generate_missing_columns();
+
     bool _check_partition_prune_expr(const VExprSPtr& expr);
+    bool _contains_runtime_filter(const VExprContextSPtrs& conjuncts) const;
     void _init_runtime_filter_partition_prune_ctxs();
     void _init_runtime_filter_partition_prune_block();
     Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
@@ -267,11 +301,11 @@ private:
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);
-    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
-                            FileMetaCache* file_meta_cache_ptr);
-    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader,
-                                FileMetaCache* file_meta_cache_ptr);
-    Status _create_row_id_column_iterator();
+    Status _init_orc_reader(FileMetaCache* file_meta_cache_ptr,
+                            std::unique_ptr<OrcReader> orc_reader = nullptr);
+    Status _init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
+                                std::unique_ptr<ParquetReader> parquet_reader = nullptr);
+    std::shared_ptr<segment_v2::RowIdColumnIteratorV2> _create_row_id_column_iterator();
 
     TFileFormatType::type _get_current_format_type() {
         // for compatibility, if format_type is not set in range, use the format type of params
@@ -280,8 +314,7 @@ private:
     };
 
     Status _init_io_ctx() {
-        _io_ctx.reset(new io::IOContext());
-        _io_ctx->query_id = &_state->query_id();
+        _io_ctx = create_file_scan_io_context(_state);
         return Status::OK();
     };
 
@@ -291,12 +324,43 @@ private:
     }
 
     bool _should_enable_condition_cache();
+    bool _should_enable_condition_cache_for_load() const;
+    bool _should_enable_condition_cache_for_query() const;
+    bool _should_push_down_predicates(TFileFormatType::type format_type) const;
+    bool _should_push_down_predicates_for_load(TFileFormatType::type format_type) const;
+    bool _should_push_down_predicates_for_query(TFileFormatType::type format_type) const;
     void _init_reader_condition_cache();
     void _finalize_reader_condition_cache();
+    void _reset_adaptive_batch_size_state();
+    void _init_adaptive_batch_size_state(TFileFormatType::type format_type);
+    bool _should_enable_adaptive_batch_size(TFileFormatType::type format_type) const;
+    bool _should_run_adaptive_batch_size() const;
+    size_t _predict_reader_batch_rows();
+    void _update_adaptive_batch_size_before_truncate(const Block& block);
+    void _update_adaptive_batch_size_after_truncate(const Block& block);
 
-    TPushAggOp::type _get_push_down_agg_type() {
-        return _local_state == nullptr ? TPushAggOp::type::NONE
-                                       : _local_state->get_push_down_agg_type();
+    static TPushAggOp::type _effective_push_down_agg_type(
+            TPushAggOp::type agg_type, const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        if (agg_type != TPushAggOp::type::COUNT) {
+            return agg_type;
+        }
+        // V1's CountReader receives only the file's total row count and emits that many synthetic
+        // rows. This is exact for COUNT(*)/COUNT(1), but it has no column metadata for NULL or CAST
+        // semantics. For example, a 10,000-row file with 9,015 non-null values must return 10,000
+        // for COUNT(*) and 9,015 for COUNT(nullable_col); CountReader can produce only the former.
+        // Therefore a non-empty argument list must use the normal reader. nullopt is an old FE plan
+        // that predates the argument field; treating it as empty would silently reinterpret unknown
+        // semantics as COUNT(*).
+        return count_slot_ids.has_value() && count_slot_ids->empty() ? TPushAggOp::type::COUNT
+                                                                     : TPushAggOp::type::NONE;
+    }
+
+    TPushAggOp::type _get_push_down_agg_type() const {
+        if (_local_state == nullptr) {
+            return TPushAggOp::type::NONE;
+        }
+        return _effective_push_down_agg_type(_local_state->get_push_down_agg_type(),
+                                             _local_state->get_push_down_count_slot_ids());
     }
 
     // enable the file meta cache only when

@@ -29,6 +29,14 @@ file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 # and linked by Storage.
 list(FILTER SRC_FILES EXCLUDE REGEX ".*/storage/index/ann/.*\\.cpp$")
 
+if (ENABLE_VARIANT_NESTED_GROUP)
+    list(REMOVE_ITEM SRC_FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/segment/variant/nested_group_provider.cpp")
+    file(GLOB_RECURSE VARIANT_NESTED_GROUP_SOURCES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/../${VARIANT_NESTED_GROUP_MODULE_DIR}/*.cpp")
+    list(APPEND SRC_FILES ${VARIANT_NESTED_GROUP_SOURCES})
+endif()
+
 add_library(Storage STATIC ${SRC_FILES})
 target_link_libraries(Storage PRIVATE ann_index)
 

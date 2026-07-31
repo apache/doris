@@ -20,12 +20,15 @@ package org.apache.doris.resource.workloadschedpolicy;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -48,7 +51,10 @@ import java.util.concurrent.locks.ReentrantLock;
 public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
+    // backend id --> {query id --> (query last report time, query stats)}
     private Map<Long, BeReportInfo> beToQueryStatsMap = Maps.newConcurrentMap();
+    // Publish an immutable snapshot for synchronous proc/REST readers.
+    private volatile Map<String, TQueryStatistics> queryStatisticsSnapshot = ImmutableMap.of();
     private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
     private volatile long lastWarnTime;
@@ -60,6 +66,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             this.beLastReportTime = beLastReportTime;
         }
 
+        // query id --> (query last report time, query stats)
         Map<String, Pair<Long, TQueryStatisticsResult>> queryStatsMap = Maps.newConcurrentMap();
     }
 
@@ -69,10 +76,12 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        // 1 merge be query statistics
+        // 1 rebuild and publish query statistics snapshot
+        rebuildQueryStatisticsSnapshot();
+        // 2 read the latest immutable snapshot for downstream processing
         Map<String, TQueryStatistics> queryStatisticsMap = getQueryStatisticsMap();
 
-        // 2 log query audit
+        // 3 log query audit
         try {
             List<AuditEvent> auditEventList = getQueryNeedAudit();
             int missedLogCount = 0;
@@ -106,10 +115,17 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             LOG.warn("exception happens when handleAuditEvent, ", t);
         }
 
-        // 3 clear beToQueryStatsMap when be report timeout
+        // 4 clear beToQueryStatsMap when be report timeout
         clearReportTimeoutBeStatistics();
     }
 
+    // After the query or insert finished, FE will not audit immediately, it will send an audit
+    // event to this queue. And the worker thread will handle it. If the queue is full, the event
+    // will be handled immediately and may miss some statistic info. So the statistic info of audit
+    // event may be not accurate, but it can avoid the case that FE OOM because of too many audit
+    // events in queue when QPS is high. The event will be logged directly if the queue is full.
+    // And the worker thread will get an event from the queue and get the statistic info for this
+    // event from queryStatisticsMap.
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
         try {
@@ -121,9 +137,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     // if queryAuditEventList is full, we don't put the event to queryAuditEventList.
                     // so that the statistic info of this audit event will be ignored,
                     // and event will be logged directly.
-                    LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
-                                    + "you can check whether qps is too high or "
-                                    + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
+                    LOG.warn("audit log event queue size {} is full, this may cause audit log missing "
+                            + "statistics. you can check whether qps is too high or set "
+                            + "audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
                             queryAuditEventList.size(), event.queryId);
                 }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(event);
@@ -186,7 +202,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         }
     }
 
-    void clearReportTimeoutBeStatistics() {
+    private void clearReportTimeoutBeStatistics() {
         // 1 clear report timeout be
         Set<Long> currentBeIdSet = beToQueryStatsMap.keySet();
         Long currentTime = System.currentTimeMillis();
@@ -200,24 +216,59 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             for (String queryId : queryIdSet) {
                 Pair<Long, TQueryStatisticsResult> pair = beReportInfo.queryStatsMap.get(queryId);
                 long queryLastReportTime = pair.first;
-                if (currentTime - queryLastReportTime > Config.be_report_query_statistics_timeout_ms) {
+                boolean timeout = currentTime - queryLastReportTime
+                        > Config.be_report_query_statistics_timeout_ms;
+                // Remove query statistics only when both conditions are satisfied:
+                // 1) this query statistics is timeout, and
+                // 2) FE no longer has this query in QeProcessorImpl.
+                // Example timeline:
+                // - t0: query q1 is still running, but one periodic BE report is delayed for > timeout.
+                // - t1: clear thread runs. timeout condition is true, but q1 still exists in FE.
+                // - t2: we keep q1 statistics instead of removing it; later reports can update it again.
+                if (timeout && isQueryNotExistInFe(queryId)) {
                     beReportInfo.queryStatsMap.remove(queryId);
                 }
             }
         }
     }
 
-    // NOTE: currently getQueryStatisticsMap must be called before clear beToQueryStatsMap
-    // so there is no need lock or null check when visit beToQueryStatsMap
+    private boolean isQueryNotExistInFe(String queryId) {
+        try {
+            return QeProcessorImpl.INSTANCE.getCoordinator(DebugUtil.parseTUniqueIdFromString(queryId)) == null;
+        } catch (NumberFormatException e) {
+            return true;
+        }
+    }
+
+    // Rebuild query statistics from concurrent runtime maps and publish an immutable snapshot.
+    // This method is intentionally called by daemon thread and unit tests only.
+    void rebuildQueryStatisticsSnapshot() {
+        queryStatisticsSnapshot = ImmutableMap.copyOf(buildQueryStatisticsMapUnsafe());
+    }
+
+    // Return the latest published snapshot for synchronous readers such as proc/REST paths.
     public Map<String, TQueryStatistics> getQueryStatisticsMap() {
+        return queryStatisticsSnapshot;
+    }
+
+    // Build a merged map by traversing concurrent runtime structures.
+    private Map<String, TQueryStatistics> buildQueryStatisticsMapUnsafe() {
         // 1 merge query stats in all be
         Set<Long> beIdSet = beToQueryStatsMap.keySet();
         Map<String, TQueryStatistics> resultQueryMap = Maps.newHashMap();
         for (Long beId : beIdSet) {
             BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
+            if (beReportInfo == null) {
+                continue;
+            }
             Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
             for (String queryId : queryIdSet) {
-                TQueryStatisticsResult curQueryStats = beReportInfo.queryStatsMap.get(queryId).second;
+                Pair<Long, TQueryStatisticsResult> queryStatsPair =
+                        beReportInfo.queryStatsMap.get(queryId);
+                if (queryStatsPair == null || queryStatsPair.second == null) {
+                    continue;
+                }
+                TQueryStatisticsResult curQueryStats = queryStatsPair.second;
 
                 TQueryStatistics retQuery = resultQueryMap.get(queryId);
                 if (retQuery == null) {
@@ -248,18 +299,37 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         if (srcStats == null) {
             return;
         }
-        dst.scan_rows += srcStats.scan_rows;
-        dst.scan_bytes += srcStats.scan_bytes;
-        dst.scan_bytes_from_local_storage += srcStats.scan_bytes_from_local_storage;
-        dst.scan_bytes_from_remote_storage += srcStats.scan_bytes_from_remote_storage;
-        dst.cpu_ms += srcStats.cpu_ms;
-        dst.shuffle_send_bytes += srcStats.shuffle_send_bytes;
-        dst.shuffle_send_rows += srcStats.shuffle_send_rows;
-        if (dst.max_peak_memory_bytes < srcStats.max_peak_memory_bytes) {
-            dst.max_peak_memory_bytes = srcStats.max_peak_memory_bytes;
+        dst.setScanRows(dst.scan_rows + srcStats.scan_rows);
+        dst.setScanBytes(dst.scan_bytes + srcStats.scan_bytes);
+        dst.setScanBytesFromLocalStorage(dst.scan_bytes_from_local_storage
+                + srcStats.scan_bytes_from_local_storage);
+        dst.setScanBytesFromRemoteStorage(dst.scan_bytes_from_remote_storage
+                + srcStats.scan_bytes_from_remote_storage);
+        dst.setCpuMs(dst.cpu_ms + srcStats.cpu_ms);
+        dst.setShuffleSendBytes(dst.shuffle_send_bytes + srcStats.shuffle_send_bytes);
+        dst.setShuffleSendRows(dst.shuffle_send_rows + srcStats.shuffle_send_rows);
+        dst.setProcessRows(dst.process_rows + srcStats.process_rows);
+        dst.setReturnedRows(dst.returned_rows + srcStats.returned_rows);
+        if (srcStats.isSetTotalTasksNum()) {
+            dst.setTotalTasksNum(dst.total_tasks_num + srcStats.total_tasks_num);
         }
-        dst.spill_write_bytes_to_local_storage += srcStats.spill_write_bytes_to_local_storage;
-        dst.spill_read_bytes_from_local_storage += srcStats.spill_read_bytes_from_local_storage;
+        if (srcStats.isSetFinishedTasksNum()) {
+            dst.setFinishedTasksNum(dst.finished_tasks_num + srcStats.finished_tasks_num);
+        }
+        if (dst.current_used_memory_bytes < srcStats.current_used_memory_bytes) {
+            dst.setCurrentUsedMemoryBytes(srcStats.current_used_memory_bytes);
+        }
+        if (dst.workload_group_id <= 0 && srcStats.workload_group_id > 0) {
+            dst.setWorkloadGroupId(srcStats.workload_group_id);
+        }
+        if (dst.max_peak_memory_bytes < srcStats.max_peak_memory_bytes) {
+            dst.setMaxPeakMemoryBytes(srcStats.max_peak_memory_bytes);
+        }
+        dst.setSpillWriteBytesToLocalStorage(dst.spill_write_bytes_to_local_storage
+                + srcStats.spill_write_bytes_to_local_storage);
+        dst.setSpillReadBytesFromLocalStorage(dst.spill_read_bytes_from_local_storage
+                + srcStats.spill_read_bytes_from_local_storage);
+        dst.setBytesWriteIntoCache(dst.bytes_write_into_cache + srcStats.bytes_write_into_cache);
     }
 
     private void queryAuditEventLogWriteLock() {

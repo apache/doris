@@ -30,7 +30,6 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
-#include "storage/field.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
@@ -226,7 +225,11 @@ public:
 
         // Write rows
         RowCursor row;
-        auto olap_st = row.init(schema, schema->num_columns());
+        OlapTuple tuple;
+        for (size_t i = 0; i < schema->num_columns(); ++i) {
+            tuple.add_null();
+        }
+        auto olap_st = row.init(schema, tuple);
         EXPECT_EQ(Status::OK(), olap_st);
 
         // Write one row: (1, "hello")

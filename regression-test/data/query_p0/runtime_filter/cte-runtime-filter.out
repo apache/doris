@@ -6,7 +6,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalProject
---------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(id as BIGINT) = b.user_id)) otherCondition=() build RFs:RF0 user_id->[cast(id as BIGINT)]
+--------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(id as BIGINT) = b.user_id)) otherCondition=() build RFs:RF0 user_id->cast(id as BIGINT)
 ----------PhysicalProject
 ------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF0
 ----------PhysicalProject
@@ -24,7 +24,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalOlapScan[cte_runtime_filter_table]
 --PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
-------hashJoin[INNER_JOIN shuffle] hashCondition=((a.user_id = b.user_id)) otherCondition=() build RFs:RF0 user_id->[user_id]
+------hashJoin[INNER_JOIN shuffle] hashCondition=((a.user_id = b.user_id)) otherCondition=() build RFs:RF0 user_id->user_id
 --------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF0
 --------PhysicalProject
 ----------filter((cte_runtime_filter_table.__DORIS_DELETE_SIGN__ = 0))

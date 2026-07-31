@@ -2,7 +2,9 @@ create database if not exists multi_catalog;
 
 use multi_catalog;
 
-CREATE TABLE `wide_table1_orc`(
+drop table if exists `wide_table1_orc`;
+
+create table `wide_table1_orc`(
   `col1` decimal(16,0), 
   `col2` string, 
   `col3` string, 
@@ -650,5 +652,3 @@ LOCATION
   '/user/doris/suites/multi_catalog/wide_table1_orc'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1680503244');
-
-msck repair table wide_table1_orc;

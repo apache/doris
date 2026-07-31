@@ -66,10 +66,6 @@ public class DataSortInfo {
         return colNum;
     }
 
-    public void setColNum(int colNum) {
-        this.colNum = colNum;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -88,8 +84,7 @@ public class DataSortInfo {
     }
 
     public String toSql() {
-        String res = ",\n\"" + DATA_SORT_TYPE + "\" = \"" + this.sortType + "\""
+        return ",\n\"" + DATA_SORT_TYPE + "\" = \"" + this.sortType + "\""
                 + ",\n\"" + DATA_SORT_COL_NUM + "\" = \"" + this.colNum + "\"";
-        return res;
     }
 }

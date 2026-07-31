@@ -23,51 +23,55 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class CancelBackupCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
+
     private Env env;
-    @Mocked
     private ConnectContext connectContext;
-    @Mocked
     private AccessControllerManager accessControllerManager;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
 
     private final String dbName = "test_db";
 
-    private void runBefore() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        connectContext = Mockito.mock(ConnectContext.class);
+        accessControllerManager = Mockito.mock(AccessControllerManager.class);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
+    }
 
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkDbPriv(connectContext, internalCtl, dbName, PrivPredicate.LOAD);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
     }
 
     @Test
     public void testValidateNormal() {
-        runBefore();
+        Mockito.when(accessControllerManager.checkDbPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(internalCtl),
+                Mockito.eq(dbName), Mockito.eq(PrivPredicate.LOAD))).thenReturn(true);
+
         CancelBackupCommand command = new CancelBackupCommand(dbName, false);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
     }

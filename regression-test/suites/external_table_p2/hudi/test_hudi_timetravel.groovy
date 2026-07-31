@@ -46,13 +46,12 @@ suite("test_hudi_timetravel", "p2,external") {
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
 
-    // Function to get commit timestamps dynamically from hudi_meta table function
+    // Function to get commit timestamps dynamically from the _hoodie_commit_time meta column
     def getCommitTimestamps = { table_name ->
-        def result = sql """ 
-            SELECT timestamp 
-            FROM hudi_meta("table"="${catalog_name}.regression_hudi.${table_name}", "query_type" = "timeline")
-            WHERE action = 'commit' OR action = 'deltacommit'
-            ORDER BY timestamp
+        def result = sql """
+            SELECT DISTINCT _hoodie_commit_time
+            FROM ${catalog_name}.regression_hudi.${table_name}
+            ORDER BY _hoodie_commit_time
         """
         return result.collect { it[0] }
     }

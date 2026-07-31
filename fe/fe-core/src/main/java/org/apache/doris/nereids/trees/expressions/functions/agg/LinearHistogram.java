@@ -67,7 +67,7 @@ public class LinearHistogram extends NotNullableAggregateFunction implements Exp
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child(0).getDataType() instanceof PrimitiveType)) {
+        if (!(getArgument(0).getDataType() instanceof PrimitiveType)) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
         }
     }

@@ -31,14 +31,14 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.RepeatedTest;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataOutput;
 import java.io.File;
@@ -110,121 +110,105 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         String nodeName = Env.genFeNodeName("127.0.0.1", port, false);
         long replayedJournalId = 0;
         File tmpDir = createTmpDir();
-        new MockUp<Env>() {
-            HostInfo selfNode = new HostInfo("127.0.0.1", port);
-            @Mock
-            public String getBdbDir() {
-                return tmpDir.getAbsolutePath();
+        Env mockEnv = Mockito.mock(Env.class);
+        HostInfo selfNode = new HostInfo("127.0.0.1", port);
+        Mockito.when(mockEnv.getBdbDir()).thenReturn(tmpDir.getAbsolutePath());
+        Mockito.when(mockEnv.getSelfNode()).thenReturn(selfNode);
+        Mockito.when(mockEnv.getHelperNode()).thenReturn(selfNode);
+        Mockito.when(mockEnv.isElectable()).thenReturn(true);
+        Mockito.when(mockEnv.getReplayedJournalId()).thenReturn(replayedJournalId);
+
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnvStatic.when(Env::getServingEnv).thenReturn(mockEnv);
+
+            LOG.info("BdbDir:{}, selfNode:{}, nodeName:{}", Env.getServingEnv().getBdbDir(),
+                    Env.getServingEnv().getBdbDir(), nodeName);
+            Assertions.assertEquals(tmpDir.getAbsolutePath(), Env.getServingEnv().getBdbDir());
+            BDBJEJournal journal = new BDBJEJournal(nodeName);
+            journal.open();
+            // BDBEnvrinment need several seconds election from unknown to master
+            for (int i = 0; i < 10; i++) {
+                if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
+                        .equals(ReplicatedEnvironment.State.MASTER)) {
+                    break;
+                }
+                Thread.sleep(1000);
+            }
+            Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
+                    journal.getBDBEnvironment().getReplicatedEnvironment().getState());
+
+            journal.rollJournal();
+            for (int i = 0; i < 10; i++) {
+                journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
             }
 
-            @Mock
-            public HostInfo getSelfNode() {
-                return this.selfNode;
+            Assertions.assertEquals(10, journal.getMaxJournalId());
+            Assertions.assertEquals(10, journal.getJournalNum());
+            Assertions.assertEquals(1, journal.getMinJournalId());
+            Assertions.assertEquals(0, journal.getFinalizedJournalId());
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+            }
+            Assertions.assertEquals(1, journal.getDatabaseNames().size());
+            Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
+
+            JournalEntity journalEntity = journal.read(1);
+            Assertions.assertEquals(OperationType.OP_TIMESTAMP, journalEntity.getOpCode());
+
+            for (int i = 10; i < 50; i++) {
+                if (i % 10 == 0) {
+                    journal.rollJournal();
+                }
+                journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
             }
 
-            @Mock
-            public HostInfo getHelperNode() {
-                return this.selfNode;
+            Assertions.assertEquals(50, journal.getMaxJournalId());
+            Assertions.assertEquals(10, journal.getJournalNum());
+            Assertions.assertEquals(1, journal.getMinJournalId());
+            Assertions.assertEquals(40, journal.getFinalizedJournalId());
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+            }
+            Assertions.assertEquals(5, journal.getDatabaseNames().size());
+            Assertions.assertEquals(41, journal.getDatabaseNames().get(4));
+
+            JournalCursor cursor = journal.read(1, 51);
+            Assertions.assertNotNull(cursor);
+            for (int i = 0; i < 50; i++) {
+                Pair<Long, JournalEntity> kv = cursor.next();
+                Assertions.assertNotNull(kv);
+                JournalEntity entity = kv.second;
+                Assertions.assertEquals(OperationType.OP_TIMESTAMP, entity.getOpCode());
             }
 
-            @Mock
-            public boolean isElectable() {
-                return true;
+            Assertions.assertNull(cursor.next());
+
+            journal.close();
+            Assertions.assertNull(journal.getBDBEnvironment());
+
+            journal.open();
+            Assertions.assertNotNull(journal.getBDBEnvironment());
+            // BDBEnvrinment need several seconds election from unknown to master
+            for (int i = 0; i < 10; i++) {
+                if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
+                        .equals(ReplicatedEnvironment.State.MASTER)) {
+                    break;
+                }
+                Thread.sleep(1000);
             }
 
-            @Mock
-            public long getReplayedJournalId() {
-                return replayedJournalId;
+            Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
+                    journal.getBDBEnvironment().getReplicatedEnvironment().getState());
+            journal.deleteJournals(21);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
             }
-        };
-
-        LOG.info("BdbDir:{}, selfNode:{}, nodeName:{}", Env.getServingEnv().getBdbDir(),
-                Env.getServingEnv().getBdbDir(), nodeName);
-        Assertions.assertEquals(tmpDir.getAbsolutePath(), Env.getServingEnv().getBdbDir());
-        BDBJEJournal journal = new BDBJEJournal(nodeName);
-        journal.open();
-        // BDBEnvrinment need several seconds election from unknown to master
-        for (int i = 0; i < 10; i++) {
-            if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
-                    .equals(ReplicatedEnvironment.State.MASTER)) {
-                break;
-            }
-            Thread.sleep(1000);
+            Assertions.assertEquals(3, journal.getDatabaseNames().size());
+            Assertions.assertEquals(21, journal.getDatabaseNames().get(0));
+            journal.close();
         }
-        Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
-                journal.getBDBEnvironment().getReplicatedEnvironment().getState());
-
-        journal.rollJournal();
-        for (int i = 0; i < 10; i++) {
-            journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
-        }
-
-        Assertions.assertEquals(10, journal.getMaxJournalId());
-        Assertions.assertEquals(10, journal.getJournalNum());
-        Assertions.assertEquals(1, journal.getMinJournalId());
-        Assertions.assertEquals(0, journal.getFinalizedJournalId());
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        }
-        Assertions.assertEquals(1, journal.getDatabaseNames().size());
-        Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
-
-        JournalEntity journalEntity = journal.read(1);
-        Assertions.assertEquals(OperationType.OP_TIMESTAMP, journalEntity.getOpCode());
-
-        for (int i = 10; i < 50; i++) {
-            if (i % 10 == 0) {
-                journal.rollJournal();
-            }
-            journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
-        }
-
-        Assertions.assertEquals(50, journal.getMaxJournalId());
-        Assertions.assertEquals(10, journal.getJournalNum());
-        Assertions.assertEquals(1, journal.getMinJournalId());
-        Assertions.assertEquals(40, journal.getFinalizedJournalId());
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        }
-        Assertions.assertEquals(5, journal.getDatabaseNames().size());
-        Assertions.assertEquals(41, journal.getDatabaseNames().get(4));
-
-        JournalCursor cursor = journal.read(1, 51);
-        Assertions.assertNotNull(cursor);
-        for (int i = 0; i < 50; i++) {
-            Pair<Long, JournalEntity> kv = cursor.next();
-            Assertions.assertNotNull(kv);
-            JournalEntity entity = kv.second;
-            Assertions.assertEquals(OperationType.OP_TIMESTAMP, entity.getOpCode());
-        }
-
-        Assertions.assertNull(cursor.next());
-
-        journal.close();
-        Assertions.assertNull(journal.getBDBEnvironment());
-
-        journal.open();
-        Assertions.assertNotNull(journal.getBDBEnvironment());
-        // BDBEnvrinment need several seconds election from unknown to master
-        for (int i = 0; i < 10; i++) {
-            if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
-                    .equals(ReplicatedEnvironment.State.MASTER)) {
-                break;
-            }
-            Thread.sleep(1000);
-        }
-
-        Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
-                journal.getBDBEnvironment().getReplicatedEnvironment().getState());
-        journal.deleteJournals(21);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        }
-        Assertions.assertEquals(3, journal.getDatabaseNames().size());
-        Assertions.assertEquals(21, journal.getDatabaseNames().get(0));
-        journal.close();
     }
 
     @RepeatedTest(1)
@@ -234,81 +218,65 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         String nodeName = Env.genFeNodeName("127.0.0.1", port, false);
         long replayedJournalId = 0;
         File tmpDir = createTmpDir();
-        new MockUp<Env>() {
-            HostInfo selfNode = new HostInfo("127.0.0.1", port);
-            @Mock
-            public String getBdbDir() {
-                return tmpDir.getAbsolutePath();
-            }
+        Env mockEnv = Mockito.mock(Env.class);
+        HostInfo selfNode = new HostInfo("127.0.0.1", port);
+        Mockito.when(mockEnv.getBdbDir()).thenReturn(tmpDir.getAbsolutePath());
+        Mockito.when(mockEnv.getSelfNode()).thenReturn(selfNode);
+        Mockito.when(mockEnv.getHelperNode()).thenReturn(selfNode);
+        Mockito.when(mockEnv.isElectable()).thenReturn(true);
+        Mockito.when(mockEnv.getReplayedJournalId()).thenReturn(replayedJournalId);
 
-            @Mock
-            public HostInfo getSelfNode() {
-                return this.selfNode;
-            }
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnvStatic.when(Env::getServingEnv).thenReturn(mockEnv);
 
-            @Mock
-            public HostInfo getHelperNode() {
-                return this.selfNode;
-            }
-
-            @Mock
-            public boolean isElectable() {
-                return true;
-            }
-
-            @Mock
-            public long getReplayedJournalId() {
-                return replayedJournalId;
-            }
-        };
-
-        String oldRecovery = System.getProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY);
-        String oldMetadataRecovery = System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
-        BDBJEJournal journal = new BDBJEJournal(nodeName);
-        try {
-            System.clearProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
-            System.setProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY, "5");
-
-            journal.open();
-            for (int i = 0; i < 10; i++) {
-                if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
-                        .equals(ReplicatedEnvironment.State.MASTER)) {
-                    break;
-                }
-                Thread.sleep(1000);
-            }
-            Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
-                    journal.getBDBEnvironment().getReplicatedEnvironment().getState());
-            for (int i = 0; i < 10; i++) {
-                journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
-            }
-            Assertions.assertEquals(10, journal.getMaxJournalId());
-            journal.close();
-
-            journal.open();
-            for (int i = 0; i < 10; i++) {
-                if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
-                        .equals(ReplicatedEnvironment.State.MASTER)) {
-                    break;
-                }
-                Thread.sleep(1000);
-            }
-            Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
-                    journal.getBDBEnvironment().getReplicatedEnvironment().getState());
-            Assertions.assertEquals(10, journal.getMaxJournalId());
-        } finally {
-            if (journal.getBDBEnvironment() != null) {
-                journal.close();
-            }
-            if (oldRecovery == null) {
-                System.clearProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY);
-            } else {
-                System.setProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY, oldRecovery);
-            }
-            if (oldMetadataRecovery == null) {
+            String oldRecovery = System.getProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY);
+            String oldMetadataRecovery = System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+            BDBJEJournal journal = new BDBJEJournal(nodeName);
+            try {
                 System.clearProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
-            } else {
-                System.setProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY, oldMetadataRecovery);
+                System.setProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY, "5");
+
+                journal.open();
+                for (int i = 0; i < 10; i++) {
+                    if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
+                            .equals(ReplicatedEnvironment.State.MASTER)) {
+                        break;
+                    }
+                    Thread.sleep(1000);
+                }
+                Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
+                        journal.getBDBEnvironment().getReplicatedEnvironment().getState());
+                for (int i = 0; i < 10; i++) {
+                    journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
+                }
+                Assertions.assertEquals(10, journal.getMaxJournalId());
+                journal.close();
+
+                journal.open();
+                for (int i = 0; i < 10; i++) {
+                    if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
+                            .equals(ReplicatedEnvironment.State.MASTER)) {
+                        break;
+                    }
+                    Thread.sleep(1000);
+                }
+                Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
+                        journal.getBDBEnvironment().getReplicatedEnvironment().getState());
+                Assertions.assertEquals(10, journal.getMaxJournalId());
+            } finally {
+                if (journal.getBDBEnvironment() != null) {
+                    journal.close();
+                }
+                if (oldRecovery == null) {
+                    System.clearProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY);
+                } else {
+                    System.setProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY, oldRecovery);
+                }
+                if (oldMetadataRecovery == null) {
+                    System.clearProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+                } else {
+                    System.setProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY, oldMetadataRecovery);
+                }
             }
         }
     }
@@ -320,94 +288,78 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         String nodeName = Env.genFeNodeName("127.0.0.1", port, false);
         long replayedJournalId = 0;
         File tmpDir = createTmpDir();
-        new MockUp<Env>() {
-            HostInfo selfNode = new HostInfo("127.0.0.1", port);
-            @Mock
-            public String getBdbDir() {
-                return tmpDir.getAbsolutePath();
-            }
+        Env mockEnv = Mockito.mock(Env.class);
+        HostInfo selfNode = new HostInfo("127.0.0.1", port);
+        Mockito.when(mockEnv.getBdbDir()).thenReturn(tmpDir.getAbsolutePath());
+        Mockito.when(mockEnv.getSelfNode()).thenReturn(selfNode);
+        Mockito.when(mockEnv.getHelperNode()).thenReturn(selfNode);
+        Mockito.when(mockEnv.isElectable()).thenReturn(true);
+        Mockito.when(mockEnv.getReplayedJournalId()).thenReturn(replayedJournalId);
 
-            @Mock
-            public HostInfo getSelfNode() {
-                return this.selfNode;
-            }
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnvStatic.when(Env::getServingEnv).thenReturn(mockEnv);
 
-            @Mock
-            public HostInfo getHelperNode() {
-                return this.selfNode;
-            }
-
-            @Mock
-            public boolean isElectable() {
-                return true;
-            }
-
-            @Mock
-            public long getReplayedJournalId() {
-                return replayedJournalId;
-            }
-        };
-
-        LOG.info("BdbDir:{}, selfNode:{}, nodeName:{}", Env.getServingEnv().getBdbDir(),
-                Env.getServingEnv().getBdbDir(), nodeName);
-        Assertions.assertEquals(tmpDir.getAbsolutePath(), Env.getServingEnv().getBdbDir());
-        BDBJEJournal journal = new BDBJEJournal(nodeName);
-        journal.open();
-        // BDBEnvironment need several seconds election from unknown to master
-        for (int i = 0; i < 10; i++) {
-            if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
-                    .equals(ReplicatedEnvironment.State.MASTER)) {
-                break;
-            }
-            Thread.sleep(1000);
-        }
-        Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
-                journal.getBDBEnvironment().getReplicatedEnvironment().getState());
-
-        journal.rollJournal();
-        JournalBatch batch = new JournalBatch(10);
-        for (int i = 0; i < 10; i++) {
-            String data = "JournalBatch item " + i;
-            Writable writable = new Writable() {
-                @Override
-                public void write(DataOutput out) throws IOException {
-                    Text.writeString(out, data);
+            LOG.info("BdbDir:{}, selfNode:{}, nodeName:{}", Env.getServingEnv().getBdbDir(),
+                    Env.getServingEnv().getBdbDir(), nodeName);
+            Assertions.assertEquals(tmpDir.getAbsolutePath(), Env.getServingEnv().getBdbDir());
+            BDBJEJournal journal = new BDBJEJournal(nodeName);
+            journal.open();
+            // BDBEnvironment need several seconds election from unknown to master
+            for (int i = 0; i < 10; i++) {
+                if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
+                        .equals(ReplicatedEnvironment.State.MASTER)) {
+                    break;
                 }
-            };
-            // OP_START_ROLLUP is deprecated, and safe to write any data.
-            batch.addJournal(OperationType.OP_START_ROLLUP, writable);
+                Thread.sleep(1000);
+            }
+            Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
+                    journal.getBDBEnvironment().getReplicatedEnvironment().getState());
+
+            journal.rollJournal();
+            JournalBatch batch = new JournalBatch(10);
+            for (int i = 0; i < 10; i++) {
+                String data = "JournalBatch item " + i;
+                Writable writable = new Writable() {
+                    @Override
+                    public void write(DataOutput out) throws IOException {
+                        Text.writeString(out, data);
+                    }
+                };
+                // OP_START_ROLLUP is deprecated, and safe to write any data.
+                batch.addJournal(OperationType.OP_START_ROLLUP, writable);
+            }
+            long journalId = journal.write(batch);
+            Assertions.assertEquals(1, journalId);
+
+            Assertions.assertEquals(10, journal.getMaxJournalId());
+            Assertions.assertEquals(10, journal.getJournalNum());
+            Assertions.assertEquals(1, journal.getMinJournalId());
+            Assertions.assertEquals(0, journal.getFinalizedJournalId());
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+            }
+            Assertions.assertEquals(1, journal.getDatabaseNames().size());
+            Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
+
+            JournalEntity journalEntity = journal.read(1);
+            Assertions.assertEquals(OperationType.OP_START_ROLLUP, journalEntity.getOpCode());
+
+            batch = new JournalBatch(10);
+            for (int i = 0; i < 10; i++) {
+                String data = "JournalBatch 2 item " + i;
+                Writable writable = new Writable() {
+                    @Override
+                    public void write(DataOutput out) throws IOException {
+                        Text.writeString(out, data);
+                    }
+                };
+                batch.addJournal(OperationType.OP_START_ROLLUP, writable);
+            }
+            journalId = journal.write(batch);
+            Assertions.assertEquals(11, journalId);
+
+            journal.close();
         }
-        long journalId = journal.write(batch);
-        Assertions.assertEquals(1, journalId);
-
-        Assertions.assertEquals(10, journal.getMaxJournalId());
-        Assertions.assertEquals(10, journal.getJournalNum());
-        Assertions.assertEquals(1, journal.getMinJournalId());
-        Assertions.assertEquals(0, journal.getFinalizedJournalId());
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        }
-        Assertions.assertEquals(1, journal.getDatabaseNames().size());
-        Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
-
-        JournalEntity journalEntity = journal.read(1);
-        Assertions.assertEquals(OperationType.OP_START_ROLLUP, journalEntity.getOpCode());
-
-        batch = new JournalBatch(10);
-        for (int i = 0; i < 10; i++) {
-            String data = "JournalBatch 2 item " + i;
-            Writable writable = new Writable() {
-                @Override
-                public void write(DataOutput out) throws IOException {
-                    Text.writeString(out, data);
-                }
-            };
-            batch.addJournal(OperationType.OP_START_ROLLUP, writable);
-        }
-        journalId = journal.write(batch);
-        Assertions.assertEquals(11, journalId);
-
-        journal.close();
     }
 }

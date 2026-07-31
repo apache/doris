@@ -153,4 +153,34 @@ TEST_F(FragmentMgrCrossClusterCancelTest, CancelWorkerInvalidQueryDetectionSkips
     EXPECT_TRUE(queries_pipeline_task_leak.empty());
 }
 
+TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryContextRef) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_fragment_mgr = exec_env->_fragment_mgr;
+    exec_env->_fragment_mgr = new FragmentMgr(exec_env);
+
+    TUniqueId query_id;
+    query_id.__set_hi(101);
+    query_id.__set_lo(202);
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::SELECT);
+    query_options.__set_execution_timeout(60);
+    query_options.__set_mem_limit(64L * 1024 * 1024);
+
+    TNetworkAddress fe_addr;
+    fe_addr.hostname = "127.0.0.1";
+    fe_addr.port = 9030;
+
+    auto query_ctx =
+            QueryContext::create(query_id, exec_env, query_options, fe_addr,
+                                 /*is_nereids*/ true, fe_addr, QuerySource::INTERNAL_FRONTEND);
+    exec_env->_fragment_mgr->_query_ctx_map_delay_delete.insert(query_id, query_ctx);
+    query_ctx.reset();
+
+    exec_env->_fragment_mgr->_query_ctx_map_delay_delete.clear();
+    exec_env->_fragment_mgr->stop();
+    delete exec_env->_fragment_mgr;
+    exec_env->_fragment_mgr = previous_fragment_mgr;
+}
+
 } // namespace doris

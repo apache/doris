@@ -445,6 +445,13 @@ class UpCommand(Command):
             help=
             "Add environment variables. For example: --env KEY1=VALUE1 KEY2=VALUE2. Only use when creating new cluster."
         )
+        parser.add_argument(
+            "--cloud-config",
+            nargs="*",
+            type=str,
+            help=
+            "Override cloud store config values. For example: --cloud-config DORIS_CLOUD_AK=xxx DORIS_CLOUD_BUCKET=yyy. Only use when creating new cloud cluster."
+        )
 
         parser.add_argument("--coverage-dir",
                             default="",
@@ -527,8 +534,13 @@ class UpCommand(Command):
         parser.add_argument(
             "--fdb-version",
             type=str,
-            default="7.1.26",
+            default="7.3.69",
             help="fdb image version. Only use in cloud cluster.")
+        parser.add_argument(
+            "--fdb-image",
+            type=str,
+            default=os.environ.get("DORIS_FDB_IMAGE", ""),
+            help="Override fdb image. Only use in cloud cluster.")
 
         parser.add_argument(
             "--tde-ak",
@@ -541,6 +553,30 @@ class UpCommand(Command):
             type=str,
             default="",
             help="tde sk")
+
+        parser.add_argument(
+            "--tde-aws-ak",
+            type=str,
+            default="",
+            help="tde aws ak")
+
+        parser.add_argument(
+            "--tde-aws-sk",
+            type=str,
+            default="",
+            help="tde aws sk")
+
+        parser.add_argument(
+            "--tde-aliyun-ak",
+            type=str,
+            default="",
+            help="tde aliyun ak")
+
+        parser.add_argument(
+            "--tde-aliyun-sk",
+            type=str,
+            default="",
+            help="tde aliyun sk")
 
         # if default==True, use this style to parser, like --detach
         if self._support_boolean_action():
@@ -638,7 +674,9 @@ class UpCommand(Command):
 
                 if not args.be_cluster:
                     args.be_cluster = "compute_cluster"
-                cloud_store_config = self._get_cloud_store_config()
+                cloud_store_config = self._merge_cloud_store_config(
+                    self._get_cloud_store_config(), args.cloud_config
+                )
             else:
                 args.add_ms_num = 0
                 args.add_recycle_num = 0
@@ -660,15 +698,20 @@ class UpCommand(Command):
 
             instance_id = getattr(args, 'instance_id', None)
             cluster_snapshot = getattr(args, 'cluster_snapshot', '')
+            env = getattr(args, 'env', None)
+            enable_storage_vault = CLUSTER.is_true(
+                CLUSTER.get_env_value(env, "ENABLE_STORAGE_VAULT"))
 
             cluster = CLUSTER.Cluster.new(
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
-                args.be_disks if args.be_disks is not None else ["HDD=1"], args.be_cluster, args.reg_be, args.extra_hosts, args.env,
+                args.be_disks if args.be_disks is not None else ["HDD=1"], args.be_cluster, args.reg_be, args.extra_hosts, env,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
                 args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
-                external_ms_cluster, instance_id, cluster_snapshot)
+                args.tde_aws_ak, args.tde_aws_sk, args.tde_aliyun_ak, args.tde_aliyun_sk,
+                external_ms_cluster, instance_id, cluster_snapshot,
+                enable_storage_vault)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
@@ -726,9 +769,10 @@ class UpCommand(Command):
             if for_all:
                 cluster.set_image(args.IMAGE)
 
+        fdb_image = args.fdb_image or "foundationdb/foundationdb:{}".format(
+            args.fdb_version)
         for node in cluster.get_all_nodes(CLUSTER.Node.TYPE_FDB):
-            node.set_image("foundationdb/foundationdb:{}".format(
-                args.fdb_version))
+            node.set_image(fdb_image)
 
         cluster.save()
 
@@ -853,8 +897,7 @@ class UpCommand(Command):
                     except Exception as e:
                         LOG.error(f"Failed to add BE {be_endpoint}: {str(e)}")
                 if is_new_cluster:
-                    cloud_store_config = self._get_cloud_store_config()
-                    db_mgr.create_default_storage_vault(cloud_store_config)
+                    db_mgr.create_default_storage_vault(cluster.cloud_store_config)
 
             if not cluster.is_host_network():
                 wait_service(True, args.wait_timeout, cluster, add_fe_ids,
@@ -993,6 +1036,34 @@ class UpCommand(Command):
                     "Should provide none empty property '{}' in file {}".
                     format(key, CLUSTER.CLOUD_CFG_FILE))
         return config
+
+    @staticmethod
+    def _merge_cloud_store_config(base_config, overrides):
+        if not overrides:
+            return base_config
+
+        merged = dict(base_config)
+        for item in overrides:
+            pos = item.find('=')
+            if pos <= 0:
+                raise Exception(
+                    "cloud config override '{}' error format, should be like 'name=value'".
+                    format(item)
+                )
+            key = item[:pos].strip()
+            value = item[pos + 1:].strip()
+            if not key or not value:
+                raise Exception(
+                    "cloud config override '{}' error format, should be like 'name=value'".
+                    format(item)
+                )
+            if key not in merged:
+                raise Exception(
+                    "Unknown cloud config override '{}', available keys: {}".
+                    format(key, ", ".join(sorted(merged.keys())))
+                )
+            merged[key] = value
+        return merged
 
 
 class DownCommand(Command):

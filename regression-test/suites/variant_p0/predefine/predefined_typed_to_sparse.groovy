@@ -14,8 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("predefined_typed_to_sparse", "p0"){ 
-    sql """ set enable_common_expr_pushdown = true """
+suite("predefined_typed_to_sparse", "p0"){
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_doc_mode = false """
     sql """ set enable_variant_schema_auto_cast = false """
     def count = new Random().nextInt(10) + 1
@@ -57,9 +57,9 @@ suite("predefined_typed_to_sparse", "p0"){
         `var`  variant <
                 'array_decimal_*':array<decimalv3 (26,9)>,
                 'array_ipv6_*':array<ipv6>,
-                'int_*':int, 
-                'string_*':string, 
-                'decimal_*':decimalv3(26,9), 
+                'int_*':int,
+                'string_*':string,
+                'decimal_*':decimalv3(26,9),
                 'datetime_*':datetime,
                 'datetimev2_*':datetimev2(6),
                 'date_*':date,
@@ -120,7 +120,7 @@ suite("predefined_typed_to_sparse", "p0"){
               "largeint_1": "12345678901234567890123456789012345678",
               "char_1": "short text"
             }'
-        ); 
+        );
     """
     for (int i = 1; i < 10; i++) {
       load_json_data.call(tableName, getS3Url() + "/regression/variant/schema_tmpt${i}.json")
@@ -139,9 +139,9 @@ suite("predefined_typed_to_sparse", "p0"){
         `var`  variant <
                 'array_decimal_*':array<decimalv3 (26,9)>,
                 'array_ipv6_*':array<ipv6>,
-                'int_*':int, 
-                'string_*':string, 
-                'decimal_*':decimalv3(26,9), 
+                'int_*':int,
+                'string_*':string,
+                'decimal_*':decimalv3(26,9),
                 'datetime_*':datetime,
                 'datetimev2_*':datetimev2(6),
                 'date_*':date,
@@ -169,7 +169,7 @@ suite("predefined_typed_to_sparse", "p0"){
         INDEX idx_a_m (var) USING INVERTED PROPERTIES("field_pattern"="largeint_*") COMMENT '',
         INDEX idx_a_n (var) USING INVERTED PROPERTIES("field_pattern"="char_*") COMMENT ''
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")
-    """    
+    """
 
     for (int i = 1; i < 10; i++) {
       sql """
@@ -202,7 +202,7 @@ suite("predefined_typed_to_sparse", "p0"){
                 "largeint_1": "12345678901234567890123456789012345678",
                 "char_1": "short text"
               }'
-          ); 
+          );
       """
     }
 

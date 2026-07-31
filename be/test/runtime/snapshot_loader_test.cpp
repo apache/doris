@@ -210,11 +210,12 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
                                            slot_desc->col_name()));
     }
 
-    std::cout << "total column " << block.mutate_columns().size() << std::endl;
-    auto columns = block.mutate_columns();
+    std::cout << "total column " << block.columns() << std::endl;
+    auto columns = std::move(block).mutate_columns();
     int16_t c1 = value;
     columns[0]->insert_data((const char*)&c1, sizeof(c1));
-    Status res = delta_writer->write(&block, {0});
+    block.set_columns(std::move(columns));
+    Status res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
     EXPECT_TRUE(res.ok());
 
     res = delta_writer->close();

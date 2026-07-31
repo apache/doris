@@ -19,9 +19,11 @@
 
 #include <memory>
 
+#include "core/assert_cast.h"
 #include "core/column/column_array.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
@@ -70,6 +72,21 @@ std::unique_ptr<orc::LongVectorBatch> create_long_batch(size_t size,
     return batch;
 }
 
+std::unique_ptr<orc::TimestampVectorBatch> create_timestamp_batch(
+        size_t size, const std::vector<int64_t>& seconds, const std::vector<int64_t>& nanoseconds) {
+    auto batch = std::make_unique<orc::TimestampVectorBatch>(size, *orc::getDefaultPool());
+    batch->resize(size);
+    batch->notNull.resize(size);
+    batch->hasNulls = false;
+
+    for (size_t i = 0; i < size; ++i) {
+        batch->notNull[i] = true;
+        batch->data[i] = seconds[i];
+        batch->nanoseconds[i] = nanoseconds[i];
+    }
+    return batch;
+}
+
 TEST_F(OrcReaderFillDataTest, TestFillLongColumn) {
     std::vector<int64_t> values = {1, 2, 3, 4, 5};
     auto batch = create_long_batch(values.size(), values);
@@ -80,9 +97,9 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumn) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
-    MutableColumnPtr xx = column->assume_mutable();
+    MutableColumnPtr xx = column->assert_mutable();
 
     Status status = reader->_fill_doris_data_column<false>(
             "test_long", xx, data_type, const_node, orc_type_ptr.get(), batch.get(), values.size());
@@ -106,9 +123,9 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
-    MutableColumnPtr xx = column->assume_mutable();
+    MutableColumnPtr xx = column->assert_mutable();
 
     Status status =
             reader->_fill_doris_data_column<false>("test_long_with_null", xx, data_type, const_node,
@@ -122,6 +139,63 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {
             ASSERT_EQ(column->get_int(i), values[i]);
         }
     }
+}
+
+TEST_F(OrcReaderFillDataTest, TimestampDecodeNormalizesCstTimezone) {
+    auto batch = create_timestamp_batch(1, {1577905445}, {321000000});
+    auto data_type = std::make_shared<DataTypeDateTimeV2>(6);
+    auto column = data_type->create_column();
+    auto orc_type_ptr = createPrimitiveType(orc::TypeKind::TIMESTAMP);
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "CST", nullptr, nullptr, true);
+
+    MutableColumnPtr mutable_column = column->assert_mutable();
+    Status status = reader->_fill_doris_data_column<false>(
+            "test_ts", mutable_column, data_type, const_node, orc_type_ptr.get(), batch.get(), 1);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& timestamp_column = assert_cast<const ColumnDateTimeV2&>(*mutable_column);
+    ASSERT_EQ(timestamp_column.size(), 1);
+    EXPECT_EQ(data_type->to_string(timestamp_column.get_data()[0]), "2020-01-02 03:04:05.321000");
+}
+
+TEST_F(OrcReaderFillDataTest, SchemaChangeNullableNullMapUsesAppendedSlice) {
+    std::vector<int64_t> values = {10, 20, 30};
+    std::vector<bool> nulls = {true, false, true};
+    auto batch = create_long_batch(values.size(), values, nulls);
+    auto orc_type_ptr = createPrimitiveType(orc::TypeKind::LONG);
+
+    auto nested_column = ColumnFloat64::create();
+    nested_column->insert_value(1);
+    nested_column->insert_value(2);
+    auto null_map_column = ColumnUInt8::create();
+    null_map_column->insert_value(0);
+    null_map_column->insert_value(0);
+    ColumnPtr doris_column =
+            ColumnNullable::create(std::move(nested_column), std::move(null_map_column));
+    auto data_type = make_nullable(std::make_shared<DataTypeFloat64>());
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
+
+    Status status = reader->_orc_column_to_doris_column<false>(
+            "test_schema_change_nullable", doris_column, data_type, const_node, orc_type_ptr.get(),
+            batch.get(), values.size());
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(doris_column.get());
+    ASSERT_EQ(nullable_column->size(), 5);
+
+    const auto& null_map = nullable_column->get_null_map_data();
+    ASSERT_EQ(null_map.size(), 5);
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 0);
+    EXPECT_EQ(null_map[2], 1);
+    EXPECT_EQ(null_map[3], 0);
+    EXPECT_EQ(null_map[4], 1);
 }
 
 TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
@@ -160,13 +234,13 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {
                         std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>())},
                 std::vector<std::string> {"col1"});
-        MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
+        MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
 
         Status status = reader->_fill_doris_data_column<false>("test", doris_column,
                                                                doris_struct_type, const_node,
@@ -187,30 +261,30 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
         std::cout << block.dump_data() << "\n";
 
         ASSERT_EQ(block.dump_data(),
-                  "+---------------------------+\n"
-                  "|cc(Struct(col1:Array(INT)))|\n"
-                  "+---------------------------+\n"
-                  "|               {\"col1\":[0]}|\n"
-                  "|            {\"col1\":[1, 1]}|\n"
-                  "|         {\"col1\":[2, 2, 2]}|\n"
-                  "|      {\"col1\":[3, 3, 3, 3]}|\n"
-                  "|   {\"col1\":[4, 4, 4, 4, 4]}|\n"
-                  "|               {\"col1\":[5]}|\n"
-                  "|            {\"col1\":[6, 6]}|\n"
-                  "|         {\"col1\":[7, 7, 7]}|\n"
-                  "|      {\"col1\":[8, 8, 8, 8]}|\n"
-                  "|   {\"col1\":[9, 9, 9, 9, 9]}|\n"
-                  "|              {\"col1\":[10]}|\n"
-                  "|          {\"col1\":[11, 11]}|\n"
-                  "|      {\"col1\":[12, 12, 12]}|\n"
-                  "|  {\"col1\":[13, 13, 13, 13]}|\n"
-                  "|{\"col1\":[14, 14, 14, 14,...|\n"
-                  "|              {\"col1\":[15]}|\n"
-                  "|          {\"col1\":[16, 16]}|\n"
-                  "|      {\"col1\":[17, 17, 17]}|\n"
-                  "|  {\"col1\":[18, 18, 18, 18]}|\n"
-                  "|{\"col1\":[19, 19, 19, 19,...|\n"
-                  "+---------------------------+\n");
+                  "+-------------------------------------+\n"
+                  "|cc(Struct(col1:Array(Nullable(INT))))|\n"
+                  "+-------------------------------------+\n"
+                  "|                         {\"col1\":[0]}|\n"
+                  "|                      {\"col1\":[1, 1]}|\n"
+                  "|                   {\"col1\":[2, 2, 2]}|\n"
+                  "|                {\"col1\":[3, 3, 3, 3]}|\n"
+                  "|             {\"col1\":[4, 4, 4, 4, 4]}|\n"
+                  "|                         {\"col1\":[5]}|\n"
+                  "|                      {\"col1\":[6, 6]}|\n"
+                  "|                   {\"col1\":[7, 7, 7]}|\n"
+                  "|                {\"col1\":[8, 8, 8, 8]}|\n"
+                  "|             {\"col1\":[9, 9, 9, 9, 9]}|\n"
+                  "|                        {\"col1\":[10]}|\n"
+                  "|                    {\"col1\":[11, 11]}|\n"
+                  "|                {\"col1\":[12, 12, 12]}|\n"
+                  "|            {\"col1\":[13, 13, 13, 13]}|\n"
+                  "|        {\"col1\":[14, 14, 14, 14, 14]}|\n"
+                  "|                        {\"col1\":[15]}|\n"
+                  "|                    {\"col1\":[16, 16]}|\n"
+                  "|                {\"col1\":[17, 17, 17]}|\n"
+                  "|            {\"col1\":[18, 18, 18, 18]}|\n"
+                  "|        {\"col1\":[19, 19, 19, 19, 19]}|\n"
+                  "+-------------------------------------+\n");
     }
 
     {
@@ -246,13 +320,13 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
                                           std::make_shared<DataTypeInt32>()},
                 std::vector<std::string> {"col1", "col2"});
-        MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
+        MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
 
         Status status = reader->_fill_doris_data_column<false>("test", doris_column,
                                                                doris_struct_type, const_node,
@@ -332,12 +406,12 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeDecimal64>(18, 5)},
                 std::vector<std::string> {"col1"});
-        MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
+        MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
         reader->_decimal_scale_params.resize(0);
         reader->_decimal_scale_params_index = 0;
         Status status = reader->_fill_doris_data_column<false>("test", doris_column,
@@ -446,11 +520,11 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                                                std::make_shared<DataTypeFloat32>());
-        MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
+        MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
 
         Status status =
                 reader->_fill_doris_data_column<false>("test", doris_column, doris_struct_type,

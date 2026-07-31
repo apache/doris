@@ -606,6 +606,14 @@ public:
 
     bool uninitialized() const { return _obj == nullptr; }
 
+    void reset(JNIEnv* env) {
+        if (_obj == nullptr) {
+            return;
+        }
+        RefHelper<Ref>::destroy(env, _obj);
+        _obj = nullptr;
+    }
+
     template <RefType T>
     bool equal(JNIEnv* env, const Object<T>& other) {
         DCHECK(!uninitialized());
@@ -797,8 +805,7 @@ public:
 
     Status get_byte_elements(JNIEnv* env, jsize start, jsize len, jbyte* buffer) {
         DCHECK(!this->uninitialized());
-        env->GetByteArrayRegion((jbyteArray)this->_obj, start, len,
-                                reinterpret_cast<jbyte*>(buffer));
+        env->GetByteArrayRegion((jbyteArray)this->_obj, start, len, buffer);
         RETURN_ERROR_IF_EXC(env);
         return Status::OK();
     }

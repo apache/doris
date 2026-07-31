@@ -29,8 +29,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -182,14 +180,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     }
 
     @Override
-    public Statistics visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan olapScan,
-            DeriveContext context) {
-        Statistics stats = context.calculator.computeOlapScan(olapScan);
-        olapScan.setStatistics(stats);
-        return stats;
-    }
-
-    @Override
     public Statistics visitLogicalCatalogRelation(LogicalCatalogRelation relation, DeriveContext context) {
         Statistics stats = relation.getStats();
         if (stats == null || deepDerive) {
@@ -220,18 +210,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     public Statistics visitLogicalTopN(LogicalTopN<? extends Plan> topN, DeriveContext context) {
         Statistics stats = topN.getStats();
         if (stats == null || deepDerive) {
-            Statistics childStats = topN.child().accept(this, context);
-            stats = context.calculator.computeTopN(topN, childStats);
-            topN.setStatistics(stats);
-        }
-        return stats;
-    }
-
-    @Override
-    public Statistics visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN,
-            DeriveContext context) {
-        Statistics stats = topN.getStats();
-        if (stats == null && deepDerive) {
             Statistics childStats = topN.child().accept(this, context);
             stats = context.calculator.computeTopN(topN, childStats);
             topN.setStatistics(stats);
@@ -413,8 +391,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
         return stats;
     }
 }
-
-
 
 
 

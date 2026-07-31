@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunctio
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -158,7 +157,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
             for (Expression groupBy : agg.getGroupByExpressions()) {
-                if (groupBy.getDataType().isObjectOrVariantType() || groupBy.getDataType().isVarBinaryType()) {
+                if (groupBy.getDataType().isObjectType() || groupBy.getDataType().isVarBinaryType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -195,7 +194,8 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             for (Expression conjunct : join.getHashJoinConjuncts()) {
                 if (containsVariantTypeOutsideCast(conjunct)) {
-                    throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
+                    throw new AnalysisException("variant type could not in join equal conditions: "
+                            + conjunct.toSql());
                 } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
@@ -232,8 +232,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     private void checkMatchIsUsedCorrectly(Plan plan) {
         for (Expression expression : plan.getExpressions()) {
             if (expression instanceof Match) {
-                if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
-                        || plan.child(0) instanceof LogicalDeferMaterializeOlapScan)) {
+                if (plan instanceof LogicalFilter && plan.child(0) instanceof LogicalOlapScan) {
                     return;
                 } else {
                     throw new AnalysisException(String.format(

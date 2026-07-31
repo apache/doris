@@ -74,7 +74,8 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status SetSourceOperatorX<is_intersect>::get_block_impl(RuntimeState* state, Block* block,
+                                                        bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -114,7 +115,7 @@ void SetSourceOperatorX<is_intersect>::_create_mutable_cols(
     for (int i = 0; i < local_state._left_table_data_types.size(); ++i) {
         if (mem_reuse) {
             local_state._mutable_cols[i] =
-                    std::move(*output_block->get_by_position(i).column).mutate();
+                    IColumn::mutate(std::move(output_block->get_by_position(i).column));
         } else {
             local_state._mutable_cols[i] = (local_state._left_table_data_types[i]->create_column());
         }
@@ -173,6 +174,9 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
                                                        local_state._left_table_data_types[i], ""));
         }
     } else {
+        for (int i = 0; i < left_col_len; ++i) {
+            output_block->replace_by_position(i, std::move(local_state._mutable_cols[i]));
+        }
         local_state._mutable_cols.clear();
     }
 

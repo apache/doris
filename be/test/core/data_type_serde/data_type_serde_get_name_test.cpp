@@ -45,7 +45,7 @@ TEST(DataTypeSerDeGetNameTest, test) {
     {
         auto type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt64>());
         auto serde = type->get_serde();
-        EXPECT_EQ(serde->get_name(), "Array(BIGINT)");
+        EXPECT_EQ(serde->get_name(), "Array(Nullable(BIGINT))");
     }
 
     {
@@ -114,7 +114,7 @@ TEST(DataTypeSerDeGetNameTest, test) {
         auto serde = type->get_serde();
         EXPECT_EQ(
                 serde->get_name(),
-                R"(Struct(field1:String, field2:BIGINT, field3:DOUBLE, field4:Array(INT), field5:Map(String, BIGINT), field6:Nullable(String), field7:Nullable(BIGINT)))");
+                R"(Struct(field1:String, field2:BIGINT, field3:DOUBLE, field4:Array(Nullable(INT)), field5:Map(String, BIGINT), field6:Nullable(String), field7:Nullable(BIGINT)))");
     }
 }
 

@@ -41,7 +41,6 @@
 #include "core/types.h"
 #include "exprs/function/function_helpers.h"
 #include "io/io_common.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
@@ -73,7 +72,7 @@ public:
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
                          std::unique_ptr<SubstreamIterator>&& root_column_reader,
                          ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
-                         ReadType read_type);
+                         ReadType read_type, const io::IOContext* io_ctx = nullptr);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -87,7 +86,8 @@ public:
     ordinal_t get_current_ordinal() const override;
 
     Status add_stream(int32_t col_uid, const SubcolumnColumnMetaInfo::Node* node,
-                      ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
+                      ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
+                      const io::IOContext* io_ctx = nullptr);
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
     void collect_prefetchers(
@@ -138,9 +138,10 @@ private:
     // process read
     template <typename ReadFunction>
     Status process_read(ReadFunction&& read_func, MutableColumnPtr& dst, size_t nrows) {
+        dst = IColumn::mutate(std::move(dst));
         // // Read all sub columns, and merge with root column
         ColumnNullable* nullable_column = nullptr;
-        if (dst->is_nullable()) {
+        if (is_column_nullable(*dst)) {
             nullable_column = assert_cast<ColumnNullable*>(dst.get());
         }
         auto& variant = nullable_column == nullptr

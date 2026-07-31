@@ -78,6 +78,23 @@ suite("test_routine_load_be_restart","nonConcurrent") {
                 GetDebugPoint().disableDebugPointForAllFEs(injection_load_hang)
             }
 
+            // After the simulated BE restart, the routine load must recover: new tasks are
+            // scheduled (afterAborted callback ran without exception) and data is loaded.
+            // If handleAfterAbort threw IllegalMonitorStateException the job would be stuck.
+            def count = RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 0)
+            logger.info("rows loaded after be-restart abort, wait iterations: " + count)
+
+            // Verify job is still RUNNING (not PAUSED due to an exception in afterAborted).
+            def res = sql "show routine load for ${job}"
+            assertEquals("RUNNING", res[0][8].toString())
+
+            // Send additional data and confirm it is loaded to prove ongoing task scheduling
+            // works correctly after the abort — this would time-out if the replacement task
+            // was never enqueued due to the missing beforeAborted() call.
+            def rowsAfterFirstLoad = sql("select count(*) from ${tableName}")[0][0] as int
+            RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTopics)
+            RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, rowsAfterFirstLoad)
+
             // test coordinator be down
             def injection_abort_txn_be_down = "HeartbeatMgr.abortTxnWhenCoordinateBeDown"
             try {
@@ -89,8 +106,8 @@ suite("test_routine_load_be_restart","nonConcurrent") {
                 GetDebugPoint().disableDebugPointForAllFEs(injection_abort_txn_be_down)
                 GetDebugPoint().disableDebugPointForAllFEs(injection_load_hang)
             }
-            def count = RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 0)
-            logger.info("wait count: " + count)
+            def finalCount = RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 0)
+            logger.info("wait count: " + finalCount)
         } finally {
             sql "stop routine load for ${job}"
         }

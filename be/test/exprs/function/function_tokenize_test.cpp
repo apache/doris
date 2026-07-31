@@ -25,6 +25,7 @@
 
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/column/column_const.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/simple_function_factory.h"
@@ -200,6 +201,99 @@ TEST_F(FunctionTokenizeTest, ParserNonePropertyFormats) {
         "token": "Test String"
     }])") << "Failed for property format: "
           << properties;
+    }
+}
+
+// Regression for const-first-argument row count.
+//
+// The fix in FunctionTokenize::execute_impl wraps the dest column in a
+// ColumnConst(input_rows_count) when the first argument was already a
+// ColumnConst. The generic PreparedFunctionImpl::default_implementation_for_
+// constant_arguments path only short-circuits when *all* arguments are const,
+// so to reach the new left_const branch we need arg0 const but arg1 non-const.
+// FE rejects non-literal second arguments for tokenize, so this path is only
+// exercisable from a unit test that builds the block directly.
+TEST_F(FunctionTokenizeTest, ConstFirstArgPreservesRowCount) {
+    const size_t input_rows_count = 5;
+    const std::string input_str = "Hello World Test";
+    const std::string properties = "parser='english'";
+
+    auto input_inner = ColumnString::create();
+    input_inner->insert_data(input_str.data(), input_str.size());
+    auto input_const = ColumnConst::create(std::move(input_inner), input_rows_count);
+
+    auto properties_column = ColumnString::create();
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        properties_column->insert_data(properties.data(), properties.size());
+    }
+
+    auto string_type = std::make_shared<DataTypeString>();
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(input_const), string_type, "input"));
+    block.insert(ColumnWithTypeAndName(std::move(properties_column), string_type, "properties"));
+    block.insert(ColumnWithTypeAndName(string_type->create_column(), string_type, "result"));
+
+    ColumnNumbers arguments = {0, 1};
+    uint32_t result = 2;
+
+    auto status = _function->execute(nullptr, block, arguments, result, input_rows_count);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    auto result_column = block.get_by_position(result).column;
+    ASSERT_EQ(result_column->size(), input_rows_count);
+
+    // Source is constant, so every row must carry the same tokenized value.
+    StringRef first_token = result_column->get_data_at(0);
+    ASSERT_GT(first_token.size, 0);
+    EXPECT_NE(std::string(first_token.data, first_token.size).find("hello"), std::string::npos);
+    EXPECT_NE(std::string(first_token.data, first_token.size).find("world"), std::string::npos);
+    for (size_t i = 1; i < input_rows_count; ++i) {
+        StringRef row_i = result_column->get_data_at(i);
+        EXPECT_EQ(row_i.size, first_token.size);
+        EXPECT_EQ(memcmp(row_i.data, first_token.data, first_token.size), 0);
+    }
+}
+
+// Same check for the PARSER_NONE early-return branch in execute_impl.
+TEST_F(FunctionTokenizeTest, ConstFirstArgParserNonePreservesRowCount) {
+    const size_t input_rows_count = 4;
+    const std::string input_str = "Hello World";
+    const std::string properties = "parser='none'";
+
+    auto input_inner = ColumnString::create();
+    input_inner->insert_data(input_str.data(), input_str.size());
+    auto input_const = ColumnConst::create(std::move(input_inner), input_rows_count);
+
+    auto properties_column = ColumnString::create();
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        properties_column->insert_data(properties.data(), properties.size());
+    }
+
+    auto string_type = std::make_shared<DataTypeString>();
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(input_const), string_type, "input"));
+    block.insert(ColumnWithTypeAndName(std::move(properties_column), string_type, "properties"));
+    block.insert(ColumnWithTypeAndName(string_type->create_column(), string_type, "result"));
+
+    ColumnNumbers arguments = {0, 1};
+    uint32_t result = 2;
+
+    auto status = _function->execute(nullptr, block, arguments, result, input_rows_count);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    auto result_column = block.get_by_position(result).column;
+    ASSERT_EQ(result_column->size(), input_rows_count);
+
+    StringRef first_token = result_column->get_data_at(0);
+    const std::string expected = R"([{
+        "token": "Hello World"
+    }])";
+    EXPECT_EQ(std::string(first_token.data, first_token.size), expected);
+    for (size_t i = 1; i < input_rows_count; ++i) {
+        StringRef row_i = result_column->get_data_at(i);
+        EXPECT_EQ(std::string(row_i.data, row_i.size), expected);
     }
 }
 

@@ -39,7 +39,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "util/brpc_client_cache.h"
-#include "util/io_helper.h"
 #include "util/jni-util.h"
 namespace doris {
 #include "common/compile_check_avoid_begin.h"

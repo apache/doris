@@ -20,7 +20,9 @@
 #include <sys/types.h>
 
 #include <cstdint>
+#include <memory>
 #include <unordered_map>
+#include <vector>
 
 #include "common/be_mock_util.h"
 #include "core/column/column.h"
@@ -34,7 +36,7 @@ public:
     ~VirtualColumnIterator() override = default;
 
     MOCK_FUNCTION void prepare_materialization(IColumn::Ptr column,
-                                               std::unique_ptr<std::vector<uint64_t>> labels);
+                                               std::shared_ptr<std::vector<uint64_t>> labels);
 
     Status init(const ColumnIteratorOptions& opts) override;
 

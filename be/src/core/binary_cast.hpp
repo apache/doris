@@ -27,49 +27,15 @@
 #include "core/value/vdatetime_value.h"
 
 namespace doris {
-union TypeConverter {
-    uint64_t u64;
-    int64_t i64;
-    uint32_t u32[2];
-    int32_t i32[2];
-    uint8_t u8[8];
-    float flt[2];
-    double dbl;
-};
-
 template <typename C0, typename C1, typename T0, typename T1>
 constexpr bool match_v = std::is_same_v<C0, C1> && std::is_same_v<T0, T1>;
-
-union DecimalInt128Union {
-    DecimalV2Value decimal;
-    PackedInt128 packed128;
-    __int128_t i128;
-};
 
 static_assert(sizeof(DecimalV2Value) == sizeof(PackedInt128));
 static_assert(sizeof(DecimalV2Value) == sizeof(__int128_t));
 
-union VecDateTimeInt64Union {
-    doris::VecDateTimeValue dt;
-    __int64_t i64;
-    ~VecDateTimeInt64Union() {}
-};
-
-union DateV2UInt32Union {
-    DateV2Value<DateV2ValueType> dt;
-    uint32_t ui32;
-    ~DateV2UInt32Union() {}
-};
-
-union DateTimeV2UInt64Union {
-    DateV2Value<DateTimeV2ValueType> dt;
-    uint64_t ui64;
-    ~DateTimeV2UInt64Union() {}
-};
-
 // similar to reinterpret_cast but won't break strict-aliasing rules. you can treat it as std::bit_cast with type checking
 template <typename From, typename To>
-constexpr PURE To binary_cast(const From& from) {
+constexpr To binary_cast(const From& from) {
     constexpr bool from_u64_to_db = match_v<From, uint64_t, To, double>;
     constexpr bool from_i64_to_db = match_v<From, int64_t, To, double>;
     constexpr bool from_db_to_i64 = match_v<From, double, To, int64_t>;

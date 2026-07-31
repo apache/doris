@@ -56,7 +56,7 @@ struct TimerArg {
 };
 
 // AdaptiveThreadPoolController dynamically adjusts thread pool sizes based on
-// system load (IO utilisation, CPU load average, flush queue depth).
+// system load (IO utilisation, CPU utilisation, flush queue depth).
 //
 // Each registered pool group runs as a one-shot bthread_timer_add chain: the
 // callback fires, adjusts the pool, then re-registers the next one-shot timer.
@@ -142,6 +142,7 @@ private:
     ThreadPool* _s3_file_upload_pool = nullptr;
 
     mutable std::mutex _mutex;
+    mutable std::mutex _metrics_state_mutex;
     std::map<std::string, PoolGroup> _pool_groups;
 
     // Last successfully computed IO-busy result. Returned as-is when the
@@ -151,6 +152,12 @@ private:
     // For disk IO util calculation (used by is_io_busy).
     std::map<std::string, int64_t> _last_disk_io_time;
     int64_t _last_check_time_sec = 0;
+
+    // For CPU util calculation (used by is_cpu_busy). The counters come from
+    // SystemMetrics' existing cpu_* metrics and are compared as deltas.
+    bool _last_cpu_busy = false;
+    int64_t _last_cpu_total_time = -1;
+    int64_t _last_cpu_idle_time = -1;
 };
 
 } // namespace doris

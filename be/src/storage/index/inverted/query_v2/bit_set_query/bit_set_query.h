@@ -28,16 +28,20 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 class BitSetQuery : public Query {
 public:
     explicit BitSetQuery(std::shared_ptr<roaring::Roaring> bitmap) : _bitmap(std::move(bitmap)) {}
+    BitSetQuery(std::shared_ptr<roaring::Roaring> bitmap,
+                std::shared_ptr<roaring::Roaring> null_bitmap)
+            : _bitmap(std::move(bitmap)), _null_bitmap(std::move(null_bitmap)) {}
     BitSetQuery(const roaring::Roaring& bitmap)
             : _bitmap(std::make_shared<roaring::Roaring>(bitmap)) {}
     ~BitSetQuery() override = default;
 
     WeightPtr weight(bool /*enable_scoring*/) override {
-        return std::make_shared<BitSetWeight>(_bitmap);
+        return std::make_shared<BitSetWeight>(_bitmap, _null_bitmap);
     }
 
 private:
     std::shared_ptr<roaring::Roaring> _bitmap;
+    std::shared_ptr<roaring::Roaring> _null_bitmap;
 };
 
 using BitSetQueryPtr = std::shared_ptr<BitSetQuery>;

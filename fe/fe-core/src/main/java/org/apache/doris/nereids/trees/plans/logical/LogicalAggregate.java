@@ -473,7 +473,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         }
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
 
-        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+        if (groupByExpressions.stream().anyMatch(Expression::containsVolatileExpression)) {
             return;
         }
 
@@ -517,7 +517,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             return;
         }
 
-        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+        if (groupByExpressions.stream().anyMatch(Expression::containsVolatileExpression)) {
             return;
         }
 

@@ -27,17 +27,17 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -85,128 +85,137 @@ public class AIResourceTest {
     }
 
     @Test
-    public void testFromCommand(@Mocked Env env, @Injectable AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
+    public void testFromCommand() throws UserException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                    .thenReturn(true);
 
-        // resource with default settings
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(
-                new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
-        createResourceCommand.getInfo().validate();
+            // resource with default settings
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(
+                    new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
+            createResourceCommand.getInfo().validate();
 
-        AIResource aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
-        Assert.assertEquals(name, aiResource.getName());
-        Assert.assertEquals(type, aiResource.getType().name().toLowerCase());
-        Assert.assertEquals(endpoint, aiResource.getProperty(AIProperties.ENDPOINT));
-        Assert.assertEquals(providerType.toUpperCase(), aiResource.getProperty(AIProperties.PROVIDER_TYPE));
-        Assert.assertEquals(apiKey, aiResource.getProperty(AIProperties.API_KEY));
-        Assert.assertEquals(modelName, aiResource.getProperty(AIProperties.MODEL_NAME));
+            AIResource aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
+            Assert.assertEquals(name, aiResource.getName());
+            Assert.assertEquals(type, aiResource.getType().name().toLowerCase());
+            Assert.assertEquals(endpoint, aiResource.getProperty(AIProperties.ENDPOINT));
+            Assert.assertEquals(providerType.toUpperCase(), aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+            Assert.assertEquals(apiKey, aiResource.getProperty(AIProperties.API_KEY));
+            Assert.assertEquals(modelName, aiResource.getProperty(AIProperties.MODEL_NAME));
 
-        Assert.assertEquals(AIProperties.DEFAULT_TEMPERATURE, aiResource.getProperty(AIProperties.TEMPERATURE));
-        Assert.assertEquals(AIProperties.DEFAULT_MAX_TOKEN, aiResource.getProperty(AIProperties.MAX_TOKEN));
-        Assert.assertEquals(AIProperties.DEFAULT_MAX_RETRIES, aiResource.getProperty(AIProperties.MAX_RETRIES));
-        Assert.assertEquals(AIProperties.DEFAULT_RETRY_DELAY_SECOND, aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+            Assert.assertEquals(AIProperties.DEFAULT_TEMPERATURE,
+                    aiResource.getProperty(AIProperties.TEMPERATURE));
+            Assert.assertEquals(AIProperties.DEFAULT_MAX_TOKEN,
+                    aiResource.getProperty(AIProperties.MAX_TOKEN));
+            Assert.assertEquals(AIProperties.DEFAULT_MAX_RETRIES,
+                    aiResource.getProperty(AIProperties.MAX_RETRIES));
+            Assert.assertEquals(AIProperties.DEFAULT_RETRY_DELAY_SECOND,
+                    aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
 
-        // with no default settings
-        aiProperties.put(AIProperties.TEMPERATURE, temperature);
-        aiProperties.put(AIProperties.MAX_TOKEN, maxToken);
-        aiProperties.put(AIProperties.MAX_RETRIES, maxRetries);
-        aiProperties.put(AIProperties.RETRY_DELAY_SECOND, retryDelaySecond);
+            // with no default settings
+            aiProperties.put(AIProperties.TEMPERATURE, temperature);
+            aiProperties.put(AIProperties.MAX_TOKEN, maxToken);
+            aiProperties.put(AIProperties.MAX_RETRIES, maxRetries);
+            aiProperties.put(AIProperties.RETRY_DELAY_SECOND, retryDelaySecond);
 
-        createResourceCommand = new CreateResourceCommand(
-                new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
-        createResourceCommand.getInfo().validate();
+            createResourceCommand = new CreateResourceCommand(
+                    new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
+            createResourceCommand.getInfo().validate();
 
-        aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
-        Assert.assertEquals(name, aiResource.getName());
-        Assert.assertEquals(type, aiResource.getType().name().toLowerCase());
-        Assert.assertEquals(endpoint, aiResource.getProperty(AIProperties.ENDPOINT));
-        Assert.assertEquals(providerType.toUpperCase(), aiResource.getProperty(AIProperties.PROVIDER_TYPE));
-        Assert.assertEquals(apiKey, aiResource.getProperty(AIProperties.API_KEY));
-        Assert.assertEquals(modelName, aiResource.getProperty(AIProperties.MODEL_NAME));
-        Assert.assertEquals(temperature, aiResource.getProperty(AIProperties.TEMPERATURE));
-        Assert.assertEquals(maxToken, aiResource.getProperty(AIProperties.MAX_TOKEN));
-        Assert.assertEquals(maxRetries, aiResource.getProperty(AIProperties.MAX_RETRIES));
-        Assert.assertEquals(retryDelaySecond, aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+            aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
+            Assert.assertEquals(name, aiResource.getName());
+            Assert.assertEquals(type, aiResource.getType().name().toLowerCase());
+            Assert.assertEquals(endpoint, aiResource.getProperty(AIProperties.ENDPOINT));
+            Assert.assertEquals(providerType.toUpperCase(), aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+            Assert.assertEquals(apiKey, aiResource.getProperty(AIProperties.API_KEY));
+            Assert.assertEquals(modelName, aiResource.getProperty(AIProperties.MODEL_NAME));
+            Assert.assertEquals(temperature, aiResource.getProperty(AIProperties.TEMPERATURE));
+            Assert.assertEquals(maxToken, aiResource.getProperty(AIProperties.MAX_TOKEN));
+            Assert.assertEquals(maxRetries, aiResource.getProperty(AIProperties.MAX_RETRIES));
+            Assert.assertEquals(retryDelaySecond, aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+        }
     }
 
     @Test
-    public void testAnthropic(@Mocked Env env, @Injectable AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
+    public void testAnthropic() throws UserException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                    .thenReturn(true);
 
-        Map<String, String> anthropicProps = new HashMap<>(aiProperties);
-        anthropicProps.put("ai.provider_type", "anthropic");
-        anthropicProps.put("ai.endpoint", "https://api.anthropic.com/v1/messages");
-        anthropicProps.put("ai.model_name", "claude-opus-4-20250514");
-        anthropicProps.put("ai.anthropic_version", "2023-06-01");
+            Map<String, String> anthropicProps = new HashMap<>(aiProperties);
+            anthropicProps.put("ai.provider_type", "anthropic");
+            anthropicProps.put("ai.endpoint", "https://api.anthropic.com/v1/messages");
+            anthropicProps.put("ai.model_name", "claude-opus-4-20250514");
+            anthropicProps.put("ai.anthropic_version", "2023-06-01");
 
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(
-                new CreateResourceInfo(true, false, "anthropic-claude", ImmutableMap.copyOf(anthropicProps)));
-        createResourceCommand.getInfo().validate();
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(
+                    new CreateResourceInfo(true, false, "anthropic-claude", ImmutableMap.copyOf(anthropicProps)));
+            createResourceCommand.getInfo().validate();
 
-        AIResource aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
-        Assert.assertEquals("anthropic-claude", aiResource.getName());
-        Assert.assertEquals("ANTHROPIC", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
-        Assert.assertEquals("https://api.anthropic.com/v1/messages", aiResource.getProperty(AIProperties.ENDPOINT));
-        Assert.assertEquals("claude-opus-4-20250514", aiResource.getProperty(AIProperties.MODEL_NAME));
-        Assert.assertEquals("2023-06-01", aiResource.getProperty(AIProperties.ANTHROPIC_VERSION));
+            AIResource aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
+            Assert.assertEquals("anthropic-claude", aiResource.getName());
+            Assert.assertEquals("ANTHROPIC", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+            Assert.assertEquals("https://api.anthropic.com/v1/messages",
+                    aiResource.getProperty(AIProperties.ENDPOINT));
+            Assert.assertEquals("claude-opus-4-20250514", aiResource.getProperty(AIProperties.MODEL_NAME));
+            Assert.assertEquals("2023-06-01", aiResource.getProperty(AIProperties.ANTHROPIC_VERSION));
+        }
     }
 
     @Test(expected = DdlException.class)
-    public void testAbnormalResource(@Mocked Env env, @Injectable AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
+    public void testAbnormalResource() throws UserException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                    .thenReturn(true);
 
-        aiProperties.remove("ai.endpoint");
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(
-                new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
-        createResourceCommand.getInfo().validate();
+            aiProperties.remove("ai.endpoint");
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(
+                    new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
+            createResourceCommand.getInfo().validate();
 
-        Resource.fromCommand(createResourceCommand);
+            Resource.fromCommand(createResourceCommand);
+        }
     }
 
     @Test(expected = DdlException.class)
-    public void testInvalidProvider(@Mocked Env env, @Injectable AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
+    public void testInvalidProvider() throws UserException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                    .thenReturn(true);
 
-        // Invalid provider type
-        aiProperties.put("ai.provider_type", "invalid_provider");
+            // Invalid provider type
+            aiProperties.put("ai.provider_type", "invalid_provider");
 
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(
-                new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
-        createResourceCommand.getInfo().validate();
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(
+                    new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
+            createResourceCommand.getInfo().validate();
 
-        Resource.fromCommand(createResourceCommand);
+            Resource.fromCommand(createResourceCommand);
+        }
     }
 
     @Test

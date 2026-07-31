@@ -16,6 +16,7 @@
 // under the License.
 
 suite("push_down_top_n_distinct_through_union") {
+    sql "set parallel_pipeline_task_num=2"
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
@@ -69,6 +70,25 @@ suite("push_down_top_n_distinct_through_union") {
 
     qt_push_down_topn_union_with_limit """
         explain shape plan select * from ((select * from table2 t1 limit 5) union (select * from table2 t2 limit 5)) sub order by id limit 10;
+    """
+
+    sql """
+        explain shape plan select *
+        from (
+          select *
+          from (
+            select id, score, score, row_number() over (order by id desc)
+            from table2
+          ) u1
+          union
+          select *
+          from (
+            select id, score, score, row_number() over (order by id desc)
+            from table2
+          ) u2
+        ) u
+        order by 1
+        limit 10;
     """
 
     qt_push_down_topn_union_complex_conditions """

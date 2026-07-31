@@ -26,9 +26,9 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
@@ -175,6 +175,111 @@ public class MTMVTest {
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
+    }
+
+    @Test
+    public void testAlterMvPropertiesWithExcludedTriggerTablesChange() {
+        Map<String, String> mvProperties = Maps.newHashMap();
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1");
+        MTMV mtmv = new MTMV();
+        mtmv.setMvProperties(mvProperties);
+        MTMVStatus status = new MTMVStatus(MTMVState.NORMAL, null);
+        mtmv.setStatus(status);
+        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
+        refreshSnapshot.getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        mtmv.setRefreshSnapshot(refreshSnapshot);
+
+        long oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
+        Map<String, String> newProperties = Maps.newHashMap();
+        newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "db1.t1");
+
+        mtmv.alterMvProperties(newProperties);
+
+        Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
+        Assert.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+
+        mtmv.getRefreshSnapshot().getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
+        newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "internal.db1.t1");
+
+        mtmv.alterMvProperties(newProperties);
+
+        Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
+        Assert.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
+    @Test
+    public void testAlterMvPropertiesWithSameExcludedTriggerTables() {
+        Map<String, String> mvProperties = Maps.newHashMap();
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1,t2");
+        MTMV mtmv = new MTMV();
+        mtmv.setMvProperties(mvProperties);
+        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
+        refreshSnapshot.getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        mtmv.setRefreshSnapshot(refreshSnapshot);
+
+        long oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
+        Map<String, String> newProperties = Maps.newHashMap();
+        newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t2,t1");
+
+        mtmv.alterMvProperties(newProperties);
+
+        Assert.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
+        Assert.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
+    @Test
+    public void testAlterMvPropertiesWithReducedExcludedTriggerTables() {
+        Map<String, String> mvProperties = Maps.newHashMap();
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1,t2");
+        MTMV mtmv = new MTMV();
+        mtmv.setMvProperties(mvProperties);
+        mtmv.setStatus(new MTMVStatus(MTMVState.NORMAL, null));
+        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
+        refreshSnapshot.getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        mtmv.setRefreshSnapshot(refreshSnapshot);
+
+        long oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
+        Map<String, String> newProperties = Maps.newHashMap();
+        newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1");
+
+        mtmv.alterMvProperties(newProperties);
+
+        Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
+        Assert.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+
+        mtmv.getRefreshSnapshot().getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
+        newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "");
+
+        mtmv.alterMvProperties(newProperties);
+
+        Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
+        Assert.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
+    @Test
+    public void testAlterMvPropertiesWithOtherProperty() {
+        Map<String, String> mvProperties = Maps.newHashMap();
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1");
+        MTMV mtmv = new MTMV();
+        mtmv.setMvProperties(mvProperties);
+        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
+        refreshSnapshot.getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        mtmv.setRefreshSnapshot(refreshSnapshot);
+
+        long oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
+        Map<String, String> newProperties = Maps.newHashMap();
+        newProperties.put(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD, "10");
+
+        mtmv.alterMvProperties(newProperties);
+
+        Assert.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
+        Assert.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
     }
 
     @Test

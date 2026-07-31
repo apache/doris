@@ -14,6 +14,14 @@ Fix C++ code formatting issues in the BE and Cloud modules using the project's c
 - When CI reports clang-format failures
 - When you need to check or fix C++ code style
 
+## Prerequisites
+
+You need to confirm that the major version of the called clang-format is 16. If the current environment's default does not meet this requirement, try the following:
+
+1. If `.vscode/settings.json` exists, use the clang-format.executable item in it.
+2. If it is a worktree directory, use the `.vscode/settings.json` from the main directory.
+3. Check the path to the compiler toolchain by trying to find it from the `PATH` environment variable, the current directory, and the main directory's `custom_env.sh`. Look for a clang-format with the major version number 16 in that path and its parent directory.
+
 ## Procedure
 
 ### Step 1: Auto-fix formatting
@@ -53,6 +61,7 @@ After running `clang-format.sh`, review the changes with `git diff` to verify on
 ## Excluded Directories
 
 The following are excluded from formatting (see `.clang-format-ignore`):
+
 - `be/src/apache-orc/*`, `be/src/clucene/*`, `be/src/gutil/*`
 - `be/src/glibc-compatibility/*`
 - Specific third-party vendored files (mustache, sse2neon, utf8_check)

@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesO
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
@@ -65,13 +66,14 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -93,6 +95,7 @@ public class SchemaChangeJobV2Test {
     private static FakeEditLog fakeEditLog;
     private static FakeEnv fakeEnv;
     private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
+    private static MockedStatic<AgentTaskExecutor> mockedAgentTaskExecutor;
     private static GlobalTransactionMgr masterTransMgr;
     private static GlobalTransactionMgr slaveTransMgr;
     private static Env masterEnv;
@@ -122,11 +125,35 @@ public class SchemaChangeJobV2Test {
 
         FeConstants.runningUnitTest = true;
         AgentTaskQueue.clearAllTasks();
+        mockedAgentTaskExecutor = Mockito.mockStatic(AgentTaskExecutor.class);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedAgentTaskExecutor != null) {
+            mockedAgentTaskExecutor.close();
+            mockedAgentTaskExecutor = null;
+        }
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        if (fakeTransactionIDGenerator != null) {
+            fakeTransactionIDGenerator.close();
+        }
     }
 
     @Test
     public void testAddSchemaChange() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
@@ -143,7 +170,13 @@ public class SchemaChangeJobV2Test {
     // start a schema change, then finished
     @Test
     public void testSchemaChange1() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
@@ -191,7 +224,7 @@ public class SchemaChangeJobV2Test {
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
 
-        // runWaitingTxnJob, task not finished
+        // runRunningJob, task not finished
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
 
@@ -219,7 +252,13 @@ public class SchemaChangeJobV2Test {
 
     @Test
     public void testSchemaChangeWhileTabletNotStable() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
@@ -301,7 +340,13 @@ public class SchemaChangeJobV2Test {
 
     @Test
     public void testModifyDynamicPartitionNormal() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
@@ -322,7 +367,6 @@ public class SchemaChangeJobV2Test {
         Assert.assertEquals(3, olapTable.getTableProperty().getDynamicPartitionProperty().getEnd());
         Assert.assertEquals("p", olapTable.getTableProperty().getDynamicPartitionProperty().getPrefix());
         Assert.assertEquals(30, olapTable.getTableProperty().getDynamicPartitionProperty().getBuckets());
-
 
         // set dynamic_partition.enable = false
         ArrayList<AlterOp> tmpAlterOps = new ArrayList<>();
@@ -358,6 +402,9 @@ public class SchemaChangeJobV2Test {
 
     public void modifyDynamicPartitionWithoutTableProperty(String propertyKey, String propertyValue)
             throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
@@ -387,7 +434,13 @@ public class SchemaChangeJobV2Test {
 
     @Test
     public void testModifyDynamicPartitionWithInvalidProperty() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
@@ -451,7 +504,13 @@ public class SchemaChangeJobV2Test {
 
     @Test
     public void testModifyTableDistributionType() throws DdlException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
@@ -463,59 +522,62 @@ public class SchemaChangeJobV2Test {
     }
 
     @Test
-    public void testAbnormalModifyTableDistributionType1(@Injectable OlapTable table) throws UserException {
+    public void testAbnormalModifyTableDistributionType1() throws UserException {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
-        new Expectations() {
-            {
-                table.isColocateTable();
-                result = true;
-            }
-        };
+        Mockito.when(table.isColocateTable()).thenReturn(true);
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("errCode = 2, detailMessage = Cannot change distribution type of colocate table.");
         Env.getCurrentEnv().convertDistributionType(db, table);
     }
 
     @Test
-    public void testAbnormalModifyTableDistributionType2(@Injectable OlapTable table) throws UserException {
+    public void testAbnormalModifyTableDistributionType2() throws UserException {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
-        new Expectations() {
-            {
-                table.isColocateTable();
-                result = false;
-                table.getKeysType();
-                result = KeysType.UNIQUE_KEYS;
-            }
-        };
+        Mockito.when(table.isColocateTable()).thenReturn(false);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("errCode = 2, detailMessage = Cannot change distribution type of unique keys table.");
         Env.getCurrentEnv().convertDistributionType(db, table);
     }
 
     @Test
-    public void testAbnormalModifyTableDistributionType3(@Injectable OlapTable table) throws UserException {
+    public void testAbnormalModifyTableDistributionType3() throws UserException {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
-        new Expectations() {
-            {
-                table.isColocateTable();
-                result = false;
-                table.getKeysType();
-                result = KeysType.AGG_KEYS;
-                table.getBaseSchema();
-                result = Lists.newArrayList(
-                    new Column("k1", Type.INT, true, null, "0", ""),
-                    new Column("v1", Type.INT, false, AggregateType.REPLACE, "0", ""));
-            }
-        };
+        Mockito.when(table.isColocateTable()).thenReturn(false);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(
+            new Column("k1", Type.INT, true, null, "0", ""),
+            new Column("v1", Type.INT, false, AggregateType.REPLACE, "0", "")));
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("errCode = 2, detailMessage = Cannot change "
                 + "distribution type of aggregate keys table which has value columns with REPLACE type.");

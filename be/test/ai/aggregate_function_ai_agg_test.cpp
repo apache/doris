@@ -66,7 +66,7 @@ public:
         _agg_function->set_query_context(_query_ctx.get());
     }
 
-    void TearDown() override { AggregateFunctionAIAggData::_ctx = nullptr; }
+    void TearDown() override {}
 
 protected:
     std::unique_ptr<MockRuntimeState> _runtime_state;
@@ -387,6 +387,109 @@ TEST_F(AggregateFunctionAIAggTest, add_batch_single_place_multiple_calls_test) {
     EXPECT_EQ(actual, expected);
 
     _agg_function->destroy(place);
+}
+
+TEST_F(AggregateFunctionAIAggTest, ai_context_window_size_session_variable_test) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_ai_context_window_size(8);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    _query_ctx = query_ctx;
+    _agg_function->set_query_context(query_ctx.get());
+
+    auto resource_col = ColumnString::create();
+    auto text_col = ColumnString::create();
+    auto task_col = ColumnString::create();
+
+    resource_col->insert_data("mock_resource", 13);
+    text_col->insert_data("abcd", 4);
+    task_col->insert_data("summarize", 9);
+
+    resource_col->insert_data("mock_resource", 13);
+    text_col->insert_data("efgh", 4);
+    task_col->insert_data("summarize", 9);
+
+    std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    _agg_function->create(place);
+
+    const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+    _agg_function->add(place, columns, 0, _arena);
+    _agg_function->add(place, columns, 1, _arena);
+
+    const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(place);
+    std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
+    EXPECT_EQ(actual, "this is a mock response\nefgh");
+
+    _agg_function->destroy(place);
+}
+
+TEST_F(AggregateFunctionAIAggTest, query_context_is_isolated_between_function_instances_test) {
+    TQueryOptions first_query_options = create_fake_query_options();
+    first_query_options.__set_ai_context_window_size(8);
+    auto first_query_ctx =
+            MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), first_query_options);
+    first_query_ctx->set_mock_ai_resource();
+
+    TQueryOptions second_query_options = create_fake_query_options();
+    second_query_options.__set_ai_context_window_size(1024);
+    auto second_query_ctx =
+            MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), second_query_options);
+    second_query_ctx->set_mock_ai_resource();
+
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_ai_agg(factory);
+    auto first_agg_function = factory.get("ai_agg", _data_types, nullptr, false, -1);
+    auto second_agg_function = factory.get("ai_agg", _data_types, nullptr, false, -1);
+    ASSERT_TRUE(first_agg_function != nullptr);
+    ASSERT_TRUE(second_agg_function != nullptr);
+
+    first_agg_function->set_query_context(first_query_ctx.get());
+    second_agg_function->set_query_context(second_query_ctx.get());
+
+    auto resource_col = ColumnString::create();
+    auto text_col = ColumnString::create();
+    auto task_col = ColumnString::create();
+
+    resource_col->insert_data("mock_resource", 13);
+    text_col->insert_data("abcd", 4);
+    task_col->insert_data("summarize", 9);
+
+    resource_col->insert_data("mock_resource", 13);
+    text_col->insert_data("efgh", 4);
+    task_col->insert_data("summarize", 9);
+
+    std::unique_ptr<char[]> memory(new char[first_agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    first_agg_function->create(place);
+
+    const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+    first_agg_function->add(place, columns, 0, _arena);
+    first_agg_function->add(place, columns, 1, _arena);
+
+    const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(place);
+    std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
+    EXPECT_EQ(actual, "this is a mock response\nefgh");
+
+    first_agg_function->destroy(place);
+}
+
+TEST_F(AggregateFunctionAIAggTest, gemini_endpoint_normalize_to_generate_content_test) {
+    AIResource resource;
+    resource.provider_type = "GEMINI";
+    resource.model_name = "gemini-pro";
+    resource.endpoint = "https://generativelanguage.googleapis.com/v1beta";
+    AggregateFunctionAIAggData::normalize_endpoint_for_test(resource);
+    EXPECT_EQ(resource.endpoint,
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent");
+}
+
+TEST_F(AggregateFunctionAIAggTest, openai_completions_endpoint_normalize_test) {
+    AIResource resource;
+    resource.provider_type = "OPENAI";
+    resource.endpoint = "https://api.openai.com/v1/completions";
+    AggregateFunctionAIAggData::normalize_endpoint_for_test(resource);
+    EXPECT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
 }
 
 TEST_F(AggregateFunctionAIAggTest, mock_resource_send_request_test) {

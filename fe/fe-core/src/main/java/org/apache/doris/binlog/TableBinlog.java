@@ -259,7 +259,7 @@ public class TableBinlog {
         Boolean isCleanFullBinlog = false;
         if (tableBinlogConfig == null) {
             return null;
-        } else if (!tableBinlogConfig.isEnable()) {
+        } else if (!tableBinlogConfig.isEnableForCCR()) {
             isCleanFullBinlog = true;
         }
 

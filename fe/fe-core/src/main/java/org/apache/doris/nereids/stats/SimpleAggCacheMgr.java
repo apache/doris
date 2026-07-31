@@ -318,6 +318,18 @@ public class SimpleAggCacheMgr {
     }
 
     /**
+     * Evict all cached simple aggregate values for a table.
+     */
+    public void invalidateTable(long tableId) {
+        if (rowCountCache != null) {
+            rowCountCache.synchronous().invalidate(tableId);
+        }
+        if (cache != null) {
+            cache.synchronous().asMap().keySet().removeIf(key -> key.getTableId() == tableId);
+        }
+    }
+
+    /**
      * Get the cached row count for a table.
      *
      * <p>Cache validation uses a two-level check driven by {@code versionTime}:

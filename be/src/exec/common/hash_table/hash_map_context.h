@@ -53,6 +53,11 @@ struct MethodBaseInner {
     Arena arena;
     DorisVector<size_t> hash_values;
 
+    /// Reusable buffer for source-side output iteration to avoid per-batch
+    /// heap allocation of std::vector<Key>. Callers use resize() + direct
+    /// element assignment, so the capacity is retained across batches.
+    std::vector<Key> output_keys;
+
     // use in join case
     DorisVector<uint32_t> bucket_nums;
 
@@ -370,19 +375,28 @@ struct MethodStringNoCache : public MethodBase<TData> {
     }
 
     void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, uint32_t num_rows,
-                                   DorisVector<StringRef>& stored_keys) {
+                                   DorisVector<StringRef>& stored_keys, const uint8_t* null_map) {
         const IColumn& column = *key_columns[0];
         const auto& nested_column =
-                column.is_nullable()
+                is_column_nullable(column)
                         ? assert_cast<const ColumnNullable&>(column).get_nested_column()
                         : column;
-        auto serialized_str = [](const auto& column_string, DorisVector<StringRef>& stored_keys) {
+        // For join, rows with null keys are routed to a dedicated null bucket and matched by
+        // raw key comparison, so their keys must be normalized to a canonical empty StringRef
+        // to make null keys equal (e.g. single-column null-safe equal join). The nested
+        // column of a null row may hold residual bytes left by expression evaluation.
+        // Real empty strings are not affected: they are not null, so they are still hashed
+        // into normal buckets and never meet the null keys in the null bucket.
+        auto serialized_str = [null_map](const auto& column_string,
+                                         DorisVector<StringRef>& stored_keys) {
             const auto& offsets = column_string.get_offsets();
             const auto* chars = column_string.get_chars().data();
             stored_keys.resize(column_string.size());
             for (size_t row = 0; row < column_string.size(); row++) {
-                stored_keys[row] =
-                        StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
+                stored_keys[row] = (null_map != nullptr && null_map[row])
+                                           ? StringRef()
+                                           : StringRef(chars + offsets[row - 1],
+                                                       offsets[row] - offsets[row - 1]);
             }
         };
         if (nested_column.is_column_string64()) {
@@ -399,7 +413,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
         init_serialized_keys_impl(key_columns, num_rows,
-                                  is_build ? _build_stored_keys : _stored_keys);
+                                  is_build ? _build_stored_keys : _stored_keys, null_map);
         if (is_join) {
             Base::init_join_bucket_num(num_rows, bucket_size, null_map);
         } else {
@@ -492,11 +506,10 @@ void process_submap_emplace(Submap& submap, const uint32_t* indices, size_t coun
         pre_handler(row);
         if constexpr (is_nullable) {
             if (state.key_column->is_null_at(row)) {
-                bool has_null_key = hash_table.has_null_key_data();
-                hash_table.has_null_key_data() = true;
-                if (!has_null_key) {
+                if (!hash_table.has_null_key_data()) {
                     std::forward<FF>(creator_for_null_key)(
                             hash_table.template get_null_key_data<Mapped>());
+                    hash_table.has_null_key_data() = true;
                 }
                 result_handler(row, hash_table.template get_null_key_data<Mapped>());
                 continue;
@@ -538,10 +551,9 @@ void process_submap_emplace_void(Submap& submap, const uint32_t* indices, size_t
         pre_handler(row);
         if constexpr (is_nullable) {
             if (state.key_column->is_null_at(row)) {
-                bool has_null_key = hash_table.has_null_key_data();
-                hash_table.has_null_key_data() = true;
-                if (!has_null_key) {
+                if (!hash_table.has_null_key_data()) {
                     std::forward<FF>(creator_for_null_key)();
+                    hash_table.has_null_key_data() = true;
                 }
                 continue;
             }
@@ -739,7 +751,7 @@ struct MethodOneNumber : public MethodBase<TData> {
     void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
-        Base::keys = (FieldType*)(key_columns[0]->is_nullable()
+        Base::keys = (FieldType*)(is_column_nullable(*key_columns[0])
                                           ? assert_cast<const ColumnNullable*>(key_columns[0])
                                                     ->get_nested_column_ptr()
                                                     ->get_raw_data()
@@ -777,7 +789,7 @@ struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
     void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
-        Base::keys = (FieldType*)(key_columns[0]->is_nullable()
+        Base::keys = (FieldType*)(is_column_nullable(*key_columns[0])
                                           ? assert_cast<const ColumnNullable*>(key_columns[0])
                                                     ->get_nested_column_ptr()
                                                     ->get_raw_data()
@@ -942,17 +954,21 @@ struct MethodKeysFixed : public MethodBase<TData> {
         }
 
         for (size_t j = 0; j < key_columns.size(); ++j) {
-            const char* __restrict data = key_columns[j]->get_raw_data().data;
-
             auto goo = [&]<typename Fixed, bool aligned>(Fixed zero) {
                 CHECK_EQ(sizeof(Fixed), key_sizes[j]);
                 if (has_null_column.size() && has_null_column[j]) {
                     const auto* nullmap =
                             assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                     // make sure null cell is filled by 0x0
-                    key_columns[j]->assume_mutable()->replace_column_null_data(nullmap);
+                    // This mutates the same underlying buffer returned by get_raw_data(), so get
+                    // the restricted data pointer only after the replacement finishes.
+                    const_cast<IColumn*>(key_columns[j])->replace_column_null_data(nullmap);
                 }
                 auto* __restrict current = result_data + offset;
+                // Do not hoist data out of goo. A reference capture is lowered to an ordinary
+                // closure field, so restrict/noalias information is lost when goo is not inlined,
+                // which prevents the copy loop from being optimized.
+                const char* __restrict data = key_columns[j]->get_raw_data().data;
                 for (size_t i = 0; i < row_numbers; ++i) {
                     memcpy_fixed<Fixed, aligned>(current, data);
                     current += sizeof(T);
@@ -964,6 +980,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 // Also verify that the stride sizeof(T) is a multiple of alignof(Fixed),
                 // otherwise alignment will be lost on subsequent loop iterations
                 // (e.g. UInt96 has sizeof=12, stride 12 is not a multiple of alignof(uint64_t)=8).
+                const char* data = key_columns[j]->get_raw_data().data;
                 if (sizeof(T) % alignof(Fixed) == 0 &&
                     reinterpret_cast<uintptr_t>(result_data + offset) % alignof(Fixed) == 0 &&
                     reinterpret_cast<uintptr_t>(data) % alignof(Fixed) == 0) {
@@ -1066,9 +1083,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 // nullable_col is obtained via key_columns and is itself a mutable element. However, when accessed
                 // through get_raw_data().data, it yields a const char*, necessitating the use of const_cast.
                 data = const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
-                UInt8* nullmap = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column())
-                                         ->get_data()
-                                         .data();
+                UInt8* nullmap = nullable_col.get_null_map_column().get_data().data();
 
                 // The current column is nullable. Check if the value of the
                 // corresponding key is nullable. Update the null map accordingly.
@@ -1147,7 +1162,7 @@ struct DataWithNullKey : public Base {
 
 protected:
     bool has_null_key = false;
-    Base::Value null_key_data;
+    Base::Value null_key_data {};
 };
 
 /// Single low cardinality column.

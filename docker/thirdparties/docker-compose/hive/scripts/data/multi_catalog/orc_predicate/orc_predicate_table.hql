@@ -1,12 +1,16 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
+drop table if exists fixed_char_table;
+
 create table fixed_char_table (
   i int,
   c char(2)
 ) stored as orc;
 
 insert into fixed_char_table values(1,'a'),(2,'b '), (3,'cd');
+
+drop table if exists type_changed_table;
 
 create table type_changed_table (
   id int,
@@ -15,7 +19,9 @@ create table type_changed_table (
 insert into type_changed_table values (1, 'Alice'), (2, 'Bob'), (3, 'Charlie');
 ALTER TABLE type_changed_table CHANGE COLUMN id id STRING;
 
-CREATE TABLE table_a (
+drop table if exists table_a;
+
+create table table_a (
     id INT,
     age INT
 ) STORED AS ORC;
@@ -26,7 +32,9 @@ INSERT INTO table_a VALUES
 (3, null),
 (4, 25);
 
-CREATE TABLE table_b (
+drop table if exists table_b;
+
+create table table_b (
     id INT,
     age INT
 ) STORED AS ORC;

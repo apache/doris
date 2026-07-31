@@ -61,9 +61,10 @@ public class ExplodeMapOuter extends TableGeneratingFunction implements UnaryExp
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child().getDataType() instanceof MapType)) {
+        Expression argument = getArgument(0);
+        if (!(argument.getDataType() instanceof MapType)) {
             throw new AnalysisException("only support map type for explode_map function but got "
-                    + child().getDataType());
+                    + argument.getDataType());
         }
     }
 

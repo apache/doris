@@ -58,6 +58,9 @@ public class LoadStatistic {
     public int fileNum = 0;
     public long totalFileSizeB = 0;
 
+    // number of rows filtered by BE (DPP_ABNORMAL_ALL), set once after coordinator finishes
+    private long filteredRows = 0;
+
     // init the statistic of specified load task
     public synchronized void initLoad(TUniqueId loadId, Set<TUniqueId> fragmentIds, List<Long> relatedBackendIds) {
         counterTbl.rowMap().remove(loadId);
@@ -133,6 +136,14 @@ public class LoadStatistic {
         return totalFileSizeB;
     }
 
+    public long getFilteredRows() {
+        return filteredRows;
+    }
+
+    public void setFilteredRows(long filteredRows) {
+        this.filteredRows = filteredRows;
+    }
+
     public synchronized String toJson() {
         long total = 0;
         for (long rows : counterTbl.values()) {
@@ -156,6 +167,7 @@ public class LoadStatistic {
         details.put("LoadBytes", totalBytes);
         details.put("FileNumber", fileNum);
         details.put("FileSize", totalFileSizeB);
+        details.put("FilteredRows", filteredRows);
         details.put("TaskNumber", counterTbl.rowMap().size());
         details.put("Unfinished backends", unfinishedBackendIdsList);
         details.put("All backends", allBackendIdsList);

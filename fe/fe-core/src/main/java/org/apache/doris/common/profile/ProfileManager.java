@@ -198,7 +198,12 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public ExecutionProfile getExecutionProfile(TUniqueId queryId) {
-        return this.queryIdToExecutionProfiles.get(queryId);
+        readLock.lock();
+        try {
+            return this.queryIdToExecutionProfiles.get(queryId);
+        } finally {
+            readLock.unlock();
+        }
     }
 
     public void pushProfile(Profile profile) {
@@ -234,6 +239,13 @@ public class ProfileManager extends MasterDaemon {
         return getQueryInfoByColumnNameList(SummaryProfile.SUMMARY_KEYS);
     }
 
+    private String getProfileInfoString(ProfileElement profileElement, String columnName) {
+        if (SummaryProfile.PROFILE_COMPLETION_STATE.equals(columnName)) {
+            return profileElement.profile.getProfileCompletionState();
+        }
+        return profileElement.infoStrings.get(columnName);
+    }
+
     public List<List<String>> getQueryInfoByColumnNameList(List<String> columnNameList) {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
@@ -241,10 +253,9 @@ public class ProfileManager extends MasterDaemon {
             PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
             while (!queueIdDeque.isEmpty()) {
                 ProfileElement profileElement = queueIdDeque.poll();
-                Map<String, String> infoStrings = profileElement.infoStrings;
                 List<String> row = Lists.newArrayList();
                 for (String str : columnNameList) {
-                    row.add(infoStrings.get(str));
+                    row.add(getProfileInfoString(profileElement, str));
                 }
                 result.add(row);
             }
@@ -1094,7 +1105,7 @@ public class ProfileManager extends MasterDaemon {
                 if (infoStrings.get(SummaryProfile.TASK_TYPE).equals(profileType.toString())) {
                     List<String> row = Lists.newArrayList();
                     for (String str : SummaryProfile.SUMMARY_KEYS) {
-                        row.add(infoStrings.get(str));
+                        row.add(getProfileInfoString(profileElement, str));
                     }
                     result.add(row);
                     limit--;
@@ -1235,4 +1246,3 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 }
-

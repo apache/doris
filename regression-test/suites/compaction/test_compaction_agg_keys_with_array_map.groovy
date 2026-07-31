@@ -55,7 +55,7 @@ suite("test_compaction_agg_keys_with_array_map") {
                 `array_col` ARRAY<STRING> REPLACE NULL COMMENT "array column",
                 `map_col` MAP<STRING, INT> REPLACE NULL COMMENT "map column")
             AGGREGATE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1" );
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -120,4 +120,3 @@ suite("test_compaction_agg_keys_with_array_map") {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }
-

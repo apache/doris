@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -195,7 +196,7 @@ public class PlanUtils {
             List<? extends Expression> targetExpressions) {
         Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
         for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
-            if (kv.getValue().containsUniqueFunction()) {
+            if (kv.getValue().containsVolatileExpression()) {
                 uniqueFunctionSlots.add(kv.getKey());
             }
         }
@@ -482,7 +483,7 @@ public class PlanUtils {
         @Override
         public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
             SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
-            slotRef.setLabel(slotReference.getName());
+            slotRef.setLabel(SqlUtils.getIdentSql(slotReference.getName()));
             slotRef.setCol(slotReference.getName());
             return slotRef;
         }

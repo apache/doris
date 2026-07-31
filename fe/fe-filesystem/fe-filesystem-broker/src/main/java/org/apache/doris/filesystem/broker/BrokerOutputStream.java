@@ -102,7 +102,12 @@ class BrokerOutputStream extends OutputStream {
             TBrokerCloseWriterRequest req = new TBrokerCloseWriterRequest(TBrokerVersion.VERSION_ONE, fd);
             TBrokerOperationStatus opst = client.closeWriter(req);
             if (opst.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                // Broker-side state after a failed close is unknown; the client may have buffered
+                // bytes that were never flushed. Drop the client from the pool and surface the
+                // failure so callers do not believe the write was durable.
                 LOG.warn("Failed to close broker writer for fd {}: {}", fd, opst.getMessage());
+                clientPool.invalidate(endpoint, client);
+                throw new IOException("Failed to close broker writer for fd " + fd + ": " + opst.getMessage());
             }
             clientPool.returnGood(endpoint, client);
         } catch (TException e) {

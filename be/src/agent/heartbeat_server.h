@@ -27,13 +27,11 @@
 
 namespace doris {
 class ClusterInfo;
-class ExecEnv;
 class THeartbeatResult;
 class TMasterInfo;
 
 const uint32_t HEARTBEAT_INTERVAL = 10;
 class BaseStorageEngine;
-class ThriftServer;
 
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
@@ -66,7 +64,4 @@ private:
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);
 }; // class HeartBeatServer
 
-Status create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port,
-                               std::unique_ptr<ThriftServer>* heart_beat_server,
-                               uint32_t worker_thread_num, ClusterInfo* cluster_info);
 } // namespace doris

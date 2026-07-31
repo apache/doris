@@ -18,7 +18,7 @@
 suite("test_pythonudf_inline_basic") {
     // Test basic Python UDF using Inline mode
     
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     try {
         // Test 1: Simple integer addition
         sql """ DROP FUNCTION IF EXISTS py_add(INT, INT); """

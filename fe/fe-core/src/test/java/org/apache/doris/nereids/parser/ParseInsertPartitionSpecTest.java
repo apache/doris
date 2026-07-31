@@ -23,12 +23,13 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
 import java.util.Map;
@@ -39,16 +40,21 @@ import java.util.Map;
 public class ParseInsertPartitionSpecTest {
 
     private static LogicalPlanBuilder logicalPlanBuilder;
+    private static MockedStatic<ConnectContext> mockedStaticCtx;
 
     @BeforeAll
     public static void init() {
         ConnectContext ctx = new ConnectContext();
-        new MockUp<ConnectContext>() {
-            @Mock
-            public ConnectContext get() {
-                return ctx;
-            }
-        };
+        mockedStaticCtx = Mockito.mockStatic(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
+        mockedStaticCtx.when(ConnectContext::get).thenReturn(ctx);
+    }
+
+    @AfterAll
+    public static void tearDown() {
+        if (mockedStaticCtx != null) {
+            mockedStaticCtx.close();
+            mockedStaticCtx = null;
+        }
     }
 
     /**

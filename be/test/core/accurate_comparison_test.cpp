@@ -36,4 +36,49 @@ TEST(VAccurateComparison, TestsOP) {
     EXPECT_TRUE((GreaterOrEqualsOp<TYPE_INT>::apply(1, 1)));
 }
 
+TEST(VAccurateComparison, StringSpecializations) {
+    StringRef left("abc", 3);
+    StringRef same("abc", 3);
+    StringRef right("abd", 3);
+
+    EXPECT_TRUE((EqualsOp<TYPE_STRING>::apply(left, same)));
+    EXPECT_FALSE((EqualsOp<TYPE_STRING>::apply(left, right)));
+    EXPECT_TRUE((LessOp<TYPE_STRING>::apply(left, right)));
+    EXPECT_TRUE((GreaterOp<TYPE_STRING>::apply(right, left)));
+}
+
+TEST(VAccurateComparison, DateTimeSpecializations) {
+    VecDateTimeValue date_a;
+    VecDateTimeValue date_b;
+    date_a.from_date_int64(20240101);
+    date_b.from_date_int64(20240102);
+    EXPECT_TRUE((EqualsOp<TYPE_DATE>::apply(date_a, date_a)));
+    EXPECT_TRUE((NotEqualsOp<TYPE_DATE>::apply(date_a, date_b)));
+    EXPECT_TRUE((LessOp<TYPE_DATE>::apply(date_a, date_b)));
+    EXPECT_TRUE((GreaterOrEqualsOp<TYPE_DATE>::apply(date_b, date_a)));
+
+    VecDateTimeValue datetime_a;
+    VecDateTimeValue datetime_b;
+    datetime_a.from_date_int64(20240101010203);
+    datetime_b.from_date_int64(20240101010204);
+    EXPECT_TRUE((LessOrEqualsOp<TYPE_DATETIME>::apply(datetime_a, datetime_b)));
+    EXPECT_TRUE((GreaterOp<TYPE_DATETIME>::apply(datetime_b, datetime_a)));
+
+    DateV2Value<DateV2ValueType> date_v2_a;
+    DateV2Value<DateV2ValueType> date_v2_b;
+    date_v2_a.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    date_v2_b.unchecked_set_time(2024, 1, 2, 0, 0, 0, 0);
+    EXPECT_TRUE((EqualsOp<TYPE_DATEV2>::apply(date_v2_a, date_v2_a)));
+    EXPECT_TRUE((LessOp<TYPE_DATEV2>::apply(date_v2_a, date_v2_b)));
+    EXPECT_TRUE((GreaterOrEqualsOp<TYPE_DATEV2>::apply(date_v2_b, date_v2_a)));
+
+    DateV2Value<DateTimeV2ValueType> datetime_v2_a;
+    DateV2Value<DateTimeV2ValueType> datetime_v2_b;
+    datetime_v2_a.unchecked_set_time(2024, 1, 1, 1, 2, 3, 0);
+    datetime_v2_b.unchecked_set_time(2024, 1, 1, 1, 2, 4, 0);
+    EXPECT_TRUE((NotEqualsOp<TYPE_DATETIMEV2>::apply(datetime_v2_a, datetime_v2_b)));
+    EXPECT_TRUE((LessOrEqualsOp<TYPE_DATETIMEV2>::apply(datetime_v2_a, datetime_v2_b)));
+    EXPECT_TRUE((GreaterOp<TYPE_DATETIMEV2>::apply(datetime_v2_b, datetime_v2_a)));
+}
+
 } // namespace doris

@@ -25,9 +25,11 @@
 #include <string>
 
 #include "core/column/column.h"
+#include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_nullable.h"
@@ -49,6 +51,7 @@ void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
 
 TEST(AggTest, basic_test) {
@@ -114,6 +117,119 @@ TEST(AggTest, topn_test) {
     agg_function->destroy(place);
 }
 
+TEST(AggTest, topn_insert_result_into_vec_test) {
+    Arena arena;
+    MutableColumns datas(2);
+    datas[0] = ColumnString::create();
+    datas[1] = ColumnInt32::create();
+
+    const std::vector<std::string> values = {"a", "a", "b", "c", "d", "d"};
+    int top = 2;
+    for (const auto& value : values) {
+        datas[0]->insert_data(value.c_str(), value.length());
+        datas[1]->insert_data(reinterpret_cast<const char*>(&top), sizeof(top));
+    }
+
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topn(factory);
+    DataTypes data_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
+
+    auto agg_function = factory.get("topn", data_types, nullptr, false, -1);
+    ASSERT_NE(agg_function, nullptr);
+
+    std::vector<std::unique_ptr<char[]>> memory(2);
+    std::vector<AggregateDataPtr> places(2);
+    for (int i = 0; i < 2; ++i) {
+        memory[i].reset(new char[agg_function->size_of_data()]);
+        places[i] = memory[i].get();
+        agg_function->create(places[i]);
+    }
+
+    const IColumn* columns[2] = {datas[0].get(), datas[1].get()};
+    std::vector<AggregateDataPtr> row_places(values.size());
+    for (size_t i = 0; i < values.size(); ++i) {
+        row_places[i] = i < 3 ? places[0] : places[1];
+    }
+    agg_function->add_batch(values.size(), row_places.data(), 0, columns, arena, false);
+
+    auto result_column = ColumnString::create();
+    agg_function->insert_result_into_vec(places, 0, *result_column, places.size());
+
+    const auto& result_strings = *result_column;
+    ASSERT_EQ(result_strings.size(), 2);
+    EXPECT_EQ(result_strings.get_data_at(0).to_string(), "{\"a\":2,\"b\":1}");
+    EXPECT_EQ(result_strings.get_data_at(1).to_string(), "{\"d\":2,\"c\":1}");
+
+    for (auto place : places) {
+        agg_function->destroy(place);
+    }
+}
+
+TEST(AggTest, topn_array_insert_result_into_vec_test) {
+    Arena arena;
+    MutableColumns datas(2);
+    datas[0] = ColumnInt32::create();
+    datas[1] = ColumnInt32::create();
+
+    const std::vector<int32_t> values = {1, 1, 2, 3, 4, 4};
+    int top = 2;
+    for (int32_t value : values) {
+        datas[0]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+        datas[1]->insert_data(reinterpret_cast<const char*>(&top), sizeof(top));
+    }
+
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topn(factory);
+    DataTypes data_types = {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()};
+
+    auto agg_function = factory.get("topn_array", data_types, nullptr, false, -1);
+    ASSERT_NE(agg_function, nullptr);
+
+    std::vector<std::unique_ptr<char[]>> memory(2);
+    std::vector<AggregateDataPtr> places(2);
+    for (int i = 0; i < 2; ++i) {
+        memory[i].reset(new char[agg_function->size_of_data()]);
+        places[i] = memory[i].get();
+        agg_function->create(places[i]);
+    }
+
+    const IColumn* columns[2] = {datas[0].get(), datas[1].get()};
+    std::vector<AggregateDataPtr> row_places(values.size());
+    for (size_t i = 0; i < values.size(); ++i) {
+        row_places[i] = i < 3 ? places[0] : places[1];
+    }
+    agg_function->add_batch(values.size(), row_places.data(), 0, columns, arena, false);
+
+    auto result_column = ColumnArray::create(
+            ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create()));
+    agg_function->insert_result_into_vec(places, 0, *result_column, places.size());
+
+    const auto& result_array = *result_column;
+    const auto& result_nullable = assert_cast<const ColumnNullable&>(result_array.get_data());
+    const auto& result_values =
+            assert_cast<const ColumnInt32&>(result_nullable.get_nested_column()).get_data();
+    const auto& result_null_map = result_nullable.get_null_map_data();
+
+    ASSERT_EQ(result_array.get_offsets().size(), 2);
+    EXPECT_EQ(result_array.get_offsets()[0], 2);
+    EXPECT_EQ(result_array.get_offsets()[1], 4);
+
+    ASSERT_EQ(result_values.size(), 4);
+    EXPECT_EQ(result_values[0], 1);
+    EXPECT_EQ(result_values[1], 2);
+    EXPECT_EQ(result_values[2], 4);
+    EXPECT_EQ(result_values[3], 3);
+
+    ASSERT_EQ(result_null_map.size(), 4);
+    for (auto is_null : result_null_map) {
+        EXPECT_EQ(is_null, 0);
+    }
+
+    for (auto place : places) {
+        agg_function->destroy(place);
+    }
+}
+
 TEST(AggTest, window_function_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_bit(factory);
@@ -134,6 +250,53 @@ TEST(AggTest, window_function_test) {
     EXPECT_EQ(size2, 2);
     size2 = agg_function2->align_of_data();
     EXPECT_EQ(size2, 1);
+}
+
+TEST(AggTest, percentile_query_option_routes_default_names_to_v2) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_percentile(factory);
+    int be_version = BeExecVersionManager::get_newest_version();
+
+    DataTypes percentile_types = {std::make_shared<DataTypeInt64>(),
+                                  std::make_shared<DataTypeFloat64>()};
+    auto percentile_result_type = std::make_shared<DataTypeFloat64>();
+    auto percentile_v1 =
+            factory.get("percentile", percentile_types, percentile_result_type, false, be_version);
+    ASSERT_NE(percentile_v1, nullptr);
+    EXPECT_EQ(percentile_v1->get_name(), "percentile");
+
+    auto percentile_v2 =
+            factory.get("percentile", percentile_types, percentile_result_type, false, be_version,
+                        {.new_version_percentile = true, .column_names = {}});
+    ASSERT_NE(percentile_v2, nullptr);
+    EXPECT_EQ(percentile_v2->get_name(), "percentile_v2");
+
+    auto percentile_cont_v1 = factory.get("percentile_cont", percentile_types,
+                                          percentile_result_type, false, be_version);
+    ASSERT_NE(percentile_cont_v1, nullptr);
+    EXPECT_EQ(percentile_cont_v1->get_name(), "percentile");
+
+    auto percentile_cont_v2 =
+            factory.get("percentile_cont", percentile_types, percentile_result_type, false,
+                        be_version, {.new_version_percentile = true, .column_names = {}});
+    ASSERT_NE(percentile_cont_v2, nullptr);
+    EXPECT_EQ(percentile_cont_v2->get_name(), "percentile_v2");
+
+    DataTypes percentile_array_types = {
+            std::make_shared<DataTypeInt64>(),
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat64>()))};
+    auto percentile_array_result_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat64>()));
+    auto percentile_array_v1 = factory.get("percentile_array", percentile_array_types,
+                                           percentile_array_result_type, false, be_version);
+    ASSERT_NE(percentile_array_v1, nullptr);
+    EXPECT_EQ(percentile_array_v1->get_name(), "percentile_array");
+
+    auto percentile_array_v2 =
+            factory.get("percentile_array", percentile_array_types, percentile_array_result_type,
+                        false, be_version, {.new_version_percentile = true, .column_names = {}});
+    ASSERT_NE(percentile_array_v2, nullptr);
+    EXPECT_EQ(percentile_array_v2->get_name(), "percentile_array_v2");
 }
 
 TEST(AggTest, window_function_test2) {

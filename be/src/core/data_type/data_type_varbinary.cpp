@@ -41,10 +41,6 @@
 
 namespace doris {
 
-Field DataTypeVarbinary::get_default() const {
-    return Field::create_field<TYPE_VARBINARY>(StringView());
-}
-
 MutableColumnPtr DataTypeVarbinary::create_column() const {
     return ColumnVarbinary::create();
 }

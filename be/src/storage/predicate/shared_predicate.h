@@ -42,9 +42,7 @@ public:
     SharedPredicate(const SharedPredicate& other, uint32_t column_id)
             : ColumnPredicate(other, column_id),
               _mtx(std::make_shared<std::shared_mutex>()),
-              _nested(assert_cast<const SharedPredicate&>(other)._nested
-                              ? other._nested->clone(column_id)
-                              : nullptr) {}
+              _nested(other._nested ? other._nested->clone(column_id) : nullptr) {}
     ~SharedPredicate() override = default;
     std::string debug_string() const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);

@@ -86,13 +86,6 @@ TEST_F(DataTypeVarbinaryTest, CreateColumnAndCheckColumn) {
     EXPECT_FALSE(dt.check_column(*wrong).ok());
 }
 
-TEST_F(DataTypeVarbinaryTest, GetDefaultField) {
-    DataTypeVarbinary dt;
-    Field def = dt.get_default();
-    const auto& sv = def.get<TYPE_VARBINARY>();
-    EXPECT_EQ(sv.size(), 0U);
-}
-
 TEST_F(DataTypeVarbinaryTest, ToStringAndToStringBufferWritable) {
     DataTypeVarbinary dt;
     auto col = dt.create_column();

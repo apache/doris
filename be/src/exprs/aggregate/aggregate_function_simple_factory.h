@@ -135,6 +135,15 @@ public:
         if (function_alias.contains(name)) {
             name_str = function_alias[name];
         }
+
+        if (attr.new_version_percentile) {
+            if (name_str == "percentile" || name_str == "percentile_cont") {
+                name_str = "percentile_v2";
+            } else if (name_str == "percentile_array") {
+                name_str = "percentile_array_v2";
+            }
+        }
+
         if (nullable) {
             return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
                            ? nullptr

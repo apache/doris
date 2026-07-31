@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS partition_type;
 USE partition_type;
 
-CREATE TABLE `partition_type.decimal_partition`(
+drop table if exists `partition_type.decimal_partition`;
+
+create table `partition_type.decimal_partition`(
   `id` int)
 PARTITIONED BY ( 
   `decimal_part` decimal(12,4))

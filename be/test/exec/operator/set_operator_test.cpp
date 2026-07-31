@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -382,6 +383,53 @@ TEST_F(ExceptOperatorTest, test_output_null_batsh_size) {
         DCHECK_EQ(eos, true);
         EXPECT_EQ(block.rows(), 1);
     }
+}
+
+TEST_F(ExceptOperatorTest, test_mem_reuse_with_shared_output_column) {
+    state->_batch_size = 2;
+    init_op(2, {std::make_shared<DataTypeInt64>()});
+
+    sink_op->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeInt64>()});
+    probe_sink_ops[0]->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeInt64>()});
+
+    init_local_state();
+
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
+        auto st = sink_op->sink(state.get(), &block, true);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+    }
+
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        auto st = probe_sink_ops[0]->sink(states[0].get(), &block, true);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+    }
+
+    Block output {ColumnHelper::create_column_with_name<DataTypeInt64>({})};
+    auto old_output_column = output.get_by_position(0).column;
+
+    bool eos = false;
+    std::vector<int64_t> values;
+    while (!eos) {
+        auto st = source_op->get_block(state.get(), &output, &eos);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_GT(output.rows(), 0);
+
+        const auto& column = output.get_by_position(0).column;
+        for (size_t i = 0; i < column->size(); ++i) {
+            values.push_back(column->get_int(i));
+        }
+        if (!eos) {
+            output.clear_column_data();
+        }
+    }
+
+    EXPECT_EQ(old_output_column->size(), 0);
+    std::sort(values.begin(), values.end());
+    EXPECT_EQ(values, std::vector<int64_t>({1, 2, 3}));
 }
 
 TEST_F(IntersectOperatorTest, test_sink_large_string_data_over_4g) {

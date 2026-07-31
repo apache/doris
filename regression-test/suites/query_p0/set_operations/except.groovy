@@ -16,6 +16,7 @@
 // under the License.
 
 suite("except", "query") {
+    sql "set parallel_pipeline_task_num=2"
     sql """
         set runtime_filter_type=2;
         set enable_runtime_filter_prune=false;
@@ -81,7 +82,7 @@ suite("except", "query") {
     qt_except_left_deep_shape """
         explain shape plan select * from (select * from t1 except select * from t2) t except select * from t3;
     """
-
+    
     // a except (b except c)
     order_qt_except_right_deep """
         select * from t1 except select * from (select * from t2 except select * from t3) t;

@@ -27,8 +27,11 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
+#include "core/block/block.h"
 #include "core/column/column_variant.cpp"
 #include "core/column/common_column_test.h"
 #include "core/column/subcolumn_tree.h"
@@ -40,9 +43,11 @@
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
+#include "gen_cpp/data.pb.h"
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 #include "testutil/variant_util.h"
+#include "util/block_compression.h"
 
 using namespace doris;
 namespace doris {
@@ -473,22 +478,6 @@ doris::Field get_jsonb_field(std::string_view type) {
     }
     return field_map[type];
 }
-
-// std::string convert_jsonb_field_to_string(doris::Field jsonb) {
-//     const auto& val = jsonb.get<JsonbField>();
-//     const JsonbValue* json_val = JsonbDocument::createValue(val.get_value(), val.get_size());
-
-//     rapidjson::Document doc;
-//     doc.SetObject();
-//     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
-//     rapidjson::Value json_value;
-//     convert_jsonb_to_rapidjson(*json_val, json_value, allocator);
-//     doc.AddMember("value", json_value, allocator);
-//     rapidjson::StringBuffer buffer;
-//     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
-//     doc.Accept(writer);
-//     return std::string(buffer.GetString());
-// }
 
 std::string convert_field_to_string(doris::Field array) {
     rapidjson::Document doc;
@@ -1077,6 +1066,33 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     }
 }
 
+TEST_F(ColumnVariantTest, visible_root_does_not_hide_sparse_fields) {
+    auto source = ColumnVariant::create(0, false);
+    VariantMap mixed;
+    mixed.try_emplace(PathInData(), FieldWithDataType {.field = get_jsonb_field("array_int")});
+    mixed.try_emplace(PathInData("n"), FieldWithDataType {.field = VariantUtil::get_field("int")});
+    mixed.try_emplace(PathInData("word"),
+                      FieldWithDataType {.field = VariantUtil::get_field("string")});
+    source->try_insert(Field::create_field<TYPE_VARIANT>(std::move(mixed)));
+    source->finalize();
+
+    auto destination = ColumnVariant::create(1, false);
+    destination->try_insert(
+            VariantUtil::construct_variant_map({{"k", VariantUtil::get_field("int")}}));
+    destination->insert_range_from(*source, 0, 1);
+    destination->finalize();
+
+    EXPECT_EQ(destination->get_subcolumns().get_root()->data.get_least_common_base_type_id(),
+              PrimitiveType::TYPE_JSONB);
+    const auto& sparse_offsets = destination->serialized_sparse_column_offsets();
+    EXPECT_LT(sparse_offsets[0], sparse_offsets[1]);
+
+    DataTypeSerDe::FormatOptions options;
+    std::string json;
+    destination->serialize_one_row_to_string(1, &json, options);
+    EXPECT_EQ(json, R"({"n":20,"word":"str"})");
+}
+
 TEST_F(ColumnVariantTest, is_variable_length) {
     EXPECT_TRUE(column_variant->is_variable_length());
 }
@@ -1115,7 +1131,10 @@ TEST_F(ColumnVariantTest, clone_resized) {
         for (; i < clone_count; ++i) {
             // more than source size
             Field target_field;
-            Field source_field = column_variant->get_root_type()->get_default();
+            auto default_column = column_variant->get_root_type()->create_column();
+            default_column->insert_default();
+            Field source_field;
+            default_column->get(0, source_field);
             target_column->get(i, target_field);
             EXPECT_EQ(target_field, source_field)
                     << "target_field: " << target_field.get_type_name()
@@ -1175,9 +1194,11 @@ TEST_F(ColumnVariantTest, field_test) {
     ColumnVariant::MutablePtr obj;
     obj = ColumnVariant::create(1, false);
     MutableColumns cols;
-    cols.push_back(obj->get_ptr());
+    cols.push_back(std::move(obj));
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
     load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = ColumnVariant::cast_to_column_mutptr(assert_cast<ColumnVariant*>(cols[0].get()));
+    cols.clear();
     EXPECT_TRUE(!obj->empty());
     test_func(obj);
 }
@@ -1196,7 +1217,7 @@ TEST_F(ColumnVariantTest, serialize_one_row_to_string) {
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
     {
-        const auto* variant = assert_cast<const ColumnVariant*>(column_variant.get());
+        const auto* variant = column_variant.get();
         // Serialize hierarchy types to json format
         std::string buffer;
         for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
@@ -1277,7 +1298,7 @@ TEST_F(ColumnVariantTest, get_data_at) {
 
 TEST_F(ColumnVariantTest, replace_column_data) {
     EXPECT_ANY_THROW(
-            column_variant->replace_column_data(column_variant->assume_mutable_ref(), 0, 0));
+            column_variant->replace_column_data(column_variant->assert_mutable_ref(), 0, 0));
 }
 
 TEST_F(ColumnVariantTest, serialize_value_into_arena) {
@@ -1492,26 +1513,6 @@ TEST_F(ColumnVariantTest, get_dimensions) {
         for (auto& entry : source_column->get_subcolumns()) {
             EXPECT_TRUE(entry != nullptr);
             EXPECT_GE(entry->data.get_dimensions(), 0);
-        }
-    };
-    test_func(column_variant);
-}
-
-TEST_F(ColumnVariantTest, get_last_field) {
-    auto test_func = [](const auto& source_column) {
-        auto src_size = source_column->size();
-        EXPECT_TRUE(src_size > 0);
-
-        // Test get_last_field for root column
-        const auto& root = source_column->get_subcolumns().get_root();
-        EXPECT_TRUE(root != nullptr);
-        Field last_field;
-        root->data.get_last_field();
-
-        // Test get_last_field for subcolumns
-        for (const auto& subcolumn : source_column->get_subcolumns()) {
-            EXPECT_TRUE(subcolumn != nullptr);
-            subcolumn->data.get_last_field();
         }
     };
     test_func(column_variant);
@@ -2056,6 +2057,58 @@ TEST_F(ColumnVariantTest, clone_finalized) {
     test_func(std::move(cloned_object));
 }
 
+TEST_F(ColumnVariantTest, clone_finalized_deep_copies_columns) {
+    auto source_column = VariantUtil::construct_advanced_varint_column();
+    source_column->finalize(ColumnVariant::FinalizeMode::READ_MODE);
+
+    auto cloned = source_column->clone_finalized();
+    auto* cloned_variant = assert_cast<ColumnVariant*>(cloned.get());
+    EXPECT_TRUE(cloned_variant->is_finalized());
+
+    for (const auto& source_subcolumn : source_column->get_subcolumns()) {
+        const auto* cloned_subcolumn =
+                cloned_variant->get_subcolumns().find_exact(source_subcolumn->path);
+        ASSERT_NE(cloned_subcolumn, nullptr);
+        EXPECT_NE(source_subcolumn->data.get_finalized_column_ptr().get(),
+                  cloned_subcolumn->data.get_finalized_column_ptr().get())
+                << source_subcolumn->path.get_path();
+    }
+    EXPECT_NE(source_column->get_sparse_column().get(), cloned_variant->get_sparse_column().get());
+    EXPECT_NE(source_column->get_doc_value_column().get(),
+              cloned_variant->get_doc_value_column().get());
+}
+
+TEST_F(ColumnVariantTest, serialize_does_not_finalize_source_column) {
+    auto source_column = VariantUtil::construct_advanced_varint_column();
+    ASSERT_FALSE(source_column->is_finalized());
+
+    const int be_exec_version = BeExecVersionManager::get_newest_version();
+    const auto size =
+            dt_variant->get_uncompressed_serialized_bytes(*source_column, be_exec_version);
+    EXPECT_FALSE(source_column->is_finalized());
+
+    auto buffer = std::make_unique<char[]>(size);
+    dt_variant->serialize(*source_column, buffer.get(), be_exec_version);
+    EXPECT_FALSE(source_column->is_finalized());
+}
+
+TEST_F(ColumnVariantTest, block_serialize_does_not_finalize_source_column) {
+    auto source_column = VariantUtil::construct_advanced_varint_column();
+    ASSERT_FALSE(source_column->is_finalized());
+
+    Block block({{source_column->get_ptr(), dt_variant, "variant_col"}});
+    PBlock pblock;
+    size_t uncompressed_bytes = 0;
+    size_t compressed_bytes = 0;
+    int64_t compress_time = 0;
+    auto status = block.serialize(BeExecVersionManager::get_newest_version(), &pblock,
+                                  &uncompressed_bytes, &compressed_bytes, &compress_time,
+                                  segment_v2::NO_COMPRESSION);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_FALSE(source_column->is_finalized());
+    EXPECT_GT(pblock.column_values().size(), 0);
+}
+
 TEST_F(ColumnVariantTest, sanitize) {
     auto test_func = [](const auto& source_column) {
         auto src_size = source_column->size();
@@ -2099,7 +2152,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
     auto test_func = [](const auto& source_column) {
         auto src_size = source_column->size();
         EXPECT_TRUE(src_size > 0);
-        auto* mutable_ptr = assert_cast<ColumnVariant*>(source_column.get());
+        auto* mutable_ptr = source_column.get();
         //        auto [sparse_data_paths, sparse_data_values] = mutable_ptr->get_sparse_data_paths_and_values();
         // forloop
         PathInData pat("object.array");
@@ -2139,13 +2192,16 @@ TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
     ColumnVariant::MutablePtr obj;
     obj = ColumnVariant::create(1, false);
     MutableColumns cols;
-    cols.push_back(obj->get_ptr());
+    cols.push_back(std::move(obj));
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
     load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = ColumnVariant::cast_to_column_mutptr(assert_cast<ColumnVariant*>(cols[0].get()));
+    cols.clear();
     EXPECT_TRUE(!obj->empty());
     auto sparse_col = obj->get_sparse_column();
     auto cloned_sparse = sparse_col->clone_empty();
-    auto& offsets = obj->serialized_sparse_column_offsets();
+    const auto& offsets =
+            static_cast<const ColumnVariant&>(*obj).serialized_sparse_column_offsets();
     for (size_t i = 0; i != offsets.size(); ++i) {
         auto start = offsets[i - 1];
         auto end = offsets[i];
@@ -2285,8 +2341,6 @@ TEST_F(ColumnVariantTest, array_field_operations) {
             EXPECT_TRUE(subcolumn != nullptr);
             EXPECT_TRUE(subcolumn->size() > 0);
             std::cout << "subcolumn size: " << subcolumn->size() << std::endl;
-            Field f = subcolumn->get_last_field();
-            EXPECT_TRUE(f.get_type() == PrimitiveType::TYPE_ARRAY);
 
             // Create field info
             FieldInfo info;
@@ -2786,9 +2840,9 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_JSONB);
     }
 
-    // Test Tuple
+    // Test Struct
     {
-        Tuple t1;
+        Struct t1;
         t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
         t1.push_back(Field::create_field<TYPE_BIGINT>(Int64(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
@@ -3082,30 +3136,6 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     }
 }
 
-TEST_F(ColumnVariantTest, field_visitor) {
-    // Test replacing scalar values in a flat array
-    {
-        Array array;
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(2)));
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(3)));
-
-        Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
-        Field replacement = Field::create_field<TYPE_BIGINT>(Int64(42));
-        Field result = apply_visitor(FieldVisitorReplaceScalars(replacement, 0), field);
-
-        EXPECT_EQ(result.get<TYPE_BIGINT>(), 42);
-
-        Field replacement1 = Field::create_field<TYPE_BIGINT>(Int64(42));
-        Field result1 = apply_visitor(FieldVisitorReplaceScalars(replacement, 1), field);
-
-        EXPECT_EQ(result1.get<TYPE_ARRAY>().size(), 3);
-        EXPECT_EQ(result1.get<TYPE_ARRAY>()[0].get<TYPE_BIGINT>(), 42);
-        EXPECT_EQ(result1.get<TYPE_ARRAY>()[1].get<TYPE_BIGINT>(), 42);
-        EXPECT_EQ(result1.get<TYPE_ARRAY>()[2].get<TYPE_BIGINT>(), 42);
-    }
-}
-
 TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
     // Test insert_range_from
     {
@@ -3172,21 +3202,21 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         col_arr->insert(an);
         MutableColumnPtr nested_object = ColumnVariant::create(
                 container_variant.max_subcolumns_count(), false, col_arr->get_data().size());
-        MutableColumnPtr offset = col_arr->get_offsets_ptr()->assume_mutable(); // [3, 3, 4]
+        MutableColumnPtr offset = col_arr->get_offsets_ptr()->assert_mutable(); // [3, 3, 4]
         auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
         // flatten nested arrays
-        MutableColumnPtr flattend_column = col_arr->get_data_ptr()->assume_mutable();
+        MutableColumnPtr flattend_column = col_arr->get_data_ptr()->assert_mutable();
         DataTypePtr flattend_type = DataTypeFactory::instance().create_data_type(
                 FieldType::OLAP_FIELD_TYPE_BIGINT, 0, 0);
         // add sub path without parent prefix
         PathInData sub_path("k");
         nested_object_ptr->add_sub_column(sub_path, std::move(flattend_column),
                                           std::move(flattend_type));
-        nested_object = make_nullable(nested_object->get_ptr())->assume_mutable();
+        nested_object = make_nullable(nested_object->get_ptr())->assert_mutable();
         auto array =
                 make_nullable(ColumnArray::create(std::move(nested_object), std::move(offset)));
         PathInData path("v.k");
-        container_variant.add_sub_column(path, array->assume_mutable(),
+        container_variant.add_sub_column(path, array->assert_mutable(),
                                          container_variant.NESTED_TYPE);
         container_variant.set_num_rows(3);
         for (auto subcolumn : container_variant.get_subcolumns()) {
@@ -3503,21 +3533,12 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
     //                  PrimitiveType::TYPE_ARRAY);
     //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
     //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_TINYINT);
-    //        auto v = subcolumn.get_last_field();
-    //        auto& arr = v.get<TYPE_ARRAY>();
-    //        EXPECT_EQ(arr.size(), 1);
-    //        EXPECT_EQ(arr[0].get<TYPE_TINYINT>(), 123);
-    //
     //        subcolumn.deserialize_from_binary_column(&value, 1);
     //        EXPECT_EQ(subcolumn.data.size(), 2);
     //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
     //                  PrimitiveType::TYPE_ARRAY);
     //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
     //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
-    //        auto v2 = subcolumn.get_last_field();
-    //        auto& arr2 = v2.get<TYPE_ARRAY>();
-    //        EXPECT_EQ(arr2.size(), 1);
-    //        EXPECT_EQ(arr2[0].get<TYPE_INT>(), 123);
     //    }
     //
     //    column_map.clear();
@@ -3549,22 +3570,12 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
     //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
     //                  PrimitiveType::TYPE_ARRAY);
     //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
-    //        auto v = subcolumn.get_last_field();
-    //        auto& arr = v.get<TYPE_ARRAY>();
-    //        EXPECT_EQ(arr.size(), 1);
-    //        EXPECT_TRUE(arr[0].is_null());
-    //
     //        subcolumn.deserialize_from_binary_column(&value, 1);
     //        EXPECT_EQ(subcolumn.data.size(), 2);
     //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
     //                  PrimitiveType::TYPE_ARRAY);
     //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
     //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
-    //        auto v2 = subcolumn.get_last_field();
-    //        auto& arr2 = v2.get<TYPE_ARRAY>();
-    //        EXPECT_EQ(arr2.size(), 2);
-    //        EXPECT_TRUE(arr2[0].is_null());
-    //        EXPECT_EQ(arr2[1].get<TYPE_INT>(), 123);
     //    }
 }
 
@@ -3597,6 +3608,14 @@ TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
     field2.num_dimensions = 1;
     array_subcolumn.insert(field2);
     array_subcolumn.finalize();
+}
+
+TEST(ColumnVariantNestedGroupTypeTest, nullable_array_element_is_recognized) {
+    EXPECT_TRUE(is_nested_group_type(ColumnVariant::NESTED_TYPE));
+
+    auto variant = std::make_shared<DataTypeVariant>(0, false);
+    EXPECT_TRUE(is_nested_group_type(variant));
+    EXPECT_FALSE(is_nested_group_type(make_nullable(variant)));
 }
 
 TEST_F(ColumnVariantTest, deserialize_mixed_array_elements) {

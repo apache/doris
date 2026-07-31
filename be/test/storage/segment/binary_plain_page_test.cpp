@@ -57,14 +57,6 @@ public:
 
         OwnedSlice owned_slice = page_builder.finish();
 
-        //check first value and last value
-        Slice first_value;
-        page_builder.get_first_value(&first_value);
-        EXPECT_EQ(slices[0], first_value);
-        Slice last_value;
-        page_builder.get_last_value(&last_value);
-        EXPECT_EQ(slices[count - 1], last_value);
-
         PageDecoderOptions decoder_options;
         PageDecoderType page_decoder(owned_slice.slice(), decoder_options);
         Status status = page_decoder.init();

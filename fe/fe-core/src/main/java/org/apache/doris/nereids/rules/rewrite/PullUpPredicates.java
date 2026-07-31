@@ -464,11 +464,20 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
             }
-            options.removeIf(option -> option instanceof NullLiteral);
+            boolean hasNull = options.removeIf(option -> option instanceof NullLiteral);
+            Expression predicate = null;
             if (options.size() > 1) {
-                filtersFromConstExprs.add(new InPredicate(compareExpr, options));
+                predicate = new InPredicate(compareExpr, options);
             } else if (options.size() == 1) {
-                filtersFromConstExprs.add(new EqualTo(compareExpr, options.iterator().next()));
+                predicate = new EqualTo(compareExpr, options.iterator().next());
+            }
+            if (hasNull && predicate != null) {
+                predicate = new Or(predicate, new IsNull(compareExpr));
+            } else if (hasNull) {
+                predicate = new IsNull(compareExpr);
+            }
+            if (predicate != null) {
+                filtersFromConstExprs.add(predicate);
             }
         }
         return ImmutableSet.copyOf(filtersFromConstExprs);

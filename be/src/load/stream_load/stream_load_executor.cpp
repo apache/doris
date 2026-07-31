@@ -110,6 +110,9 @@ Status StreamLoadExecutor::execute_plan_fragment(
                 *status = Status::DataQualityError("too many filtered rows");
             }
         }
+        if (ctx->load_type == TLoadType::ROUTINE_LOAD || !status->ok()) {
+            ctx->first_error_msg = state->get_first_error_msg();
+        }
 
         if (status->ok()) {
             DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
@@ -118,7 +121,6 @@ Status StreamLoadExecutor::execute_plan_fragment(
             LOG(WARNING) << "fragment execute failed"
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
             ctx->number_loaded_rows = 0;
-            ctx->first_error_msg = state->get_first_error_msg();
             // cancel body_sink, make sender known it
             if (ctx->body_sink != nullptr) {
                 ctx->body_sink->cancel(status->to_string());
@@ -128,6 +130,9 @@ Status StreamLoadExecutor::execute_plan_fragment(
             // reset the stream load ctx's kafka commit offset
             case TLoadSourceType::KAFKA:
                 ctx->kafka_info->reset_offset();
+                break;
+            case TLoadSourceType::KINESIS:
+                ctx->kinesis_info->reset_sequence_numbers();
                 break;
             default:
                 break;
@@ -425,6 +430,9 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         rl_attach.__set_receivedBytes(ctx->receive_bytes);
         rl_attach.__set_loadedBytes(ctx->loaded_bytes);
         rl_attach.__set_loadCostMs(ctx->load_cost_millis);
+        if (!ctx->first_error_msg.empty()) {
+            rl_attach.__set_firstErrorMsg(ctx->first_error_msg);
+        }
 
         attach->rlTaskTxnCommitAttachment = rl_attach;
         attach->__isset.rlTaskTxnCommitAttachment = true;
@@ -445,6 +453,26 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
 
         rl_attach.kafkaRLTaskProgress = kafka_progress;
         rl_attach.__isset.kafkaRLTaskProgress = true;
+        if (!ctx->error_url.empty()) {
+            rl_attach.__set_errorLogUrl(ctx->error_url);
+        }
+        return true;
+    }
+    case TLoadSourceType::KINESIS: {
+        TRLTaskTxnCommitAttachment& rl_attach = attach->rlTaskTxnCommitAttachment;
+        rl_attach.loadSourceType = TLoadSourceType::KINESIS;
+
+        TKinesisRLTaskProgress kinesis_progress;
+        kinesis_progress.shardCmtSeqNum = ctx->kinesis_info->cmt_sequence_number;
+        if (!ctx->kinesis_info->millis_behind_latest.empty()) {
+            kinesis_progress.__set_shardMillsBehindLatest(ctx->kinesis_info->millis_behind_latest);
+        }
+        if (!ctx->kinesis_info->closed_shard_ids.empty()) {
+            kinesis_progress.__set_closedShardIds(ctx->kinesis_info->closed_shard_ids);
+        }
+
+        rl_attach.kinesisRLTaskProgress = kinesis_progress;
+        rl_attach.__isset.kinesisRLTaskProgress = true;
         if (!ctx->error_url.empty()) {
             rl_attach.__set_errorLogUrl(ctx->error_url);
         }

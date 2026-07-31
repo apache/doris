@@ -25,7 +25,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
-import io.grpc.netty.NettyChannelBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,25 +34,19 @@ import java.util.concurrent.TimeUnit;
 
 public class BackendServiceClient {
     public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);
-
-    private static final int MAX_RETRY_NUM = 10;
+    private static final BackendServiceClientChannelProvider CHANNEL_PROVIDER =
+            BackendServiceClientChannelProviderFactory.create();
     private final TNetworkAddress address;
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
     private final long execPlanTimeout;
+    private final long channelConfigVersion;
 
     public BackendServiceClient(TNetworkAddress address, String resolvedIp, Executor executor) {
         this.address = address;
-        // Use resolved IP address instead of hostname to avoid DNS resolution issues
-        // If resolvedIp is empty or null, fallback to hostname
-        String targetHost = (resolvedIp != null && !resolvedIp.isEmpty()) ? resolvedIp : address.getHostname();
-        channel = NettyChannelBuilder.forAddress(targetHost, address.getPort())
-                .executor(executor).keepAliveTime(Config.grpc_keep_alive_second, TimeUnit.SECONDS)
-                .flowControlWindow(Config.grpc_max_message_size_bytes)
-                .keepAliveWithoutCalls(true)
-                .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
-                .usePlaintext().build();
+        channelConfigVersion = CHANNEL_PROVIDER.currentConfigVersion();
+        channel = CHANNEL_PROVIDER.createChannel(address, resolvedIp, executor);
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
         // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
@@ -66,6 +59,10 @@ public class BackendServiceClient {
         return state == ConnectivityState.CONNECTING
                 || state == ConnectivityState.IDLE
                 || state == ConnectivityState.READY;
+    }
+
+    public boolean isUsingLatestChannelConfig() {
+        return channelConfigVersion == CHANNEL_PROVIDER.currentConfigVersion();
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
@@ -215,6 +212,11 @@ public class BackendServiceClient {
     public Future<InternalService.PRequestCdcClientResult> requestCdcClient(
             InternalService.PRequestCdcClientRequest request) {
         return stub.requestCdcClient(request);
+    }
+
+    public Future<InternalService.PRequestCdcClientResult> requestCdcClient(
+            InternalService.PRequestCdcClientRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).requestCdcClient(request);
     }
 
     public void shutdown() {

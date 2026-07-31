@@ -18,15 +18,14 @@
 package org.apache.doris.qe;
 
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 
 public class ShowResultSetTest {
-    @Mocked
-    ShowResultSetMetaData metaData;
+    private ShowResultSetMetaData metaData = Mockito.mock(ShowResultSetMetaData.class);
 
     @Test
     public void testNormal() {

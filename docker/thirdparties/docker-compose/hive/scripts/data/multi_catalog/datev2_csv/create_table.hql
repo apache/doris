@@ -2,7 +2,9 @@ create database if not exists multi_catalog;
 
 use multi_catalog;
 
-CREATE external TABLE `datev2_csv`(
+drop table if exists `datev2_csv`;
+
+create external table `datev2_csv`(
   `id` int,
   `day` date)
 ROW FORMAT SERDE
@@ -15,6 +17,3 @@ LOCATION
   '/user/doris/suites/multi_catalog/datev2_csv'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1688118691');
-
-msck repair table datev2_csv;
-

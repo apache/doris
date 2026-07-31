@@ -25,15 +25,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.meta.MetaContext;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -67,122 +65,111 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testSerializationNormal(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
-            @Injectable Table table) throws Exception {
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = database;
-                database.getTableNullable(anyLong);
-                minTimes = 0;
-                result = table;
-                table.getName();
-                minTimes = 0;
-                result = "tablename";
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeMetaVersion.VERSION_CURRENT;
-            }
-        };
+    public void testSerializationNormal() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table table = Mockito.mock(Table.class);
 
-        loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
-        Deencapsulation.invoke(loadManager, "addLoadJob", job1);
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envMockedStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeMetaVersion.VERSION_CURRENT);
 
-        File file = serializeToFile(loadManager);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(catalog.getDbOrMetaException(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(database.getTableNullable(Mockito.anyLong())).thenReturn(table);
+            Mockito.when(database.getTableOrMetaException(Mockito.anyLong())).thenReturn(table);
+            Mockito.when(table.getName()).thenReturn("tablename");
 
-        // make it deserialized
-        LoadManager newLoadManager = deserializeFromFile(file);
+            loadManager = new LoadManager(new LoadJobScheduler());
+            LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
+            Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
-        Map<Long, LoadJob> loadJobs = Deencapsulation.getField(loadManager, fieldName);
-        Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
-        Assert.assertEquals(loadJobs, newLoadJobs);
+            File file = serializeToFile(loadManager);
+
+            LoadManager newLoadManager = deserializeFromFile(file);
+
+            Map<Long, LoadJob> loadJobs = Deencapsulation.getField(loadManager, fieldName);
+            Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
+            Assert.assertEquals(loadJobs, newLoadJobs);
+        }
     }
 
     @Test
-    public void testSerializationWithJobRemoved(@Mocked MetaContext metaContext, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Injectable Database database, @Injectable Table table) throws Exception {
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = database;
-                database.getTableNullable(anyLong);
-                minTimes = 0;
-                result = table;
-                table.getName();
-                minTimes = 0;
-                result = "tablename";
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeMetaVersion.VERSION_CURRENT;
-            }
-        };
+    public void testSerializationWithJobRemoved() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table table = Mockito.mock(Table.class);
 
-        loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
-        Deencapsulation.invoke(loadManager, "addLoadJob", job1);
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envMockedStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeMetaVersion.VERSION_CURRENT);
 
-        // make job1 don't serialize
-        Config.streaming_label_keep_max_second = 1;
-        Thread.sleep(2000);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(catalog.getDbOrMetaException(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(database.getTableNullable(Mockito.anyLong())).thenReturn(table);
+            Mockito.when(database.getTableOrMetaException(Mockito.anyLong())).thenReturn(table);
+            Mockito.when(table.getName()).thenReturn("tablename");
 
-        File file = serializeToFile(loadManager);
+            loadManager = new LoadManager(new LoadJobScheduler());
+            LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
+            Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
-        LoadManager newLoadManager = deserializeFromFile(file);
-        Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
+            // make job1 don't serialize
+            Config.streaming_label_keep_max_second = 1;
+            Thread.sleep(2000);
 
-        Assert.assertEquals(0, newLoadJobs.size());
+            File file = serializeToFile(loadManager);
+
+            LoadManager newLoadManager = deserializeFromFile(file);
+            Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
+
+            Assert.assertEquals(0, newLoadJobs.size());
+        }
     }
 
     @Test
-    public void testCleanOverLimitJobs(@Mocked Env env,
-            @Mocked InternalCatalog catalog, @Injectable Database database, @Injectable Table table) throws Exception {
-        new Expectations() {
-            {
-                env.getNextId();
-                returns(1L, 2L);
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = database;
-                database.getTableNullable(anyLong);
-                minTimes = 0;
-                result = table;
-                table.getName();
-                minTimes = 0;
-                result = "tablename";
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeMetaVersion.VERSION_CURRENT;
-            }
-        };
+    public void testCleanOverLimitJobs() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table table = Mockito.mock(Table.class);
 
-        loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
-        Thread.sleep(100);
-        LoadJob job2 = new InsertLoadJob("job2", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
-        Deencapsulation.invoke(loadManager, "addLoadJob", job2);
-        Deencapsulation.invoke(loadManager, "addLoadJob", job1);
-        Config.label_num_threshold = 1;
-        loadManager.removeOverLimitLoadJob();
-        Map<Long, LoadJob> idToJobs = Deencapsulation.getField(loadManager, fieldName);
-        Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Deencapsulation.getField(loadManager,
-                "dbIdToLabelToLoadJobs");
-        Assert.assertEquals(1, idToJobs.size());
-        Assert.assertEquals(1, dbIdToLabelToLoadJobs.size());
-        LoadJob loadJob = idToJobs.get(job2.getId());
-        Assert.assertEquals("job2", loadJob.getLabel());
-        Assert.assertNotNull(dbIdToLabelToLoadJobs.get(1L).get("job2"));
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envMockedStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeMetaVersion.VERSION_CURRENT);
+
+            Mockito.when(env.getNextId()).thenReturn(1L, 2L);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(catalog.getDbOrMetaException(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(database.getTableNullable(Mockito.anyLong())).thenReturn(table);
+            Mockito.when(database.getTableOrMetaException(Mockito.anyLong())).thenReturn(table);
+            Mockito.when(table.getName()).thenReturn("tablename");
+
+            loadManager = new LoadManager(new LoadJobScheduler());
+            LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
+            Thread.sleep(100);
+            LoadJob job2 = new InsertLoadJob("job2", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
+            Deencapsulation.invoke(loadManager, "addLoadJob", job2);
+            Deencapsulation.invoke(loadManager, "addLoadJob", job1);
+            Config.label_num_threshold = 1;
+            loadManager.removeOverLimitLoadJob();
+            Map<Long, LoadJob> idToJobs = Deencapsulation.getField(loadManager, fieldName);
+            Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Deencapsulation.getField(loadManager,
+                    "dbIdToLabelToLoadJobs");
+            Assert.assertEquals(1, idToJobs.size());
+            Assert.assertEquals(1, dbIdToLabelToLoadJobs.size());
+            LoadJob loadJob = idToJobs.get(job2.getId());
+            Assert.assertEquals("job2", loadJob.getLabel());
+            Assert.assertNotNull(dbIdToLabelToLoadJobs.get(1L).get("job2"));
+        }
     }
 
     private File serializeToFile(LoadManager loadManager) throws Exception {

@@ -158,6 +158,9 @@ void move_dir_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTas
 
 void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void cloud_submit_table_compaction_callback(CloudStorageEngine& engine,
+                                            const TAgentTaskRequest& req);
+
 void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void push_index_policy_callback(const TAgentTaskRequest& req);

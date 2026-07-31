@@ -55,14 +55,14 @@ suite("test_storage_format_v1", "p0") {
                         );
                         """
     }
-    
+
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -98,7 +98,7 @@ suite("test_storage_format_v1", "p0") {
         create_httplogs_dup_table.call(testTable_dup)
         load_httplogs_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         qt_sql(" select COUNT(*) from ${testTable_dup} where request match 'images' ")
 

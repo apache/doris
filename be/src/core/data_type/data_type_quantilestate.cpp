@@ -23,7 +23,6 @@
 #include "core/column/column_complex.h"
 #include "core/string_buffer.hpp"
 #include "core/string_ref.h"
-#include "util/io_helper.h"
 #include "util/slice.h"
 
 namespace doris {

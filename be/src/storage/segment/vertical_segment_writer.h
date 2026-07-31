@@ -31,9 +31,11 @@
 
 #include "common/status.h" // Status
 #include "storage/index/index_file_writer.h"
+#include "storage/key/row_key_encoder.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/column_writer.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -107,10 +109,12 @@ public:
     [[nodiscard]] uint32_t row_count() const { return _row_count; }
     [[nodiscard]] uint32_t segment_id() const { return _segment_id; }
 
-    Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
+    Status finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                    SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     Status finalize_columns_index(uint64_t* index_size);
-    Status finalize_footer(uint64_t* segment_file_size);
+    Status finalize_footer(uint64_t* segment_file_size,
+                           SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     Slice min_encoded_key();
     Slice max_encoded_key();
@@ -129,7 +133,8 @@ public:
     }
 
 private:
-    void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
+    void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
+                           const ColumnWriterOptions& opts);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletSchemaSPtr& schema);
     uint64_t _estimated_remaining_size();
@@ -143,22 +148,11 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key) const;
-    std::string _encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos);
-    // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                  size_t pos);
-    std::string _full_encode_keys(const std::vector<const KeyCoder*>& key_coders,
-                                  const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                  size_t pos);
-    // used for unique-key with merge on write
-    void _encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,
-                            std::string* encoded_keys);
-    // used for unique-key with merge on write tables with cluster keys
-    void _encode_rowid(const uint32_t rowid, std::string* encoded_keys);
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(const Block& block);
+    Status _append_row_store_column(const Block& block, size_t row_pos, size_t num_rows,
+                                    uint32_t cid);
     Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                               bool have_delete_sign,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -189,15 +183,19 @@ private:
                                IOlapColumnDataAccessor* seq_column,
                                std::map<uint32_t, IOlapColumnDataAccessor*>& cid_to_column);
     Status _generate_primary_key_index(
-            const std::vector<const KeyCoder*>& primary_key_coders,
             const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
             IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+    Status _check_column_writer_disk_capacity(size_t cid);
     Status _finalize_column_writer_and_update_meta(size_t cid);
 
-    bool _is_mow();
-    bool _is_mow_with_cluster_key();
+    bool _is_mow() {
+        return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
+    }
+    bool _is_mow_with_cluster_key() {
+        return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
+    }
 
 private:
     friend class ::doris::BlockAggregator;
@@ -213,9 +211,7 @@ private:
     IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
-    // for mow tables with cluster key, the sort key is the cluster keys not unique keys
-    // for other tables, the sort key is the keys
-    size_t _num_sort_key_columns;
+    SegmentIndexFileCacheInfo _index_file_cache_info;
     size_t _num_short_key_columns;
 
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
@@ -225,12 +221,9 @@ private:
 
     std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
-    std::vector<const KeyCoder*> _key_coders;
-    // for mow table with cluster keys, this is primary keys
-    std::vector<const KeyCoder*> _primary_key_coders;
-    const KeyCoder* _seq_coder = nullptr;
-    const KeyCoder* _rowid_coder = nullptr;
-    std::vector<uint16_t> _key_index_size;
+    // NOTE: must stay declared after _tablet_schema and _opts, the constructor
+    // init list reads both through _is_mow().
+    RowKeyEncoder _key_encoder;
     size_t _short_key_row_pos = 0;
 
     // _num_rows_written means row count already written in this current column group

@@ -26,6 +26,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <typeinfo>
 #include <vector>
 
@@ -51,6 +52,9 @@ class Arena;
 class ColumnSorter;
 
 /** Column for String values.
+  * Note: In string functions, we assume that ColumnStr contains valid UTF-8 encoded data.
+  * However, ColumnStr is not guaranteed to always hold valid UTF-8, since it is also used
+  * as a serialization container where the content may be arbitrary binary data.
   */
 template <typename T>
 class ColumnStr final : public COWHelper<IColumn, ColumnStr<T>> {
@@ -65,8 +69,8 @@ public:
             if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
                 throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
                                 "string column length is too large: total_length={}, "
-                                "element_number={}, rows={}",
-                                total_length, element_number, rows);
+                                "limit={}, element_number={}, rows={}",
+                                total_length, MAX_STRING_SIZE, element_number, rows);
             }
         }
     }
@@ -74,7 +78,7 @@ public:
 private:
     // currently Offsets is uint32, if chars.size() exceeds 4G, offset will overflow.
     // limit chars.size() and check the size when inserting data into ColumnStr<T>.
-    static constexpr size_t MAX_STRING_SIZE = 0xffffffff;
+    static constexpr size_t MAX_STRING_SIZE = 4294967295;
 
     friend class COWHelper<IColumn, ColumnStr<T>>;
     friend class OlapBlockDataConvertor;
@@ -141,8 +145,6 @@ public:
     }
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
-
-    void shrink_padding_chars() override;
 
     Field operator[](size_t n) const override;
 
@@ -275,6 +277,56 @@ public:
         sanity_check_simple();
     }
 
+    template <typename SelectionRange>
+    void insert_many_parquet_plain_byte_arrays(const char* encoded_data,
+                                               const uint32_t* payload_offsets,
+                                               const uint32_t* value_offsets, size_t num,
+                                               const std::vector<SelectionRange>& value_spans) {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        const size_t old_chars_size = chars.size();
+        const size_t bytes = value_offsets[num];
+        check_chars_length(old_chars_size + bytes, offsets.size() + num);
+        chars.resize(old_chars_size + bytes);
+
+        // Source payloads may be contiguous for decoder-owned buffers even though PLAIN normally
+        // separates them with length prefixes. Coalesce whenever the published layout permits it;
+        // the fallback remains one direct source-to-column copy without a StringRef staging array.
+        size_t covered_values = 0;
+        for (const auto& span : value_spans) {
+            DORIS_CHECK_EQ(span.first, covered_values);
+            DORIS_CHECK_LE(span.first + span.count, num);
+            size_t run_first = span.first;
+            const size_t span_end = span.first + span.count;
+            while (run_first < span_end) {
+                size_t run_end = run_first + 1;
+                while (run_end < span_end &&
+                       payload_offsets[run_end] == payload_offsets[run_first] +
+                                                           value_offsets[run_end] -
+                                                           value_offsets[run_first]) {
+                    ++run_end;
+                }
+                const size_t run_bytes = value_offsets[run_end] - value_offsets[run_first];
+                if (run_bytes != 0) {
+                    memcpy(chars.data() + old_chars_size + value_offsets[run_first],
+                           encoded_data + payload_offsets[run_first], run_bytes);
+                }
+                run_first = run_end;
+            }
+            covered_values = span_end;
+        }
+        DORIS_CHECK_EQ(covered_values, num);
+
+        const size_t old_rows = offsets.size();
+        const auto tail_offset = offsets.back();
+        offsets.resize(old_rows + num);
+        for (size_t row = 0; row < num; ++row) {
+            offsets[old_rows + row] = tail_offset + value_offsets[row + 1];
+        }
+        sanity_check_simple();
+    }
+
     // Insert `num` string entries with real length information but no actual
     // character data. The `lengths` array provides the byte length of each
     // string. Offsets are built with correct cumulative sizes so that
@@ -317,6 +369,35 @@ public:
                 offset += len;
             }
             offsets.push_back(offset);
+        }
+        sanity_check_simple();
+    }
+
+    void insert_many_fixed_length_data(const char* data, size_t value_length, size_t num) {
+        if (num == 0) {
+            return;
+        }
+        if (value_length > std::numeric_limits<size_t>::max() / num) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ColumnString fixed-length append size overflow");
+        }
+        const size_t old_chars_size = chars.size();
+        const size_t old_offsets_size = offsets.size();
+        const size_t bytes = value_length * num;
+        if (bytes > std::numeric_limits<size_t>::max() - old_chars_size ||
+            num > std::numeric_limits<size_t>::max() - old_offsets_size) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ColumnString fixed-length append size overflow");
+        }
+        check_chars_length(old_chars_size + bytes, old_offsets_size + num);
+        chars.resize(old_chars_size + bytes);
+        if (bytes != 0) {
+            memcpy(chars.data() + old_chars_size, data, bytes);
+        }
+        offsets.resize(old_offsets_size + num);
+        for (size_t row = 0; row < num; ++row) {
+            offsets[old_offsets_size + row] =
+                    static_cast<T>(old_chars_size + (row + 1) * value_length);
         }
         sanity_check_simple();
     }
@@ -501,7 +582,8 @@ public:
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override;
 
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
@@ -536,6 +618,7 @@ public:
     }
 
     bool is_ascii() const;
+    bool is_valid_utf8() const;
 
     Chars& get_chars() { return chars; }
     const Chars& get_chars() const { return chars; }

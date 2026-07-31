@@ -384,42 +384,6 @@ TEST_F(AnnIndexReaderTest, TestRangeSearchIVFWithoutLoadIndex) {
     }
 }
 
-TEST_F(AnnIndexReaderTest, TestUpdateResultStatic) {
-    // Test the static update_result method
-    segment_v2::IndexSearchResult search_result;
-
-    // Set up test data
-    auto roaring = std::make_shared<roaring::Roaring>();
-    roaring->add(10);
-    roaring->add(20);
-    roaring->add(30);
-
-    size_t num_results = 3;
-    auto distances = std::make_unique<float[]>(num_results);
-    distances[0] = 1.5f;
-    distances[1] = 2.3f;
-    distances[2] = 3.1f;
-
-    search_result.roaring = roaring;
-    search_result.distances = std::move(distances);
-
-    // Call update_result
-    std::vector<float> distance_vec;
-    roaring::Roaring result_roaring;
-
-    segment_v2::AnnIndexReader::update_result(search_result, distance_vec, result_roaring);
-
-    // Verify results
-    EXPECT_EQ(distance_vec.size(), num_results);
-    EXPECT_FLOAT_EQ(distance_vec[0], 1.5f);
-    EXPECT_FLOAT_EQ(distance_vec[1], 2.3f);
-    EXPECT_FLOAT_EQ(distance_vec[2], 3.1f);
-    EXPECT_EQ(result_roaring.cardinality(), num_results);
-    EXPECT_TRUE(result_roaring.contains(10));
-    EXPECT_TRUE(result_roaring.contains(20));
-    EXPECT_TRUE(result_roaring.contains(30));
-}
-
 TEST_F(AnnIndexReaderTest, TestRangeSearchWithDifferentParameters) {
     auto reader = std::make_unique<segment_v2::AnnIndexReader>(_tablet_index.get(),
                                                                _mock_index_file_reader);

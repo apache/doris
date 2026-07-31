@@ -46,8 +46,8 @@ public:
 #endif
     VCastExpr(const TExprNode& node) : VExpr(node) {}
     ~VCastExpr() override = default;
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -55,8 +55,14 @@ public:
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     const DataTypePtr& get_target_type() const;
+    bool is_safe_to_execute_on_selected_rows() const override { return false; }
 
     virtual std::string cast_name() const { return "CAST"; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VCastExpr::create_shared(clone_texpr_node());
+        return Status::OK();
+    }
 
     uint64_t get_digest(uint64_t seed) const override {
         auto res = VExpr::get_digest(seed);
@@ -90,10 +96,20 @@ public:
 
     TryCastExpr(const TExprNode& node)
             : VCastExpr(node), _original_cast_return_is_nullable(node.is_cast_nullable) {}
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     ~TryCastExpr() override = default;
     std::string cast_name() const override { return "TRY CAST"; }
+    bool is_safe_to_execute_on_selected_rows() const override {
+        return VExpr::is_safe_to_execute_on_selected_rows();
+    }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        node.__set_is_cast_nullable(_original_cast_return_is_nullable);
+        *cloned_expr = TryCastExpr::create_shared(node);
+        return Status::OK();
+    }
 
 private:
     DataTypePtr original_cast_return_type() const;

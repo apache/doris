@@ -36,12 +36,12 @@ suite("check_hash_bucket_table") {
 
         def bucketColumns = info["DistributionKey"]
         if (bucketColumns == "RANDOM") {return false}
-        def columnsDetail = sql_return_maparray "desc ${tblName} all;"
+        def columnsDetail = sql_return_maparray "desc `${tblName}` all;"
         def bucketCols = bucketColumns.split(",").collect { it.trim() }
         def bucketColsStr = bucketCols.collect { "`${it}`" }.join(",")
         def partitionName = info["PartitionName"]
         try {
-            def tabletIdList = sql_return_maparray(""" show replica status from ${tblName} partition(${partitionName}); """).collect { it.TabletId }.toList()
+            def tabletIdList = sql_return_maparray(""" show replica status from `${tblName}` partition(`${partitionName}`); """).collect { it.TabletId }.toList()
             def tabletIds = tabletIdList.toSet()
             int replicaNum = tabletIdList.stream().filter { it == tabletIdList[0] }.count()
             logger.info("""===== [check] Begin to check partition: ${db}.${tblName}, partition name: ${partitionName}, bucket num: ${bucketNum}, replica num: ${replicaNum}, bucket columns: ${bucketColsStr}""")
@@ -50,7 +50,7 @@ suite("check_hash_bucket_table") {
                 tabletIds.each { it2 ->
                     def tabletId = it2
                     try {
-                        def res = sql "select crc32_internal(${bucketColsStr}) % ${bucketNum} from ${db}.${tblName} tablet(${tabletId}) group by crc32_internal(${bucketColsStr}) % ${bucketNum};"
+                        def res = sql "select crc32_internal(${bucketColsStr}) % ${bucketNum} from `${db}`.`${tblName}` tablet(${tabletId}) group by crc32_internal(${bucketColsStr}) % ${bucketNum};"
                         if (res.size() > 1) {
                             logger.info("""===== [check] check failed: ${db}.${tblName}, partition name: ${partitionName}, tabletId: ${tabletId}, bucket columns: ${bucketColsStr}, res.size()=${res.size()}, res=${res}""")
                             assert res.size() == 1
@@ -73,9 +73,9 @@ suite("check_hash_bucket_table") {
     }
 
     def checkTable = { String db, String tblName ->
-        sql "use ${db};"
-        def showStmt = sql_return_maparray("show create table ${tblName}")[0]["Create Table"]
-        def partitionInfo = sql_return_maparray """ show partitions from ${tblName}; """
+        sql "use `${db}`;"
+        def showStmt = sql_return_maparray("show create table `${tblName}`")[0]["Create Table"]
+        def partitionInfo = sql_return_maparray """ show partitions from `${tblName}`; """
         int checkedPartition = 0
         partitionInfo.each {
             if (checkPartition(db, tblName, it)) {
@@ -88,7 +88,7 @@ suite("check_hash_bucket_table") {
     }
 
     def checkDb = { String db ->
-        sql "use ${db};"
+        sql "use `${db}`;"
         dbNum.incrementAndGet()
         def tables = sql("show full tables").stream().filter{ it[1] == "BASE TABLE" }.collect{ it[0] }.toList()
         def asyncMVs = sql_return_maparray("""select * from mv_infos("database"="${db}");""").collect{ it.Name }.toSet()

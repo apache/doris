@@ -22,24 +22,31 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanParseChecker;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Mock;
-import mockit.MockUp;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 /**
  * Base class to check SQL parsing result.
  */
 public abstract class ParserTestBase implements MemoPatternMatchSupported {
 
+    private static MockedStatic<ConnectContext> mockedStaticCtx;
+
     @BeforeAll
     public static void init() {
         ConnectContext ctx = new ConnectContext();
-        new MockUp<ConnectContext>() {
-            @Mock
-            public ConnectContext get() {
-                return ctx;
-            }
-        };
+        mockedStaticCtx = Mockito.mockStatic(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
+        mockedStaticCtx.when(ConnectContext::get).thenReturn(ctx);
+    }
+
+    @AfterAll
+    public static void tearDownParserTestBase() {
+        if (mockedStaticCtx != null) {
+            mockedStaticCtx.close();
+            mockedStaticCtx = null;
+        }
     }
 
     public PlanParseChecker parsePlan(String sql) {

@@ -25,6 +25,7 @@ import org.apache.doris.authentication.rolemapping.RoleMappingEvaluator;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.ClassLoaderUtils;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -32,13 +33,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -253,7 +252,11 @@ public class AuthenticationIntegrationRuntime {
 
         LinkedHashSet<String> grantedRoles = new LinkedHashSet<>(result.getGrantedRoles());
         grantedRoles.addAll(mappedRoles);
-        return AuthenticationOutcome.of(integration, AuthenticationResult.success(principal, grantedRoles));
+        OptionalLong credentialExpiresAtMillis = result.getCredentialExpiresAtMillis();
+        AuthenticationResult mappedResult = credentialExpiresAtMillis.isPresent()
+                ? AuthenticationResult.success(principal, grantedRoles, credentialExpiresAtMillis.getAsLong())
+                : AuthenticationResult.success(principal, grantedRoles);
+        return AuthenticationOutcome.of(integration, mappedResult);
     }
 
     private ResolvedAuthenticationPlugin resolvePluginForAuthentication(AuthenticationIntegrationMeta requestedMeta)
@@ -293,8 +296,9 @@ public class AuthenticationIntegrationRuntime {
         }
 
         try {
-            Path pluginRoot = Paths.get(Config.authentication_plugins_dir);
-            pluginManager.loadAll(Collections.singletonList(pluginRoot), getClass().getClassLoader());
+            pluginManager.loadAll(
+                    ClassLoaderUtils.parsePluginRootDirectories(Config.authentication_plugins_dir),
+                    getClass().getClassLoader());
         } catch (AuthenticationException e) {
             throw new AuthenticationException(
                     "Failed to load authentication plugins for type '" + pluginType + "': " + e.getMessage(),
@@ -303,8 +307,12 @@ public class AuthenticationIntegrationRuntime {
         }
 
         if (!pluginManager.hasFactory(pluginType)) {
+            // The hint is what turns "not installed" into "installed but refused, and here is why" — a
+            // plugin refused on its declared API version never reaches factories, and the load itself does
+            // not throw as long as some other plugin directory loaded.
             throw new AuthenticationException(
-                    "No authentication plugin factory found for type: " + pluginType,
+                    "No authentication plugin factory found for type: " + pluginType
+                            + pluginManager.apiVersionRejectionHint(),
                     AuthenticationFailureType.MISCONFIGURED);
         }
     }

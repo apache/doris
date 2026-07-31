@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -41,6 +42,8 @@ public class SequenceMatch extends NullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateV2Type.INSTANCE, BooleanType.INSTANCE),
+            FunctionSignature.ret(BooleanType.INSTANCE)
+                    .varArgs(StringType.INSTANCE, TimeStampTzType.WILDCARD, BooleanType.INSTANCE),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateTimeV2Type.WILDCARD, BooleanType.INSTANCE)
     );

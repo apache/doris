@@ -29,6 +29,16 @@ CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provi
         return CredProviderType::Simple;
     case cloud::CredProviderTypePB::INSTANCE_PROFILE:
         return CredProviderType::InstanceProfile;
+    case cloud::CredProviderTypePB::ENV:
+        return CredProviderType::Env;
+    case cloud::CredProviderTypePB::SYSTEM_PROPERTIES:
+        return CredProviderType::SystemProperties;
+    case cloud::CredProviderTypePB::WEB_IDENTITY:
+        return CredProviderType::WebIdentity;
+    case cloud::CredProviderTypePB::CONTAINER:
+        return CredProviderType::Container;
+    case cloud::CredProviderTypePB::ANONYMOUS:
+        return CredProviderType::Anonymous;
     default:
         __builtin_unreachable();
         LOG(WARNING) << "Invalid CredProviderTypePB value: " << cred_provider_type

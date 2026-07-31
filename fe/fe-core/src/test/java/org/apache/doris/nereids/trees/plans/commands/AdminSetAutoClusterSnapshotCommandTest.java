@@ -21,26 +21,25 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AdminSetAutoClusterSnapshotCommandTest {
-    @Mocked
-    private Env env;
-    @Mocked
+public class AdminSetAutoClusterSnapshotCommandTest extends TestWithFeService {
     private ConnectContext connectContext;
-    @Mocked
+    private Env env;
     private AccessControllerManager accessControllerManager;
 
     private String originalMinPrivilege;
@@ -55,32 +54,18 @@ public class AdminSetAutoClusterSnapshotCommandTest {
         Config.cluster_snapshot_min_privilege = originalMinPrivilege;
     }
 
-    private void runBefore() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                // Mock root user for privilege check
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = UserIdentity.ROOT;
-            }
-        };
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
     }
 
     @Test
     public void testValidateNormal() throws Exception {
         runBefore();
+        connectContext.setSkipAuth(true);
+        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+
         Config.deploy_mode = "";
         Map<String, String> properties = new HashMap<>();
         properties.put("max_reserved_snapshots", "10");
@@ -129,24 +114,15 @@ public class AdminSetAutoClusterSnapshotCommandTest {
     }
 
     @Test
-    public void testValidateNoPrivilegeRootMode() {
+    public void testValidateNoPrivilegeRootMode() throws Exception {
         // Test root mode (default): admin user should be denied
+        runBefore();
         Config.cluster_snapshot_min_privilege = "root";
 
         UserIdentity nonRootUser = new UserIdentity("admin", "%");
         nonRootUser.setIsAnalyzed();
+        connectContext.setCurrentUserIdentity(nonRootUser);
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = nonRootUser;
-            }
-        };
         Config.deploy_mode = "cloud";
 
         Map<String, String> properties = new HashMap<>();
@@ -156,32 +132,20 @@ public class AdminSetAutoClusterSnapshotCommandTest {
     }
 
     @Test
-    public void testValidateAdminModeWithAdminUser() {
+    public void testValidateAdminModeWithAdminUser() throws Exception {
         // Test admin mode: admin user with ADMIN privilege should be allowed
+        runBefore();
         Config.cluster_snapshot_min_privilege = "admin";
 
         UserIdentity adminUser = new UserIdentity("admin", "%");
         adminUser.setIsAnalyzed();
+        connectContext.setCurrentUserIdentity(adminUser);
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = adminUser;
-            }
-        };
         Config.deploy_mode = "cloud";
 
         Map<String, String> properties = new HashMap<>();
@@ -192,32 +156,20 @@ public class AdminSetAutoClusterSnapshotCommandTest {
     }
 
     @Test
-    public void testValidateAdminModeWithNormalUser() {
+    public void testValidateAdminModeWithNormalUser() throws Exception {
         // Test admin mode: normal user without ADMIN privilege should be denied
+        runBefore();
         Config.cluster_snapshot_min_privilege = "admin";
 
         UserIdentity normalUser = new UserIdentity("normal_user", "%");
         normalUser.setIsAnalyzed();
+        connectContext.setCurrentUserIdentity(normalUser);
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = normalUser;
-            }
-        };
         Config.deploy_mode = "cloud";
 
         Map<String, String> properties = new HashMap<>();

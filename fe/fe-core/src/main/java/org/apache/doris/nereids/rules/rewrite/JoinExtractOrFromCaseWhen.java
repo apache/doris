@@ -108,7 +108,7 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
 
     // 1. expr contains slots from both sides;
     private boolean isConditionNeedRewrite(Expression expr, Set<Slot> leftSlots, Set<Slot> rightSlots) {
-        if (expr.containsUniqueFunction()) {
+        if (expr.containsVolatileExpression()) {
             return false;
         }
         Set<Slot> exprSlots = expr.getInputSlots();

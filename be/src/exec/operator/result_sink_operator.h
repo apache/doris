@@ -45,7 +45,7 @@ struct ResultFileOptions {
     TParquetCompressionType::type parquet_commpression_type;
     TParquetVersion::type parquet_version;
     bool parquert_disable_dictionary = false;
-    bool enable_int96_timestamps = false;
+    bool enable_int96_timestamps = true;
     //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
     //But in order to consider the compatibility when upgrading, so add a bool to check
     //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.
@@ -155,11 +155,11 @@ private:
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
 public:
-    ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+    ResultSinkOperatorX(int operator_id, int node_id, const RowDescriptor& row_desc,
                         const std::vector<TExpr>& select_exprs, const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class ResultSinkLocalState;

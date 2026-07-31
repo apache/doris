@@ -22,6 +22,19 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <librdkafka/rdkafkacpp.h>
 
+// AWS Kinesis SDK includes
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/core/utils/Outcome.h>
+#include <aws/kinesis/KinesisClient.h>
+#include <aws/kinesis/model/GetRecordsRequest.h>
+#include <aws/kinesis/model/GetRecordsResult.h>
+#include <aws/kinesis/model/GetShardIteratorRequest.h>
+#include <aws/kinesis/model/GetShardIteratorResult.h>
+#include <aws/kinesis/model/ListShardsRequest.h>
+#include <aws/kinesis/model/ListShardsResult.h>
+#include <aws/kinesis/model/Record.h>
+#include <aws/kinesis/model/ShardIteratorType.h>
+
 #include <algorithm>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -33,6 +46,8 @@
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
+#include "load/routine_load/consumer_helpers.h"
+#include "load/routine_load/kinesis_conf.h"
 #include "runtime/aws_msk_iam_auth.h"
 #include "runtime/exec_env.h"
 #include "runtime/small_file_mgr.h"
@@ -40,6 +55,7 @@
 #include "util/blocking_queue.hpp"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/s3_util.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
 #include "util/uid_util.h"
@@ -230,18 +246,18 @@ Status KafkaDataConsumer::assign_topic_partitions(
 
 Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                                         int64_t max_running_time_ms) {
-    static constexpr int MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE = 3;
     int64_t left_time = max_running_time_ms;
     LOG(INFO) << "start kafka consumer: " << _id << ", grp: " << _grp_id
               << ", max running time(ms): " << left_time;
 
     int64_t received_rows = 0;
     int64_t put_rows = 0;
-    int32_t retry_times = 0;
+    RetryPolicy retry_policy(3, 200);
     Status st = Status::OK();
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
     watch.start();
+
     while (true) {
         {
             std::unique_lock<std::mutex> l(_lock);
@@ -259,9 +275,11 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
         consumer_watch.start();
         std::unique_ptr<RdKafka::Message> msg(_k_consumer->consume(1000 /* timeout, ms */));
         consumer_watch.stop();
+
         DorisMetrics::instance()->routine_load_get_msg_count->increment(1);
         DorisMetrics::instance()->routine_load_get_msg_latency->increment(
                 consumer_watch.elapsed_time() / 1000 / 1000);
+
         DBUG_EXECUTE_IF("KafkaDataConsumer.group_consume.out_of_range", {
             done = true;
             std::stringstream ss;
@@ -272,8 +290,10 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             st = Status::InternalError<false>(ss.str());
             break;
         });
+
         switch (msg->err()) {
         case RdKafka::ERR_NO_ERROR:
+            retry_policy.reset();
             if (_consuming_partition_ids.count(msg->partition()) <= 0) {
                 _consuming_partition_ids.insert(msg->partition());
             }
@@ -300,9 +320,9 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             break;
         case RdKafka::ERR__TRANSPORT:
             LOG(INFO) << "kafka consume Disconnected: " << _id
-                      << ", retry times: " << retry_times++;
-            if (retry_times <= MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                      << ", retry times: " << retry_policy.retry_count();
+            if (retry_policy.should_retry()) {
+                retry_policy.retry_with_backoff();
                 break;
             }
             [[fallthrough]];
@@ -582,21 +602,551 @@ bool KafkaDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
         return false;
     }
     // check properties
-    if (_custom_properties.size() != ctx->kafka_info->properties.size()) {
-        return false;
+    return PropertyMatcher::properties_match(_custom_properties, ctx->kafka_info->properties);
+}
+
+// ==================== AWS Kinesis Data Consumer Implementation ====================
+
+KinesisDataConsumer::KinesisDataConsumer(std::shared_ptr<StreamLoadContext> ctx)
+        : _region(ctx->kinesis_info->region),
+          _stream(ctx->kinesis_info->stream),
+          _endpoint(ctx->kinesis_info->endpoint) {
+    VLOG_NOTICE << "construct Kinesis consumer: stream=" << _stream << ", region=" << _region;
+}
+
+KinesisDataConsumer::~KinesisDataConsumer() {
+    VLOG_NOTICE << "destruct Kinesis consumer: stream=" << _stream;
+    // AWS SDK client managed by shared_ptr, will be automatically cleaned up
+}
+
+Status KinesisDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
+    std::unique_lock<std::mutex> l(_lock);
+    if (_init) {
+        return Status::OK(); // Already initialized (idempotent)
     }
-    for (auto& item : ctx->kafka_info->properties) {
-        std::unordered_map<std::string, std::string>::const_iterator itr =
-                _custom_properties.find(item.first);
-        if (itr == _custom_properties.end()) {
-            return false;
+
+    // Store custom properties (AWS credentials, etc.)
+    _custom_properties.insert(ctx->kinesis_info->properties.begin(),
+                              ctx->kinesis_info->properties.end());
+
+    // Create KinesisConf and configure it
+    _kinesis_conf = std::make_unique<KinesisConf>();
+    std::string errstr;
+
+    // Parse and categorize aws.kinesis.* properties into three types
+    for (auto& item : _custom_properties) {
+        if (starts_with(item.first, "aws.kinesis.")) {
+            std::string conf_key = item.first.substr(12); // Remove "aws.kinesis." prefix
+
+            // Type 2: Frequently-used parameters (explicit members)
+            if (conf_key == "shards") {
+                std::vector<std::string> parts =
+                        absl::StrSplit(item.second, ",", absl::SkipWhitespace());
+                _explicit_shards = std::move(parts);
+                VLOG_NOTICE << "Set explicit shards: " << item.second;
+            } else if (conf_key == "default.pos") {
+                _default_position = item.second;
+                VLOG_NOTICE << "Set default position: " << item.second;
+            } else if (starts_with(conf_key, "shards.pos.")) {
+                std::string shard_id = conf_key.substr(11); // Remove "shards.pos." prefix
+                _shard_positions[shard_id] = item.second;
+                VLOG_NOTICE << "Set shard position: " << shard_id << " = " << item.second;
+            }
+            // Type 3: Less-frequently-used API parameters (KinesisConf determines which API)
+            else {
+                KinesisConf::ConfResult res = _kinesis_conf->set(conf_key, item.second, errstr);
+                if (res == KinesisConf::CONF_INVALID) {
+                    return Status::InternalError("Failed to set '{}': {}", conf_key, errstr);
+                }
+                // CONF_UNKNOWN is acceptable (parameter will be ignored)
+            }
+        }
+    }
+
+    // Create AWS Kinesis client
+    RETURN_IF_ERROR(_create_kinesis_client(ctx));
+
+    VLOG_NOTICE << "finished to init Kinesis consumer. stream=" << _stream << ", region=" << _region
+                << ", " << ctx->brief();
+    _init = true;
+    return Status::OK();
+}
+
+Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadContext> ctx) {
+    // Reuse S3ClientFactory's credential provider logic
+    // This supports all AWS authentication methods:
+    // - Simple AK/SK
+    // - IAM instance profile (EC2)
+    // - STS assume role
+    // - Session tokens
+    // - Environment variables
+    // - Default credential chain
+
+    S3ClientConf s3_conf;
+    s3_conf.region = _region;
+    s3_conf.endpoint = _endpoint;
+
+    auto get_property = [this](const char* key) -> std::string {
+        auto it = _custom_properties.find(key);
+        if (it != _custom_properties.end() && !it->second.empty()) {
+            return it->second;
+        }
+        return "";
+    };
+
+    // Keep one naming convention aligned with FE-side Kinesis properties.
+    s3_conf.ak = get_property("aws.access_key");
+    s3_conf.sk = get_property("aws.secret_key");
+    s3_conf.token = get_property("aws.session_key");
+    s3_conf.role_arn = get_property("aws.role_arn");
+    s3_conf.external_id = get_property("aws.external.id");
+
+    const std::string provider = get_property("aws.credentials.provider");
+    if (!provider.empty()) {
+        // Map provider type string to enum
+        if (provider == "instance_profile") {
+            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
+        } else if (provider == "env") {
+            s3_conf.cred_provider_type = CredProviderType::Env;
+        } else if (provider == "simple") {
+            s3_conf.cred_provider_type = CredProviderType::Simple;
+        }
+    }
+
+    // Create AWS ClientConfiguration
+    Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
+    aws_config.region = _region;
+
+    if (!_endpoint.empty()) {
+        aws_config.endpointOverride = _endpoint;
+    }
+
+    std::string ca_cert_file_path =
+            get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
+    if (!ca_cert_file_path.empty()) {
+        aws_config.caFile = ca_cert_file_path;
+    }
+
+    auto parse_timeout_ms = [](const std::string& timeout_value, const std::string& property_name,
+                               long* timeout_ms) -> Status {
+        try {
+            *timeout_ms = std::stol(timeout_value);
+        } catch (const std::exception&) {
+            return Status::InternalError("Invalid value for {}: {}", property_name, timeout_value);
+        }
+        return Status::OK();
+    };
+
+    // Set timeouts from properties or use defaults
+    auto it_request_timeout = _custom_properties.find("aws.request.timeout.ms");
+    if (it_request_timeout != _custom_properties.end()) {
+        RETURN_IF_ERROR(parse_timeout_ms(it_request_timeout->second, "aws.request.timeout.ms",
+                                         &aws_config.requestTimeoutMs));
+    } else {
+        aws_config.requestTimeoutMs = 30000; // 30s default
+    }
+
+    auto it_conn_timeout = _custom_properties.find("aws.connection.timeout.ms");
+    if (it_conn_timeout != _custom_properties.end()) {
+        RETURN_IF_ERROR(parse_timeout_ms(it_conn_timeout->second, "aws.connection.timeout.ms",
+                                         &aws_config.connectTimeoutMs));
+    }
+
+    // Get credentials provider (reuses S3 infrastructure)
+    auto credentials_provider = S3ClientFactory::instance().get_aws_credentials_provider(s3_conf);
+
+    // Create Kinesis client
+    _kinesis_client =
+            std::make_shared<Aws::Kinesis::KinesisClient>(credentials_provider, aws_config);
+
+    if (!_kinesis_client) {
+        return Status::InternalError(
+                "Failed to create AWS Kinesis client for stream: {}, region: {}", _stream, _region);
+    }
+
+    LOG(INFO) << "Created Kinesis client for stream: " << _stream << ", region: " << _region;
+    return Status::OK();
+}
+
+Status KinesisDataConsumer::assign_shards(
+        const std::map<std::string, std::string>& shard_sequence_numbers,
+        const std::string& stream_name, std::shared_ptr<StreamLoadContext> ctx) {
+    DORIS_CHECK(_kinesis_client);
+
+    std::stringstream ss;
+    ss << "Assigning shards to Kinesis consumer " << _id << ": ";
+
+    for (auto& entry : shard_sequence_numbers) {
+        const std::string& shard_id = entry.first;
+        const std::string& sequence_number = entry.second;
+
+        // Get shard iterator for this shard
+        std::string iterator;
+        RETURN_IF_ERROR(_get_shard_iterator(shard_id, sequence_number, &iterator));
+
+        _shard_iterators[shard_id] = iterator;
+        _consuming_shard_ids.insert(shard_id);
+
+        ss << "[" << shard_id << ": " << sequence_number << "] ";
+    }
+
+    LOG(INFO) << ss.str();
+    return Status::OK();
+}
+
+Status KinesisDataConsumer::_get_shard_iterator(const std::string& shard_id,
+                                                const std::string& sequence_number,
+                                                std::string* iterator) {
+    Aws::Kinesis::Model::GetShardIteratorRequest request;
+
+    // Apply all configurations through KinesisConf
+    DCHECK(_kinesis_conf != nullptr);
+    Status st = _kinesis_conf->apply_to_get_shard_iterator_request(request, _stream, shard_id,
+                                                                   sequence_number);
+    if (!st.ok()) {
+        return Status::InternalError(
+                "Failed to apply Kinesis config to GetShardIteratorRequest: {}", st.to_string());
+    }
+
+    auto outcome = _kinesis_client->GetShardIterator(request);
+    if (!outcome.IsSuccess()) {
+        auto& error = outcome.GetError();
+        return Status::InternalError("Failed to get shard iterator for shard {}: {} ({})", shard_id,
+                                     error.GetMessage(), static_cast<int>(error.GetErrorType()));
+    }
+
+    *iterator = outcome.GetResult().GetShardIterator();
+    VLOG_NOTICE << "Got shard iterator for shard: " << shard_id;
+    return Status::OK();
+}
+
+Status KinesisDataConsumer::group_consume(
+        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
+        int64_t max_running_time_ms) {
+    static constexpr int INTER_SHARD_SLEEP_MS = 10;            // Small sleep between shards
+    static constexpr int MIN_INTERVAL_BETWEEN_ROUNDS_MS = 200; // Min 200ms between rounds
+
+    int64_t left_time = max_running_time_ms;
+    LOG(INFO) << "start Kinesis consumer: " << _id << ", grp: " << _grp_id
+              << ", stream: " << _stream << ", max running time(ms): " << left_time;
+
+    int64_t received_rows = 0;
+    int64_t put_rows = 0;
+    RetryPolicy retry_policy(3, 200);
+    ThrottleBackoff throttle_backoff(1000, 10000);
+    Status st = Status::OK();
+    bool done = false;
+
+    MonotonicStopWatch consumer_watch;
+    MonotonicStopWatch watch;
+    watch.start();
+
+    while (true) {
+        // Check cancellation flag
+        {
+            std::unique_lock<std::mutex> l(_lock);
+            if (_cancelled) {
+                break;
+            }
         }
 
-        if (itr->second != item.second) {
-            return false;
+        if (left_time <= 0) {
+            break;
+        }
+
+        // Round-robin through all active shards
+        for (auto it = _consuming_shard_ids.begin(); it != _consuming_shard_ids.end() && !done;) {
+            const std::string& shard_id = *it;
+            auto iter_it = _shard_iterators.find(shard_id);
+
+            if (iter_it == _shard_iterators.end() || iter_it->second.empty()) {
+                // Shard exhausted (closed due to split/merge), remove from active set
+                LOG(INFO) << "Shard exhausted: " << shard_id;
+                it = _consuming_shard_ids.erase(it);
+                continue;
+            }
+
+            consumer_watch.start();
+
+            Aws::Kinesis::Model::GetRecordsRequest request;
+
+            DCHECK(_kinesis_conf != nullptr);
+            st = _kinesis_conf->apply_to_get_records_request(request, iter_it->second);
+            if (!st.ok()) {
+                LOG(WARNING) << "Failed to apply Kinesis config to GetRecordsRequest: " << st;
+                done = true;
+                break;
+            }
+
+            auto outcome = _kinesis_client->GetRecords(request);
+            consumer_watch.stop();
+
+            // Track generic routine load metrics and Kinesis-specific metrics.
+            DorisMetrics::instance()->routine_load_get_msg_count->increment(1);
+            DorisMetrics::instance()->routine_load_get_msg_latency->increment(
+                    consumer_watch.elapsed_time() / 1000 / 1000);
+            DorisMetrics::instance()->routine_load_kinesis_get_records_count->increment(1);
+            DorisMetrics::instance()->routine_load_kinesis_get_records_latency->increment(
+                    consumer_watch.elapsed_time() / 1000 / 1000);
+
+            if (!outcome.IsSuccess()) {
+                auto& error = outcome.GetError();
+
+                // Handle throttling (ProvisionedThroughputExceededException)
+                if (error.GetErrorType() ==
+                    Aws::Kinesis::KinesisErrors::PROVISIONED_THROUGHPUT_EXCEEDED) {
+                    DorisMetrics::instance()->routine_load_kinesis_throttle_count->increment(1);
+                    LOG(INFO) << "Kinesis rate limit exceeded for shard: " << shard_id
+                              << ", throttle_count: " << throttle_backoff.throttle_count()
+                              << ", backing off";
+                    throttle_backoff.backoff_and_sleep();
+                    ++it; // Move to next shard, will retry this one next round
+                    continue;
+                }
+
+                // Handle retriable errors
+                if (_is_retriable_error(error)) {
+                    DorisMetrics::instance()->routine_load_kinesis_retriable_error_count->increment(
+                            1);
+                    LOG(INFO) << "Kinesis retriable error for shard " << shard_id << ": "
+                              << error.GetMessage()
+                              << ", retry times: " << retry_policy.retry_count();
+                    if (retry_policy.should_retry()) {
+                        retry_policy.retry_with_backoff();
+                        continue;
+                    }
+                }
+
+                // Fatal error
+                LOG(WARNING) << "Kinesis consume failed for shard " << shard_id << ": "
+                             << error.GetMessage() << " (" << static_cast<int>(error.GetErrorType())
+                             << ")";
+                st = Status::InternalError("Kinesis GetRecords failed for shard {}: {}", shard_id,
+                                           error.GetMessage());
+                done = true;
+                break;
+            }
+
+            // Reset retry counter on success
+            retry_policy.reset();
+            throttle_backoff.reset();
+
+            // Process records - move result to allow moving individual records
+            auto result = outcome.GetResultWithOwnership();
+            auto millis_behind = result.GetMillisBehindLatest();
+            std::string next_iterator = result.GetNextShardIterator();
+            size_t record_count = result.GetRecords().size();
+            RETURN_IF_ERROR(_process_records(shard_id, std::move(result), queue, &received_rows,
+                                             &put_rows));
+
+            // Track MillisBehindLatest for this shard (used by FE for lag monitoring & scheduling)
+            _millis_behind_latest[shard_id] = millis_behind;
+
+            // Update shard iterator for next call
+            if (next_iterator.empty()) {
+                // Shard is closed (split/merge), mark as closed and remove from active set
+                LOG(INFO) << "Shard closed: " << shard_id << " (split/merge detected)";
+                DorisMetrics::instance()->routine_load_kinesis_closed_shard_count->increment(1);
+                _closed_shard_ids.insert(shard_id);
+                _shard_iterators.erase(shard_id);
+                it = _consuming_shard_ids.erase(it);
+            } else {
+                // Update iterator for next consumption
+                _shard_iterators[shard_id] = next_iterator;
+
+                if (record_count == 0) {
+                    // No records in this batch - shard has caught up with latest data
+                    // Remove from active set for this round (similar to Kafka PARTITION_EOF)
+                    // but keep iterator and progress for next task execution
+                    LOG(INFO) << "Shard has no new data: " << shard_id
+                              << " (MillisBehindLatest=" << millis_behind << ")";
+                    it = _consuming_shard_ids.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            // Check if all shards are exhausted
+            if (_consuming_shard_ids.empty()) {
+                LOG(INFO) << "All shards exhausted for consumer: " << _id;
+                done = true;
+                break;
+            }
+
+            // Small sleep to avoid tight loop
+            std::this_thread::sleep_for(std::chrono::milliseconds(INTER_SHARD_SLEEP_MS));
+        }
+
+        // Ensure minimum interval between rounds to respect Kinesis rate limits (5 GetRecords/sec per shard)
+        std::this_thread::sleep_for(std::chrono::milliseconds(MIN_INTERVAL_BETWEEN_ROUNDS_MS));
+
+        left_time = max_running_time_ms - watch.elapsed_time() / 1000 / 1000;
+        if (done) {
+            break;
         }
     }
-    return true;
+
+    LOG(INFO) << "Kinesis consumer done: " << _id << ", grp: " << _grp_id
+              << ". cancelled: " << _cancelled << ", left time(ms): " << left_time
+              << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000
+              << ", consume cost(ms): " << consumer_watch.elapsed_time() / 1000 / 1000
+              << ", received rows: " << received_rows << ", put rows: " << put_rows;
+
+    return st;
+}
+
+Status KinesisDataConsumer::_process_records(
+        const std::string& shard_id, Aws::Kinesis::Model::GetRecordsResult result,
+        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue, int64_t* received_rows,
+        int64_t* put_rows) {
+    // result is owned by value, safe to get mutable access to its records
+    auto records =
+            std::move(const_cast<Aws::Vector<Aws::Kinesis::Model::Record>&>(result.GetRecords()));
+    for (auto& record : records) {
+        DorisMetrics::instance()->routine_load_consume_bytes->increment(
+                record.GetData().GetLength());
+
+        if (record.GetData().GetLength() == 0) {
+            // Skip empty records
+            continue;
+        }
+
+        // Track the last sequence number for this shard
+        _committed_sequence_numbers[shard_id] = record.GetSequenceNumber();
+
+        // Move record into shared_ptr to avoid expensive copy
+        auto record_ptr = std::make_shared<Aws::Kinesis::Model::Record>(std::move(record));
+
+        if (!queue->controlled_blocking_put(record_ptr,
+                                            config::blocking_queue_cv_wait_timeout_ms)) {
+            // Queue shutdown
+            return Status::InternalError("Queue shutdown during record processing");
+        }
+
+        (*put_rows)++;
+        (*received_rows)++;
+        DorisMetrics::instance()->routine_load_consume_rows->increment(1);
+    }
+
+    return Status::OK();
+}
+
+bool KinesisDataConsumer::_is_retriable_error(
+        const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error) {
+    auto error_type = error.GetErrorType();
+
+    return error_type == Aws::Kinesis::KinesisErrors::PROVISIONED_THROUGHPUT_EXCEEDED ||
+           error_type == Aws::Kinesis::KinesisErrors::SERVICE_UNAVAILABLE ||
+           error_type == Aws::Kinesis::KinesisErrors::INTERNAL_FAILURE ||
+           error_type == Aws::Kinesis::KinesisErrors::NETWORK_CONNECTION || error.ShouldRetry();
+}
+
+Status KinesisDataConsumer::reset() {
+    std::unique_lock<std::mutex> l(_lock);
+    _cancelled = false;
+    _consuming_shard_ids.clear();
+    _shard_iterators.clear();
+    _millis_behind_latest.clear();
+    _committed_sequence_numbers.clear();
+    _closed_shard_ids.clear();
+    _last_visit_time = time(nullptr);
+    LOG(INFO) << "Kinesis consumer reset: " << _id;
+    return Status::OK();
+}
+
+Status KinesisDataConsumer::cancel(std::shared_ptr<StreamLoadContext> ctx) {
+    std::unique_lock<std::mutex> l(_lock);
+    if (!_init) {
+        return Status::InternalError("Kinesis consumer is not initialized");
+    }
+    _cancelled = true;
+    LOG(INFO) << "Kinesis consumer cancelled: " << _id << ", " << ctx->brief();
+    return Status::OK();
+}
+
+bool KinesisDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
+    if (ctx->load_src_type != TLoadSourceType::KINESIS) {
+        return false;
+    }
+
+    if (_region != ctx->kinesis_info->region || _stream != ctx->kinesis_info->stream ||
+        _endpoint != ctx->kinesis_info->endpoint) {
+        return false;
+    }
+
+    // Check that properties match
+    return PropertyMatcher::properties_match(_custom_properties, ctx->kinesis_info->properties);
+}
+
+Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) {
+    DORIS_CHECK(_kinesis_client);
+
+    // If user specified explicit shards, return those
+    if (!_explicit_shards.empty()) {
+        *shard_ids = _explicit_shards;
+        LOG(INFO) << "Using " << shard_ids->size() << " explicit shards for stream: " << _stream;
+        return Status::OK();
+    }
+
+    // Discover all shards
+    Aws::Kinesis::Model::ListShardsRequest request;
+
+    DCHECK(_kinesis_conf != nullptr);
+    Status st = _kinesis_conf->apply_to_list_shards_request(request, _stream);
+    if (!st.ok()) {
+        return Status::InternalError("Failed to apply Kinesis config to ListShardsRequest: {}",
+                                     st.to_string());
+    }
+
+    // Only return OPEN shards here. FE will keep recently retired parent shards in its
+    // closed list until they are fully drained, then remove them permanently. Returning
+    // CLOSED shards from ListShards would make already-drained parents look newly discovered
+    // and cause them to restart from TRIM_HORIZON.
+    std::vector<std::string> discovered_shard_ids;
+    bool saw_any_shard = false;
+    while (true) {
+        auto outcome = _kinesis_client->ListShards(request);
+        if (!outcome.IsSuccess()) {
+            auto& error = outcome.GetError();
+            return Status::InternalError("Failed to list shards for stream {}: {} ({})", _stream,
+                                         error.GetMessage(),
+                                         static_cast<int>(error.GetErrorType()));
+        }
+
+        const auto& result = outcome.GetResult();
+        if (!result.GetShards().empty()) {
+            saw_any_shard = true;
+        }
+        for (const auto& shard : result.GetShards()) {
+            const auto& ending_sequence_number =
+                    shard.GetSequenceNumberRange().GetEndingSequenceNumber();
+            if (!ending_sequence_number.empty()) {
+                continue;
+            }
+            discovered_shard_ids.emplace_back(shard.GetShardId());
+        }
+
+        const Aws::String& next_token = result.GetNextToken();
+        if (next_token.empty()) {
+            break;
+        }
+
+        Aws::Kinesis::Model::ListShardsRequest next_request;
+        // AWS requires paginated ListShards requests to use NextToken instead of StreamName.
+        next_request.SetNextToken(next_token);
+        if (request.MaxResultsHasBeenSet()) {
+            next_request.SetMaxResults(request.GetMaxResults());
+        }
+        request = std::move(next_request);
+    }
+
+    if (discovered_shard_ids.empty() && !saw_any_shard) {
+        return Status::InternalError("No shards found in Kinesis stream: {}", _stream);
+    }
+
+    *shard_ids = std::move(discovered_shard_ids);
+    LOG(INFO) << "Found " << shard_ids->size() << " open shards in stream: " << _stream;
+    return Status::OK();
 }
 
 } // end namespace doris

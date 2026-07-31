@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.parser.Origin;
+import org.apache.doris.nereids.parser.OriginAware;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.function.Supplier;
@@ -26,7 +27,7 @@ import java.util.function.Supplier;
  * This class is used to extend some thread local fields for Thread,
  * so we can access the thread fields faster than ThreadLocal
  */
-public class MoreFieldsThread extends Thread {
+public class MoreFieldsThread extends Thread implements OriginAware {
     private static final ThreadLocal<Boolean> keepFunctionSignatureThreadLocal = new ThreadLocal<>();
     private static final ThreadLocal<ConnectContext> connectContextThreadLocal = new ThreadLocal<>();
 
@@ -65,10 +66,12 @@ public class MoreFieldsThread extends Thread {
         super(group, target, name, stackSize);
     }
 
+    @Override
     public final void setOrigin(Origin origin) {
         this.origin = origin;
     }
 
+    @Override
     public final Origin getOrigin() {
         return this.origin;
     }

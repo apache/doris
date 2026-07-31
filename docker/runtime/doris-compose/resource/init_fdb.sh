@@ -27,6 +27,25 @@ init_db() {
         return
     fi
 
+    if [ -n "$DORIS_CLOUD_AK" ] && [ -n "$DORIS_CLOUD_SK" ] && [ -n "$DORIS_CLOUD_ENDPOINT" ]; then
+        BLOB_CREDS_FILE="${DORIS_HOME}/conf/blob_creds.json"
+        if [ "$DORIS_CLOUD_PROVIDER" = "OSS" ] || [ "$DORIS_CLOUD_PROVIDER" = "COS" ]; then
+            AK_WITH_ENDPOINT="${DORIS_CLOUD_AK}@${DORIS_CLOUD_BUCKET}.${DORIS_CLOUD_ENDPOINT}"
+        else
+            AK_WITH_ENDPOINT="${DORIS_CLOUD_AK}@${DORIS_CLOUD_ENDPOINT}"
+        fi
+        cat > $BLOB_CREDS_FILE << EOF
+{
+  "accounts" : {
+    "${AK_WITH_ENDPOINT}" : {
+      "secret" : "${DORIS_CLOUD_SK}"
+    }
+  }
+}
+EOF
+        health_log "Created blob_creds.json"
+    fi
+
     for ((i = 0; i < 10; i++)); do
         /usr/bin/fdbcli -C ${DORIS_HOME}/conf/fdb.cluster --exec 'configure new single ssd'
         if [ $? -eq 0 ]; then

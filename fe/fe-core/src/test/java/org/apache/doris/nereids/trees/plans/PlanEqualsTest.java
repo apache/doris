@@ -50,9 +50,9 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Optional;
@@ -237,7 +237,8 @@ class PlanEqualsTest {
 
     /* *************************** Physical *************************** */
     @Test
-    void testPhysicalAggregate(@Mocked LogicalProperties logicalProperties) {
+    void testPhysicalAggregate() {
+        LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
         LogicalOneRowRelation child = new LogicalOneRowRelation(
                 new RelationId(1),
                 ImmutableList.of(
@@ -249,14 +250,14 @@ class PlanEqualsTest {
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> actual = new PhysicalHashAggregate<>(Lists.newArrayList(), outputExpressionList,
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
-                child);
+                false, child);
 
         List<NamedExpression> outputExpressionList1 = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> expected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList1,
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
-                child);
+                false, child);
         Assertions.assertEquals(expected, actual);
 
         List<NamedExpression> outputExpressionList2 = ImmutableList.of(
@@ -264,12 +265,13 @@ class PlanEqualsTest {
         PhysicalHashAggregate<Plan> unexpected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList2,
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), false, logicalProperties,
-                child);
+                false, child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    void testPhysicalFilter(@Mocked LogicalProperties logicalProperties) {
+    void testPhysicalFilter() {
+        LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
         LogicalOneRowRelation child = new LogicalOneRowRelation(
                 new RelationId(1),
                 ImmutableList.of(
@@ -290,7 +292,8 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testPhysicalJoin(@Mocked LogicalProperties logicalProperties) {
+    void testPhysicalJoin() {
+        LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
         LogicalOneRowRelation left = new LogicalOneRowRelation(
                 new RelationId(1),
                 ImmutableList.of(
@@ -325,10 +328,11 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testPhysicalOlapScan(
-            @Mocked LogicalProperties logicalProperties,
-            @Mocked OlapTable olapTable,
-            @Mocked DistributionSpecHash distributionSpecHash) {
+    void testPhysicalOlapScan() {
+        LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        DistributionSpecHash distributionSpecHash = Mockito.mock(DistributionSpecHash.class);
+        Mockito.when(olapTable.getAllPartitions()).thenReturn(ImmutableList.of());
 
         List<Long> selectedTabletId = Lists.newArrayList();
         for (Partition partition : olapTable.getAllPartitions()) {
@@ -362,7 +366,8 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testPhysicalProject(@Mocked LogicalProperties logicalProperties) {
+    void testPhysicalProject() {
+        LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
         LogicalOneRowRelation child = new LogicalOneRowRelation(
                 new RelationId(1),
                 ImmutableList.of(
@@ -399,7 +404,8 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testPhysicalSort(@Mocked LogicalProperties logicalProperties) {
+    void testPhysicalSort() {
+        LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
         LogicalOneRowRelation child = new LogicalOneRowRelation(
                 new RelationId(1),
                 ImmutableList.of(

@@ -340,7 +340,7 @@ public class SlotReference extends Slot {
     @Override
     public Slot withOneLevelTableAndColumnAndQualifier(TableIf oneLevelTable, Column column, List<String> qualifier) {
         return new SlotReference(exprId, name, dataType, nullable, qualifier,
-                originalTable, column, oneLevelTable, column,
+                originalTable, originalColumn, oneLevelTable, column,
                 subPath, indexInSqlString);
     }
 

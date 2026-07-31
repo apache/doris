@@ -251,6 +251,15 @@ void set_tablet_schema_for_scan_key(TabletSchemaSPtr tablet_schema) {
     tablet_schema->init_from_pb(tablet_schema_pb);
 }
 
+void init_row_cursor_with_nulls(RowCursor& row, const TabletSchemaSPtr& tablet_schema,
+                                size_t num_columns) {
+    OlapTuple tuple;
+    for (size_t i = 0; i < num_columns; ++i) {
+        tuple.add_null();
+    }
+    ASSERT_TRUE(row.init(tablet_schema, tuple).ok());
+}
+
 class TestRowCursor : public testing::Test {
 public:
     TestRowCursor() { _arena.reset(new Arena()); }
@@ -288,7 +297,7 @@ TEST_F(TestRowCursor, encode_key) {
     // test encoding with padding
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 2));
+        init_row_cursor_with_nulls(row, tablet_schema, 2);
 
         row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(12345));
         row.mutable_field(1) = Field::create_field<TYPE_INT>(int32_t(54321));
@@ -348,7 +357,7 @@ TEST_F(TestRowCursor, encode_key_int_float_char) {
     // _encode_field for CHAR pads to col_length=8 with \0
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 3));
+        init_row_cursor_with_nulls(row, tablet_schema, 3);
 
         row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(12345));
         row.mutable_field(1) = Field::create_field<TYPE_FLOAT>(3.14f);
@@ -373,7 +382,7 @@ TEST_F(TestRowCursor, encode_key_int_float_char) {
     // Padding: only 2 keys initialized, 3rd padded as KEY_MINIMAL_MARKER(0x00)
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 2));
+        init_row_cursor_with_nulls(row, tablet_schema, 2);
 
         row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(12345));
         row.mutable_field(1) = Field::create_field<TYPE_FLOAT>(3.14f);
@@ -395,7 +404,7 @@ TEST_F(TestRowCursor, encode_key_int_float_char) {
     // Null: INT(12345) present, FLOAT null, CHAR('ab') present
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 3));
+        init_row_cursor_with_nulls(row, tablet_schema, 3);
 
         row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(12345));
         // field(1) stays null (default from init)
@@ -420,7 +429,7 @@ TEST_F(TestRowCursor, encode_key_int_date_varchar) {
     tablet_schema->_num_short_key_columns = 3;
 
     RowCursor row;
-    static_cast<void>(row.init(tablet_schema, 3));
+    init_row_cursor_with_nulls(row, tablet_schema, 3);
 
     row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(12345));
     // DATE(2020-01-01): raw uint24_t = 2020*512 + 1*32 + 1 = 1034273
@@ -454,7 +463,7 @@ TEST_F(TestRowCursor, encode_key_double_nan_decimal_string) {
     tablet_schema->_num_short_key_columns = 3;
 
     RowCursor row;
-    static_cast<void>(row.init(tablet_schema, 3));
+    init_row_cursor_with_nulls(row, tablet_schema, 3);
 
     row.mutable_field(0) =
             Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
@@ -491,7 +500,7 @@ TEST_F(TestRowCursor, encode_key_bigint_datev2_char) {
     tablet_schema->_num_short_key_columns = 3;
 
     RowCursor row;
-    static_cast<void>(row.init(tablet_schema, 3));
+    init_row_cursor_with_nulls(row, tablet_schema, 3);
 
     row.mutable_field(0) = Field::create_field<TYPE_BIGINT>(int64_t(9999999999LL));
     // DATEV2(2024-12-31): packed = (2024<<9)|(12<<5)|31 = 1036703
@@ -528,7 +537,7 @@ TEST_F(TestRowCursor, encode_key_float_inf_datetime_varchar) {
     tablet_schema->_num_short_key_columns = 3;
 
     RowCursor row;
-    static_cast<void>(row.init(tablet_schema, 3));
+    init_row_cursor_with_nulls(row, tablet_schema, 3);
 
     row.mutable_field(0) = Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::infinity());
     // DATETIME(2020-01-01 12:00:00) = 20200101120000 in olap datetime format
@@ -564,7 +573,7 @@ TEST_F(TestRowCursor, encode_key_with_padding_mow) {
     tablet_schema->_num_short_key_columns = 3;
 
     RowCursor row;
-    static_cast<void>(row.init(tablet_schema, 2));
+    init_row_cursor_with_nulls(row, tablet_schema, 2);
 
     row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(12345));
     row.mutable_field(1) = Field::create_field<TYPE_INT>(int32_t(54321));
@@ -595,7 +604,7 @@ TEST_F(TestRowCursor, encode_key_negative_values) {
     tablet_schema->_num_short_key_columns = 3;
 
     RowCursor row;
-    static_cast<void>(row.init(tablet_schema, 3));
+    init_row_cursor_with_nulls(row, tablet_schema, 3);
 
     row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(-12345));
     row.mutable_field(1) = Field::create_field<TYPE_DOUBLE>(-1.0);
@@ -623,7 +632,7 @@ TEST_F(TestRowCursor, encode_key_float_special_values) {
     // Test -infinity
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 2));
+        init_row_cursor_with_nulls(row, tablet_schema, 2);
         row.mutable_field(0) =
                 Field::create_field<TYPE_FLOAT>(-std::numeric_limits<float>::infinity());
         row.mutable_field(1) = Field::create_field<TYPE_INT>(int32_t(0));
@@ -636,7 +645,7 @@ TEST_F(TestRowCursor, encode_key_float_special_values) {
     // Test INT boundary values
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 2));
+        init_row_cursor_with_nulls(row, tablet_schema, 2);
         row.mutable_field(0) =
                 Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN());
         row.mutable_field(1) = Field::create_field<TYPE_INT>(std::numeric_limits<int32_t>::max());
@@ -655,7 +664,7 @@ TEST_F(TestRowCursor, encode_key_float_special_values) {
         schema2->_num_short_key_columns = 1;
 
         RowCursor row2;
-        static_cast<void>(row2.init(schema2, 1));
+        init_row_cursor_with_nulls(row2, schema2, 1);
         row2.mutable_field(0) = Field::create_field<TYPE_INT>(std::numeric_limits<int32_t>::min());
 
         std::string buf;
@@ -675,7 +684,7 @@ TEST_F(TestRowCursor, encode_key_all_null) {
     tablet_schema->_num_short_key_columns = 3;
 
     RowCursor row;
-    static_cast<void>(row.init(tablet_schema, 3));
+    init_row_cursor_with_nulls(row, tablet_schema, 3);
     // All fields stay null (default from init)
 
     {
@@ -696,7 +705,7 @@ TEST_F(TestRowCursor, encode_key_datetime_v1) {
 
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         row.mutable_field(0) =
                 Field::create_field_from_olap_value<TYPE_DATETIME>(uint64_t(20241231123045ULL));
 
@@ -717,7 +726,7 @@ TEST_F(TestRowCursor, encode_key_datetimev2) {
         tablet_schema->_num_short_key_columns = 1;
 
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         uint64_t packed = (uint64_t(2024) << 46) | (uint64_t(12) << 42) | (uint64_t(31) << 37) |
                           (uint64_t(12) << 32) | (uint64_t(30) << 26) | (uint64_t(45) << 20) |
                           uint64_t(0);
@@ -737,7 +746,7 @@ TEST_F(TestRowCursor, encode_key_datetimev2) {
         tablet_schema->_num_short_key_columns = 1;
 
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         uint64_t packed = (uint64_t(2024) << 46) | (uint64_t(12) << 42) | (uint64_t(31) << 37) |
                           (uint64_t(12) << 32) | (uint64_t(30) << 26) | (uint64_t(45) << 20) |
                           uint64_t(123000);
@@ -757,7 +766,7 @@ TEST_F(TestRowCursor, encode_key_datetimev2) {
         tablet_schema->_num_short_key_columns = 1;
 
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         uint64_t packed = (uint64_t(2024) << 46) | (uint64_t(12) << 42) | (uint64_t(31) << 37) |
                           (uint64_t(12) << 32) | (uint64_t(30) << 26) | (uint64_t(45) << 20) |
                           uint64_t(123456);
@@ -777,7 +786,7 @@ TEST_F(TestRowCursor, encode_key_datetimev2) {
         tablet_schema->_num_short_key_columns = 1;
 
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         // field(0) stays null
 
         std::string buf;
@@ -796,7 +805,7 @@ TEST_F(TestRowCursor, encode_key_timestamptz) {
 
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         // TimestampTzValue wraps DateV2Value<DateTimeV2ValueType> internally.
         // The uint64_t is the packed DateTimeV2 representation.
         row.mutable_field(0) =
@@ -819,7 +828,7 @@ TEST_F(TestRowCursor, encode_key_decimal32) {
     // Positive: 12345
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         row.mutable_field(0) = Field::create_field<TYPE_DECIMAL32>(Decimal32(int32_t(12345)));
 
         std::string buf;
@@ -830,7 +839,7 @@ TEST_F(TestRowCursor, encode_key_decimal32) {
     // Negative: -12345
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         row.mutable_field(0) = Field::create_field<TYPE_DECIMAL32>(Decimal32(int32_t(-12345)));
 
         std::string buf;
@@ -841,7 +850,7 @@ TEST_F(TestRowCursor, encode_key_decimal32) {
     // Zero
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         row.mutable_field(0) = Field::create_field<TYPE_DECIMAL32>(Decimal32(int32_t(0)));
 
         std::string buf;
@@ -861,7 +870,7 @@ TEST_F(TestRowCursor, encode_key_decimal64) {
     // Positive: 9999999999
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         row.mutable_field(0) =
                 Field::create_field<TYPE_DECIMAL64>(Decimal64(int64_t(9999999999LL)));
 
@@ -873,7 +882,7 @@ TEST_F(TestRowCursor, encode_key_decimal64) {
     // Negative: -123456789
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         row.mutable_field(0) =
                 Field::create_field<TYPE_DECIMAL64>(Decimal64(int64_t(-123456789LL)));
 
@@ -894,7 +903,7 @@ TEST_F(TestRowCursor, encode_key_decimal128i) {
     // Positive: 123456789012345678
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         int128_t val = static_cast<int128_t>(123456789012345678LL);
         row.mutable_field(0) = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(val));
 
@@ -907,7 +916,7 @@ TEST_F(TestRowCursor, encode_key_decimal128i) {
     // Negative: -123456789012345678
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         int128_t val = static_cast<int128_t>(-123456789012345678LL);
         row.mutable_field(0) = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(val));
 
@@ -929,7 +938,7 @@ TEST_F(TestRowCursor, encode_key_decimal256) {
     // Positive: 123456789012345678901234567890
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         wide::Int256 val({0xC373E0EE4E3F0AD2ULL, 0x000000018EE90FF6ULL, 0ULL, 0ULL});
         row.mutable_field(0) = Field::create_field<TYPE_DECIMAL256>(Decimal256(val));
 
@@ -942,7 +951,7 @@ TEST_F(TestRowCursor, encode_key_decimal256) {
     // Negative: -123456789012345678901234567890
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 1));
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
         wide::Int256 val({0x3C8C1F11B1C0F52EULL, 0xFFFFFFFE7116F009ULL, 0xFFFFFFFFFFFFFFFFULL,
                           0xFFFFFFFFFFFFFFFFULL});
         row.mutable_field(0) = Field::create_field<TYPE_DECIMAL256>(Decimal256(val));
@@ -965,7 +974,7 @@ TEST_F(TestRowCursor, encode_key_datetimev2_decimal128i_decimal32) {
     tablet_schema->_num_short_key_columns = 3;
 
     RowCursor row;
-    static_cast<void>(row.init(tablet_schema, 3));
+    init_row_cursor_with_nulls(row, tablet_schema, 3);
 
     // DATETIMEV2(3): 2024-12-31 12:30:45.123
     {

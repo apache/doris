@@ -29,6 +29,7 @@ import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SchemaChangeManager;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
@@ -54,6 +55,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils.SCHEMA_HEARTBEAT_EVENT_KEY_NAME;
 
@@ -61,9 +63,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import io.debezium.data.Envelope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
@@ -77,19 +82,22 @@ public class PipelineCoordinator {
     // taskId -> list of split offsets (accumulates all splits processed in one task)
     private final Map<String, List<Map<String, String>>> taskOffsetCache =
             new ConcurrentHashMap<>();
-    // taskId -> writeFailReason
-    private final Map<String, String> taskErrorMaps = new ConcurrentHashMap<>();
+    // taskId -> writeFailReason, bounded so old entries are evicted instead of accumulating
+    // unbounded
+    private final Cache<String, String> taskErrorMaps =
+            CacheBuilder.newBuilder().maximumSize(1000).build();
+    private final Map<String, AtomicLong> taskProgressMap = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
-    private static final int MAX_CONCURRENT_TASKS = 10;
     private static final int QUEUE_CAPACITY = 128;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private final byte[] LINE_DELIMITER = "\n".getBytes(StandardCharsets.UTF_8);
 
-    public PipelineCoordinator() {
+    public PipelineCoordinator(
+            @Value("${pipeline.max-concurrent-tasks:10}") int maxConcurrentTasks) {
         this.executor =
                 new ThreadPoolExecutor(
-                        MAX_CONCURRENT_TASKS,
-                        MAX_CONCURRENT_TASKS,
+                        maxConcurrentTasks,
+                        maxConcurrentTasks,
                         60L,
                         TimeUnit.SECONDS,
                         new LinkedBlockingQueue<>(QUEUE_CAPACITY),
@@ -120,7 +128,7 @@ public class PipelineCoordinator {
                 LOG.info("Generated meta for job {}: {}", fetchReq.getJobId(), meta);
             }
 
-            sourceReader = Env.getCurrentEnv().getReader(fetchReq);
+            sourceReader = Env.getCurrentEnv().getReader(fetchReq, !isLong(fetchReq.getJobId()));
             readResult = sourceReader.prepareAndSubmitSplit(fetchReq);
         } catch (Exception ex) {
             throw new CommonException(ex);
@@ -168,6 +176,7 @@ public class PipelineCoordinator {
                     long elapsedTime = System.currentTimeMillis() - startTime;
                     boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
                     if (shouldStop(
+                            sourceReader,
                             isSnapshotSplit,
                             hasReceivedData,
                             lastMessageIsHeartbeat,
@@ -277,7 +286,9 @@ public class PipelineCoordinator {
 
     /** pull data from api for test */
     public RecordWithMeta fetchRecords(FetchRecordRequest fetchRecordRequest) throws Exception {
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(fetchRecordRequest);
+        SourceReader sourceReader =
+                Env.getCurrentEnv()
+                        .getReader(fetchRecordRequest, !isLong(fetchRecordRequest.getJobId()));
         SplitReadResult readResult = sourceReader.prepareAndSubmitSplit(fetchRecordRequest);
         return buildRecordResponse(sourceReader, fetchRecordRequest, readResult);
     }
@@ -315,6 +326,7 @@ public class PipelineCoordinator {
                     boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
 
                     if (shouldStop(
+                            sourceReader,
                             isSnapshotSplit,
                             hasReceivedData,
                             lastMessageIsHeartbeat,
@@ -373,7 +385,8 @@ public class PipelineCoordinator {
                     System.currentTimeMillis() - startTime,
                     fetchRecord.getJobId());
         } finally {
-            cleanupReaderResources(sourceReader, fetchRecord.getJobId(), readResult);
+            // Debug fetch path is out of reuse scope: finish the reader each round.
+            cleanupReaderResources(sourceReader, fetchRecord.getJobId(), readResult, false);
         }
 
         // Extract and set offset metadata
@@ -400,9 +413,22 @@ public class PipelineCoordinator {
                                 writeRecordRequest.getJobId(),
                                 writeRecordRequest.getTaskId());
                     } catch (Exception ex) {
-                        closeJobStreamLoad(writeRecordRequest.getJobId());
+                        // a displaced task must not close the streamload the successor is using
+                        if (Env.getCurrentEnv()
+                                .isOwner(
+                                        writeRecordRequest.getJobId(),
+                                        writeRecordRequest.getTaskId())) {
+                            closeJobStreamLoad(writeRecordRequest.getJobId());
+                        }
                         String rootCauseMessage = ExceptionUtils.getRootCauseMessage(ex);
                         taskErrorMaps.put(writeRecordRequest.getTaskId(), rootCauseMessage);
+                        taskProgressMap.remove(writeRecordRequest.getTaskId());
+                        DorisBatchStreamLoad.reportTaskFailure(
+                                writeRecordRequest.getFrontendAddress(),
+                                writeRecordRequest.getToken(),
+                                writeRecordRequest.getJobId(),
+                                writeRecordRequest.getTaskId(),
+                                rootCauseMessage);
                         LOG.error(
                                 "Failed to process async write record, jobId={} taskId={}",
                                 writeRecordRequest.getJobId(),
@@ -440,13 +466,19 @@ public class PipelineCoordinator {
         Map<String, String> targetTableMappings =
                 ConfigUtil.parseAllTargetTableMappings(writeRecordRequest.getConfig());
 
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
+        // Get-or-create the reader and claim ownership atomically, so a concurrent stale
+        // releaseReader RPC cannot stop the reader this task is about to use.
+        SourceReader sourceReader =
+                Env.getCurrentEnv()
+                        .getReaderAndClaim(writeRecordRequest, writeRecordRequest.getTaskId());
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;
+        int ddlCount = 0;
         SplitReadResult readResult = null;
         boolean hasExecuteDDL = false;
         boolean isSnapshotSplit = false;
+        boolean stillOwner = false;
         try {
             // 1. submit split async
             readResult = sourceReader.prepareAndSubmitSplit(writeRecordRequest);
@@ -454,29 +486,56 @@ public class PipelineCoordinator {
 
             isSnapshotSplit = sourceReader.isSnapshotSplit(readResult.getSplit());
             long startTime = System.currentTimeMillis();
+            long streamingStartTime = -1;
             long maxIntervalMillis = writeRecordRequest.getMaxInterval() * 1000;
+            // Half the FE task timeout; exit setup phase before FE force-kills. 0 disables.
+            long searchTimeoutMs = writeRecordRequest.getTaskTimeoutMs() / 2;
             boolean shouldStop = false;
             boolean lastMessageIsHeartbeat = false;
 
             LOG.info(
-                    "Start polling records for jobId={} taskId={}, isSnapshotSplit={}",
+                    "Start polling records for jobId={} taskId={}, isSnapshotSplit={}, maxIntervalMillis={}",
                     writeRecordRequest.getJobId(),
                     writeRecordRequest.getTaskId(),
-                    isSnapshotSplit);
+                    isSnapshotSplit,
+                    maxIntervalMillis);
 
             // 2. poll record
             while (!shouldStop) {
+                // Active poll keeps the reader alive so the reaper won't reclaim it mid-task.
+                Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
                 Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
 
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
 
+                    // Stream-split setup stuck (WAL search / idle): bail out; snapshot has its own
+                    // completion logic.
+                    if (!isSnapshotSplit
+                            && streamingStartTime < 0
+                            && searchTimeoutMs > 0
+                            && System.currentTimeMillis() - startTime > searchTimeoutMs) {
+                        LOG.warn(
+                                "Streaming not started within {} ms for jobId={} taskId={}, "
+                                        + "stopping to commit offset",
+                                searchTimeoutMs,
+                                writeRecordRequest.getJobId(),
+                                writeRecordRequest.getTaskId());
+                        break;
+                    }
+
                     // Check if should stop
-                    long elapsedTime = System.currentTimeMillis() - startTime;
+                    long elapsedTime =
+                            streamingStartTime > 0
+                                    ? System.currentTimeMillis() - streamingStartTime
+                                    : 0;
                     boolean timeoutReached =
-                            maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis;
+                            streamingStartTime > 0
+                                    && maxIntervalMillis > 0
+                                    && elapsedTime >= maxIntervalMillis;
 
                     if (shouldStop(
+                            sourceReader,
                             isSnapshotSplit,
                             scannedRows > 0,
                             lastMessageIsHeartbeat,
@@ -488,7 +547,31 @@ public class PipelineCoordinator {
                     continue;
                 }
 
+                if (streamingStartTime < 0) {
+                    streamingStartTime = System.currentTimeMillis();
+                    LOG.info(
+                            "Streaming phase started after {} ms setup for jobId={} taskId={}",
+                            streamingStartTime - startTime,
+                            writeRecordRequest.getJobId(),
+                            writeRecordRequest.getTaskId());
+                }
+
                 while (recordIterator.hasNext()) {
+                    // streamload backpressure can stall this loop past the reaper timeout
+                    Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
+                    // A successor task took over: stop draining into the shared batchStreamLoad.
+                    if (!Env.getCurrentEnv()
+                            .isOwner(
+                                    writeRecordRequest.getJobId(),
+                                    writeRecordRequest.getTaskId())) {
+                        LOG.info(
+                                "Task {} displaced mid-write for job {} after {} rows, stop writing",
+                                writeRecordRequest.getTaskId(),
+                                writeRecordRequest.getJobId(),
+                                scannedRows);
+                        shouldStop = true;
+                        break;
+                    }
                     SourceRecord element = recordIterator.next();
 
                     // Check if this is a heartbeat message
@@ -501,17 +584,19 @@ public class PipelineCoordinator {
                         }
 
                         // If already timeout, stop immediately when heartbeat received
-                        long elapsedTime = System.currentTimeMillis() - startTime;
+                        long elapsedTime = System.currentTimeMillis() - streamingStartTime;
                         boolean timeoutReached =
-                                maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis;
+                                streamingStartTime > 0
+                                        && maxIntervalMillis > 0
+                                        && elapsedTime >= maxIntervalMillis;
 
-                        if (!isSnapshotSplit && timeoutReached) {
+                        if (!isSnapshotSplit && timeoutReached && !shouldStop) {
                             LOG.info(
-                                    "Binlog split max interval reached and heartbeat received, stopping data reading");
+                                    "Binlog split max interval reached; draining current batch before stopping");
                             shouldStop = true;
-                            break;
                         }
-                        // Skip heartbeat messages during normal processing
+                        // Drain the rest of this batch instead of breaking: records after the
+                        // heartbeat are already dequeued and the reused reader won't re-read them.
                         continue;
                     }
 
@@ -522,7 +607,11 @@ public class PipelineCoordinator {
                     if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
                         // Flush pending data before DDL
                         batchStreamLoad.forceFlush();
-                        SchemaChangeManager.executeDdls(feAddr, targetDb, token, result.getDdls());
+                        if (!CollectionUtils.isEmpty(result.getSchemaChanges())) {
+                            ddlCount += result.getSchemaChanges().size();
+                        }
+                        SchemaChangeManager.executeChanges(
+                                feAddr, targetDb, token, result.getSchemaChanges());
                         hasExecuteDDL = true;
                         sourceReader.applySchemaChange(result.getUpdatedSchemas());
                         lastMessageIsHeartbeat = false;
@@ -536,19 +625,42 @@ public class PipelineCoordinator {
                         }
                         // Mark last message as data (not heartbeat)
                         lastMessageIsHeartbeat = false;
+                        taskProgressMap
+                                .computeIfAbsent(
+                                        writeRecordRequest.getTaskId(), k -> new AtomicLong())
+                                .set(scannedRows);
                     }
                 }
             }
             LOG.info(
-                    "Fetched {} records and {} heartbeats in {} ms for jobId={} taskId={}",
+                    "Fetched {} records, {} DDLs and {} heartbeats in {} ms for jobId={} taskId={}",
                     scannedRows,
+                    ddlCount,
                     heartbeatCount,
                     System.currentTimeMillis() - startTime,
                     writeRecordRequest.getJobId(),
                     writeRecordRequest.getTaskId());
 
         } finally {
-            cleanupReaderResources(sourceReader, writeRecordRequest.getJobId(), readResult);
+            stillOwner =
+                    Env.getCurrentEnv()
+                            .isOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId());
+            // A displaced task must not touch the reader (finishSplitRecords would kill the
+            // successor's fetcher) nor commit anything.
+            if (stillOwner) {
+                cleanupReaderResources(
+                        sourceReader,
+                        writeRecordRequest.getJobId(),
+                        readResult,
+                        writeRecordRequest.isReuseReader());
+            }
+        }
+        if (!stillOwner) {
+            LOG.info(
+                    "Skip commit for job {} task {}: reader released or taken over",
+                    writeRecordRequest.getJobId(),
+                    writeRecordRequest.getTaskId());
+            return;
         }
 
         // 3. Extract offset from split state
@@ -557,7 +669,6 @@ public class PipelineCoordinator {
         batchStreamLoad.forceFlush();
 
         // 5. request fe api update offset
-        String currentTaskId = batchStreamLoad.getCurrentTaskId();
         // The offset must be reset before commitOffset to prevent the next taskId from being create
         // by the fe.
         batchStreamLoad.resetTaskId();
@@ -571,12 +682,14 @@ public class PipelineCoordinator {
         if (hasExecuteDDL || (!isSnapshotSplit && feHadNoSchema)) {
             tableSchemas = sourceReader.serializeTableSchemas();
         }
+        // own taskId, never the shared currentTaskId: FE rejects it if another task took over
         batchStreamLoad.commitOffset(
-                currentTaskId,
+                writeRecordRequest.getTaskId(),
                 metaResponse,
                 scannedRows,
                 batchStreamLoad.getLoadStatistic(),
                 tableSchemas);
+        taskProgressMap.remove(writeRecordRequest.getTaskId());
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {
@@ -597,6 +710,7 @@ public class PipelineCoordinator {
      * @return true if should stop, false if should continue
      */
     private boolean shouldStop(
+            SourceReader sourceReader,
             boolean isSnapshotSplit,
             boolean hasData,
             boolean lastMessageIsHeartbeat,
@@ -604,11 +718,13 @@ public class PipelineCoordinator {
             long maxIntervalMillis,
             boolean timeoutReached) {
 
-        // 1. Snapshot split with data: if no more data in queue, stop immediately (no need to wait
-        // for timeout)
-        // snapshot split will be written to the debezium queue all at once.
-        // multiple snapshot splits are handled in the source reader.
+        // Snapshot split: wait until every split has received its high-watermark event;
+        // an empty poll alone is not a finish signal under pollWithoutBuffer where the
+        // fetcher returns one ChangeEventQueue batch at a time.
         if (isSnapshotSplit) {
+            if (!sourceReader.isSnapshotFinished()) {
+                return false;
+            }
             LOG.info(
                     "Snapshot split finished, no more data available. Total elapsed: {} ms",
                     elapsedTime);
@@ -683,8 +799,20 @@ public class PipelineCoordinator {
     }
 
     public String getTaskFailReason(String taskId) {
-        String taskReason = taskErrorMaps.remove(taskId);
+        String taskReason = taskErrorMaps.getIfPresent(taskId);
+        taskErrorMaps.invalidate(taskId);
         return taskReason == null ? "" : taskReason;
+    }
+
+    public StreamingTaskStatus getTaskStatus(String taskId) {
+        // On failure, drop progress so FE won't renew the deadline on a failed task.
+        String reason = taskErrorMaps.getIfPresent(taskId);
+        taskErrorMaps.invalidate(taskId);
+        if (StringUtils.isNotEmpty(reason)) {
+            return new StreamingTaskStatus(-1, reason);
+        }
+        AtomicLong scannedRows = taskProgressMap.get(taskId);
+        return new StreamingTaskStatus(scannedRows == null ? -1 : scannedRows.get(), "");
     }
 
     /**
@@ -695,7 +823,14 @@ public class PipelineCoordinator {
      * @param readResult the read result containing split information
      */
     private void cleanupReaderResources(
-            SourceReader sourceReader, String jobId, SplitReadResult readResult) {
+            SourceReader sourceReader,
+            String jobId,
+            SplitReadResult readResult,
+            boolean reuseReader) {
+        boolean isSnapshotSplit =
+                readResult != null
+                        && readResult.getSplit() != null
+                        && sourceReader.isSnapshotSplit(readResult.getSplit());
         try {
             // The LSN in the commit is the current offset, which is the offset from the last
             // successful write.
@@ -704,11 +839,10 @@ public class PipelineCoordinator {
                 sourceReader.commitSourceOffset(jobId, readResult.getSplit());
             }
         } finally {
-            // This must be called after `commitSourceOffset`; otherwise,
-            // PG's confirmed lsn will not proceed.
-            // This operation must be performed before `batchStreamLoad.commitOffset`;
-            // otherwise, fe might create the next task for this job.
-            sourceReader.finishSplitRecords();
+            // Keep the binlog reader alive only when FE asked to reuse it; else close each round.
+            if (isSnapshotSplit || !reuseReader) {
+                sourceReader.finishSplitRecords();
+            }
         }
     }
 

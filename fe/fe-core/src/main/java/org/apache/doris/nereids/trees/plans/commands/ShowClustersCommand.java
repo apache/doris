@@ -22,7 +22,7 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cloud.catalog.ComputeGroup;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
@@ -96,9 +96,9 @@ public class ShowClustersCommand extends ShowCommand {
         CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
         clusterNames = cloudSys.getCloudClusterNames();
         // virtual cluster info
-        List<ComputeGroup> virtualComputeGroup = cloudSys.getComputeGroups(true);
+        List<CloudComputeGroupMeta> virtualComputeGroup = cloudSys.getComputeGroups(true);
         List<String> virtualComputeGroupNames = virtualComputeGroup.stream()
-                .map(ComputeGroup::getName).collect(Collectors.toList());
+                .map(CloudComputeGroupMeta::getName).collect(Collectors.toList());
 
         clusterNames.addAll(virtualComputeGroupNames);
 
@@ -112,7 +112,7 @@ public class ShowClustersCommand extends ShowCommand {
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 continue;
             }
-            ComputeGroup cg = cloudSys.getComputeGroupByName(clusterName);
+            CloudComputeGroupMeta cg = cloudSys.getComputeGroupByName(clusterName);
             if (cg == null) {
                 continue;
             }

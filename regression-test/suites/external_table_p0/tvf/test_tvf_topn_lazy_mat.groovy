@@ -151,8 +151,8 @@ suite("test_tvf_topn_lazy_mat", "p0,external") {
             contains("column_idxs_lists: [[1, 2, 3, 4]]")
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__hdfs]")
             contains("isTopMaterializeNode: true")
-            contains("SlotDescriptor{id=0, col=id, colUniqueId=-1, type=bigint, nullable=true")
-            contains("SlotDescriptor{id=1, col=__DORIS_GLOBAL_ROWID_COL__hdfs, colUniqueId=2147483647, type=text, nullable=false,")
+            contains("col=id, colUniqueId=-1, type=bigint, nullable=true")
+            contains("col=__DORIS_GLOBAL_ROWID_COL__hdfs, colUniqueId=2147483647, type=text, nullable=false,")
         }
 
 
@@ -168,8 +168,8 @@ suite("test_tvf_topn_lazy_mat", "p0,external") {
             contains("isTopMaterializeNode: true")
 
 
-            contains("SlotDescriptor{id=0, col=id, colUniqueId=-1, type=int, nullable=true")
-            contains("SlotDescriptor{id=1, col=__DORIS_GLOBAL_ROWID_COL__hdfs, colUniqueId=2147483647, type=text, nullable=false,")
+            contains("col=id, colUniqueId=-1, type=int, nullable=true")
+            contains("col=__DORIS_GLOBAL_ROWID_COL__hdfs, colUniqueId=2147483647, type=text, nullable=false,")
         }
 
 

@@ -44,7 +44,12 @@ public:
 private:
     ColumnVarbinary() = default;
     ColumnVarbinary(const size_t n) : _data(n) {}
-    ColumnVarbinary(const ColumnVarbinary& src) : _data(src._data.begin(), src._data.end()) {}
+    ColumnVarbinary(const ColumnVarbinary& src) {
+        _data.reserve(src._data.size());
+        for (const auto& value : src._data) {
+            insert_data(value.data(), value.size());
+        }
+    }
 
 public:
     std::string get_name() const override { return "ColumnVarbinary"; }

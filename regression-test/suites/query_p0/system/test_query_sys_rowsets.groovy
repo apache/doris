@@ -28,6 +28,11 @@ suite("test_query_sys_rowsets", "query,p0") {
     def rowsets_table_name = """ test_query_sys_rowsets.test_query_rowset """  
     sql """ drop table if exists ${rowsets_table_name}  """ 
 
+    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    // Use a lower bound before table creation to keep the timestamp filter stable
+    // across second-level boundary races.
+    def rowsetFilterStartTime = sdf.format(new Date(System.currentTimeMillis() - 60000L)).toString();
+
     sql """ 
         create table ${rowsets_table_name}( 
             a int , 
@@ -36,13 +41,9 @@ suite("test_query_sys_rowsets", "query,p0") {
         DISTRIBUTED BY HASH(`a`) BUCKETS 1 
         PROPERTIES (
             "replication_num" = "1",
-            "disable_auto_compaction" = "true",
-            "enable_single_replica_compaction"="true"
+            "disable_auto_compaction" = "true"
         );
     """
-
-    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
-    def now = sdf.format(new Date()).toString();
     
     List<List<Object>> rowsets_table_name_tablets   = sql """ show tablets from ${rowsets_table_name} """
     order_qt_rowsets1 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """ 
@@ -52,5 +53,5 @@ suite("test_query_sys_rowsets", "query,p0") {
     sql """ insert into  ${rowsets_table_name} values (3,0,"dssadasdsafafdf");  """ 
     order_qt_rowsets3 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """ 
     sql """ insert into  ${rowsets_table_name} values (4,0,"abcd");  """ 
-    order_qt_rowsets4 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]} and NEWEST_WRITE_TIMESTAMP>='${now}' group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """ 
+    order_qt_rowsets4 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]} and NEWEST_WRITE_TIMESTAMP>='${rowsetFilterStartTime}' group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """
 }

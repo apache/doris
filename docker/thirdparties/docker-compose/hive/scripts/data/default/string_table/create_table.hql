@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS default;
 USE default;
 
-CREATE TABLE `default.string_table`(
+drop table if exists `default.string_table`;
+
+create table `default.string_table`(
   `p_partkey` string, 
   `p_name` string, 
   `p_mfgr` string, 
@@ -23,5 +25,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/string_table'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669712243');
-
-msck repair table string_table;

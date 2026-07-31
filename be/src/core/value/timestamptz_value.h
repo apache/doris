@@ -96,6 +96,10 @@ public:
         return _utc_dt.datetime_diff_in_seconds(other._utc_dt);
     }
 
+    int64_t datetime_diff_in_microseconds(const TimestampTzValue& other) const {
+        return _utc_dt.datetime_diff_in_microseconds(other._utc_dt);
+    }
+
     template <TimeUnit unit>
     bool date_set_interval(const TimeInterval& interval) {
         return _utc_dt.date_set_interval<unit>(interval);
@@ -143,6 +147,8 @@ public:
         _utc_dt.unix_timestamp(timestamp, ctz);
     }
 
+    std::string debug_string() const { return _utc_dt.debug_string(); }
+
     // Convert UTC time to local time based on the given timezone
     void convert_utc_to_local(const cctz::time_zone& local_time_zone,
                               DateV2Value<DateTimeV2ValueType>& dt) const;
@@ -150,6 +156,11 @@ public:
     // Convert local time to UTC time based on the given timezone
     void convert_local_to_utc(const cctz::time_zone& local_time_zone,
                               const DateV2Value<DateTimeV2ValueType>& dt);
+
+    int utc_offset(const cctz::time_zone& local_time_zone) const;
+
+    void convert_local_to_utc(const cctz::time_zone& local_time_zone,
+                              const DateV2Value<DateTimeV2ValueType>& dt, int preferred_offset);
 
     TimestampTzValue& operator++() {
         ++_utc_dt;

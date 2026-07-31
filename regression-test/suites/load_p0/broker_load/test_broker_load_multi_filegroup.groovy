@@ -85,5 +85,60 @@ suite("test_broker_load_multi_filegroup", "p0") {
     order_qt_pr22666_1 """ select count(*) from ${tbl_22666} where p_brand is not null limit 10;"""
     order_qt_pr22666_2 """ select count(*) from ${tbl_22666} where p_name is not null limit 10;"""
 
-}
+    def tbl_multi_infile = "part_multi_infile"
+    sql """drop table if exists ${tbl_multi_infile} force"""
+    sql """
+        CREATE TABLE ${tbl_multi_infile} (
+            p_partkey     int NULL,
+            p_name        VARCHAR(55) NULL,
+            p_mfgr        VARCHAR(25) NULL
+        )ENGINE=OLAP
+        DUPLICATE KEY(`p_partkey`)
+        DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 3
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
 
+    def label_multi_infile = "part_multi_infile_" + UUID.randomUUID().toString().replace("-", "0")
+    sql """
+        LOAD LABEL ${label_multi_infile} (
+            DATA INFILE(
+                "s3://${s3BucketName}/regression/load/data/part0.parquet",
+                "s3://${s3BucketName}/regression/load/data/part1.parquet"
+            )
+            INTO TABLE ${tbl_multi_infile}
+            FORMAT AS "PARQUET"
+            (p_partkey, p_name, p_mfgr)
+        )
+        WITH S3 (
+            "AWS_ACCESS_KEY" = "${getS3AK()}",
+            "AWS_SECRET_KEY" = "${getS3SK()}",
+            "AWS_ENDPOINT" = "${s3Endpoint}",
+            "AWS_REGION" = "${s3Region}",
+            "provider" = "${getS3Provider()}"
+        );
+    """
+
+    max_try_milli_secs = 600000
+    while (max_try_milli_secs > 0) {
+        def String[][] result = sql """ show load where label="$label_multi_infile" order by createtime desc limit 1; """
+        logger.info("Load status: " + result[0])
+        if (result[0][2].equals("FINISHED")) {
+            logger.info("Load FINISHED " + label_multi_infile)
+            break;
+        }
+        if (result[0][2].equals("CANCELLED")) {
+            assertTrue(false, "load failed: $result")
+            break;
+        }
+        Thread.sleep(1000)
+        max_try_milli_secs -= 1000
+        if(max_try_milli_secs <= 0) {
+            assertTrue(1 == 2, "load Timeout: $label_multi_infile")
+        }
+    }
+
+    order_qt_multi_infile_count """ select count(*) from ${tbl_multi_infile};"""
+
+}

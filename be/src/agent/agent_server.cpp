@@ -207,7 +207,10 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
     _workers[TTaskType::PUSH] = std::make_unique<TaskWorkerPool>(
             "PUSH", config::delete_worker_count,
             [&engine](auto&& task) { cloud_push_callback(engine, task); });
-    // TODO(plat1ko): SUBMIT_TABLE_COMPACTION worker
+
+    _workers[TTaskType::COMPACTION] = std::make_unique<TaskWorkerPool>(
+            "SUBMIT_TABLE_COMPACTION", 1,
+            [&engine](auto&& task) { cloud_submit_table_compaction_callback(engine, task); });
 
     _workers[TTaskType::ALTER] = std::make_unique<TaskWorkerPool>(
             "ALTER_TABLE", config::alter_tablet_worker_count,

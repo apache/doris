@@ -17,41 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class DropExpiredStatsCommandTest {
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
+public class DropExpiredStatsCommandTest extends TestWithFeService {
     private ConnectContext connectContext;
 
     @Test
     public void testValidateNormal() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-            }
-        };
+        connectContext = createDefaultCtx();
 
         //test normal
         connectContext.getSessionVariable().enableStats = true;

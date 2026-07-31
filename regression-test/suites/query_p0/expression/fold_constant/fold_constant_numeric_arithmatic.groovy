@@ -354,6 +354,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT POWER(1E-308, 2)") // Very small base
     testFoldConst("SELECT POWER(2, -1E308)") // Very small negative exponent
     testFoldConst("SELECT POWER(-1.1, 3.2)") // NaN
+    testFoldConst("SELECT POWER(-1, cast('nan' as double))")
     testFoldConst("SELECT POWER(1, 1e1000)")
 
 //Ln function cases
@@ -369,6 +370,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LN(2)") // ln(2)
     testFoldConst("SELECT LN(0.1)") // Small decimal
     testFoldConst("SELECT LN(100)") // Larger number
+    testFoldConst("SELECT LN(cast('nan' as double))")
 
 //dlog1 function cases
     testFoldConst("SELECT dlog1(1)")
@@ -398,6 +400,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LOG(100, 1E308)") // Very large base
     testFoldConst("SELECT LOG(1E-308, 10)") // Very small number
     testFoldConst("SELECT LOG(100, 1E-308)") // Very small base
+    testFoldConst("SELECT LOG(2, cast('nan' as double))")
+    testFoldConst("SELECT LOG(cast('nan' as double), 2)")
 
 //Log10 function cases
     testFoldConst("SELECT LOG10(100) AS log10_case_1") //log10(100) = 2
@@ -414,6 +418,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LOG10(1E-308)") // Very small positive number
     testFoldConst("SELECT LOG10(0.1)") // Decimal less than 1
     testFoldConst("SELECT LOG10(0.01)") // Small decimal
+    testFoldConst("SELECT LOG10(cast('nan' as double))")
+    testFoldConst("SELECT DLOG10(cast('nan' as double))")
 
 //Log2 function cases
     testFoldConst("SELECT LOG2(2) AS log2_case_1") //log2(2) = 1
@@ -428,6 +434,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LOG2(0.5)") // Fraction
     testFoldConst("SELECT LOG2(32)") // Power of 2
     testFoldConst("SELECT LOG2(1024)") // Larger power of 2
+    testFoldConst("SELECT LOG2(cast('nan' as double))")
 
 //Money_format function cases
     testFoldConst("SELECT money_format(1234.56), money_format(-1234.56), money_format(0.99), money_format(1234.5678)")

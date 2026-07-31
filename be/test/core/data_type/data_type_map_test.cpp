@@ -439,7 +439,7 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
                 std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {f4}));
         DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
 
-        Tuple t1, t2, t3, t4;
+        Struct t1, t2, t3, t4;
         t1.push_back(Field::create_field<TYPE_STRING>("clever"));
         t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));

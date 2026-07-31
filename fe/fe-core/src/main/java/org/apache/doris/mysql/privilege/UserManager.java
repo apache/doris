@@ -110,6 +110,16 @@ public class UserManager implements Writable {
         checkPasswordInternal(remoteUser, remoteHost, null, null, remotePasswd, currentUser, true);
     }
 
+    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        checkPasswordInternalForUser(userIdentity, remotePasswd, randomString, null, currentUser, false);
+    }
+
+    public void checkPlainPasswordForUserIdentity(UserIdentity userIdentity, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        checkPasswordInternalForUser(userIdentity, null, null, remotePasswd, currentUser, true);
+    }
+
     private void checkPasswordInternal(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
             String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
         PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
@@ -153,6 +163,27 @@ public class UserManager implements Writable {
             }
         }
         throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                hasRemotePasswd(plain, remotePasswd));
+    }
+
+    private void checkPasswordInternalForUser(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
+        PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
+        User user = getUserByUserIdentity(userIdentity);
+        if (user == null) {
+            throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, userIdentity.toString(),
+                    hasRemotePasswd(plain, remotePasswd));
+        }
+        UserIdentity currentIdentity = user.getDomainUserIdentity();
+        if (comparePassword(user.getPassword(), remotePasswd, randomString, remotePasswdStr, plain)) {
+            passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(currentIdentity);
+            if (currentUser != null) {
+                currentUser.add(currentIdentity);
+            }
+            return;
+        }
+        passwdPolicyMgr.onFailedLogin(currentIdentity);
+        throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, userIdentity.toString(),
                 hasRemotePasswd(plain, remotePasswd));
     }
 

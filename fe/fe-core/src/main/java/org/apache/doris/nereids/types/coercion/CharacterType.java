@@ -43,6 +43,11 @@ public abstract class CharacterType extends PrimitiveType {
     }
 
     @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        return target instanceof CharacterType;
+    }
+
+    @Override
     public Type toCatalogDataType() {
         throw new RuntimeException("CharacterType is only used for implicit cast.");
     }

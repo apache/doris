@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -31,7 +33,6 @@
 
 #include "common/status.h" // for Status
 #include "core/column/column_variant.h"
-#include "storage/field.h" // for StorageField
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_writer.h"
@@ -39,8 +40,10 @@
 #include "storage/segment/options.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/segment/variant/variant_statistics.h"
-#include "util/bitmap.h" // for BitmapChange
-#include "util/slice.h"  // for OwnedSlice
+#include "storage/tablet/tablet_schema.h" // for TabletColumnPtr
+#include "storage/types.h"                // for field_type_size
+#include "util/bitmap.h"                  // for BitmapChange
+#include "util/slice.h"                   // for OwnedSlice
 
 namespace doris {
 
@@ -84,7 +87,12 @@ struct ColumnWriterOptions {
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     const TabletIndex* ann_index = nullptr;
 
-    EncodingPreference encoding_preference {};
+    // Storage format of the owning tablet (V2 or V3). Set once by the segment writer
+    // (from TabletMeta::storage_format()) and propagated down to aux child writers
+    // (null / array-length / map-length), struct subcolumn writers and variant subcolumn
+    // writers. All encoding-default decisions consult this via resolve_default_encoding().
+    // Also forwarded to BinaryDictPageBuilder via PageBuilderOptions::binary_plain_encoding.
+    TabletStorageFormatPB storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
 
     std::string to_string() const {
         std::stringstream ss;
@@ -127,8 +135,7 @@ public:
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer);
 
-    explicit ColumnWriter(std::unique_ptr<StorageField> field, bool is_nullable,
-                          ColumnMetaPB* meta);
+    explicit ColumnWriter(TabletColumnPtr column, bool is_nullable, ColumnMetaPB* meta);
 
     virtual ~ColumnWriter() = default;
 
@@ -194,7 +201,11 @@ public:
 
     bool is_nullable() const { return _is_nullable; }
 
-    StorageField* get_field() const { return _field.get(); }
+    const TabletColumn* get_column() const { return _column.get(); }
+
+    // Per-row in-memory cell footprint of this writer's column, used to step
+    // the input pointer across rows in append_*/null-run loops.
+    size_t cell_size() const { return field_type_size(_column->type()); }
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
 
@@ -202,7 +213,7 @@ protected:
     DataTypePtr _data_type;
 
 private:
-    std::unique_ptr<StorageField> _field;
+    TabletColumnPtr _column;
     bool _is_nullable;
     ColumnMetaPB* _column_meta;
     std::vector<uint8_t> _null_bitmap;
@@ -220,7 +231,7 @@ public:
 // to file
 class ScalarColumnWriter : public ColumnWriter {
 public:
-    ScalarColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
+    ScalarColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                        io::FileWriter* file_writer);
 
     ~ScalarColumnWriter() override;
@@ -341,7 +352,7 @@ private:
 //  in footer.next_array_item_ordinal which in finish_cur_page() callback put_extra_info_in_page()
 class OffsetColumnWriter final : public ScalarColumnWriter, FlushPageCallback {
 public:
-    OffsetColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
+    OffsetColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                        io::FileWriter* file_writer);
 
     ~OffsetColumnWriter() override;
@@ -358,8 +369,7 @@ private:
 
 class StructColumnWriter final : public ColumnWriter {
 public:
-    explicit StructColumnWriter(const ColumnWriterOptions& opts,
-                                std::unique_ptr<StorageField> field,
+    explicit StructColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                 ScalarColumnWriter* null_writer,
                                 std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers);
     ~StructColumnWriter() override = default;
@@ -426,7 +436,7 @@ private:
 
 class ArrayColumnWriter final : public ColumnWriter {
 public:
-    explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
+    explicit ArrayColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                OffsetColumnWriter* offset_writer, ScalarColumnWriter* null_writer,
                                std::unique_ptr<ColumnWriter> item_writer);
     ~ArrayColumnWriter() override = default;
@@ -500,7 +510,7 @@ private:
 
 class MapColumnWriter final : public ColumnWriter {
 public:
-    explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
+    explicit MapColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                              ScalarColumnWriter* null_writer, OffsetColumnWriter* offsets_writer,
                              std::vector<std::unique_ptr<ColumnWriter>>& _kv_writers);
 
@@ -574,8 +584,7 @@ private:
 // used for compaction to write sub variant column
 class VariantSubcolumnWriter : public ColumnWriter {
 public:
-    explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                    std::unique_ptr<StorageField> field);
+    explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
     ~VariantSubcolumnWriter() override = default;
 
@@ -626,7 +635,6 @@ private:
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
     ColumnVariant::MutablePtr _column;
-    const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
     TabletIndexes _indexes;
@@ -637,8 +645,7 @@ private:
 
 class VariantColumnWriter : public ColumnWriter {
 public:
-    explicit VariantColumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                 std::unique_ptr<StorageField> field);
+    explicit VariantColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
     ~VariantColumnWriter() override = default;
 

@@ -334,7 +334,7 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
                                            slot_desc->col_name()));
     }
     Status st;
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
 
     if (with_data) {
         int8_t c1 = 123;
@@ -344,7 +344,7 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
         columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
         int32_t c3 = 1;
-        columns[2]->insert_data((const char*)&c3, sizeof(c2));
+        columns[2]->insert_data((const char*)&c3, sizeof(c3));
 
         VecDateTimeValue c4;
         {
@@ -354,9 +354,10 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
                     {"2020-07-16 19:39:43", 19}, c4, nullptr, p);
         }
         int64_t c4_int = c4.to_int64();
-        columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
+        columns[3]->insert_data((const char*)&c4_int, sizeof(c4_int));
 
-        st = delta_writer->write(&block, {0});
+        block.set_columns(std::move(columns));
+        st = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_EQ(Status::OK(), st);
     }
 

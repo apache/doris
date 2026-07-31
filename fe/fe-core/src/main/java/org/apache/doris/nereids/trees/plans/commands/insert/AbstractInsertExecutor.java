@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -46,6 +47,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -72,6 +74,7 @@ public abstract class AbstractInsertExecutor {
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
     protected long txnId = INVALID_TXN_ID;
+    protected List<TableStreamUpdateInfo> streamUpdateInfos;
 
     /**
      * Insert executor listener
@@ -97,11 +100,27 @@ public abstract class AbstractInsertExecutor {
      */
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
+        this(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId, false);
+    }
+
+    /**
+     * constructor
+     */
+    public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId, boolean needRegister) {
+        this(ctx, table.getDatabase(), table, labelName, planner, insertCtx, emptyInsert, jobId, needRegister);
+    }
+
+    /**
+     * Dictionary loads must retain the owner resolved before a concurrent database drop.
+     */
+    public AbstractInsertExecutor(ConnectContext ctx, DatabaseIf<?> database, TableIf table, String labelName,
+            NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId,
+            boolean needRegister) {
         this.ctx = ctx;
-        this.database = table.getDatabase();
+        this.database = Objects.requireNonNull(database, "database should not be null");
         this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId);
-        // Do not add load job if job id is -1.
-        if (jobId != -1) {
+        if (needRegister) {
             ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
         }
         this.coordinator = EnvFactory.getInstance().createCoordinator(
@@ -194,8 +213,8 @@ public abstract class AbstractInsertExecutor {
             coordinator.cancel(new Status(TStatusCode.CANCELLED, "insert timeout"));
             if (notTimeout) {
                 errMsg = coordinator.getExecStatus().getErrorMsg();
-                ErrorReport.reportDdlException("there exists unhealthy backend. "
-                        + errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+                ErrorReport.reportDdlException("%s", ErrorCode.ERR_FAILED_WHEN_INSERT,
+                        "there exists unhealthy backend. " + errMsg);
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
             }
@@ -203,7 +222,7 @@ public abstract class AbstractInsertExecutor {
         if (!coordinator.getExecStatus().ok()) {
             errMsg = coordinator.getExecStatus().getErrorMsg();
             LOG.warn("insert [{}] with query id {} failed, {}", labelName, queryId, errMsg);
-            ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+            ErrorReport.reportDdlException("%s", ErrorCode.ERR_FAILED_WHEN_INSERT, errMsg);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("insert [{}] with query id {} delta files is {}",
@@ -214,6 +233,9 @@ public abstract class AbstractInsertExecutor {
         }
         if (coordinator.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
             filteredRows = Integer.parseInt(coordinator.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+        }
+        if (insertLoadJob != null) {
+            insertLoadJob.getLoadStatistic().setFilteredRows(filteredRows);
         }
     }
 
@@ -266,5 +288,13 @@ public abstract class AbstractInsertExecutor {
 
     public boolean isEmptyInsert() {
         return emptyInsert;
+    }
+
+    public void setStreamUpdateInfos(List<TableStreamUpdateInfo> streamUpdateInfos) {
+        this.streamUpdateInfos = streamUpdateInfos;
+    }
+
+    public List<TableStreamUpdateInfo> getStreamUpdateInfos() {
+        return streamUpdateInfos;
     }
 }

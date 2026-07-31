@@ -43,7 +43,7 @@ public class TableRefInfo {
     protected JoinOperator joinOp;
     protected String tableAlias;
     protected boolean isMark;
-    protected TableNameInfo tableNameInfo;
+    protected org.apache.doris.catalog.info.TableNameInfo tableNameInfo;
     private final TableScanParams scanParams;
     private final TableSnapshot tableSnapShot;
     private final PartitionNamesInfo partitionNamesInfo;
@@ -54,14 +54,14 @@ public class TableRefInfo {
     /**
      * constructor
      */
-    public TableRefInfo(TableNameInfo tableNameInfo, String tableAlias) {
+    public TableRefInfo(org.apache.doris.catalog.info.TableNameInfo tableNameInfo, String tableAlias) {
         this(tableNameInfo, null, null, null,  new ArrayList<>(), tableAlias, null, new ArrayList<>());
     }
 
     /**
      * TableRefInfo
      */
-    public TableRefInfo(TableNameInfo tableNameInfo, TableScanParams scanParams,
+    public TableRefInfo(org.apache.doris.catalog.info.TableNameInfo tableNameInfo, TableScanParams scanParams,
                         TableSnapshot tableSnapShot, PartitionNamesInfo partitionNamesInfo,
                         List<Long> sampleTabletIds, String tableAlias,
                         TableSample tableSample, List<String> commonHints) {
@@ -88,7 +88,7 @@ public class TableRefInfo {
         sampleTabletIds = other.sampleTabletIds;
     }
 
-    public TableNameInfo getTableNameInfo() {
+    public org.apache.doris.catalog.info.TableNameInfo getTableNameInfo() {
         return tableNameInfo;
     }
 

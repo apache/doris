@@ -1701,6 +1701,25 @@ TEST_F(FunctionCastToFloatTest, test_from_decimal) {
 
     from_decimal_test_func<DecimalV2Value, TYPE_DOUBLE>();
 }
+
+TEST_F(FunctionCastToFloatTest, test_decimalv2_keeps_scale_when_cast_to_float_and_double) {
+    InputTypeSet input_types = {{TYPE_DECIMALV2, 2, 27}};
+
+    DataSet float_data_set = {
+            {{DECIMALV2VALUEFROMDOUBLE(1.23)}, Float32(1.23)},
+            {{DECIMALV2VALUEFROMDOUBLE(-1.23)}, Float32(-1.23)},
+    };
+    check_function_for_cast<DataTypeFloat32, true>(input_types, float_data_set, -1, -1);
+    check_function_for_cast<DataTypeFloat32, false>(input_types, float_data_set, -1, -1);
+
+    DataSet double_data_set = {
+            {{DECIMALV2VALUEFROMDOUBLE(1.23)}, Float64(1.23)},
+            {{DECIMALV2VALUEFROMDOUBLE(-1.23)}, Float64(-1.23)},
+    };
+    check_function_for_cast<DataTypeFloat64, true>(input_types, double_data_set, -1, -1);
+    check_function_for_cast<DataTypeFloat64, false>(input_types, double_data_set, -1, -1);
+}
+
 TEST_F(FunctionCastToFloatTest, test_from_decimal_overflow) {
     from_decimal_overflow_test_func();
 }

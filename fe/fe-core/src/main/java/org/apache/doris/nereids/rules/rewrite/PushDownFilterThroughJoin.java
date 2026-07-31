@@ -120,7 +120,7 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
             Set<Expression> rightPredicates = Sets.newLinkedHashSet();
             Set<Expression> remainingPredicates = Sets.newLinkedHashSet();
             for (Expression p : filterPredicates) {
-                if (p.containsUniqueFunction()) {
+                if (p.containsVolatileExpression()) {
                     remainingPredicates.add(p);
                     continue;
                 }
@@ -162,7 +162,7 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
         if (!(predicate instanceof EqualTo)) {
             return false;
         }
-        if (predicate.containsUniqueFunction()) {
+        if (predicate.containsVolatileExpression()) {
             return false;
         }
 

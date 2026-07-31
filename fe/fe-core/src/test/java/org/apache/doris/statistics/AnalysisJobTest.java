@@ -17,15 +17,12 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,31 +34,28 @@ public class AnalysisJobTest {
 
     // make user task has been set corresponding job
     @Test
-    public void initTest(@Mocked AnalysisInfo jobInfo, @Mocked OlapAnalysisTask task) {
+    public void initTest() {
+        AnalysisInfo jobInfo = Mockito.mock(AnalysisInfo.class);
+        OlapAnalysisTask task = Mockito.mock(OlapAnalysisTask.class);
         AnalysisJob analysisJob = new AnalysisJob(jobInfo, Arrays.asList(task));
         Assertions.assertSame(task.job, analysisJob);
     }
 
     @Test
-    public void testAppendBufTest1(@Mocked AnalysisInfo analysisInfo,
-            @Mocked OlapAnalysisTask olapAnalysisTask,
-            @Mocked OlapAnalysisTask olapAnalysisTask2) {
-        AtomicInteger writeBufInvokeTimes = new AtomicInteger();
-        new MockUp<AnalysisJob>() {
-            @Mock
-            protected void writeBuf() {
-                writeBufInvokeTimes.incrementAndGet();
-            }
+    public void testAppendBufTest1() {
+        AnalysisInfo analysisInfo = Mockito.mock(AnalysisInfo.class);
+        OlapAnalysisTask olapAnalysisTask = Mockito.mock(OlapAnalysisTask.class);
+        OlapAnalysisTask olapAnalysisTask2 = Mockito.mock(OlapAnalysisTask.class);
+        AtomicInteger flushBufferInvokeTimes = new AtomicInteger();
 
-            @Mock
-            public void updateTaskState(AnalysisState state, String msg) {
-            }
+        AnalysisJob job = Mockito.spy(new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask)));
+        Mockito.doAnswer(inv -> {
+            flushBufferInvokeTimes.incrementAndGet();
+            return null;
+        }).when(job).flushBuffer();
+        Mockito.doNothing().when(job).updateTaskState(ArgumentMatchers.any(), ArgumentMatchers.anyString());
+        Mockito.doNothing().when(job).deregisterJob();
 
-            @Mock
-            public void deregisterJob() {
-            }
-        };
-        AnalysisJob job = new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask));
         job.queryingTask = new HashSet<>();
         job.queryingTask.add(olapAnalysisTask);
         job.queryingTask.add(olapAnalysisTask2);
@@ -70,30 +64,27 @@ public class AnalysisJobTest {
 
         // not all task finished nor cached limit exceed, shouldn't  write
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
-        Assertions.assertEquals(0, writeBufInvokeTimes.get());
+        Assertions.assertEquals(0, flushBufferInvokeTimes.get());
     }
 
     @Test
-    public void testAppendBufTest2(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
+    public void testAppendBufTest2() {
+        AnalysisInfo analysisInfo = Mockito.mock(AnalysisInfo.class);
+        OlapAnalysisTask olapAnalysisTask = Mockito.mock(OlapAnalysisTask.class);
         AtomicInteger writeBufInvokeTimes = new AtomicInteger();
         AtomicInteger deregisterTimes = new AtomicInteger();
 
-        new MockUp<AnalysisJob>() {
-            @Mock
-            protected void flushBuffer() {
-                writeBufInvokeTimes.incrementAndGet();
-            }
+        AnalysisJob job = Mockito.spy(new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask)));
+        Mockito.doAnswer(inv -> {
+            writeBufInvokeTimes.incrementAndGet();
+            return null;
+        }).when(job).flushBuffer();
+        Mockito.doNothing().when(job).updateTaskState(ArgumentMatchers.any(), ArgumentMatchers.anyString());
+        Mockito.doAnswer(inv -> {
+            deregisterTimes.getAndIncrement();
+            return null;
+        }).when(job).deregisterJob();
 
-            @Mock
-            public void updateTaskState(AnalysisState state, String msg) {
-            }
-
-            @Mock
-            public void deregisterJob() {
-                deregisterTimes.getAndIncrement();
-            }
-        };
-        AnalysisJob job = new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask));
         job.queryingTask = new HashSet<>();
         job.queryingTask.add(olapAnalysisTask);
         job.queryFinished = new HashSet<>();
@@ -106,24 +97,19 @@ public class AnalysisJobTest {
     }
 
     @Test
-    public void testAppendBufTest3(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
+    public void testAppendBufTest3() {
+        AnalysisInfo analysisInfo = Mockito.mock(AnalysisInfo.class);
+        OlapAnalysisTask olapAnalysisTask = Mockito.mock(OlapAnalysisTask.class);
         AtomicInteger writeBufInvokeTimes = new AtomicInteger();
 
-        new MockUp<AnalysisJob>() {
-            @Mock
-            protected void flushBuffer() {
-                writeBufInvokeTimes.incrementAndGet();
-            }
+        AnalysisJob job = Mockito.spy(new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask)));
+        Mockito.doAnswer(inv -> {
+            writeBufInvokeTimes.incrementAndGet();
+            return null;
+        }).when(job).flushBuffer();
+        Mockito.doNothing().when(job).updateTaskState(ArgumentMatchers.any(), ArgumentMatchers.anyString());
+        Mockito.doNothing().when(job).deregisterJob();
 
-            @Mock
-            public void updateTaskState(AnalysisState state, String msg) {
-            }
-
-            @Mock
-            public void deregisterJob() {
-            }
-        };
-        AnalysisJob job = new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask));
         job.queryingTask = new HashSet<>();
         job.queryingTask.add(olapAnalysisTask);
         job.queryFinished = new HashSet<>();
@@ -139,25 +125,21 @@ public class AnalysisJobTest {
     }
 
     @Test
-    public void testUpdateTaskState(
-            @Mocked AnalysisInfo info,
-            @Mocked OlapAnalysisTask task1,
-            @Mocked OlapAnalysisTask task2) {
+    public void testUpdateTaskState() {
+        AnalysisInfo info = Mockito.mock(AnalysisInfo.class);
+        OlapAnalysisTask task1 = Mockito.mock(OlapAnalysisTask.class);
+        OlapAnalysisTask task2 = Mockito.mock(OlapAnalysisTask.class);
         AtomicInteger updateTaskStatusInvokeTimes = new AtomicInteger();
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void updateTaskStatus(AnalysisInfo info, AnalysisState taskState, String message, long time) {
-                updateTaskStatusInvokeTimes.getAndIncrement();
-            }
-        };
-        AnalysisManager analysisManager = new AnalysisManager();
-        new MockUp<Env>() {
-            @Mock
-            public AnalysisManager getAnalysisManager() {
-                return analysisManager;
-            }
-        };
+
+        AnalysisManager analysisManager = Mockito.mock(AnalysisManager.class);
+        Mockito.doAnswer(inv -> {
+            updateTaskStatusInvokeTimes.getAndIncrement();
+            return null;
+        })
+                .when(analysisManager).updateTaskStatus(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyString(), ArgumentMatchers.anyLong());
+
         AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
+        job.analysisManager = analysisManager;
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
         job.updateTaskState(AnalysisState.FAILED, "");
@@ -165,48 +147,32 @@ public class AnalysisJobTest {
     }
 
     @Test
-    public void testWriteBuf1(@Mocked AnalysisInfo info,
-            @Mocked OlapAnalysisTask task1, @Mocked OlapAnalysisTask task2) {
-        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
+    public void testWriteBuf1() throws Exception {
+        AnalysisInfo info = Mockito.mock(AnalysisInfo.class);
+        OlapAnalysisTask task1 = Mockito.mock(OlapAnalysisTask.class);
+        OlapAnalysisTask task2 = Mockito.mock(OlapAnalysisTask.class);
+
+        AnalysisJob job = Mockito.spy(new AnalysisJob(info, Collections.singletonList(task1)));
+        Mockito.doNothing().when(job).updateTaskState(ArgumentMatchers.any(), ArgumentMatchers.anyString());
+        Mockito.doNothing().when(job).executeWithExceptionOnFail(ArgumentMatchers.any());
+
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
-        new MockUp<AnalysisJob>() {
-            @Mock
-            public void updateTaskState(AnalysisState state, String msg) {
-            }
-
-            @Mock
-            protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
-
-            }
-
-            @Mock
-            protected void syncLoadStats() {
-            }
-        };
         job.flushBuffer();
 
         Assertions.assertEquals(0, job.queryFinished.size());
     }
 
     @Test
-    public void testWriteBuf2(@Mocked AnalysisInfo info,
-            @Mocked OlapAnalysisTask task1, @Mocked OlapAnalysisTask task2) {
-        new MockUp<AnalysisJob>() {
-            @Mock
-            public void updateTaskState(AnalysisState state, String msg) {
-            }
+    public void testWriteBuf2() throws Exception {
+        AnalysisInfo info = Mockito.mock(AnalysisInfo.class);
+        OlapAnalysisTask task1 = Mockito.mock(OlapAnalysisTask.class);
+        OlapAnalysisTask task2 = Mockito.mock(OlapAnalysisTask.class);
 
-            @Mock
-            protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
-                // DO NOTHING
-            }
+        AnalysisJob job = Mockito.spy(new AnalysisJob(info, Collections.singletonList(task1)));
+        Mockito.doNothing().when(job).updateTaskState(ArgumentMatchers.any(), ArgumentMatchers.anyString());
+        Mockito.doNothing().when(job).executeWithExceptionOnFail(ArgumentMatchers.any());
 
-            @Mock
-            protected void syncLoadStats() {
-            }
-        };
-        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
         job.buf.add(new ColStatsData());
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
@@ -215,25 +181,17 @@ public class AnalysisJobTest {
     }
 
     @Test
-    public void testSetSqlHash(@Mocked AnalysisInfo info,
-            @Mocked OlapAnalysisTask task1, @Mocked OlapAnalysisTask task2) {
-        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
+    public void testSetSqlHash() throws Exception {
+        AnalysisInfo info = Mockito.mock(AnalysisInfo.class);
+        OlapAnalysisTask task1 = Mockito.mock(OlapAnalysisTask.class);
+        OlapAnalysisTask task2 = Mockito.mock(OlapAnalysisTask.class);
+
+        AnalysisJob job = Mockito.spy(new AnalysisJob(info, Collections.singletonList(task1)));
+        Mockito.doNothing().when(job).updateTaskState(ArgumentMatchers.any(), ArgumentMatchers.anyString());
+        Mockito.doNothing().when(job).executeWithExceptionOnFail(ArgumentMatchers.any());
+
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
-        new MockUp<AnalysisJob>() {
-            @Mock
-            public void updateTaskState(AnalysisState state, String msg) {
-            }
-
-            @Mock
-            protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
-
-            }
-
-            @Mock
-            protected void syncLoadStats() {
-            }
-        };
         job.buf.add(new ColStatsData());
         job.flushBuffer();
         Assertions.assertEquals(0, job.queryFinished.size());

@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_multi_stale_rowset") {
-    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="1200") """
+    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="1200", "disable_auto_compaction"="true") """
     List<String> ipList = new ArrayList<>();
     List<String> hbPortList = new ArrayList<>()
     List<String> httpPortList = new ArrayList<>()

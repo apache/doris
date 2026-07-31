@@ -17,7 +17,7 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -123,7 +123,7 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
 
     private Range<ColumnBound> getMinInfinityRange(Column column) throws AnalysisException {
         ColumnBound value = ColumnBound.of(
-                LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), false));
+                LiteralExprUtils.createInfinity(Type.fromPrimitiveType(column.getDataType()), false));
         return Range.closed(value, value);
     }
 
@@ -221,7 +221,7 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
     private void pushInfinity(PartitionKey key, int columnIdx,
                               boolean isMax) throws AnalysisException {
         Column column = partitionColumns.get(columnIdx);
-        key.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), isMax),
+        key.pushColumn(LiteralExprUtils.createInfinity(Type.fromPrimitiveType(column.getDataType()), isMax),
                 column.getDataType());
     }
 
