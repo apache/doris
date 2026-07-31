@@ -94,6 +94,7 @@
 #include "storage/utils.h"
 #include "udf/python/python_server.h"
 #include "util/brpc_client_cache.h"
+#include "util/cpu_usage_info.h"
 #include "util/debug_points.h"
 #include "util/jni-util.h"
 #include "util/mem_info.h"
@@ -522,6 +523,8 @@ bvar::Adder<uint64_t> report_tablet_total("report", "tablet_total");
 bvar::Adder<uint64_t> report_tablet_failed("report", "tablet_failed");
 bvar::Adder<uint64_t> report_index_policy_total("report", "index_policy_total");
 bvar::Adder<uint64_t> report_index_policy_failed("report", "index_policy_failed");
+bvar::Adder<uint64_t> report_resource_usage_total("report", "resource_usage_total");
+bvar::Adder<uint64_t> report_resource_usage_failed("report", "resource_usage_failed");
 
 } // namespace
 
@@ -2617,6 +2620,21 @@ void report_index_policy_callback(const ClusterInfo* cluster_info) {
     report_index_policy_total << 1;
     if (!succ) [[unlikely]] {
         report_index_policy_failed << 1;
+    }
+}
+
+void report_resource_usage_callback(const ClusterInfo* cluster_info) {
+    TReportRequest request;
+    request.__set_backend(BackendOptions::get_local_backend());
+    static CpuUsageRecorder recorder;
+    request.__set_cpu_used_permille(recorder.cpu_used_permille());
+    request.__set_mem_used_bytes(GlobalMemoryArbitrator::process_memory_usage());
+    request.__set_mem_limit_bytes(MemInfo::mem_limit());
+    recorder.update_interval();
+    bool succ = handle_report(request, cluster_info, "resource_usage");
+    report_resource_usage_total << 1;
+    if (!succ) [[unlikely]] {
+        report_resource_usage_failed << 1;
     }
 }
 

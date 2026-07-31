@@ -70,6 +70,8 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("Status", ScalarType.createStringType()),
             new Column("HeartbeatFailureCounter", ScalarType.createType(PrimitiveType.INT)),
             new Column("CpuCores", ScalarType.createType(PrimitiveType.INT)),
+            new Column("CpuUsedPct", ScalarType.createType(PrimitiveType.DOUBLE)),
+            new Column("MemUsedPct", ScalarType.createType(PrimitiveType.DOUBLE)),
             new Column("Memory", ScalarType.createStringType()),
             new Column("LiveSince", ScalarType.createStringType()),
             new Column("RunningTasks", ScalarType.createType(PrimitiveType.BIGINT)),
