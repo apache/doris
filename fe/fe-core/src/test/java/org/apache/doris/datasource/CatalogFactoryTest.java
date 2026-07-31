@@ -18,38 +18,20 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.connector.ConnectorFactory;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
 import org.junit.Assert;
 import org.junit.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-
-import java.util.HashMap;
-import java.util.Map;
 
 public class CatalogFactoryTest {
 
     @Test
-    public void testCloseConnectorWhenCreateValidationFails() throws Exception {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(CatalogMgr.CATALOG_TYPE_PROP, "jdbc");
-        Connector connector = Mockito.mock(Connector.class);
-        Mockito.doThrow(new DdlException("validation failed"))
-                .when(connector).preCreateValidation(Mockito.any());
-        CreateCatalogCommand command = new CreateCatalogCommand(
-                "jdbc_catalog", false, "", "", properties);
+    public void testCloseCatalogWhenCreateValidationFails() throws Exception {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.doThrow(new DdlException("validation failed")).when(catalog).checkWhenCreating();
 
-        try (MockedStatic<ConnectorFactory> factory = Mockito.mockStatic(ConnectorFactory.class)) {
-            factory.when(() -> ConnectorFactory.createConnector(
-                    Mockito.eq("jdbc"), Mockito.anyMap(), Mockito.any()))
-                    .thenReturn(connector);
+        Assert.assertThrows(DdlException.class, () -> CatalogFactory.finishCatalogCreation(catalog, false));
 
-            Assert.assertThrows(DdlException.class, () -> CatalogFactory.createFromCommand(1, command));
-
-            Mockito.verify(connector).close();
-        }
+        Mockito.verify(catalog).onClose();
     }
 }
