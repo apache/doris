@@ -43,26 +43,59 @@ class FileWriter;
 using FileWriterPtr = std::unique_ptr<doris::io::FileWriter>;
 
 namespace doris::segment_v2 {
+// Deleter that routes through CLucene's `_CLDELETE` macro so unique_ptr
+// frees IndexInput subclasses using the same instrumentation as the rest
+// of the CLucene code (debug allocator hooks, per-object stats, etc.).
+struct CLIndexInputDeleter {
+    void operator()(lucene::store::IndexInput* p) const noexcept {
+        if (p != nullptr) {
+            _CLDELETE(p);
+        }
+    }
+};
+using IndexInputPtr = std::unique_ptr<lucene::store::IndexInput, CLIndexInputDeleter>;
+
+static bool resolve_index_data_flag(const std::string& file_name, bool* is_index_data) {
+    for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
+        if (file_name.find(entry.first) != std::string::npos) {
+            *is_index_data = true;
+            return true;
+        }
+    }
+    for (const auto& entry : InvertedIndexDescriptor::normal_file_info_map) {
+        if (file_name.find(entry.first) != std::string::npos) {
+            *is_index_data = false;
+            return true;
+        }
+    }
+    return false;
+}
+
 /** Implementation of an IndexInput that reads from a portion of the
  *  compound file.
  */
 class CSIndexInput : public lucene::store::BufferedIndexInput {
 private:
-    CL_NS(store)::IndexInput* base;
+    // Per-instance clone of the underlying stream. Each CSIndexInput owns
+    // its own `base` so seek + readBytes do not race against other
+    // CSIndexInputs opened from the same DorisCompoundReader.
+    IndexInputPtr base;
     std::string file_name;
     int64_t fileOffset;
     int64_t _length;
     const io::IOContext* _io_ctx = nullptr;
+    bool _has_index_data_flag = false;
+    bool _is_index_data = false;
 
 protected:
     void readInternal(uint8_t* /*b*/, const int32_t /*len*/) override;
     void seekInternal(const int64_t /*pos*/) override {}
 
 public:
-    CSIndexInput(CL_NS(store)::IndexInput* base, const std::string& file_name,
-                 const int64_t fileOffset, const int64_t length,
+    CSIndexInput(IndexInputPtr base, const std::string& file_name, const int64_t fileOffset,
+                 const int64_t length,
                  const int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE);
-    CSIndexInput(const CSIndexInput& clone);
+    CSIndexInput(const CSIndexInput& other);
     ~CSIndexInput() override;
     void close() override;
     lucene::store::IndexInput* clone() const override;
@@ -73,19 +106,22 @@ public:
     void setIoContext(const void* io_ctx) override;
 };
 
-CSIndexInput::CSIndexInput(CL_NS(store)::IndexInput* base, const std::string& file_name,
+CSIndexInput::CSIndexInput(IndexInputPtr base, const std::string& file_name,
                            const int64_t fileOffset, const int64_t length,
                            const int32_t read_buffer_size)
-        : BufferedIndexInput(read_buffer_size) {
-    this->base = base;
-    this->file_name = file_name;
-    this->fileOffset = fileOffset;
-    this->_length = length;
+        : BufferedIndexInput(read_buffer_size),
+          base(std::move(base)),
+          file_name(file_name),
+          fileOffset(fileOffset),
+          _length(length) {
+    _has_index_data_flag = resolve_index_data_flag(this->file_name, &_is_index_data);
 }
 
 void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
-    std::lock_guard wlock(((DorisFSDirectory::FSIndexInput*)base)->_this_lock);
-
+    // Thread-safety: each CSIndexInput owns a private `base` clone (P0-3/P0-4),
+    // so seek + readBytes do not race across threads, and no outer lock is needed.
+    // The FSIndexInput::_this_lock that previously guarded this sequence has
+    // been removed.
     auto start = getFilePointer();
     if (start + len > _length) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
@@ -93,6 +129,9 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
 
     if (_io_ctx) {
         base->setIoContext(_io_ctx);
+    }
+    if (_has_index_data_flag) {
+        base->setIndexFile(_is_index_data);
     }
 
     DBUG_EXECUTE_IF("CSIndexInput.readInternal", {
@@ -131,12 +170,16 @@ lucene::store::IndexInput* CSIndexInput::clone() const {
     return _CLNEW CSIndexInput(*this);
 }
 
-CSIndexInput::CSIndexInput(const CSIndexInput& clone) : BufferedIndexInput(clone) {
-    this->base = clone.base;
-    this->file_name = clone.file_name;
-    this->fileOffset = clone.fileOffset;
-    this->_length = clone._length;
-}
+CSIndexInput::CSIndexInput(const CSIndexInput& other)
+        : BufferedIndexInput(other),
+          base(other.base ? IndexInputPtr(other.base->clone())
+                          : throw CLuceneError(CL_ERR_NullPointer,
+                                               "[CSIndexInput] base is null in clone", false)),
+          file_name(other.file_name),
+          fileOffset(other.fileOffset),
+          _length(other._length),
+          _has_index_data_flag(other._has_index_data_flag),
+          _is_index_data(other._is_index_data) {}
 
 void CSIndexInput::close() {}
 
@@ -354,7 +397,12 @@ bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*
         bufferSize = _read_buffer_size;
     }
 
-    ret = _CLNEW CSIndexInput(_stream, entry->file_name, entry->offset, entry->length, bufferSize);
+    // Each CSIndexInput gets its own clone of `_stream` so sub-file reads do
+    // not serialize on a shared base (see design doc §3-A contract). clone()
+    // is cheap: FSIndexInput clones share the same `SharedHandle` / `_reader`.
+    IndexInputPtr cloned_stream(_stream->clone());
+    ret = _CLNEW CSIndexInput(std::move(cloned_stream), entry->file_name, entry->offset,
+                              entry->length, bufferSize);
     return true;
 }
 

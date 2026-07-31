@@ -161,14 +161,29 @@ public:
     const char* getObjectName() const override;
 };
 
+// Thread-safety contract (see AIR-12 design doc §3-A):
+//   - FSIndexInput instances are NOT thread-safe. Use clone() to produce
+//     per-thread copies.
+//   - Concurrent read() + clone() on the SAME instance is undefined.
+//   - Different clones sharing the same SharedHandle are safe WHEN the
+//     underlying `io::FileReader::read_at` is stateless (pread-like).
+//     The USE_HADOOP_HDFS build path (libhadoop / `hdfsPread`), as well as
+//     LocalFileReader / S3FileReader / BrokerFileReader, satisfies this.
+//     The `!USE_HADOOP_HDFS` path falls back to libhdfs3 whose
+//     `hdfsSeek() + hdfsRead()` shares the handle cursor; in that build
+//     the read path still needs a per-handle lock, which is kept below.
 class DorisFSDirectory::FSIndexInput : public lucene::store::BufferedIndexInput {
     class SharedHandle : LUCENE_REFBASE {
     public:
         io::FileReaderSPtr _reader;
         uint64_t _length;
-        int64_t _fpos;
+#ifndef USE_HADOOP_HDFS
+        // Only retained in builds whose FileReader::read_at is NOT
+        // concurrent-safe on a single handle (currently: libhdfs3 HDFS).
+        // USE_HADOOP_HDFS builds leave this out; that branch uses hdfsPread
+        // and the read path is lock-free.
         std::mutex _shared_lock;
-        //std::mutex* _shared_lock = nullptr;
+#endif
         char path[4096];
         SharedHandle(const char* path);
         ~SharedHandle() override;
@@ -204,8 +219,6 @@ public:
     void setIoContext(const void* io_ctx) override;
     const void* getIoContext() override;
     void setIndexFile(bool isIndexFile) override;
-
-    std::mutex _this_lock;
 
 protected:
     // Random-access methods
