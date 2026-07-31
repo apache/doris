@@ -27,11 +27,12 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * One unit of ADBC work: the connection parameters plus the statement to run.
+ * One unit of ADBC work: the connection parameters plus either the statement to run or the one partition
+ * to read.
  *
- * <p>Exactly one of these is planned per scan for now. Splitting a query across backends needs the driver's
- * partition descriptors, which BE has no reader for yet, so producing several here would plan work nothing
- * can execute.
+ * <p>A scan plans one range carrying a statement when the driver has no partitioned execution, and
+ * otherwise one range per partition the driver reported -- which is how a single remote query ends up read
+ * by several backends at once.
  *
  * <p><b>The parameter names below are a contract with BE.</b> Its reader looks them up literally
  * ({@code be/src/format_v2/table/adbc_reader.cpp}, the {@code kParam*} constants), so a rename on either
@@ -59,6 +60,7 @@ public class AdbcScanRange implements ConnectorScanRange {
     static final String PARAM_USERNAME = "username";
     static final String PARAM_PASSWORD = "password";
     static final String PARAM_QUERY_SQL = "query_sql";
+    static final String PARAM_PARTITION_DESCRIPTOR = "partition_descriptor";
 
     private final Map<String, String> properties;
 
@@ -147,13 +149,37 @@ public class AdbcScanRange implements ConnectorScanRange {
             return this;
         }
 
+        /**
+         * One partition of an already-executed remote query, base64 of the driver's opaque descriptor.
+         *
+         * <p>Base64 because the descriptor is arbitrary bytes (a serialized protobuf, for a Flight SQL
+         * driver) and the range parameters are a string map. It is opaque on this side on purpose: only the
+         * driver that produced it can read it, which is why FE and BE must load the same driver library.
+         */
+        public Builder partitionDescriptor(String base64Descriptor) {
+            props.put(PARAM_PARTITION_DESCRIPTOR, base64Descriptor);
+            return this;
+        }
+
         /** Driver options, names unchanged -- the {@code adbc.} prefix is part of the option name. */
         public Builder driverOptions(Map<String, String> options) {
             props.putAll(options);
             return this;
         }
 
+        /**
+         * @throws IllegalStateException if the range would carry both kinds of work or neither. BE fails
+         *         the same way on the same condition; catching it here names the planning bug instead of
+         *         letting one backend report it halfway through a query.
+         */
         public AdbcScanRange build() {
+            boolean hasStatement = props.containsKey(PARAM_QUERY_SQL);
+            boolean hasPartition = props.containsKey(PARAM_PARTITION_DESCRIPTOR);
+            if (hasStatement == hasPartition) {
+                throw new IllegalStateException("An ADBC scan range runs either a statement or one"
+                        + " partition of an already-executed query, but this one carries "
+                        + (hasStatement ? "both" : "neither"));
+            }
             return new AdbcScanRange(props);
         }
 

@@ -93,6 +93,36 @@ class AdbcScanRangeTest {
     }
 
     @Test
+    void carriesAPartitionDescriptorInsteadOfAStatement() {
+        Map<String, String> params = adbcParams(new AdbcScanRange.Builder()
+                .driverPath("/opt/doris/plugins/adbc_drivers/libadbc_driver_flightsql.so")
+                .uri("grpc://remote:9090")
+                .partitionDescriptor("Zm9vYmFy")
+                .build());
+
+        Assertions.assertEquals("Zm9vYmFy", params.get("partition_descriptor"));
+        // No statement travels with a partition: the source already ran it, and a BE that found both
+        // would have to guess which one the plan meant.
+        Assertions.assertFalse(params.containsKey("query_sql"));
+    }
+
+    @Test
+    void refusesToCarryBothKindsOfWorkOrNeither() {
+        // The two are alternatives, and BE rejects a range that says both or neither. Failing while
+        // planning names the bug; failing on BE reports it as one backend's problem, mid-query.
+        IllegalStateException both = Assertions.assertThrows(IllegalStateException.class,
+                () -> minimal().partitionDescriptor("Zm9vYmFy").build());
+        Assertions.assertTrue(both.getMessage().contains("both"), both.getMessage());
+
+        IllegalStateException neither = Assertions.assertThrows(IllegalStateException.class,
+                () -> new AdbcScanRange.Builder()
+                        .driverPath("/opt/doris/plugins/adbc_drivers/libadbc_driver_sqlite.so")
+                        .uri("file:/tmp/x.db")
+                        .build());
+        Assertions.assertTrue(neither.getMessage().contains("neither"), neither.getMessage());
+    }
+
+    @Test
     void sendsTheUserPropertyUnderAdbcsNameForIt() {
         // The catalog property is 'user'; the ADBC option is 'username'. Sending the property name would
         // leave the source unauthenticated with no complaint from either side.

@@ -27,10 +27,17 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 
+import org.apache.arrow.adbc.core.AdbcException;
+import org.apache.arrow.adbc.core.AdbcStatement;
+import org.apache.arrow.adbc.core.AdbcStatusCode;
+import org.apache.arrow.adbc.core.PartitionDescriptor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.ByteBuffer;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -39,12 +46,13 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * Turns a scan into the single remote statement that serves it.
+ * Turns a scan into the remote work that serves it: either the driver's partitions, one per backend, or
+ * the single statement one backend runs.
  *
- * <p>One range, one statement. The design's distributed read splits a query into the driver's own partition
- * descriptors and hands one to each backend, but BE has no reader for those yet, so planning several ranges
- * would produce work nothing can run. The shape here is the one the JDBC connector has always had, and the
- * partitioned path replaces this method's body without changing anything around it.
+ * <p>The partitioned path is what makes an ADBC catalog read faster than one connection can. It costs a
+ * remote round trip at planning time, and on a Flight SQL source that round trip <b>is</b> the query's
+ * execution -- the descriptors it returns identify result sets the source is already producing. That is why
+ * nothing else in this class may take it: see {@link #getScanNodeProperties}.
  */
 public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
 
@@ -57,13 +65,16 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
     private final Path driverPath;
     private final AdbcDialectSelector dialectSelector;
     private final Supplier<AdbcClient> clientSupplier;
+    private final AdbcPartitionedReadSupport partitionedRead;
 
     public AdbcScanPlanProvider(Map<String, String> properties, Path driverPath,
-            AdbcDialectSelector dialectSelector, Supplier<AdbcClient> clientSupplier) {
+            AdbcDialectSelector dialectSelector, Supplier<AdbcClient> clientSupplier,
+            AdbcPartitionedReadSupport partitionedRead) {
         this.properties = properties;
         this.driverPath = driverPath;
         this.dialectSelector = dialectSelector;
         this.clientSupplier = clientSupplier;
+        this.partitionedRead = partitionedRead;
     }
 
     @Override
@@ -73,7 +84,88 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
                 request.getFilter(), request.getLimit());
         LOG.debug("ADBC scan of {}.{}: {}", handle.getDorisDbName(), handle.getRemoteTable(),
                 query.getSql());
-        return Collections.singletonList(newRange(query.getSql()));
+        if (AdbcConnectorProperties.partitionedReadEnabled(properties)
+                && !partitionedRead.isKnownUnsupported()) {
+            List<ConnectorScanRange> partitioned = planPartitions(query.getSql());
+            if (partitioned != null) {
+                return partitioned;
+            }
+        }
+        return Collections.singletonList(rangeBuilder().querySql(query.getSql()).build());
+    }
+
+    /**
+     * Asks the driver to split this statement, and returns one range per partition -- or null when the
+     * driver has no partitioned execution and the caller should plan the statement itself.
+     *
+     * <p>Only {@code NOT_IMPLEMENTED} means "this driver cannot do it". Any other status means the driver
+     * tried and the query or the source is at fault, and swallowing that into a single-range plan would
+     * hide a real failure behind a slower query -- and would run the statement remotely a second time.
+     */
+    private List<ConnectorScanRange> planPartitions(String sql) {
+        List<PartitionDescriptor> descriptors = clientSupplier.get().withConnection(connection -> {
+            try (AdbcStatement statement = connection.createStatement()) {
+                statement.setSqlQuery(sql);
+                try {
+                    return statement.executePartitioned().getPartitionDescriptors();
+                } catch (AdbcException e) {
+                    if (e.getStatus() != AdbcStatusCode.NOT_IMPLEMENTED) {
+                        throw AdbcClient.translate(e,
+                                "Failed to plan a partitioned ADBC scan of [" + sql + "]");
+                    }
+                    return null;
+                }
+            }
+        });
+        if (descriptors == null) {
+            if (partitionedRead.markUnsupported()) {
+                LOG.info("The ADBC driver does not implement partitioned execution, so scans of this"
+                        + " catalog run as one range on one backend. Set '{}'='false' to stop asking.",
+                        AdbcConnectorProperties.ENABLE_PARTITIONED_READ);
+            }
+            return null;
+        }
+        if (descriptors.isEmpty()) {
+            // Not read as "no rows": the partition count reflects the source's parallelism, not its
+            // cardinality -- an empty table still yields a partition that returns nothing. Planning zero
+            // ranges for a driver that answered with nothing would report an empty result for a query that
+            // has one, which is the one failure a user cannot see.
+            throw new DorisConnectorException("The ADBC driver reported no partitions for ["
+                    + sql + "]. Doris cannot tell that apart from a lost result set, so the query fails"
+                    + " rather than returning no rows. Set '"
+                    + AdbcConnectorProperties.ENABLE_PARTITIONED_READ
+                    + "'='false' on this catalog to read it through a single statement instead.");
+        }
+        int limit = AdbcConnectorProperties.maxPartitions(properties);
+        if (descriptors.size() > limit) {
+            // Deliberately not a fallback to the single-range path: the source has already executed the
+            // statement to produce these descriptors, so re-planning it as a statement would execute it a
+            // second time while this result set sits unread until the source times it out.
+            throw new DorisConnectorException("The ADBC driver split [" + sql + "] into "
+                    + descriptors.size() + " partitions, over the '"
+                    + AdbcConnectorProperties.MAX_PARTITIONS + "' limit of " + limit
+                    + ". Raise that property, narrow the query, or set '"
+                    + AdbcConnectorProperties.ENABLE_PARTITIONED_READ + "'='false' on this catalog.");
+        }
+        List<ConnectorScanRange> ranges = new ArrayList<>(descriptors.size());
+        for (PartitionDescriptor descriptor : descriptors) {
+            ranges.add(rangeBuilder().partitionDescriptor(encode(descriptor)).build());
+        }
+        LOG.debug("ADBC scan planned into {} partitions: {}", ranges.size(), sql);
+        return ranges;
+    }
+
+    /**
+     * No {@code getHosts()} goes with these ranges: the descriptor is opaque bytes FE does not decode, so
+     * it has no location to prefer and Doris assigns them by its own policy. Decoding a Flight endpoint's
+     * location to schedule for affinity is a later optimization, not a correctness matter.
+     */
+    private static String encode(PartitionDescriptor descriptor) {
+        ByteBuffer buffer = descriptor.getDescriptor();
+        byte[] bytes = new byte[buffer.remaining()];
+        // duplicate() so reading the bytes does not consume the descriptor's own buffer.
+        buffer.duplicate().get(bytes);
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     /**
@@ -83,6 +175,10 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
      * <p>It regenerates the statement rather than reusing one, because {@code EXPLAIN} never calls
      * {@link #planScan}. The two must agree or {@code EXPLAIN} describes a query that will not be run; a
      * test pins that they do.
+     *
+     * <p><b>This path must never ask for partitions.</b> On a Flight SQL source that call executes the
+     * query, so an {@code EXPLAIN} would run the very query the user asked only to have described. A test
+     * pins it by planning with a client that refuses to be opened.
      */
     @Override
     public Map<String, String> getScanNodeProperties(ConnectorSession session,
@@ -102,16 +198,15 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
                 filter, limit);
     }
 
-    private AdbcScanRange newRange(String sql) {
+    /** Everything a range needs except the work itself; the caller adds a statement or a partition. */
+    private AdbcScanRange.Builder rangeBuilder() {
         return new AdbcScanRange.Builder()
                 .driverPath(driverPath.toString())
                 .driverEntrypoint(properties.get(AdbcConnectorProperties.DRIVER_ENTRYPOINT))
                 .uri(AdbcConnectorProperties.require(properties, AdbcConnectorProperties.URI))
                 .username(properties.get(AdbcConnectorProperties.USER))
                 .password(properties.get(AdbcConnectorProperties.PASSWORD))
-                .querySql(sql)
-                .driverOptions(AdbcConnectorProperties.driverOptions(properties))
-                .build();
+                .driverOptions(AdbcConnectorProperties.driverOptions(properties));
     }
 
     private static AdbcTableHandle adbcHandle(ConnectorTableHandle handle) {

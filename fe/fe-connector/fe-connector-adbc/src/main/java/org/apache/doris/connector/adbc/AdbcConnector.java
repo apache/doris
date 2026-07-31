@@ -44,6 +44,7 @@ public class AdbcConnector implements Connector {
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private final AdbcSchemaStrategy schemaStrategy = new AdbcSchemaStrategy();
+    private final AdbcPartitionedReadSupport partitionedRead = new AdbcPartitionedReadSupport();
     private final AdbcDialectSelector dialectSelector;
 
     private volatile AdbcClient client;
@@ -75,13 +76,13 @@ public class AdbcConnector implements Connector {
     }
 
     /**
-     * Scan planning, built per call because it holds no state -- the two things worth keeping across
-     * queries (the driver's dialect, the connection) live on the connector.
+     * Scan planning, built per call because it holds no state -- everything worth keeping across queries
+     * (the driver's dialect, the connection, whether the driver partitions) lives on the connector.
      */
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
         return new AdbcScanPlanProvider(properties, resolveDriverPath(), dialectSelector,
-                this::getOrCreateClient);
+                this::getOrCreateClient, partitionedRead);
     }
 
     /**

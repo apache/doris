@@ -57,6 +57,62 @@ class AdbcConnectorPropertiesTest {
     }
 
     @Test
+    void partitionedReadIsOnUnlessTheCatalogSaysOtherwise() {
+        Assertions.assertTrue(AdbcConnectorProperties.partitionedReadEnabled(minimalProperties()));
+
+        Map<String, String> off = minimalProperties();
+        off.put(AdbcConnectorProperties.ENABLE_PARTITIONED_READ, "FALSE");
+        Assertions.assertFalse(AdbcConnectorProperties.partitionedReadEnabled(off));
+    }
+
+    @Test
+    void anUnreadableSwitchValueFailsInsteadOfMeaningFalse() {
+        // Boolean.parseBoolean answers false to everything that is not "true", so a typo would silently
+        // turn partitioned reads off and show up only as queries getting slower.
+        Map<String, String> props = minimalProperties();
+        props.put(AdbcConnectorProperties.ENABLE_PARTITIONED_READ, "ture");
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AdbcConnectorProperties.partitionedReadEnabled(props));
+        Assertions.assertTrue(e.getMessage().contains(AdbcConnectorProperties.ENABLE_PARTITIONED_READ),
+                e.getMessage());
+    }
+
+    @Test
+    void thePartitionLimitDefaultsAndRejectsValuesThatCannotBeOne() {
+        Assertions.assertEquals(1024, AdbcConnectorProperties.maxPartitions(minimalProperties()));
+
+        Map<String, String> raised = minimalProperties();
+        raised.put(AdbcConnectorProperties.MAX_PARTITIONS, " 4096 ");
+        Assertions.assertEquals(4096, AdbcConnectorProperties.maxPartitions(raised));
+
+        for (String bad : new String[] {"0", "-1", "many"}) {
+            Map<String, String> props = minimalProperties();
+            props.put(AdbcConnectorProperties.MAX_PARTITIONS, bad);
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> AdbcConnectorProperties.maxPartitions(props), bad);
+            Assertions.assertTrue(e.getMessage().contains(AdbcConnectorProperties.MAX_PARTITIONS),
+                    e.getMessage());
+        }
+    }
+
+    @Test
+    void providerRejectsAnUnreadablePartitionSettingAtCreateTime() {
+        // These decide how every scan is planned, so a typo has to fail at CREATE CATALOG rather than
+        // changing the plan shape silently from the first query onwards.
+        AdbcConnectorProvider provider = new AdbcConnectorProvider();
+        for (String[] bad : new String[][] {
+                {AdbcConnectorProperties.ENABLE_PARTITIONED_READ, "yes"},
+                {AdbcConnectorProperties.MAX_PARTITIONS, "0"}}) {
+            Map<String, String> props = minimalProperties();
+            props.put(bad[0], bad[1]);
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> provider.validateProperties(props));
+            Assertions.assertTrue(e.getMessage().contains(bad[0]), e.getMessage());
+        }
+    }
+
+    @Test
     void providerRejectsAMissingDriverUrlOrUri() {
         AdbcConnectorProvider provider = new AdbcConnectorProvider();
         Assertions.assertDoesNotThrow(() -> provider.validateProperties(minimalProperties()));
