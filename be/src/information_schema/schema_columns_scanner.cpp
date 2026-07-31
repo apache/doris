@@ -210,7 +210,7 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
         return "datetime";
     case TPrimitiveType::DECIMALV2: {
         return fmt::format(
-                "decimal({}, {})",
+                "decimal({},{})",
                 desc.__isset.columnPrecision ? std::to_string(desc.columnPrecision) : "27",
                 desc.__isset.columnScale ? std::to_string(desc.columnScale) : "9");
     }
@@ -218,12 +218,10 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::DECIMAL64:
     case TPrimitiveType::DECIMAL128I:
     case TPrimitiveType::DECIMAL256: {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(
-                debug_string_buffer, "decimalv3({}, {})",
+        return fmt::format(
+                "decimal({},{})",
                 desc.__isset.columnPrecision ? std::to_string(desc.columnPrecision) : "UNKNOWN",
                 desc.__isset.columnScale ? std::to_string(desc.columnScale) : "UNKNOWN");
-        return fmt::to_string(debug_string_buffer);
     }
     case TPrimitiveType::DATEV2:
         return "date";

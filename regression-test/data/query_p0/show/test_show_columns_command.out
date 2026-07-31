@@ -5,7 +5,9 @@ name	text	YES	NO	\N	NONE
 score	float	YES	NO	\N	NONE
 event_date	date	YES	NO	\N	NONE
 event_time	datetime	YES	NO	\N	NONE
+event_time_v2	datetime(3)	YES	NO	\N	NONE
 decimal_col	decimal(10,2)	YES	NO	\N	NONE
+decimal_v3_col	decimal(12,3)	YES	NO	\N	NONE
 
 -- !cmd --
 id	int		YES	YES	\N			
@@ -13,11 +15,33 @@ name	text		YES	NO	\N	NONE
 score	float		YES	NO	\N	NONE		
 event_date	date		YES	NO	\N	NONE		
 event_time	datetime		YES	NO	\N	NONE		
+event_time_v2	datetime(3)		YES	NO	\N	NONE		
 decimal_col	decimal(10,2)		YES	NO	\N	NONE		
+decimal_v3_col	decimal(12,3)		YES	NO	\N	NONE		
 
 -- !cmd --
 score	float	YES	NO	\N	NONE
 
 -- !cmd --
 id	int	YES	DUP	\N	
+
+-- !cmd --
+decimal_col	decimal(10,2)	YES		\N	
+decimal_v3_col	decimal(12,3)	YES		\N	
+
+-- !cmd --
+event_time_v2	datetime(3)	YES		\N	
+
+-- !cmd --
+decimal_col	decimal(10,2)	YES		\N	
+
+-- !cmd --
+id	int	YES	DUP	\N	
+name	text	YES		\N	
+score	float	YES		\N	
+event_date	date	YES		\N	
+event_time	datetime	YES		\N	
+event_time_v2	datetime(3)	YES		\N	
+decimal_col	decimal(10,2)	YES		\N	
+decimal_v3_col	decimal(12,3)	YES		\N	
 

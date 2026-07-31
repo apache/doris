@@ -47,8 +47,10 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Represents the SHOW COLUMNS command.
@@ -56,7 +58,7 @@ import java.util.Locale;
 public class ShowColumnsCommand extends ShowCommand {
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Field", ScalarType.createVarchar(20)))
-            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Type", ScalarType.createStringType()))
             .addColumn(new Column("Null", ScalarType.createVarchar(20)))
             .addColumn(new Column("Key", ScalarType.createVarchar(20)))
             .addColumn(new Column("Default", ScalarType.createVarchar(20)))
@@ -65,7 +67,7 @@ public class ShowColumnsCommand extends ShowCommand {
     private static final ShowResultSetMetaData META_DATA_VERBOSE =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Field", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Type", ScalarType.createStringType()))
                     .addColumn(new Column("Collation", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Null", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Key", ScalarType.createVarchar(20)))
@@ -138,9 +140,25 @@ public class ShowColumnsCommand extends ShowCommand {
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
+        String ctl = tableNameInfo.getCtl();
+        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctl)
+                .getDbOrAnalysisException(tableNameInfo.getDb());
+        TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
         if (whereClause != null) {
+            Map<String, String> visibleColumnTypes = new HashMap<>();
+            table.readLock();
+            try {
+                for (Column column : table.getBaseSchema()) {
+                    visibleColumnTypes.put(column.getName(),
+                            column.getOriginType().hideVersionForVersionColumn(false));
+                }
+            } finally {
+                table.readUnlock();
+            }
+
             Expression rewritten = whereClause.accept(new ReplaceColumnNameVisitor(), null);
-            String whereCondition = " WHERE TABLE_NAME = '" + tableNameInfo.getTbl() + "' AND " + rewritten.toSql();
+            String whereCondition = " WHERE TABLE_SCHEMA = '" + tableNameInfo.getDb()
+                    + "' AND TABLE_NAME = '" + tableNameInfo.getTbl() + "' AND " + rewritten.toSql();
             TableNameInfo info = new TableNameInfo(tableNameInfo.getCtl(), "information_schema", "columns");
 
             List<AliasInfo> selectList = new ArrayList<>();
@@ -166,17 +184,12 @@ public class ShowColumnsCommand extends ShowCommand {
             LogicalPlan plan = Utils.buildLogicalPlan(selectList, info, whereCondition);
             List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
             for (List<String> row : rows) {
-                String rawType = row.get(1);
-                row.set(1, normalizeSqlColumnType(rawType));
+                row.set(1, visibleColumnTypes.get(row.get(0)));
             }
 
             return new ShowResultSet(getMetaData(), rows);
         }
         List<List<String>> rows = Lists.newArrayList();
-        String ctl = tableNameInfo.getCtl();
-        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctl)
-                .getDbOrAnalysisException(tableNameInfo.getDb());
-        TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
         PatternMatcher matcher = null;
         if (likePattern != null) {
             matcher = PatternMatcherWrapper.createMysqlPattern(likePattern,
@@ -238,17 +251,4 @@ public class ShowColumnsCommand extends ShowCommand {
         }
     }
 
-    private static String normalizeSqlColumnType(String type) {
-        if (type == null) {
-            return null;
-        }
-
-        type = type.toLowerCase().trim();
-
-        if (type.matches("^[a-z]+\\s*\\(.*\\)$")) {
-            int parenIndex = type.indexOf('(');
-            return type.substring(0, parenIndex).trim();
-        }
-        return type;
-    }
 }

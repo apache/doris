@@ -20,10 +20,10 @@ suite("test_information_types") {
     def tb_name = "test_information_schema_types"
 
     def datatype_arr = ["boolean", "tinyint(4)", "smallint(6)", "int(11)", "bigint(20)", "largeint(40)", "float",
-                       "double", "decimal(20, 3)", "decimalv3(20, 3)", "date", "datetime", "datev2", "datetimev2(0)",
+                       "double", "decimalv3(20, 3)", "date", "datetime", "datev2", "datetimev2(3)",
                        "char(15)", "varchar(100)", "text", "ipv4", "ipv6", "variant"]
     def col_name_arr = ["c_bool", "c_tinyint", "c_smallint", "c_int", "c_bigint", "c_largeint", "c_float",
-                      "c_double", "c_decimal", "c_decimalv3", "c_date", "c_datetime", "c_datev2", "c_datetimev2",
+                      "c_double", "c_decimalv3", "c_date", "c_datetime", "c_datev2", "c_datetimev2",
                       "c_char", "c_varchar", "c_string", "c_ipv4", "c_ipv6", "c_variant"]
 
     def stmt = "CREATE TABLE IF NOT EXISTS " + tb_name + "(\n" +
@@ -49,5 +49,13 @@ suite("test_information_types") {
         assert(res[i][0] != "unknown");
         assert(res[i][1] != "unknown");
     }
+
+    order_qt_decimal_and_datetime """
+        SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE, DATETIME_PRECISION
+        FROM information_schema.columns
+        WHERE TABLE_NAME = '${tb_name}'
+          AND COLUMN_NAME IN ('c_decimalv3', 'c_datetime', 'c_datetimev2')
+        ORDER BY COLUMN_NAME
+    """
 
 }
