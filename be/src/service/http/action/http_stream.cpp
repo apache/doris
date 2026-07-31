@@ -246,10 +246,11 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
             return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "body size {:.2f} MiB exceeds the limit of {} MiB set by BE config "
-                    "`streaming_load_max_mb`. Increase it if you "
-                    "are sure this load is reasonable",
-                    static_cast<double>(ctx->body_bytes) / MEBIBYTE, csv_max_body_mb);
+                    "body size {} bytes ({:.2f} MiB) exceeds the limit of {} bytes ({} MiB) set "
+                    "by BE config `streaming_load_max_mb`. Increase it if you are sure this load "
+                    "is reasonable",
+                    ctx->body_bytes, static_cast<double>(ctx->body_bytes) / MEBIBYTE,
+                    csv_max_body_bytes, csv_max_body_mb);
         }
     }
 
