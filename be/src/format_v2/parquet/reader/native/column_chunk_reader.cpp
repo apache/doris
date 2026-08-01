@@ -1782,7 +1782,8 @@ bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_fixed_width_valu
     }
     const bool encoding_supports_raw_values =
             supports_raw_fixed_filter_encoding(_current_encoding, _metadata.type) ||
-            supports_raw_binary_filter_encoding(_current_encoding, _metadata.type);
+            supports_raw_binary_filter_encoding(_current_encoding, _metadata.type) ||
+            supports_dictionary_fixed_filter_encoding(_current_encoding, _metadata.type);
     const bool can_convert_logical_values = serde != nullptr && decode_context != nullptr &&
                                             encoding_supports_raw_values &&
                                             serde->supports_parquet_raw_predicate(*decode_context);
@@ -1837,6 +1838,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
     // Direct filtering can be the first value operation on a page, so its SerDe dispatch must not
     // depend on materialize_values() having synchronized the page encoding first.
     RETURN_IF_ERROR(translate_value_encoding(_current_encoding, &page_decode_context.encoding));
+    if (supports_dictionary_fixed_filter_encoding(_current_encoding, _metadata.type)) {
+        // The dictionary decoder expands IDs into physical values before SerDe conversion, making
+        // the predicate input identical to a decoded PLAIN page while retaining dictionary cursors.
+        page_decode_context.encoding = ParquetValueEncoding::PLAIN;
+    }
     if (!can_filter_fixed_width_values(conjuncts, column_id, &serde, &page_decode_context)) {
         return Status::OK();
     }

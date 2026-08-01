@@ -74,6 +74,7 @@
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
 #include "util/defer_op.h"
+#include "util/unaligned.h"
 
 namespace doris {
 namespace {
@@ -175,6 +176,23 @@ public:
 
     bool can_evaluate_dictionary_filter() const override { return true; }
 
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override {
+        return column_id == _column_id &&
+               remove_nullable(data_type)->get_primitive_type() == TYPE_INT;
+    }
+
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr&, int, uint8_t* matches) const override {
+        DORIS_CHECK_EQ(value_width, sizeof(int32_t));
+        // Non-string dictionaries bypass dictionary-id filtering, so this test predicate must
+        // preserve equality semantics when the reader evaluates decoded physical values directly.
+        for (size_t row = 0; row < num_values; ++row) {
+            matches[row] &= unaligned_load<int32_t>(values + row * sizeof(int32_t)) == _value;
+        }
+        return Status::OK();
+    }
+
     ZoneMapFilterResult evaluate_dictionary_filter(
             const DictionaryEvalContext& ctx) const override {
         const auto* dictionary = ctx.slot(_column_id);
@@ -214,6 +232,15 @@ public:
     const std::string& expr_name() const override { return _expr_name; }
 
     bool can_evaluate_dictionary_filter() const override { return true; }
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr&, int column_id) const override {
+        return column_id == _column_id;
+    }
+
+    Status execute_on_raw_fixed_values(const uint8_t*, size_t, size_t, const DataTypePtr&, int,
+                                       uint8_t*) const override {
+        return Status::OK();
+    }
 
     ZoneMapFilterResult evaluate_dictionary_filter(
             const DictionaryEvalContext& ctx) const override {
@@ -2851,7 +2878,7 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {
     EXPECT_GE(profile.get_counter("ReaderSelectRows")->value(), 8);
 }
 
-TEST_F(NewParquetReaderTest, FixedWidthDictionaryPredicateFiltersRowsByDictionaryId) {
+TEST_F(NewParquetReaderTest, FixedWidthDictionaryPredicateUsesRawDirectFilter) {
     write_fixed_width_dictionary_filter_parquet_file(_file_path);
 
     RuntimeProfile profile("new_parquet_reader_fixed_width_dictionary_filter_profile");
@@ -2889,14 +2916,19 @@ TEST_F(NewParquetReaderTest, FixedWidthDictionaryPredicateFiltersRowsByDictionar
 
     EXPECT_EQ(ids, std::vector<int32_t>({2, 4, 6}));
     EXPECT_EQ(values, std::vector<int32_t>({20, 20, 20}));
-    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 3);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 3);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 0);
     EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 1);
-    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 1);
-    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 1);
     EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
+    EXPECT_EQ(profile.get_counter("RawValuePredicateDirectBatches")->value(), 1);
+    EXPECT_EQ(profile.get_counter("RawValuePredicateDirectRows")->value(), 6);
+    EXPECT_EQ(profile.get_counter("FixedWidthPredicateDirectBatches")->value(), 1);
+    EXPECT_EQ(profile.get_counter("FixedWidthPredicateDirectRows")->value(), 6);
 }
 
-TEST_F(NewParquetReaderTest, AllFixedWidthDictionaryTypesDecodeThroughDictionaryIds) {
+TEST_F(NewParquetReaderTest, OnlyStringFixedWidthDictionaryTypeUsesDictionaryIds) {
     write_all_fixed_width_dictionary_filter_parquet_file(_file_path);
 
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
@@ -2941,9 +2973,15 @@ TEST_F(NewParquetReaderTest, AllFixedWidthDictionaryTypesDecodeThroughDictionary
     EXPECT_EQ(total_rows, 6);
     EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 0);
     EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 5);
-    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 5);
-    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 4);
     EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
+    // INT64, FLOAT, and DOUBLE use decoded raw values directly. Legacy INT96 keeps its specialized
+    // conversion path, while FIXED_LEN_BYTE_ARRAY is the sole string dictionary-ID candidate.
+    EXPECT_EQ(profile.get_counter("RawValuePredicateDirectBatches")->value(), 3);
+    EXPECT_EQ(profile.get_counter("RawValuePredicateDirectRows")->value(), 18);
+    EXPECT_EQ(profile.get_counter("FixedWidthPredicateDirectBatches")->value(), 3);
+    EXPECT_EQ(profile.get_counter("FixedWidthPredicateDirectRows")->value(), 18);
 }
 
 TEST_F(NewParquetReaderTest, DictionaryPredicateReaderIsSharedOutsideMergeRangeReader) {

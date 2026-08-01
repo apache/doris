@@ -1271,6 +1271,9 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_fixed_width_filter(
                                            ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::
                                                    supports_raw_binary_filter_encoding(
                                                            encoding, _chunk_meta.meta_data.type) ||
+                                           ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::
+                                                   supports_dictionary_fixed_filter_encoding(
+                                                           encoding, _chunk_meta.meta_data.type) ||
                                            encoding == tparquet::Encoding::RLE ||
                                            encoding == tparquet::Encoding::BIT_PACKED;
                                 });

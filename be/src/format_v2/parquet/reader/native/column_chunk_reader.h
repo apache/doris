@@ -215,6 +215,19 @@ public:
                 encoding == tparquet::Encoding::BYTE_STREAM_SPLIT);
     }
 
+    static bool supports_dictionary_fixed_filter_encoding(tparquet::Encoding::type encoding,
+                                                          tparquet::Type::type physical_type) {
+        const bool is_dictionary = encoding == tparquet::Encoding::RLE_DICTIONARY ||
+                                   encoding == tparquet::Encoding::PLAIN_DICTIONARY;
+        if (!is_dictionary) {
+            return false;
+        }
+        return physical_type == tparquet::Type::INT32 || physical_type == tparquet::Type::INT64 ||
+               physical_type == tparquet::Type::INT96 || physical_type == tparquet::Type::FLOAT ||
+               physical_type == tparquet::Type::DOUBLE ||
+               physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY;
+    }
+
     // Evaluate selected fixed-width values and return one keep byte per selected logical row.
     // NULL comparisons are false and therefore never enter the physical consumer; non-null
     // matches are appended to projected_column when requested.

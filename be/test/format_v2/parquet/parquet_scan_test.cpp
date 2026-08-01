@@ -3233,7 +3233,9 @@ TEST_F(ParquetScanTest, WideRuntimeFilterSlotUsesDecodedDictionaryValues) {
     EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 0);
     EXPECT_EQ(counter_value(profile, "DictFilterUnsupportedColumns"), 1);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 0);
-    EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 0);
     conjunct->close();
 }
 
@@ -3310,7 +3312,10 @@ TEST_F(ParquetScanTest, NonStringDictionaryRuntimeFilterUsesDecodedValues) {
     EXPECT_EQ(counter_value(profile, "DictFilterUnsupportedColumns"), 1);
     EXPECT_EQ(counter_value(profile, "DictFilterTypedCompareColumns"), 0);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 0);
-    EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectRows"), 6);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 0);
     conjunct->close();
 }
 
@@ -3460,7 +3465,9 @@ TEST_F(ParquetScanTest, ProjectedNonStringDictionaryRangeUsesDecodedValues) {
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 0);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 0);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateProjectedRows"), 0);
-    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 1);
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     conjunct->close();
 }
 
@@ -3496,7 +3503,9 @@ TEST_F(ParquetScanTest, ProjectedBigIntDictionaryRangeUsesDecodedValues) {
     EXPECT_EQ(counter_value(profile, "DictFilterUnsupportedColumns"), 1);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateFusedProjectedRows"), 0);
     EXPECT_EQ(counter_value(profile, "DictFilterTypedCompareColumns"), 0);
-    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 1);
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     conjunct->close();
 }
 
@@ -3739,7 +3748,7 @@ TEST_F(ParquetScanTest, PredicateOnlyUint32UsesConvertedDecoderDirectPath) {
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
 }
 
-TEST_F(ParquetScanTest, FixedWidthPredicateReportsUnsupportedEncodingAfterProgress) {
+TEST_F(ParquetScanTest, FixedWidthPredicateRejectsMissingDictionaryAfterProgress) {
     write_misdeclared_two_page_parquet_file(_file_path);
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
@@ -3760,7 +3769,7 @@ TEST_F(ParquetScanTest, FixedWidthPredicateReportsUnsupportedEncodingAfterProgre
     bool eof = false;
     const auto status = reader->get_block(&block, &rows, &eof);
     EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
-    EXPECT_NE(status.to_string().find("encoding"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("dictionary"), std::string::npos) << status;
 }
 
 TEST_F(ParquetScanTest, PlainDirectPathKeepsPayloadForMultiColumnResidual) {
