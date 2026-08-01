@@ -177,6 +177,16 @@ public final class AdbcTypeMapper {
                 scale = MAX_DATETIME_SCALE;
                 break;
         }
+        // A zoned Arrow timestamp is an instant, and TIMESTAMPTZ is the only Doris type that keeps one:
+        // DATETIMEV2 would drop the zone and leave a wall clock whose meaning depends on who reads it.
+        //
+        // This is where the catalog property enable.mapping.timestamp_tz would belong -- the JDBC
+        // catalog and the file formats consult it and default to DATETIMEV2 -- and it is deliberately
+        // NOT consulted: ExternalCatalog.setDefaultPropsIfMissing stamps the property as "false" into
+        // every external catalog that does not name it, so a connector reading it cannot tell a user
+        // who asked for wall clocks from one who said nothing at all, and honouring it would force
+        // DATETIMEV2 on every adbc catalog. This connector's default is TIMESTAMPTZ. Making the
+        // property settable here needs fe-core to let a connector supply its own default first.
         boolean zoned = type.getTimezone() != null && !type.getTimezone().isEmpty();
         return ConnectorType.of(zoned ? "TIMESTAMPTZ" : "DATETIMEV2", scale, 0);
     }

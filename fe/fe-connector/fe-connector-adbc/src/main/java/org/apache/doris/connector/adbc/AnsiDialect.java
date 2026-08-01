@@ -68,6 +68,9 @@ public class AnsiDialect implements AdbcDialect {
     private static final Set<String> CHARACTER_TYPE_NAMES =
             new HashSet<>(Arrays.asList("CHAR", "VARCHAR", "STRING"));
 
+    /** {@code PrimitiveType.TIMESTAMPTZ}'s name, as {@code ConnectorType} spells it. */
+    private static final String TIMESTAMPTZ_TYPE_NAME = "TIMESTAMPTZ";
+
     @Override
     public String name() {
         return NAME;
@@ -126,6 +129,16 @@ public class AnsiDialect implements AdbcDialect {
             return "DATE '" + DATE_FORMAT.format((LocalDate) value) + "'";
         }
         if (value instanceof LocalDateTime) {
+            if (TIMESTAMPTZ_TYPE_NAME.equals(literal.getType().getTypeName())) {
+                // A zoned literal reaches here already converted to UTC, and standard SQL's
+                // TIMESTAMP 'yyyy-MM-dd HH:mm:ss' carries no zone -- so the source would read the UTC
+                // wall clock as ITS OWN local time and compare that against its column. On a source
+                // east of UTC that only widens the match and Doris re-filters what comes back; on one
+                // west of UTC it NARROWS it, and the rows the source drops are rows the query wanted.
+                // There is no portable spelling that says which instant is meant, so the comparison
+                // stays with Doris.
+                return null;
+            }
             return "TIMESTAMP '" + TIMESTAMP_FORMAT.format((LocalDateTime) value) + "'";
         }
         if (value instanceof String && CHARACTER_TYPE_NAMES.contains(literal.getType().getTypeName())) {

@@ -130,6 +130,20 @@ class AdbcDialectTest {
     }
 
     @Test
+    void refusesAZonedTimestampLiteral() {
+        // Same Java value as the DATETIMEV2 case above and a different answer, because the TYPE changes
+        // what the value means: the engine hands a TIMESTAMPTZ literal over already converted to UTC,
+        // and TIMESTAMP '...' has no zone in it, so the source would compare its own local wall clock
+        // against a UTC one. West of UTC that drops rows the query asked for -- rows a scan cannot get
+        // back, since the source never sends them -- so the comparison is left to Doris.
+        Assertions.assertNull(ANSI.renderLiteral(literal("TIMESTAMPTZ",
+                LocalDateTime.of(2024, 1, 31, 12, 30, 5))));
+        Assertions.assertEquals("TIMESTAMP '2024-01-31 12:30:05'",
+                ANSI.renderLiteral(literal("DATETIMEV2",
+                        LocalDateTime.of(2024, 1, 31, 12, 30, 5))));
+    }
+
+    @Test
     void refusesAStringValueWhoseTypeIsNotCharacterData() {
         // The engine's converter falls back to the text form for every type it has no branch for. Quoting
         // that would compare a 128-bit integer, an IP or a JSON document as text, which orders and matches
