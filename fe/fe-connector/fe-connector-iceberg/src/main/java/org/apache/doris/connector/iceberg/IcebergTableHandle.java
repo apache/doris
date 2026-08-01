@@ -180,6 +180,11 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         return snapshotId >= 0 || ref != null;
     }
 
+    /** Whether snapshot resolution observed a table before its first snapshot was committed. */
+    public boolean isResolvedEmptySnapshot() {
+        return snapshotResolved && snapshotId < 0 && ref == null;
+    }
+
     /**
      * The rewrite file scope (raw iceberg data-file paths the scan is restricted to), or {@code null} for a
      * normal full scan. See {@link #rewriteFileScope} and {@link #withRewriteFileScope}.

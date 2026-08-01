@@ -173,6 +173,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
+        validateBoundWriteColumns(table, handle, writeContext.getWriteOperation());
 
         // commit-bridge supply (S4 part 2): read the non-equality delete supply the scan seam accumulated into the
         // per-statement scope. DELETE/MERGE attach it to the sink so the BE OR-merges old deletes into the new
@@ -228,6 +229,37 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             default:
                 throw new DorisConnectorException(
                         "Unsupported iceberg write operation: " + writeContext.getWriteOperation());
+        }
+    }
+
+    private void validateBoundWriteColumns(Table table, ConnectorWriteHandle handle,
+            WriteOperation writeOperation) {
+        if (writeOperation == WriteOperation.DELETE || handle.getColumns().isEmpty()) {
+            return;
+        }
+        List<NestedField> currentColumns = table.schema().columns();
+        List<ConnectorColumn> boundColumns = handle.getColumns();
+        boolean hasSyntheticRowId = boundColumns.size() == currentColumns.size() + 1
+                && DORIS_ICEBERG_ROWID_COL.equals(boundColumns.get(boundColumns.size() - 1).getName());
+        if (boundColumns.size() != currentColumns.size() && !hasSyntheticRowId) {
+            throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry the "
+                    + "statement with the latest schema");
+        }
+        boolean enableVarbinary = Boolean.parseBoolean(properties.getOrDefault(
+                IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
+        boolean enableTimestampTz = Boolean.parseBoolean(properties.getOrDefault(
+                IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+        for (int i = 0; i < currentColumns.size(); ++i) {
+            NestedField current = currentColumns.get(i);
+            ConnectorColumn bound = boundColumns.get(i);
+            ConnectorType currentType = IcebergTypeMapping.fromIcebergType(
+                    current.type(), enableVarbinary, enableTimestampTz);
+            if (!current.name().equalsIgnoreCase(bound.getName()) || !currentType.equals(bound.getType())) {
+                // BE maps write expressions to schema-json by ordinal, so accepting a reordered live
+                // schema here could silently place values under the wrong Iceberg field names.
+                throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry "
+                        + "the statement with the latest schema");
+            }
         }
     }
 

@@ -36,7 +36,6 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -88,11 +87,12 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public boolean nullable() {
-        // Strict casts fail instead of manufacturing NULL, so only the child's NULLs can propagate.
-        if (SessionVariable.enableStrictCast()) {
-            return child().nullable();
-        }
         return castNullable(child().nullable(), child().getDataType(), targetType);
+    }
+
+    /** Nullability of this cast when invalid input fails instead of producing NULL. */
+    public boolean strictModeNullable() {
+        return child().nullable();
     }
 
     /**

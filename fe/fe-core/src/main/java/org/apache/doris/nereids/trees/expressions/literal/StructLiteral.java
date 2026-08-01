@@ -19,11 +19,14 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -158,9 +161,19 @@ public class StructLiteral extends Literal {
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
         for (int i = 0; i < fields.size(); i++) {
             Expression field = fields.get(i);
-            // Preserve literal nullability so a known non-null value can satisfy a required nested field.
-            structFields.add(new StructField(COL_PREFIX + (i + 1), field.getDataType(), field.nullable(), ""));
+            structFields.add(new StructField(COL_PREFIX + (i + 1), field.getDataType(),
+                    computeFieldNullable(field), ""));
         }
         return new StructType(structFields.build());
+    }
+
+    /** Infer field nullability for struct constructors in the current cast mode. */
+    public static boolean computeFieldNullable(Expression field) {
+        // Strict-mode refinement is scoped to this session-specific return type; Cast itself
+        // must keep stable nullability because expressions can outlive a session context.
+        if (field instanceof Cast && !(field instanceof TryCast) && SessionVariable.enableStrictCast()) {
+            return ((Cast) field).strictModeNullable();
+        }
+        return field.nullable();
     }
 }

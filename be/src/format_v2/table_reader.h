@@ -1234,10 +1234,16 @@ protected:
             ColumnPtr nested_column = array_column.get_data_ptr();
             NullMap descendant_parent_null_map;
             // Collection entries use offset coordinates, so inherited row masks must be projected
-            // before validating required descendants hidden by a nullable ancestor.
-            const NullMap* descendant_parent_null_map_ptr = _project_collection_parent_null_map(
-                    nullptr, nullable_parent_null_map, array_column.size(),
-                    array_column.get_offsets(), nested_column->size(), &descendant_parent_null_map);
+            // only when a required descendant can consume them. This avoids scratch proportional
+            // to all array entries for the common all-required schema.
+            const NullMap* descendant_parent_null_map_ptr = nullptr;
+            if (_requires_parent_null_map_for_alignment(nested_column,
+                                                        array_type->get_nested_type())) {
+                descendant_parent_null_map_ptr = _project_collection_parent_null_map(
+                        nullptr, nullable_parent_null_map, array_column.size(),
+                        array_column.get_offsets(), nested_column->size(),
+                        &descendant_parent_null_map);
+            }
             RETURN_IF_ERROR(_align_column_nullability(&nested_column, array_type->get_nested_type(),
                                                       descendant_parent_null_map_ptr));
             *column = ColumnArray::create(nested_column, array_column.get_offsets_ptr());
@@ -1248,10 +1254,15 @@ protected:
             ColumnPtr key_column = map_column.get_keys_ptr();
             ColumnPtr value_column = map_column.get_values_ptr();
             NullMap descendant_parent_null_map;
-            // Keys and values share offsets, so one projected mask safely covers both streams.
-            const NullMap* descendant_parent_null_map_ptr = _project_collection_parent_null_map(
-                    nullptr, nullable_parent_null_map, map_column.size(), map_column.get_offsets(),
-                    key_column->size(), &descendant_parent_null_map);
+            const NullMap* descendant_parent_null_map_ptr = nullptr;
+            if (_requires_parent_null_map_for_alignment(key_column, map_type->get_key_type()) ||
+                _requires_parent_null_map_for_alignment(value_column,
+                                                        map_type->get_value_type())) {
+                // Keys and values share offsets, so one projected mask safely covers both streams.
+                descendant_parent_null_map_ptr = _project_collection_parent_null_map(
+                        nullptr, nullable_parent_null_map, map_column.size(),
+                        map_column.get_offsets(), key_column->size(), &descendant_parent_null_map);
+            }
             RETURN_IF_ERROR(_align_column_nullability(&key_column, map_type->get_key_type(),
                                                       descendant_parent_null_map_ptr));
             RETURN_IF_ERROR(_align_column_nullability(&value_column, map_type->get_value_type(),
@@ -1586,6 +1597,51 @@ protected:
             return &nullable_column->get_nested_column();
         }
         return column.get();
+    }
+
+    static bool _requires_parent_null_map_for_alignment(const ColumnPtr& column,
+                                                        const DataTypePtr& table_type) {
+        DORIS_CHECK(column.get() != nullptr);
+        DORIS_CHECK(table_type != nullptr);
+        if (table_type->is_nullable()) {
+            const auto& nested_type =
+                    assert_cast<const DataTypeNullable&>(*table_type).get_nested_type();
+            if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
+                return _requires_parent_null_map_for_alignment(
+                        nullable_column->get_nested_column_ptr(), nested_type);
+            }
+            return _requires_parent_null_map_for_alignment(column, nested_type);
+        }
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
+            if (nullable_column->has_null()) {
+                return true;
+            }
+            return _requires_parent_null_map_for_alignment(
+                    nullable_column->get_nested_column_ptr(), table_type);
+        }
+        if (const auto* array_type = typeid_cast<const DataTypeArray*>(table_type.get())) {
+            const auto& array_column = assert_cast<const ColumnArray&>(*column);
+            return _requires_parent_null_map_for_alignment(array_column.get_data_ptr(),
+                                                           array_type->get_nested_type());
+        }
+        if (const auto* map_type = typeid_cast<const DataTypeMap*>(table_type.get())) {
+            const auto& map_column = assert_cast<const ColumnMap&>(*column);
+            return _requires_parent_null_map_for_alignment(map_column.get_keys_ptr(),
+                                                           map_type->get_key_type()) ||
+                   _requires_parent_null_map_for_alignment(map_column.get_values_ptr(),
+                                                           map_type->get_value_type());
+        }
+        if (const auto* struct_type = typeid_cast<const DataTypeStruct*>(table_type.get())) {
+            const auto& struct_column = assert_cast<const ColumnStruct&>(*column);
+            DORIS_CHECK(struct_column.tuple_size() == struct_type->get_elements().size());
+            for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
+                if (_requires_parent_null_map_for_alignment(struct_column.get_column_ptr(i),
+                                                            struct_type->get_element(i))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     template <typename Offsets>

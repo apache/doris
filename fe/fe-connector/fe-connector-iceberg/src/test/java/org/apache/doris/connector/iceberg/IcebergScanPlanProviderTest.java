@@ -1418,6 +1418,30 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void planScanResolvedEmptySnapshotIgnoresConcurrentFirstAppend() {
+        // MERGE may resolve its read snapshot while the target has no snapshots, then race with the first append.
+        // The -1 marker is a real MVCC boundary: treating it as "latest" lets MERGE miss the new row and insert a
+        // duplicate, so both the ordinary scan and COUNT pushdown must remain empty after the concurrent commit.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergTableHandle emptyRead = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(-1L, null, table.schema().schemaId());
+
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> rows = provider.planScan(null,
+                ConnectorScanRequest.builder(emptyRead, Collections.emptyList()).build());
+        List<ConnectorScanRange> count = provider.planScan(null,
+                ConnectorScanRequest.builder(emptyRead, Collections.emptyList())
+                        .requiredPartitions(Collections.emptyList()).countPushdown(true).build());
+
+        Assertions.assertTrue(rows.isEmpty(), "an explicitly empty read must not see the first concurrent append");
+        Assertions.assertTrue(count.isEmpty(), "COUNT over an explicitly empty read must remain zero");
+    }
+
+    @Test
     public void planScanPinnedToTagReadsViaUseRefNotSnapshotId() {
         // The handle carries BOTH a ref (tag1 -> S1) AND the LATEST snapshot id (s2). The scan must pin by REF
         // (useRef), so it reads only f1. MUTATION: pinning by snapshotId (useSnapshot(s2)) -> reads both -> red.

@@ -437,7 +437,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        if (iceHandle.isSystemTable() || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
+        if (iceHandle.isResolvedEmptySnapshot() || iceHandle.isSystemTable()
+                || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
             return -1;
         }
         Table table = resolveTable(session, iceHandle);
@@ -613,6 +614,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isResolvedEmptySnapshot()) {
+            // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
+            // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a
+            // concurrent first append to MERGE after its anti-join had already decided the row was absent.
+            return Collections.emptyList();
+        }
         if (iceHandle.isSystemTable()) {
             // System tables take a metadata-table path, never the data-file path below (no count pushdown, no
             // data-file ranges) — mirrors legacy IcebergScanNode branching on isSystemTable. $position_deletes

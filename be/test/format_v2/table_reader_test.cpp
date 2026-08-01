@@ -1048,6 +1048,7 @@ public:
     using TableReader::_materialize_present_child_mapping_column;
     using TableReader::_materialize_struct_mapping_column;
     using TableReader::_project_collection_parent_null_map;
+    using TableReader::_requires_parent_null_map_for_alignment;
 };
 
 TEST(TableReaderTest, TruncateCharOrVarcharPredicateOnlyAppliesToParquetStringWidthMismatch) {
@@ -4933,6 +4934,26 @@ TEST(TableReaderTest, TrivialArrayChildProjectsNullableStructParentMask) {
     ASSERT_FALSE(result_element_struct.get_column(0).is_nullable());
     EXPECT_EQ(assert_cast<const ColumnInt32&>(result_element_struct.get_column(0)).get_element(1),
               7);
+}
+
+TEST(TableReaderTest, ParentMaskProjectionOnlyWhenRequiredDescendantCanConsumeIt) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto mutable_values = ColumnInt32::create();
+    mutable_values->get_data().assign({1, 2});
+    ColumnPtr values = std::move(mutable_values);
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(values,
+                                                                                    int_type));
+
+    ColumnPtr nullable_values =
+            ColumnNullable::create(values->clone(), ColumnUInt8::create(2, 0));
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(nullable_values,
+                                                                                    int_type));
+    auto null_map = ColumnUInt8::create(2, 0);
+    null_map->get_data()[0] = 1;
+    ColumnPtr nullable_values_with_null =
+            ColumnNullable::create(values->clone(), std::move(null_map));
+    EXPECT_TRUE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(
+            nullable_values_with_null, int_type));
 }
 
 TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn) {

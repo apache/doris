@@ -397,6 +397,31 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertFalse(sink.isSetStaticPartitionValues());
     }
 
+    @Test
+    public void planWriteRejectsSchemaReorderedAfterBinding() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t2")).columns(Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, null),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)));
+        table.updateSchema().moveFirst("name").commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(table, contextWithStorage(), handle));
+        Assertions.assertTrue(ex.getMessage().contains("schema changed"));
+    }
+
+    @Test
+    public void planWriteRejectsColumnTypeChangedAfterBinding() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t2")).columns(Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, null),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)));
+        table.updateSchema().updateColumn("id", Types.LongType.get()).commit();
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(table, contextWithStorage(), handle));
+    }
+
     // ───────────────────────────── REWRITE: compaction sink (TIcebergTableSink) ─────────────────────────────
     //
     // WHY: post-cutover rewrite_data_files reuses the INSERT TIcebergTableSink dialect with two deltas vs
@@ -1309,6 +1334,7 @@ public class IcebergWritePlanProviderTest {
         private WriteOperation writeOperation = WriteOperation.INSERT;
         private Optional<String> branchName = Optional.empty();
         private boolean requireMergeCardinalityCheck;
+        private List<ConnectorColumn> columns = Collections.emptyList();
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -1316,6 +1342,11 @@ public class IcebergWritePlanProviderTest {
 
         WriteHandle branch(String v) {
             this.branchName = Optional.ofNullable(v);
+            return this;
+        }
+
+        WriteHandle columns(List<ConnectorColumn> v) {
+            this.columns = v;
             return this;
         }
 
@@ -1366,7 +1397,7 @@ public class IcebergWritePlanProviderTest {
 
         @Override
         public List<ConnectorColumn> getColumns() {
-            return Collections.emptyList();
+            return columns;
         }
 
         @Override

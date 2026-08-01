@@ -82,6 +82,9 @@ public class StructLiteralTest {
 
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
+            // Expression nullability is an immutable plan property; strict-mode refinement belongs
+            // only to the struct type being constructed for the current session.
+            Assertions.assertTrue(cast.nullable());
 
             CreateStruct struct = new CreateStruct(cast);
             StructType structType = (StructType) struct.getSignatures().get(0).returnType;
