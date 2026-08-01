@@ -20,6 +20,7 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
@@ -376,6 +377,26 @@ public class PaimonConnectorMetadataPartitionTest {
         Assertions.assertTrue(metadata.listPartitions(null, handle, Optional.empty()).isEmpty());
         Assertions.assertFalse(ops.log.contains("listPartitions:db1.t1"),
                 "unpartitioned tables must not reach the listPartitions seam");
+    }
+
+    @Test
+    public void positiveSnapshotFenceIsAppliedBeforePartitionEnumeration() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", categoryRowType(), Collections.singletonList("category"), Collections.emptyList());
+        table.setOptions(Collections.singletonMap("partition.legacy-name", "false"));
+        ops.table = table;
+        Map<String, String> spec = Collections.singletonMap("category", "p1");
+        ops.partitions = Collections.singletonList(partition(spec, 1L, 1L, 1L));
+        PaimonTableHandle pinned = categoryHandle(table).withScanOptions(
+                Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), "7"));
+
+        List<String> names = metadataWith(ops).listPartitionNames(null, pinned);
+
+        Assertions.assertEquals(Collections.singletonList("category=p1"), names);
+        Assertions.assertEquals("7", table.lastCopyOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key()),
+                "partition hydration must enumerate the same positive snapshot as split planning");
+        Assertions.assertSame(table, ops.lastListPartitionsTable);
     }
 
     @Test

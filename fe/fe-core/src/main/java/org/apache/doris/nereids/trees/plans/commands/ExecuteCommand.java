@@ -95,6 +95,7 @@ public class ExecuteCommand extends Command {
         // per-statement scope so a prior execution's cached tables/state never leak into this one (the
         // scope key's queryId is a second line of defense). See StatementContext#resetConnectorStatementScope.
         statementContext.resetConnectorStatementScope();
+        statementContext.resetMvccSnapshots();
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
         LogicalPlan relationRoot = logicalPlan;
         if (logicalPlan instanceof InsertIntoTableCommand) {

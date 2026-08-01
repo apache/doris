@@ -18,6 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -34,6 +39,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExecuteCommandTest {
@@ -89,6 +95,47 @@ public class ExecuteCommandTest {
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
 
         Mockito.verify(executor).execute();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testMvccSnapshotsAreResetForEveryExecute() throws Exception {
+        String sql = "select 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        MvccTable table = Mockito.mock(MvccTable.class);
+        DatabaseIf<TableIf> database = Mockito.mock(DatabaseIf.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        MvccSnapshot first = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot second = Mockito.mock(MvccSnapshot.class);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(first, second);
+
+        statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+        Assertions.assertSame(first,
+                statementContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+
+        Assertions.assertSame(second,
+                statementContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
+        Mockito.verify(table, Mockito.times(2)).loadSnapshot(Optional.empty(), Optional.empty());
     }
 
     private String resolveNextSnapshot(TableScanParams scanParams, AtomicInteger snapshotId) {

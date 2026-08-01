@@ -1336,18 +1336,26 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
 
         Table resolvedTable = resolveTable(paimonHandle);
-        boolean optionsPin = PaimonScanParams.isOptionsPin(paimonHandle.getScanOptions());
+        Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        boolean optionsPin = PaimonScanParams.isOptionsPin(scanOptions);
         Table table;
         if (optionsPin) {
-            table = PaimonScanParams.applyOptions(resolvedTable, paimonHandle.getScanOptions());
+            table = PaimonScanParams.applyOptions(resolvedTable, scanOptions);
         } else {
+            String snapshotId = scanOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
+            // Fence hydration receives an ordinary positive snapshot pin. Apply it before listing
+            // partitions so EXPLAIN and block-rule accounting describe the same version as the scan.
+            Table partitionTable = snapshotId == null
+                    ? resolvedTable
+                    : resolvedTable.copy(Collections.singletonMap(
+                            CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId));
             // Partition projection never opens a data reader, so reader-only settings must not
             // invalidate metadata that a later relation-scoped override can make safe.
             Map<String, String> runtimeOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
-                    resolvedTable, Collections.emptyMap());
+                    partitionTable, Collections.emptyMap());
             // Metadata planning can also touch Paimon's global manifest executor, so apply the
             // CPU-local cap to a disposable projection rather than the cached catalog handle.
-            table = runtimeOptions.isEmpty() ? resolvedTable : resolvedTable.copy(runtimeOptions);
+            table = runtimeOptions.isEmpty() ? partitionTable : partitionTable.copy(runtimeOptions);
             PaimonReaderOptions.validateEffectivePlanningTable(table);
         }
         Identifier identifier = Identifier.create(
@@ -1508,6 +1516,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         long rowCount;
         try {
             PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, handle, snapshot);
+            if (PaimonScanParams.isPinnedEmptyScan(pinned.getScanOptions())) {
+                // Empty is a real statement fence; reopening latest here could count a concurrent
+                // first commit even though execution is still required to scan zero rows.
+                return Optional.empty();
+            }
             Table table = resolveTable(pinned);
             Map<String, String> scanOptions = pinned.getScanOptions();
             if (scanOptions != null && !scanOptions.isEmpty()) {

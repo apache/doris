@@ -208,6 +208,29 @@ public class PaimonConnectorMetadataStatisticsTest {
     }
 
     @Test
+    public void pinnedEmptySnapshotStatisticsDoNotReopenLatestTable() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.rowCount = 17;
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.table = table;
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+        ConnectorMvccSnapshot emptyFence = ConnectorMvccSnapshot.builder()
+                .snapshotId(-1L)
+                .properties(PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L))
+                .build();
+
+        Optional<ConnectorTableStatistics> stats =
+                metadataWith(ops).getTableStatistics(null, handle, emptyFence);
+
+        Assertions.assertFalse(stats.isPresent());
+        Assertions.assertFalse(ops.log.contains("rowCount"),
+                "a pinned-empty statement must not count rows committed after its fence");
+    }
+
+    @Test
     public void systemTableUsesResolvedSysTable() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.rowCount = 7;

@@ -47,6 +47,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     List<String> tables = new ArrayList<>();
     Table table;
     List<Partition> partitions = new ArrayList<>();
+    Table lastListPartitionsTable;
 
     /** The Identifier the metadata layer passed to the most recent {@link #getTable} call. */
     Identifier lastGetTableId;
@@ -182,6 +183,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     public List<Partition> listPartitions(Identifier identifier, Table table)
             throws Catalog.TableNotExistException {
         log.add("listPartitions:" + identifier.getFullName());
+        lastListPartitionsTable = table;
         if (throwTableNotExist) {
             throw new Catalog.TableNotExistException(identifier);
         }
