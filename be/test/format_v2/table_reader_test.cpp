@@ -4941,11 +4941,10 @@ TEST(TableReaderTest, ParentMaskProjectionOnlyWhenRequiredDescendantCanConsumeIt
     auto mutable_values = ColumnInt32::create();
     mutable_values->get_data().assign({1, 2});
     ColumnPtr values = std::move(mutable_values);
-    EXPECT_FALSE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(values,
-                                                                                    int_type));
+    EXPECT_FALSE(
+            TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(values, int_type));
 
-    ColumnPtr nullable_values =
-            ColumnNullable::create(values->clone(), ColumnUInt8::create(2, 0));
+    ColumnPtr nullable_values = ColumnNullable::create(values->clone(), ColumnUInt8::create(2, 0));
     EXPECT_FALSE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(nullable_values,
                                                                                     int_type));
     auto null_map = ColumnUInt8::create(2, 0);

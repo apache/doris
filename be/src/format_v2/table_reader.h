@@ -1256,8 +1256,7 @@ protected:
             NullMap descendant_parent_null_map;
             const NullMap* descendant_parent_null_map_ptr = nullptr;
             if (_requires_parent_null_map_for_alignment(key_column, map_type->get_key_type()) ||
-                _requires_parent_null_map_for_alignment(value_column,
-                                                        map_type->get_value_type())) {
+                _requires_parent_null_map_for_alignment(value_column, map_type->get_value_type())) {
                 // Keys and values share offsets, so one projected mask safely covers both streams.
                 descendant_parent_null_map_ptr = _project_collection_parent_null_map(
                         nullptr, nullable_parent_null_map, map_column.size(),
@@ -1616,8 +1615,8 @@ protected:
             if (nullable_column->has_null()) {
                 return true;
             }
-            return _requires_parent_null_map_for_alignment(
-                    nullable_column->get_nested_column_ptr(), table_type);
+            return _requires_parent_null_map_for_alignment(nullable_column->get_nested_column_ptr(),
+                                                           table_type);
         }
         if (const auto* array_type = typeid_cast<const DataTypeArray*>(table_type.get())) {
             const auto& array_column = assert_cast<const ColumnArray&>(*column);
