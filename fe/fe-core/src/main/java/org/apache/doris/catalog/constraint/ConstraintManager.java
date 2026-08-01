@@ -43,11 +43,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -903,12 +903,14 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
         validateColumnsExist(table, constraint.getDeterminantColumnNames(), toKey(tableNameInfo));
         validateColumnsExist(table, constraint.getDistributionColumnNames(), toKey(tableNameInfo));
-        if (new HashSet<>(constraint.getDeterminantColumnNames()).size()
-                != constraint.getDeterminantColumnNames().size()) {
+        TreeSet<String> determinantColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        determinantColumns.addAll(constraint.getDeterminantColumnNames());
+        if (determinantColumns.size() != constraint.getDeterminantColumnNames().size()) {
             throw new AnalysisException("Determinant columns in distribution mapping constraint must be unique");
         }
-        if (new HashSet<>(constraint.getDistributionColumnNames()).size()
-                != constraint.getDistributionColumnNames().size()) {
+        TreeSet<String> distributionColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        distributionColumns.addAll(constraint.getDistributionColumnNames());
+        if (distributionColumns.size() != constraint.getDistributionColumnNames().size()) {
             throw new AnalysisException("Distribution columns in distribution mapping constraint must be unique");
         }
 

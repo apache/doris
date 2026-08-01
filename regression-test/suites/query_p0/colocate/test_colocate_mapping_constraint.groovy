@@ -81,7 +81,88 @@ suite("test_colocate_mapping_constraint") {
 
     sql """ SET auto_broadcast_join_threshold = -1 """
     sql """ SET broadcast_row_count_limit = 0 """
+    def nestedSubqueryJoinQueries = [
+        // Parallel Project subqueries on both sides.
+        """
+            SELECT *
+            FROM (
+                SELECT d1, k2, extra_col
+                FROM test_colocate_mapping_constraint_left
+            ) l
+            JOIN (
+                SELECT d1, k2, extra_col
+                FROM test_colocate_mapping_constraint_right
+            ) r
+              ON l.d1 = r.d1 AND l.k2 = r.k2
+        """,
+        // Parallel Aggregate subqueries on both sides.
+        """
+            SELECT *
+            FROM (
+                SELECT d1, k2, SUM(extra_col) AS sum_extra
+                FROM test_colocate_mapping_constraint_left
+                GROUP BY k1, k2, d1
+            ) l
+            JOIN (
+                SELECT d1, k2, SUM(extra_col) AS sum_extra
+                FROM test_colocate_mapping_constraint_right
+                GROUP BY k1, k2, d1
+            ) r
+              ON l.d1 = r.d1 AND l.k2 = r.k2
+        """,
+        // Multiple nested Project subqueries on both sides.
+        """
+            SELECT *
+            FROM (
+                SELECT inner_l.d1 AS nested_d1, inner_l.k2 AS nested_k2
+                FROM (
+                    SELECT d1, k2
+                    FROM test_colocate_mapping_constraint_left
+                ) inner_l
+            ) l
+            JOIN (
+                SELECT inner_r.d1 AS nested_d1, inner_r.k2 AS nested_k2
+                FROM (
+                    SELECT d1, k2
+                    FROM test_colocate_mapping_constraint_right
+                ) inner_r
+            ) r
+              ON l.nested_d1 = r.nested_d1 AND l.nested_k2 = r.nested_k2
+        """,
+        // Aggregate subqueries followed by another Project layer on both sides.
+        """
+            SELECT *
+            FROM (
+                SELECT aggregate_l.d1 AS nested_d1,
+                       aggregate_l.k2 AS nested_k2,
+                       aggregate_l.sum_extra
+                FROM (
+                    SELECT d1, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY k1, k2, d1
+                ) aggregate_l
+            ) l
+            JOIN (
+                SELECT aggregate_r.d1 AS nested_d1,
+                       aggregate_r.k2 AS nested_k2,
+                       aggregate_r.sum_extra
+                FROM (
+                    SELECT d1, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_right
+                    GROUP BY k1, k2, d1
+                ) aggregate_r
+            ) r
+              ON l.nested_d1 = r.nested_d1 AND l.nested_k2 = r.nested_k2
+        """
+    ]
+
     sql """ SET enable_colocate_mapping_constraint = false """
+    nestedSubqueryJoinQueries.each { query ->
+        explain {
+            sql query
+            notContains "COLOCATE"
+        }
+    }
     // The feature switch must not affect the original direct distribution-key colocate path.
     explain {
         sql """ SELECT *
@@ -247,6 +328,12 @@ suite("test_colocate_mapping_constraint") {
     }
 
     sql """ SET enable_colocate_mapping_constraint = true """
+    nestedSubqueryJoinQueries.each { query ->
+        explain {
+            sql query
+            contains "COLOCATE"
+        }
+    }
     // Cases supported before Aggregate propagation.
     explain {
         sql """ SELECT *

@@ -163,6 +163,27 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
     }
 
     @Test
+    void invalidDistributionMappingConstraintTest() {
+        Exception duplicateDeterminant = Assertions.assertThrows(Exception.class, () ->
+                ((AddConstraintCommand) new NereidsParser().parseSingle(
+                        "alter table t1 add constraint duplicate_determinant "
+                                + "colocate mapping mapping_1 (k2, K2) "
+                                + "determines distribution key (k1) not enforced"))
+                        .run(connectContext, null));
+        Assertions.assertTrue(duplicateDeterminant.getMessage().contains(
+                "Determinant columns in distribution mapping constraint must be unique"));
+
+        Exception invalidDistributionColumn = Assertions.assertThrows(Exception.class, () ->
+                ((AddConstraintCommand) new NereidsParser().parseSingle(
+                        "alter table t1 add constraint invalid_distribution_column "
+                                + "colocate mapping mapping_1 (k2) "
+                                + "determines distribution key (k2) not enforced"))
+                        .run(connectContext, null));
+        Assertions.assertTrue(invalidDistributionColumn.getMessage().contains(
+                "must be an ordered subset of table distribution columns"));
+    }
+
+    @Test
     void foreignKeyConstraintTest() throws Exception {
         AddConstraintCommand command = (AddConstraintCommand) new NereidsParser().parseSingle(
                 "alter table t1 add constraint fk foreign key (k1) references t2 (k1)");

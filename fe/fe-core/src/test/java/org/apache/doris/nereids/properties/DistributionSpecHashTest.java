@@ -404,12 +404,17 @@ public class DistributionSpecHashTest {
                         new DistributionMapping("mapping_1", ImmutableList.of(d1), ImmutableList.of(0)),
                         new DistributionMapping("mapping_2", ImmutableList.of(d2), ImmutableList.of(1))));
 
-        Assertions.assertTrue(natural.satisfy(new DistributionSpecHash(
-                ImmutableList.of(d1, k2), ShuffleType.COLOCATE_MAPPING_REQUIRE)));
-        Assertions.assertTrue(natural.satisfy(new DistributionSpecHash(
-                ImmutableList.of(d1, d2), ShuffleType.COLOCATE_MAPPING_REQUIRE)));
+        Assertions.assertTrue(new PhysicalProperties(natural).satisfy(
+                new PhysicalProperties(new DistributionSpecHash(
+                        ImmutableList.of(d1, k2), ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+        Assertions.assertTrue(new PhysicalProperties(natural).satisfy(
+                new PhysicalProperties(new DistributionSpecHash(
+                        ImmutableList.of(d1, d2), ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+        Assertions.assertFalse(new PhysicalProperties(natural).satisfy(
+                new PhysicalProperties(new DistributionSpecHash(
+                        ImmutableList.of(d1), ShuffleType.COLOCATE_MAPPING_REQUIRE))));
         Assertions.assertFalse(natural.satisfy(new DistributionSpecHash(
-                ImmutableList.of(d1), ShuffleType.COLOCATE_MAPPING_REQUIRE)));
+                ImmutableList.of(d1, k2), ShuffleType.COLOCATE_MAPPING_REQUIRE)));
         Assertions.assertFalse(natural.satisfy(new DistributionSpecHash(
                 ImmutableList.of(d1, k2), ShuffleType.REQUIRE)));
 

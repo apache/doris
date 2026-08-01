@@ -224,10 +224,6 @@ public class DistributionSpecHash extends DistributionSpec {
 
         DistributionSpecHash requiredHash = (DistributionSpecHash) required;
 
-        if (requiredHash.getShuffleType() == ShuffleType.COLOCATE_MAPPING_REQUIRE) {
-            return mappingContainsSatisfy(requiredHash.getOrderedShuffledColumns());
-        }
-
         if (this.orderedShuffledColumns.size() > requiredHash.orderedShuffledColumns.size()) {
             return false;
         }
@@ -237,26 +233,6 @@ public class DistributionSpecHash extends DistributionSpec {
         }
         return requiredHash.getShuffleType() == this.getShuffleType()
                 && equalsSatisfy(requiredHash.getOrderedShuffledColumns());
-    }
-
-    private boolean mappingContainsSatisfy(List<ExprId> required) {
-        if (shuffleType != ShuffleType.NATURAL) {
-            return false;
-        }
-        Set<ExprId> requiredExprIds = ImmutableSet.copyOf(required);
-        BitSet coveredIndices = new BitSet(orderedShuffledColumns.size());
-        for (ExprId exprId : requiredExprIds) {
-            Integer index = exprIdToEquivalenceSet.get(exprId);
-            if (index != null) {
-                coveredIndices.set(index);
-            }
-        }
-        for (DistributionMapping mapping : distributionMappings) {
-            if (requiredExprIds.containsAll(mapping.getDeterminantExprIds())) {
-                mapping.getTargetDistributionIndices().forEach(coveredIndices::set);
-            }
-        }
-        return coveredIndices.nextClearBit(0) >= orderedShuffledColumns.size();
     }
 
     private boolean containsSatisfy(List<ExprId> required) {
