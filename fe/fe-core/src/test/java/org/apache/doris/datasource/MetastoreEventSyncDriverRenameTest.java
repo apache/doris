@@ -19,11 +19,13 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.api.event.MetastoreChangeDescriptor.Op;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -33,6 +35,7 @@ public class MetastoreEventSyncDriverRenameTest {
     public void databaseRenameAlwaysCleansOldNameAndRegistersNewName() throws Exception {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getName()).thenReturn("test_catalog");
+        Connector connector = Mockito.mock(Connector.class);
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
@@ -41,18 +44,23 @@ public class MetastoreEventSyncDriverRenameTest {
 
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            Deencapsulation.invoke(new MetastoreEventSyncDriver(), "applyOne", catalog, descriptor);
+            Deencapsulation.invoke(
+                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
         }
 
-        Mockito.verify(catalogMgr).unregisterExternalDatabase("OldDb", "test_catalog");
-        Mockito.verify(catalogMgr).registerExternalDatabaseFromEvent("NewDb", "test_catalog");
-        Mockito.verifyNoMoreInteractions(catalogMgr);
+        InOrder inOrder = Mockito.inOrder(connector, catalogMgr);
+        inOrder.verify(connector).invalidateDb("OldDb");
+        inOrder.verify(connector).invalidateDb("NewDb");
+        inOrder.verify(catalogMgr).unregisterExternalDatabase("OldDb", "test_catalog");
+        inOrder.verify(catalogMgr).registerExternalDatabaseFromEvent("NewDb", "test_catalog");
+        Mockito.verifyNoMoreInteractions(connector, catalogMgr);
     }
 
     @Test
     public void tableRenameAlwaysCleansOldNameAndRegistersNewName() throws Exception {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getName()).thenReturn("test_catalog");
+        Connector connector = Mockito.mock(Connector.class);
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
@@ -61,13 +69,101 @@ public class MetastoreEventSyncDriverRenameTest {
 
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            Deencapsulation.invoke(new MetastoreEventSyncDriver(), "applyOne", catalog, descriptor);
+            Deencapsulation.invoke(
+                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
         }
 
-        Mockito.verify(catalogMgr).unregisterExternalTable(
+        InOrder inOrder = Mockito.inOrder(connector, catalogMgr);
+        inOrder.verify(connector).invalidateTable("OldDb", "OldTable");
+        inOrder.verify(connector).invalidateTable("NewDb", "NewTable");
+        inOrder.verify(catalogMgr).unregisterExternalTable(
                 "OldDb", "OldTable", "test_catalog", true);
-        Mockito.verify(catalogMgr).registerExternalTableFromEvent(
+        inOrder.verify(catalogMgr).registerExternalTableFromEvent(
                 "NewDb", "NewTable", "test_catalog", 2L, true);
-        Mockito.verifyNoMoreInteractions(catalogMgr);
+        Mockito.verifyNoMoreInteractions(connector, catalogMgr);
+    }
+
+    @Test
+    public void sameNameViewRecreateInvalidatesConnectorOnceBeforeReplacement() throws Exception {
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getName()).thenReturn("test_catalog");
+        Connector connector = Mockito.mock(Connector.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        MetastoreChangeDescriptor descriptor = MetastoreChangeDescriptor.forTableRename(
+                "db1", "view1", "db1", "view1", 1L, 2L);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Deencapsulation.invoke(
+                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
+        }
+
+        InOrder inOrder = Mockito.inOrder(connector, catalogMgr);
+        inOrder.verify(connector).invalidateTable("db1", "view1");
+        inOrder.verify(catalogMgr).unregisterExternalTable(
+                "db1", "view1", "test_catalog", true);
+        inOrder.verify(catalogMgr).registerExternalTableFromEvent(
+                "db1", "view1", "test_catalog", 2L, true);
+        Mockito.verifyNoMoreInteractions(connector, catalogMgr);
+    }
+
+    @Test
+    public void sameNameTableDropCreateInvalidatesBothIncarnations() throws Exception {
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getName()).thenReturn("test_catalog");
+        Connector connector = Mockito.mock(Connector.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        MetastoreChangeDescriptor drop = MetastoreChangeDescriptor.forTable(
+                Op.UNREGISTER_TABLE, "db1", "tbl1", null, 1L, 2L);
+        MetastoreChangeDescriptor create = MetastoreChangeDescriptor.forTable(
+                Op.REGISTER_TABLE, "db1", "tbl1", null, 2L, 3L);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            MetastoreEventSyncDriver driver = new MetastoreEventSyncDriver();
+            Deencapsulation.invoke(driver, "applyOne", catalog, connector, drop);
+            Deencapsulation.invoke(driver, "applyOne", catalog, connector, create);
+        }
+
+        InOrder inOrder = Mockito.inOrder(connector, catalogMgr);
+        inOrder.verify(connector).invalidateTable("db1", "tbl1");
+        inOrder.verify(catalogMgr).unregisterExternalTable(
+                "db1", "tbl1", "test_catalog", true);
+        inOrder.verify(connector).invalidateTable("db1", "tbl1");
+        inOrder.verify(catalogMgr).registerExternalTableFromEvent(
+                "db1", "tbl1", "test_catalog", 3L, true);
+        Mockito.verifyNoMoreInteractions(connector, catalogMgr);
+    }
+
+    @Test
+    public void sameNameDatabaseDropCreateInvalidatesBothIncarnations() throws Exception {
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getName()).thenReturn("test_catalog");
+        Connector connector = Mockito.mock(Connector.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        MetastoreChangeDescriptor drop = MetastoreChangeDescriptor.forDatabase(
+                Op.UNREGISTER_DATABASE, "db1", null, 1L, 2L);
+        MetastoreChangeDescriptor create = MetastoreChangeDescriptor.forDatabase(
+                Op.REGISTER_DATABASE, "db1", null, 2L, 3L);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            MetastoreEventSyncDriver driver = new MetastoreEventSyncDriver();
+            Deencapsulation.invoke(driver, "applyOne", catalog, connector, drop);
+            Deencapsulation.invoke(driver, "applyOne", catalog, connector, create);
+        }
+
+        InOrder inOrder = Mockito.inOrder(connector, catalogMgr);
+        inOrder.verify(connector).invalidateDb("db1");
+        inOrder.verify(catalogMgr).unregisterExternalDatabase("db1", "test_catalog");
+        inOrder.verify(connector).invalidateDb("db1");
+        inOrder.verify(catalogMgr).registerExternalDatabaseFromEvent("db1", "test_catalog");
+        Mockito.verifyNoMoreInteractions(connector, catalogMgr);
     }
 }

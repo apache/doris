@@ -629,6 +629,53 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testConcurrentDisabledSameStripeActionLoadsFenceOnlyMatchingKey() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newFixedThreadPool(2);
+        CountDownLatch bothLoadersStarted = new CountDownLatch(2);
+        CountDownLatch releaseLoaders = new CountDownLatch(1);
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        bothLoadersStarted.countDown();
+                        awaitLatch(releaseLoaders);
+                        return key.length();
+                    },
+                    CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false,
+                    MetaCacheEntry.singleKeyStripeCount());
+            AtomicInteger actionA = new AtomicInteger();
+            AtomicInteger actionB = new AtomicInteger();
+
+            Future<Integer> lookupA = queryExecutor.submit(
+                    () -> entry.getAndRunIfCurrent("a", (key, value) -> actionA.incrementAndGet()));
+            Future<Integer> lookupB = queryExecutor.submit(
+                    () -> entry.getAndRunIfCurrent("b", (key, value) -> actionB.incrementAndGet()));
+            Assert.assertTrue(bothLoadersStarted.await(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(2, entry.activeActionReferenceCountForTest());
+
+            entry.invalidateKey("a");
+            releaseLoaders.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), lookupA.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(Integer.valueOf(1), lookupB.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(0, actionA.get());
+            Assert.assertEquals(1, actionB.get());
+            // Disabled entries allow distinct same-stripe loads to overlap. The exact-key action fence must
+            // suppress only key "a", and neither result may enter the object cache.
+            Assert.assertNull(entry.getIfPresent("a"));
+            Assert.assertNull(entry.getIfPresent("b"));
+            Assert.assertEquals(0, entry.activeActionReferenceCountForTest());
+        } finally {
+            releaseLoaders.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testInvalidateIfFencesOnlyMatchingCurrentValueAction() throws Exception {
         assertInvalidateIfCurrentValueAction("b", 1);
         assertInvalidateIfCurrentValueAction("a", 0);

@@ -22,6 +22,8 @@ import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 
 import com.google.common.collect.Lists;
@@ -35,6 +37,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Re-migrates #63068's {@code ExternalDatabaseSessionContextTest} onto the SPI architecture: the DATA-FLOW proof
@@ -89,6 +92,72 @@ public class ExternalDatabaseSessionContextTest {
     }
 
     @Test
+    public void delegatedSessionDatabaseLookupGoesLivePerTokenAndNeverSharesTheCache() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog();
+        SessionContext ctxA = ctxFor("token_a");
+        SessionContext ctxB = ctxFor("token_b");
+        try (MockedStatic<SessionContext> sc = Mockito.mockStatic(SessionContext.class)) {
+            sc.when(SessionContext::current).thenReturn(ctxA);
+            ExternalDatabase<? extends ExternalTable> firstA = catalog.getDbNullable("db_a");
+            sc.when(SessionContext::current).thenReturn(ctxB);
+            ExternalDatabase<? extends ExternalTable> leakedA = catalog.getDbNullable("db_a");
+            sc.when(SessionContext::current).thenReturn(ctxA);
+            ExternalDatabase<? extends ExternalTable> secondA = catalog.getDbNullable("db_a");
+
+            Assertions.assertNotNull(firstA);
+            Assertions.assertEquals("db_a", firstA.getFullName());
+            Assertions.assertEquals("db_a", firstA.getRemoteName());
+            Assertions.assertNull(leakedA, "token_b must not resolve token_a's database");
+            Assertions.assertNotNull(secondA);
+            Assertions.assertNotSame(firstA, secondA, "the bypass must not reuse a shared database object");
+            Assertions.assertEquals(Lists.newArrayList("token_a", "token_b", "token_a"),
+                    catalog.tokensUsedToListDatabases);
+            Assertions.assertFalse(catalog.hasSharedDatabaseCacheState(firstA.getId()),
+                    "live database lookup must not publish names, object, or ID state");
+        }
+    }
+
+    @Test
+    public void delegatedSessionTableNamesAndLookupGoLivePerTokenAndNeverShareTheCache() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog(0);
+        SessionAwareDatabase db = new SessionAwareDatabase(catalog, 5L, "db1", "db1");
+        SessionContext ctxA = ctxFor("token_a");
+        SessionContext ctxB = ctxFor("token_b");
+        try (MockedStatic<SessionContext> sc = Mockito.mockStatic(SessionContext.class)) {
+            sc.when(SessionContext::current).thenReturn(ctxA);
+            Set<String> tableNames = db.getTableNamesWithLock();
+            PluginDrivenExternalTable firstA = db.getTableNullable("table_a");
+            sc.when(SessionContext::current).thenReturn(ctxB);
+            PluginDrivenExternalTable leakedA = db.getTableNullable("table_a");
+            sc.when(SessionContext::current).thenReturn(ctxA);
+            PluginDrivenExternalTable secondA = db.getTableNullable("table_a");
+
+            Assertions.assertEquals(1, tableNames.size());
+            Assertions.assertTrue(tableNames.contains("table_a"));
+            Assertions.assertNotNull(firstA);
+            Assertions.assertEquals("table_a", firstA.getName());
+            Assertions.assertEquals("table_a", firstA.getRemoteName());
+            Assertions.assertNull(leakedA, "token_b must not resolve token_a's table");
+            Assertions.assertNotNull(secondA);
+            Assertions.assertNotSame(firstA, secondA, "the bypass must not reuse a shared table object");
+            Assertions.assertEquals(Lists.newArrayList("token_a", "token_a", "token_b", "token_a"),
+                    catalog.tokensUsedToListTables);
+            assertSharedTableCacheStaysCold(db, firstA);
+        }
+
+        SessionAwareCatalog mixedCatalog = new SessionAwareCatalog(2);
+        SessionAwareDatabase mixedDb = new SessionAwareDatabase(mixedCatalog, 6L, "db1", "db1");
+        withSession("token_mixed", () -> {
+            PluginDrivenExternalTable table = mixedDb.getTableNullable("table_a");
+            Assertions.assertNotNull(table);
+            Assertions.assertEquals("Table_A", table.getName());
+            Assertions.assertEquals("Table_A", table.getRemoteName());
+            assertSharedTableCacheStaysCold(mixedDb, table);
+        });
+        Assertions.assertEquals(Lists.newArrayList("token_mixed"), mixedCatalog.tokensUsedToListTables);
+    }
+
+    @Test
     public void delegatedSessionModeZeroIsTableExistUsesPointLookup() {
         SessionAwareCatalog catalog = new SessionAwareCatalog(0);
         TestExternalDatabase db = new TestExternalDatabase(catalog, 2L, "db1", "db1");
@@ -127,6 +196,13 @@ public class ExternalDatabaseSessionContextTest {
             sc.when(SessionContext::current).thenReturn(context);
             action.run();
         }
+    }
+
+    private static void assertSharedTableCacheStaysCold(
+            SessionAwareDatabase db, PluginDrivenExternalTable table) {
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest(table.getName()));
+        Assertions.assertNull(db.getCachedTableNameByIdForTest(table.getId()));
     }
 
     /**
@@ -205,6 +281,17 @@ public class ExternalDatabaseSessionContextTest {
             props.put("type", "iceberg");
             props.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, String.valueOf(lowerCaseTableNames));
             return props;
+        }
+
+        boolean hasSharedDatabaseCacheState(long dbId) {
+            return databaseNames != null || databases != null || dbIdNameIndex.getName(dbId) != null;
+        }
+    }
+
+    private static final class SessionAwareDatabase extends PluginDrivenExternalDatabase {
+        SessionAwareDatabase(ExternalCatalog catalog, long id, String name, String remoteName) {
+            super(catalog, id, name, remoteName);
+            initialized = true;
         }
     }
 }

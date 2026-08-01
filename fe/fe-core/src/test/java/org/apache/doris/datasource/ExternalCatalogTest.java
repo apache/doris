@@ -489,6 +489,21 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testUnregisterDatabaseKeepsUninitializedModeTwoCatalogCold() {
+        UninitializedModeTwoCatalog catalog = new UninitializedModeTwoCatalog();
+
+        Assertions.assertFalse(catalog.isInitialized());
+        catalog.unregisterDatabase("MixedDb");
+
+        Assertions.assertFalse(catalog.isInitialized());
+        Assertions.assertEquals(0, catalog.getRemoteDatabaseMappingCalls());
+        Assertions.assertEquals(0, catalog.getListDatabaseNamesCount());
+        Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("MixedDb"));
+        Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(1L));
+    }
+
+    @Test
     public void testCaseInsensitiveDatabaseUnregisterFallsBackToHotObjectWhenNamesAreCold() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog(2);
         catalog.setInitializedForTest(true);
@@ -703,6 +718,10 @@ public class ExternalCatalogTest extends TestWithFeService {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
         long dbId = Util.genIdByName(catalog.getName(), "db_by_id");
+
+        Assertions.assertNull(catalog.getDbNullable(dbId + 1));
+        Assertions.assertEquals(0, catalog.getBuildDatabaseCallCount());
+
         TestExternalDatabase eventDb = new TestExternalDatabase(catalog, dbId, "db_by_id", "db_by_id");
         catalog.simulateIncrementalRegisterDatabase(eventDb);
 
@@ -786,6 +805,8 @@ public class ExternalCatalogTest extends TestWithFeService {
 
         // Replay-by-ID must stay cache-only even before the catalog finishes initialization.
         Assertions.assertTrue(catalog.getDbForReplay(9999L).isEmpty());
+        Assertions.assertTrue(catalog.getDbForReplay("missing").isEmpty());
+        Assertions.assertTrue(catalog.getDbNameForReplay(9999L).isEmpty());
         Assertions.assertEquals(0, catalog.getBuildDatabaseCallCount());
     }
 
@@ -973,6 +994,43 @@ public class ExternalCatalogTest extends TestWithFeService {
             Assertions.assertEquals(123L, eventTable.getUpdateTime());
             Assertions.assertNull(db.getCachedTableNamesForTest());
             Assertions.assertEquals("tbl1", db.getCachedTableNameByIdForTest(tableId));
+            Assertions.assertEquals(0, db.getTableLookupCount());
+        } finally {
+            nameToCatalog.remove(catalog.getName());
+            mgr.getIdToCatalog().remove(catalog.getId());
+        }
+    }
+
+    // Keep the mode 2 register path on the exact remote spelling so later DROP_TABLE can hit the same key.
+    @Test
+    public void testExternalTableCreateEventPreservesModeTwoOriginalCase() throws Exception {
+        EventTestCatalog catalog = new EventTestCatalog(2204L, "event_mode_two_create", 2, false);
+        EventTestDatabase db = new EventTestDatabase(catalog, 222L, "db_ci", "db_ci");
+        catalog.setDatabase(db);
+        catalog.setInitializedForTest(true);
+        db.setInitializedForTest(true);
+
+        @SuppressWarnings("unchecked")
+        Map<String, CatalogIf> nameToCatalog = Deencapsulation.getField(mgr, "nameToCatalog");
+        nameToCatalog.put(catalog.getName(), catalog);
+        mgr.getIdToCatalog().put(catalog.getId(), catalog);
+        try {
+            mgr.registerExternalTableFromEvent("db_ci", "MixedTbl", catalog.getName(), 123L, true);
+
+            long mixedCaseId = Util.genIdByName(catalog.getName(), db.getFullName(), "MixedTbl");
+            long lowerCaseId = Util.genIdByName(catalog.getName(), db.getFullName(), "mixedtbl");
+            Assertions.assertEquals(0, db.getTableLookupCount());
+            Assertions.assertNull(db.getCachedTableNamesForTest());
+            Assertions.assertNull(db.getCachedTableForTest("MixedTbl"));
+            Assertions.assertEquals("MixedTbl", db.getCachedTableNameByIdForTest(mixedCaseId));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(lowerCaseId));
+
+            // Hive treats table names case-insensitively. A later DROP event may use another spelling, but mode 2
+            // must still resolve it to the exact retained CREATE identity and remove that ID mapping.
+            mgr.unregisterExternalTable("db_ci", "mixedTBL", catalog.getName(), true);
+
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(mixedCaseId));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(lowerCaseId));
             Assertions.assertEquals(0, db.getTableLookupCount());
         } finally {
             nameToCatalog.remove(catalog.getName());
@@ -1687,6 +1745,24 @@ public class ExternalCatalogTest extends TestWithFeService {
         @Override
         public String fromRemoteDatabaseName(String remoteDatabaseName) {
             return "LocalX";
+        }
+    }
+
+    private static class UninitializedModeTwoCatalog extends NameMissCatalog {
+        private final AtomicInteger remoteDatabaseMappingCalls = new AtomicInteger();
+
+        UninitializedModeTwoCatalog() {
+            super(2);
+        }
+
+        @Override
+        public String fromRemoteDatabaseName(String remoteDatabaseName) {
+            remoteDatabaseMappingCalls.incrementAndGet();
+            return super.fromRemoteDatabaseName(remoteDatabaseName);
+        }
+
+        int getRemoteDatabaseMappingCalls() {
+            return remoteDatabaseMappingCalls.get();
         }
     }
 

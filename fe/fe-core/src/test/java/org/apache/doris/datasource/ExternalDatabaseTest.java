@@ -130,6 +130,33 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testLowerCaseTableUnregisterUsesLowerCaseInvalidationKey() {
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "MixedTbl");
+            NameMissTableCatalog catalog = new NameMissTableCatalog(1);
+            InspectableDatabase db = new InspectableDatabase(catalog, 225L, "db1", "db1");
+            db.setInitializedForTest(true);
+
+            TestExternalTable table = db.getTableNullable("MIXEDTBL");
+            Assertions.assertNotNull(table);
+            Assertions.assertEquals("mixedtbl", table.getName());
+            Assertions.assertEquals("MixedTbl", table.getRemoteName());
+            Assertions.assertTrue(db.getCachedTableNamesForTest().containsLocalName("mixedtbl"));
+            Assertions.assertSame(table, db.getCachedTableForTest("mixedtbl"));
+            Assertions.assertEquals("mixedtbl", db.getCachedTableNameByIdForTest(table.getId()));
+
+            db.unregisterTable("MixedTbl");
+
+            Assertions.assertFalse(db.getCachedTableNamesForTest().containsLocalName("mixedtbl"));
+            Assertions.assertNull(db.getCachedTableForTest("mixedtbl"));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(table.getId()));
+        } finally {
+            NameMissTableCatalogProvider.reset();
+        }
+    }
+
+    @Test
     public void testCaseInsensitiveTableUnregisterFallsBackToHotObjectWhenNamesAreCold() {
         CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 230L, "db_ci", "db_ci");
@@ -425,6 +452,10 @@ public class ExternalDatabaseTest extends TestWithFeService {
         InspectableDatabase db = new InspectableDatabase(catalog, 301L, "db1", "db1");
         db.setInitializedForTest(true);
         long tableId = Util.genIdByName(catalog.getName(), db.getFullName(), "tbl_base");
+
+        Assertions.assertNull(db.getTableNullable(tableId + 1));
+        Assertions.assertEquals(0, db.getBuildTableCallCount());
+
         extractTableIdNameIndex(db).put(tableId, "tbl_base");
 
         Assertions.assertNull(db.getCachedTableForTest("tbl_base"));
@@ -472,6 +503,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
 
         // Replay-by-ID must stay cache-only even before the database finishes initialization.
         Assertions.assertTrue(db.getTableForReplay(9999L).isEmpty());
+        Assertions.assertTrue(db.getTableForReplay("missing").isEmpty());
         Assertions.assertTrue(db.getTableNameForReplay(9999L).isEmpty());
         Assertions.assertEquals(0, db.getBuildTableCallCount());
     }
