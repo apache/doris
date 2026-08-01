@@ -1693,7 +1693,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle base = (IcebergTableHandle) baseTableHandle;
         return Optional.of(IcebergTableHandle.forSystemTable(
                 base.getDbName(), base.getTableName(), sys,
-                base.getSnapshotId(), base.getRef(), base.getSchemaId()));
+                base.getSnapshotId(), base.getRef(), base.getSchemaId(), base.isSnapshotResolved()));
     }
 
     /**
@@ -2128,8 +2128,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * Threads a resolved MVCC / time-travel pin onto the handle BEFORE the scan reads it (the generic
      * {@code PluginDrivenScanNode} calls this via {@code applyMvccSnapshotPin}). Reads the typed
      * {@code snapshotId}/{@code schemaId} and the {@code iceberg.scan.ref} property; an empty-table / query-begin
-     * latest pin ({@code snapshotId<0} and no ref) returns the handle UNCHANGED (read latest — a
-     * {@code useSnapshot(-1)} would be a non-existent snapshot; mirrors paimon's {@code -1} guard).
+     * latest pin ({@code snapshotId<0} and no ref) remains unpinned for scanning because
+     * {@code useSnapshot(-1)} would be invalid, but is recorded as an explicitly resolved empty snapshot.
      */
     @Override
     public ConnectorTableHandle applySnapshot(ConnectorSession session,
@@ -2140,9 +2140,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         String ref = snapshot.getProperties().get(REF_PROPERTY);
         long snapshotId = snapshot.getSnapshotId();
-        if (snapshotId < 0 && ref == null) {
-            return iceHandle;
-        }
         return iceHandle.withSnapshot(snapshotId, ref, snapshot.getSchemaId());
     }
 

@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
@@ -55,6 +56,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
@@ -1113,6 +1116,38 @@ public class IcebergWritePlanProviderTest {
 
         Assertions.assertEquals(Long.valueOf(pinnedReadSnapshot), txn.getBaseSnapshotId(),
                 "planWrite must thread the handle's pinned read snapshot into beginWrite as baseSnapshotId");
+    }
+
+    @Test
+    public void planMergePreservesExplicitlyEmptyReadAcrossConcurrentFirstAppend() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "tv2");
+        Table empty = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "2"));
+        RecordingConnectorContext ctx = contextWithStorage();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = empty;
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        ConnectorMvccSnapshot emptySnapshot = metadata.beginQuerySnapshot(null,
+                new IcebergTableHandle("db1", "tv2")).orElseThrow(AssertionError::new);
+        IcebergTableHandle emptyPinnedHandle = (IcebergTableHandle) metadata.applySnapshot(
+                null, new IcebergTableHandle("db1", "tv2"), emptySnapshot);
+
+        empty.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath("s3://bucket/db1/tv2/concurrent.parquet")
+                .withFileSizeInBytes(100)
+                .withRecordCount(1)
+                .withFormat(FileFormat.PARQUET)
+                .build()).commit();
+        ops.table = catalog.loadTable(id);
+        Assertions.assertNotNull(ops.table.currentSnapshot(), "the concurrent append must create S1");
+
+        IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
+        providerFor(ops.table, ctx).planWrite(new WriteSession(txn),
+                new WriteHandle(emptyPinnedHandle).writeOperation(WriteOperation.MERGE));
+
+        Assertions.assertNull(txn.getBaseSnapshotId(),
+                "an explicitly empty read must leave RowDelta validation unbounded across the first append");
     }
 
     // ───────────────────────────── MERGE sink (TIcebergMergeSink) ─────────────────────────────

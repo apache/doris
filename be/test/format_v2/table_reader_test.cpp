@@ -4857,6 +4857,84 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
     }
 }
 
+TEST(TableReaderTest, TrivialArrayChildProjectsNullableStructParentMask) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto element_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_element_struct_type = make_nullable(element_struct_type);
+    const auto array_type = std::make_shared<DataTypeArray>(nullable_element_struct_type);
+    const auto table_struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {array_type, int_type}, Strings {"items", "added"}));
+    const auto file_struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {array_type}, Strings {"items"}));
+
+    auto table_items = make_table_column(0, "items", array_type);
+    table_items.type = array_type;
+    auto table_element = make_table_column(0, "element", element_struct_type);
+    table_element.type = element_struct_type;
+    auto table_value = make_table_column(0, "value", int_type);
+    table_value.type = int_type;
+    table_element.children = {table_value};
+    table_items.children = {table_element};
+    auto table_added = make_table_column(1, "added", int_type);
+    table_added.type = int_type;
+    auto table_struct = make_table_column(0, "payload", table_struct_type);
+    table_struct.type = table_struct_type;
+    table_struct.children = {table_items, table_added};
+
+    auto file_items = make_file_column(0, "items", array_type);
+    file_items.type = array_type;
+    auto file_element = make_file_column(0, "element", element_struct_type);
+    file_element.type = element_struct_type;
+    auto file_value = make_file_column(0, "value", int_type);
+    file_value.type = int_type;
+    file_element.children = {file_value};
+    file_items.children = {file_element};
+    auto file_struct = make_file_column(0, "payload", file_struct_type);
+    file_struct.type = file_struct_type;
+    file_struct.children = {file_items};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_FALSE(mapper.mappings()[0].is_trivial);
+    ASSERT_TRUE(mapper.mappings()[0].child_mappings[0].is_trivial);
+
+    auto values = ColumnInt32::create();
+    values->get_data().assign({0, 7});
+    auto value_null_map = ColumnUInt8::create();
+    value_null_map->get_data().assign({1, 0});
+    MutableColumns element_children;
+    element_children.push_back(
+            ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto element_null_map = ColumnUInt8::create(2, 0);
+    auto array_values = ColumnNullable::create(ColumnStruct::create(std::move(element_children)),
+                                               std::move(element_null_map));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({1, 2});
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnArray::create(std::move(array_values), std::move(offsets)));
+    auto parent_null_map = ColumnUInt8::create();
+    parent_null_map->get_data().assign({1, 0});
+    ColumnPtr file_data = ColumnNullable::create(ColumnStruct::create(std::move(struct_children)),
+                                                 std::move(parent_null_map));
+
+    TableReaderCastTestHelper reader;
+    ColumnPtr result;
+    const auto status =
+            reader._materialize_struct_mapping_column(mapper.mappings()[0], file_data, 2, &result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result_struct = assert_cast<const ColumnStruct&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    const auto& result_array = assert_cast<const ColumnArray&>(result_struct.get_column(0));
+    const auto& result_elements = assert_cast<const ColumnNullable&>(result_array.get_data());
+    const auto& result_element_struct =
+            assert_cast<const ColumnStruct&>(result_elements.get_nested_column());
+    ASSERT_FALSE(result_element_struct.get_column(0).is_nullable());
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(result_element_struct.get_column(0)).get_element(1),
+              7);
+}
+
 TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::vector<ColumnDefinition> projected_columns = {

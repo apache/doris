@@ -394,13 +394,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             // scan used, S_read), threaded onto the write handle and carried on the ctx. The commit-time
             // removeDeletes (option D) re-derives from baseSnapshotId, and BE unions the scan-time (S_read)
             // old deletes into the new DV — anchoring both at S_read keeps supply and remove on one snapshot
-            // (no resurrection under a concurrent commit in the read->begin-write window). A -1 readSnapshotId
-            // (no pin: a caller without the threaded handle) falls back to the begin-time current snapshot.
+            // (no resurrection under a concurrent commit in the read->begin-write window).
             long pinnedReadSnapshot = ctx.getReadSnapshotId();
-            // Keep both ternary arms boxed (Long): getSnapshotIdIfPresent returns null for an empty table
-            // (no snapshot), and a primitive arm would force-unbox that null into an NPE.
-            this.baseSnapshotId = pinnedReadSnapshot >= 0
-                    ? Long.valueOf(pinnedReadSnapshot) : getSnapshotIdIfPresent(table);
+            if (ctx.isReadSnapshotResolved()) {
+                // An explicitly empty read stays null so validation covers a concurrent first append.
+                this.baseSnapshotId = pinnedReadSnapshot >= 0 ? Long.valueOf(pinnedReadSnapshot) : null;
+            } else {
+                this.baseSnapshotId = getSnapshotIdIfPresent(table);
+            }
             if (table instanceof HasTableOperations) {
                 int formatVersion = ((HasTableOperations) table).operations().current().formatVersion();
                 if (formatVersion < 2) {

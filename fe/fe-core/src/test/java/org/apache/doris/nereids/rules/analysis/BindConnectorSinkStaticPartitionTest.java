@@ -172,6 +172,17 @@ public class BindConnectorSinkStaticPartitionTest {
                 "a historical source pin must not replace the latest write-target schema");
     }
 
+    @Test
+    public void explicitColumnListLoadsLatestTargetSchemaOnce() {
+        PluginDrivenExternalTable table = partitionedTable();
+
+        List<Column> bound = BindSink.selectConnectorSinkBindColumns(
+                table, ImmutableList.of("id", "val", "region"), Collections.emptySet(), false);
+
+        Assertions.assertEquals(ImmutableList.of("id", "val", "region"), names(bound));
+        Mockito.verify(table, Mockito.times(1)).getFullSchema(Optional.empty());
+    }
+
     /**
      * A column whose value comes from the PARTITION clause must not ALSO be listed in the insert column
      * list. Encodes WHY: the materialize block re-projects the PARTITION literal over that column, so the

@@ -390,13 +390,15 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // Carry it on the op-context so beginWrite anchors the RowDelta baseSnapshotId at S_read, keeping
         // the commit-time removeDeletes (option D) and BE's scan-time DV union on one snapshot. -1 (no pin)
         // preserves the legacy begin-time current snapshot.
-        long readSnapshotId = handle.getTableHandle() instanceof IcebergTableHandle
-                ? ((IcebergTableHandle) handle.getTableHandle()).getSnapshotId() : -1L;
+        IcebergTableHandle readHandle = handle.getTableHandle() instanceof IcebergTableHandle
+                ? (IcebergTableHandle) handle.getTableHandle() : null;
+        long readSnapshotId = readHandle != null ? readHandle.getSnapshotId() : -1L;
+        boolean readSnapshotResolved = readHandle != null && readHandle.isSnapshotResolved();
         // Branch-targeted INSERT (INSERT INTO tbl@branch): the branch is threaded from the generic insert
         // command context onto the write handle; beginWrite validates it against the table refs and points
         // the commit at the branch. Empty for a default-ref write.
         return new IcebergWriteContext(op, handle.isOverwrite(), handle.getStaticPartitionSpec(),
-                handle.getBranchName(), readSnapshotId, schemaContext);
+                handle.getBranchName(), readSnapshotId, readSnapshotResolved, schemaContext);
     }
 
     private TIcebergTableSink buildSink(Table table, IcebergTableHandle tableHandle,
