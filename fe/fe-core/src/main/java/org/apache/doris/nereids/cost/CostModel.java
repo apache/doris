@@ -360,7 +360,9 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     exprCost / 100 + inputStatistics.getRowCount() / beNumber,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
-            int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
+            boolean isPartitioned = !aggregate.getGroupByExpressions().isEmpty()
+                    || aggregate.getPartitionExpressions().filter(expressions -> !expressions.isEmpty()).isPresent();
+            int factor = isPartitioned ? beNumber : 1;
             // global
             return Cost.of(context.getSessionVariable(),
                     exprCost / 100 + inputStatistics.getRowCount() / factor,
