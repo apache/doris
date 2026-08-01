@@ -970,7 +970,7 @@ jobs:
           trap 'rm -f "$remote_auth"' EXIT
           chmod 600 "$remote_auth"
           if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            --retry-times=2 --connect-timeout=10 --read-timeout=30 \
+            --retry-times=3 --connect-timeout=10 --read-timeout=30 \
             cp -f "$CODEX_AUTH_OSS_OBJECT" "$remote_auth" >/dev/null; then
             echo "::error::Could not verify the current OSS auth after 3 attempts."
             exit 1
@@ -983,7 +983,7 @@ jobs:
           fi
 
           if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            --retry-times=2 --connect-timeout=10 --read-timeout=30 \
+            --retry-times=3 --connect-timeout=10 --read-timeout=30 \
             cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT" >/dev/null; then
             echo "::error::Could not persist the refreshed Codex auth after 3 attempts."
             exit 1
