@@ -242,7 +242,8 @@ public class PaimonUtil {
         for (PaimonPartitionCandidate candidate : candidates) {
             PartitionEntry entry = candidate.partitionEntry;
             Partition partition = new Partition(candidate.typedSpec, entry.recordCount(),
-                    entry.fileSizeInBytes(), entry.fileCount(), entry.lastFileCreationTime(), false);
+                    entry.fileSizeInBytes(), entry.fileCount(), entry.lastFileCreationTime(),
+                    entry.totalBuckets(), false);
             nameToPartitionItem.put(candidate.displayName, candidate.partitionItem);
             nameToPartition.put(candidate.displayName, partition);
         }

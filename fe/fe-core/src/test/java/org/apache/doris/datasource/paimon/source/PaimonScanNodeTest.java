@@ -95,6 +95,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PaimonScanNodeTest {
@@ -1438,8 +1439,7 @@ public class PaimonScanNodeTest {
                 Collections.<String>emptyList());
         DataSplit dataSplit = Mockito.mock(DataSplit.class);
         Mockito.when(dataSplit.rowCount()).thenReturn(rowCount);
-        Mockito.when(dataSplit.mergedRowCountAvailable()).thenReturn(true);
-        Mockito.when(dataSplit.mergedRowCount()).thenReturn(rowCount);
+        Mockito.when(dataSplit.mergedRowCount()).thenReturn(OptionalLong.of(rowCount));
         Mockito.when(dataSplit.partition()).thenReturn(BinaryRow.singleColumn(1));
         Mockito.when(dataSplit.dataFiles()).thenReturn(Collections.singletonList(dataFileMeta));
         Mockito.when(dataSplit.convertToRawFiles()).thenReturn(Optional.empty());

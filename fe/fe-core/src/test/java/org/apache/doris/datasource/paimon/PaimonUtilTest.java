@@ -84,7 +84,7 @@ public class PaimonUtilTest {
     }
 
     private static PartitionEntry partitionEntry(BinaryRow partition, long sequence) {
-        return new PartitionEntry(partition, sequence, sequence, sequence, sequence);
+        return new PartitionEntry(partition, sequence, sequence, sequence, sequence, 1);
     }
 
     @Test
