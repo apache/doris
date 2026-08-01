@@ -90,11 +90,6 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         return castNullable(child().nullable(), child().getDataType(), targetType);
     }
 
-    /** Nullability of this cast when invalid input fails instead of producing NULL. */
-    public boolean strictModeNullable() {
-        return child().nullable();
-    }
-
     /**
      * process cast nullable.
      * @param srcNullable src expr is nullable if true

@@ -398,6 +398,57 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteValidatesFullBoundSchemaForPartialInsert() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        List<ConnectorColumn> fullBoundSchema = Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, null)
+                        .withUniqueId(table.schema().findField("id").fieldId()),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
+                        .withUniqueId(table.schema().findField("name").fieldId()));
+        WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t2"))
+                .columns(Collections.singletonList(fullBoundSchema.get(0)))
+                .boundTargetColumns(fullBoundSchema);
+
+        TIcebergTableSink sink = planSink(table, contextWithStorage(), handle);
+
+        Assertions.assertEquals(SchemaParser.toJson(table.schema()), sink.getSchemaJson());
+    }
+
+    @Test
+    public void planWriteIgnoresReservedRowLineageColumnsDuringSchemaValidation() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        List<ConnectorColumn> fullBoundSchema = Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, null)
+                        .withUniqueId(table.schema().findField("id").fieldId()),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
+                        .withUniqueId(table.schema().findField("name").fieldId()),
+                new ConnectorColumn("_row_id", ConnectorType.of("BIGINT"), "", true, null)
+                        .invisible().reservedPassthrough(),
+                new ConnectorColumn("_last_updated_sequence_number", ConnectorType.of("BIGINT"), "", true, null)
+                        .invisible().reservedPassthrough());
+        WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t2"))
+                .columns(Collections.singletonList(fullBoundSchema.get(0)))
+                .boundTargetColumns(fullBoundSchema);
+
+        Assertions.assertDoesNotThrow(() -> planSink(table, contextWithStorage(), handle));
+    }
+
+    @Test
+    public void planWriteRejectsRecreatedColumnWithSameNameAndType() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t2")).columns(Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, null)
+                        .withUniqueId(table.schema().findField("id").fieldId()),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
+                        .withUniqueId(table.schema().findField("name").fieldId())));
+        table.updateSchema().deleteColumn("name").commit();
+        table.updateSchema().addColumn("name", Types.StringType.get()).commit();
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(table, contextWithStorage(), handle));
+    }
+
+    @Test
     public void planWriteRejectsSchemaReorderedAfterBinding() {
         Table table = unpartitionedUnsortedTable(freshCatalog());
         WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t2")).columns(Arrays.asList(
@@ -1335,6 +1386,7 @@ public class IcebergWritePlanProviderTest {
         private Optional<String> branchName = Optional.empty();
         private boolean requireMergeCardinalityCheck;
         private List<ConnectorColumn> columns = Collections.emptyList();
+        private List<ConnectorColumn> boundTargetColumns;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -1348,6 +1400,16 @@ public class IcebergWritePlanProviderTest {
         WriteHandle columns(List<ConnectorColumn> v) {
             this.columns = v;
             return this;
+        }
+
+        WriteHandle boundTargetColumns(List<ConnectorColumn> v) {
+            this.boundTargetColumns = v;
+            return this;
+        }
+
+        @Override
+        public List<ConnectorColumn> getBoundTargetColumns() {
+            return boundTargetColumns == null ? columns : boundTargetColumns;
         }
 
         @Override

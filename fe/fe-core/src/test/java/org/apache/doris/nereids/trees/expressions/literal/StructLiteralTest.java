@@ -75,24 +75,24 @@ public class StructLiteralTest {
     }
 
     @Test
-    public void testStructFunctionsKeepStrictPreCastChildrenRequired() {
+    public void testStructFunctionsKeepPhysicalCastNullabilityInStrictMode() {
         SlotReference requiredString = new SlotReference("metric", StringType.INSTANCE, false);
         Cast cast = new Cast(requiredString, IntegerType.INSTANCE);
         TryCast tryCast = new TryCast(requiredString, IntegerType.INSTANCE);
 
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
-            // Expression nullability is an immutable plan property; strict-mode refinement belongs
-            // only to the struct type being constructed for the current session.
+            // Strict-mode failure semantics do not change the BE column representation: narrowing
+            // casts still return ColumnNullable with an all-clear map for valid rows.
             Assertions.assertTrue(cast.nullable());
 
             CreateStruct struct = new CreateStruct(cast);
             StructType structType = (StructType) struct.getSignatures().get(0).returnType;
-            Assertions.assertFalse(structType.getFields().get(0).isNullable());
+            Assertions.assertTrue(structType.getFields().get(0).isNullable());
 
             CreateNamedStruct namedStruct = new CreateNamedStruct(new StringLiteral("metric"), cast);
             StructType namedStructType = (StructType) namedStruct.customSignature().returnType;
-            Assertions.assertFalse(namedStructType.getFields().get(0).isNullable());
+            Assertions.assertTrue(namedStructType.getFields().get(0).isNullable());
 
             CreateNamedStruct namedTryStruct = new CreateNamedStruct(new StringLiteral("metric"), tryCast);
             StructType namedTryStructType = (StructType) namedTryStruct.customSignature().returnType;

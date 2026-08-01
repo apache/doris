@@ -1048,6 +1048,7 @@ public:
     using TableReader::_materialize_present_child_mapping_column;
     using TableReader::_materialize_struct_mapping_column;
     using TableReader::_project_collection_parent_null_map;
+    using TableReader::_requires_collection_parent_null_map;
     using TableReader::_requires_parent_null_map_for_alignment;
 };
 
@@ -4953,6 +4954,15 @@ TEST(TableReaderTest, ParentMaskProjectionOnlyWhenRequiredDescendantCanConsumeIt
             ColumnNullable::create(values->clone(), std::move(null_map));
     EXPECT_TRUE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(
             nullable_values_with_null, int_type));
+
+    NullMap all_clear_parent_mask(2, 0);
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &all_clear_parent_mask, nullable_values_with_null, int_type));
+    NullMap hidden_parent_mask {1, 0};
+    EXPECT_TRUE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &hidden_parent_mask, nullable_values_with_null, int_type));
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            nullptr, nullable_values_with_null, int_type));
 }
 
 TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn) {

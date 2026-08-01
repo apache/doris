@@ -35,6 +35,8 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -45,6 +47,8 @@ import java.util.stream.Collectors;
  * Physical table sink for plugin-driven connector catalogs.
  */
 public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
+
+    private final List<Column> boundTargetSchema;
 
     // Rewrite (compaction) marker, threaded from LogicalConnectorTableSink.isRewrite. When set,
     // getRequirePhysicalProperties() short-circuits to GATHER (single writer) so a rewrite_data_files
@@ -58,13 +62,14 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
      */
     public PhysicalConnectorTableSink(ExternalDatabase database,
                                       ExternalTable targetTable,
+                                      List<Column> boundTargetSchema,
                                       List<Column> cols,
                                       List<NamedExpression> outputExprs,
                                       Optional<GroupExpression> groupExpression,
                                       LogicalProperties logicalProperties,
                                       boolean isRewrite,
                                       CHILD_TYPE child) {
-        this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
+        this(database, targetTable, boundTargetSchema, cols, outputExprs, groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, isRewrite, child);
     }
 
@@ -73,6 +78,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
      */
     public PhysicalConnectorTableSink(ExternalDatabase database,
                                       ExternalTable targetTable,
+                                      List<Column> boundTargetSchema,
                                       List<Column> cols,
                                       List<NamedExpression> outputExprs,
                                       Optional<GroupExpression> groupExpression,
@@ -83,14 +89,16 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                       CHILD_TYPE child) {
         super(PlanType.PHYSICAL_CONNECTOR_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
+        this.boundTargetSchema = ImmutableList.copyOf(boundTargetSchema);
         this.isRewrite = isRewrite;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
-                (ExternalDatabase) database, (ExternalTable) targetTable, cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, isRewrite, children.get(0)));
+                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, cols,
+                outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                isRewrite, children.get(0)));
     }
 
     @Override
@@ -101,23 +109,28 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
-                (ExternalDatabase) database, (ExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), isRewrite, child()));
+                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, cols,
+                outputExprs, groupExpression, getLogicalProperties(), isRewrite, child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
-                (ExternalDatabase) database, (ExternalTable) targetTable, cols, outputExprs,
-                groupExpression, logicalProperties.get(), isRewrite, children.get(0)));
+                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, cols,
+                outputExprs, groupExpression, logicalProperties.get(), isRewrite, children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
-                (ExternalDatabase) database, (ExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, isRewrite, child()));
+                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, cols,
+                outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                isRewrite, child()));
+    }
+
+    public List<Column> getBoundTargetSchema() {
+        return boundTargetSchema;
     }
 
     /**

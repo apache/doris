@@ -1237,8 +1237,8 @@ protected:
             // only when a required descendant can consume them. This avoids scratch proportional
             // to all array entries for the common all-required schema.
             const NullMap* descendant_parent_null_map_ptr = nullptr;
-            if (_requires_parent_null_map_for_alignment(nested_column,
-                                                        array_type->get_nested_type())) {
+            if (_requires_collection_parent_null_map(nullable_parent_null_map, nested_column,
+                                                     array_type->get_nested_type())) {
                 descendant_parent_null_map_ptr = _project_collection_parent_null_map(
                         nullptr, nullable_parent_null_map, array_column.size(),
                         array_column.get_offsets(), nested_column->size(),
@@ -1255,8 +1255,10 @@ protected:
             ColumnPtr value_column = map_column.get_values_ptr();
             NullMap descendant_parent_null_map;
             const NullMap* descendant_parent_null_map_ptr = nullptr;
-            if (_requires_parent_null_map_for_alignment(key_column, map_type->get_key_type()) ||
-                _requires_parent_null_map_for_alignment(value_column, map_type->get_value_type())) {
+            if (_requires_collection_parent_null_map(nullable_parent_null_map, key_column,
+                                                     map_type->get_key_type()) ||
+                _requires_collection_parent_null_map(nullable_parent_null_map, value_column,
+                                                     map_type->get_value_type())) {
                 // Keys and values share offsets, so one projected mask safely covers both streams.
                 descendant_parent_null_map_ptr = _project_collection_parent_null_map(
                         nullptr, nullable_parent_null_map, map_column.size(),
@@ -1641,6 +1643,18 @@ protected:
             }
         }
         return false;
+    }
+
+    static bool _requires_collection_parent_null_map(const NullMap* parent_null_map,
+                                                     const ColumnPtr& column,
+                                                     const DataTypePtr& table_type) {
+        // Descendant null maps can be entry-sized. Scan them only when an inherited mask can
+        // actually hide a row; absent/all-clear masks cannot authorize any physical child NULL.
+        if (parent_null_map == nullptr ||
+            std::ranges::none_of(*parent_null_map, [](const auto value) { return value != 0; })) {
+            return false;
+        }
+        return _requires_parent_null_map_for_alignment(column, table_type);
     }
 
     template <typename Offsets>

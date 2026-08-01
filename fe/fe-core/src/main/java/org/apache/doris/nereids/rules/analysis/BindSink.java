@@ -832,6 +832,7 @@ public class BindSink implements AnalysisRuleFactory {
         LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
+                targetSchema.fullSchema,
                 bindColumns,
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)

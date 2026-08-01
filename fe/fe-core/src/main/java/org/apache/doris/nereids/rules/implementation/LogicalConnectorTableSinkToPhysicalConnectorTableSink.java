@@ -36,6 +36,7 @@ public class LogicalConnectorTableSinkToPhysicalConnectorTableSink extends OneIm
             return new PhysicalConnectorTableSink<>(
                     sink.getDatabase(),
                     sink.getTargetTable(),
+                    sink.getBoundTargetSchema(),
                     sink.getCols(),
                     sink.getOutputExprs(),
                     Optional.empty(),

@@ -621,9 +621,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // __DORIS_ICEBERG_ROWID_COL__ STRUCT, and the target may hold ARRAY/MAP/STRUCT data columns.
         // Naming only the tag would drop the children and yield a childless (invalid) complex type.
         List<ConnectorColumn> connectorColumns = sink.getCols().stream()
-                .map(col -> new ConnectorColumn(col.getName(),
-                        ConnectorColumnConverter.toConnectorType(col.getType()),
-                        null, col.isAllowNull(), null))
+                .map(PhysicalPlanTranslator::toWriteConnectorColumn)
                 .collect(java.util.stream.Collectors.toList());
 
         // Resolve the table handle first so BOTH the write-admission gate and the write provider are chosen
@@ -676,9 +674,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // converted (see the row-level DML arm): a bare primitive tag drops an ARRAY/MAP/STRUCT
         // column's children and yields a childless, invalid complex type.
         List<ConnectorColumn> connectorColumns = connectorTableSink.getCols().stream()
-                .map(col -> new ConnectorColumn(col.getName(),
-                        ConnectorColumnConverter.toConnectorType(col.getType()),
-                        null, col.isAllowNull(), null))
+                .map(PhysicalPlanTranslator::toWriteConnectorColumn)
+                .collect(java.util.stream.Collectors.toList());
+        List<ConnectorColumn> boundTargetColumns = connectorTableSink.getBoundTargetSchema().stream()
+                .map(PhysicalPlanTranslator::toWriteConnectorColumn)
                 .collect(java.util.stream.Collectors.toList());
 
         // Every write-capable connector builds its own opaque TDataSink via its write-plan
@@ -726,11 +725,31 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // an instanceof Iceberg. Ordinary connector INSERTs keep WriteOperation.INSERT (byte-identical).
         WriteOperation writeOperation = connectorTableSink.isRewrite()
                 ? WriteOperation.REWRITE : WriteOperation.INSERT;
+        // The write list can omit explicit/static-partition columns, but schema-drift validation must
+        // retain the complete generation captured by BindSink instead of comparing that subset.
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
-                writePlanProvider, connSession, providerTableHandle, connectorColumns, writeSortInfo,
-                writeOperation);
+                writePlanProvider, connSession, providerTableHandle, connectorColumns,
+                boundTargetColumns, writeSortInfo, writeOperation, false);
         rootFragment.setSink(providerSink);
         return rootFragment;
+    }
+
+    private static ConnectorColumn toWriteConnectorColumn(Column column) {
+        ConnectorColumn result = new ConnectorColumn(column.getName(),
+                ConnectorColumnConverter.toConnectorType(column.getType()),
+                null, column.isAllowNull(), null);
+        if (!column.isVisible()) {
+            result = result.invisible();
+        }
+        if (column.getUniqueId() >= 0) {
+            result = result.withUniqueId(column.getUniqueId());
+        }
+        if (column.isReservedPassthrough()) {
+            // Preserve the neutral marker so Iceberg schema validation excludes engine-generated
+            // row-lineage columns without teaching the generic translator their source-specific names.
+            result = result.reservedPassthrough();
+        }
+        return result;
     }
 
     private TSortInfo buildConnectorWriteSortInfo(List<ConnectorWriteSortColumn> sortColumns,

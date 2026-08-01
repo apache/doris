@@ -19,14 +19,11 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -167,13 +164,10 @@ public class StructLiteral extends Literal {
         return new StructType(structFields.build());
     }
 
-    /** Infer field nullability for struct constructors in the current cast mode. */
+    /** Infer field nullability for struct constructors. */
     public static boolean computeFieldNullable(Expression field) {
-        // Strict-mode refinement is scoped to this session-specific return type; Cast itself
-        // must keep stable nullability because expressions can outlive a session context.
-        if (field instanceof Cast && !(field instanceof TryCast) && SessionVariable.enableStrictCast()) {
-            return ((Cast) field).strictModeNullable();
-        }
+        // Strict cast changes failure behavior, not the physical result column. Preserve the cast's
+        // nullable type so FunctionStruct never inserts ColumnNullable into a required child column.
         return field.nullable();
     }
 }

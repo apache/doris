@@ -75,6 +75,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Write plan provider for iceberg INSERT / INSERT OVERWRITE.
@@ -234,11 +235,15 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
     private void validateBoundWriteColumns(Table table, ConnectorWriteHandle handle,
             WriteOperation writeOperation) {
-        if (writeOperation == WriteOperation.DELETE || handle.getColumns().isEmpty()) {
+        // V3 row-lineage columns are engine-generated metadata, not fields in table.schema(). Excluding
+        // their neutral marker keeps the comparison on the complete user schema for INSERT and MERGE.
+        List<ConnectorColumn> boundColumns = handle.getBoundTargetColumns().stream()
+                .filter(column -> !column.isReservedPassthrough())
+                .collect(Collectors.toList());
+        if (writeOperation == WriteOperation.DELETE || boundColumns.isEmpty()) {
             return;
         }
         List<NestedField> currentColumns = table.schema().columns();
-        List<ConnectorColumn> boundColumns = handle.getColumns();
         boolean hasSyntheticRowId = boundColumns.size() == currentColumns.size() + 1
                 && DORIS_ICEBERG_ROWID_COL.equals(boundColumns.get(boundColumns.size() - 1).getName());
         if (boundColumns.size() != currentColumns.size() && !hasSyntheticRowId) {
@@ -254,7 +259,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             ConnectorColumn bound = boundColumns.get(i);
             ConnectorType currentType = IcebergTypeMapping.fromIcebergType(
                     current.type(), enableVarbinary, enableTimestampTz);
-            if (!current.name().equalsIgnoreCase(bound.getName()) || !currentType.equals(bound.getType())) {
+            if (!current.name().equalsIgnoreCase(bound.getName())
+                    || !currentType.equals(bound.getType())
+                    || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())) {
                 // BE maps write expressions to schema-json by ordinal, so accepting a reordered live
                 // schema here could silently place values under the wrong Iceberg field names.
                 throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry "
