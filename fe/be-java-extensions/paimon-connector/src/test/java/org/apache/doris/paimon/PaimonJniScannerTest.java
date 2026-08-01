@@ -839,6 +839,11 @@ public class PaimonJniScannerTest {
         }
 
         @Override
+        public String pickTempDir() {
+            return tempDirs.length == 0 ? null : tempDirs[0];
+        }
+
+        @Override
         public FileIOChannel.Enumerator createChannelEnumerator() {
             throw new UnsupportedOperationException();
         }
