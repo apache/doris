@@ -33,7 +33,6 @@ import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -125,17 +124,10 @@ public final class PaimonLatestSnapshotProjectionLoader {
             // Pin the data snapshot for MVCC while retaining the latest table schema. A normal
             // copy applies time travel and falls back to the snapshot's schema, which can be stale
             // immediately after a schema change that has not produced a new data snapshot.
-            Map<String, String> projectionOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
-                    latestSchemaTable, PaimonScanParams.isolateSnapshotRead(latestSnapshotId));
-            snapshotTable = latestSchemaTable.copyWithoutTimeTravel(projectionOptions);
-        } else {
-            Map<String, String> runtimeOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
-                    latestSchemaTable, Collections.emptyMap());
-            if (!runtimeOptions.isEmpty()) {
-                // The shared cache stays relation-neutral; only its planning projection receives
-                // CPU-local caps so persisted catalog semantics remain replay-stable.
-                snapshotTable = latestSchemaTable.copyWithoutTimeTravel(runtimeOptions);
-            }
+            // The lightweight fence must not validate physical planning options before relation
+            // overrides are composed; validation belongs to loadEffectiveAtFence's final copy.
+            snapshotTable = latestSchemaTable.copyWithoutTimeTravel(
+                    PaimonScanParams.isolateSnapshotRead(latestSnapshotId));
         }
         DataTable dataTable = (DataTable) latestSchemaTable;
         long latestSchemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);

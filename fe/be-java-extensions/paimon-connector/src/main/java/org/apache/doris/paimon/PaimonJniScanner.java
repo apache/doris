@@ -76,6 +76,7 @@ public class PaimonJniScanner extends JniScanner {
     private static final String PAIMON_OPTION_PREFIX = "paimon.";
     private static final String ASYNC_READER_THREAD_NAME_PREFIX = "paimon-reader-async-thread";
     private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
+    private static final int MAX_MANIFEST_PARALLELISM = 256;
     static final String DORIS_MANIFEST_PARALLELISM_CAP =
             "doris.scan.manifest.parallelism-cap";
     static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
@@ -676,9 +677,11 @@ public class PaimonJniScanner extends JniScanner {
         Table planningTable = systemSource == null ? table : systemSource;
         List<Integer> configuredValues = new ArrayList<>();
         collectManifestParallelism(planningTable, configuredValues);
-        int requestedBound = localCapacity;
+        // Old FEs do not send a cap, so the BE must still preserve the hardware-independent
+        // ceiling that prevents one scan from growing Paimon's JVM-global executor beyond 256.
+        int requestedBound = Math.min(localCapacity, MAX_MANIFEST_PARALLELISM);
         if (feParallelismCap != null) {
-            requestedBound = Math.min(parsePositiveManifestParallelism(feParallelismCap), localCapacity);
+            requestedBound = Math.min(parsePositiveManifestParallelism(feParallelismCap), requestedBound);
         }
         final int safeBound = requestedBound;
         // The FE cap is a requested bound, not proof that every serialized wrapper carries it;

@@ -24,6 +24,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalRowCountCache;
+import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.metacache.paimon.PaimonLatestSnapshotProjectionLoader;
+import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.StatementContext;
@@ -34,8 +37,10 @@ import org.apache.doris.thrift.TDescriptorTable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.MoreExecutors;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
@@ -61,6 +66,76 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PaimonExternalTableTest {
+
+    @Test
+    public void testStatementContextDefersPhysicalManifestValidationUntilRelationOptions() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        PaimonExternalTable externalTable = Mockito.spy(
+                new PaimonExternalTable(10L, "table", "table", catalog, database));
+        Mockito.doNothing().when(externalTable).makeSureInitialized();
+
+        FileStoreTable physicalTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable neutralFenceTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable safeRelationTable = Mockito.mock(FileStoreTable.class);
+        Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        TableSchema latestSchema = Mockito.mock(TableSchema.class);
+        Mockito.when(physicalTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
+        Mockito.when(latestSchemaTable.options()).thenReturn(
+                ImmutableMap.of(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "0"));
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(latestSnapshot));
+        Mockito.when(latestSnapshot.id()).thenReturn(12L);
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+        Mockito.when(latestSchema.id()).thenReturn(4L);
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(ArgumentMatchers.anyMap()))
+                .thenReturn(neutralFenceTable);
+        Mockito.when(neutralFenceTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "0",
+                CoreOptions.SCAN_SNAPSHOT_ID.key(), "12"));
+        Mockito.when(neutralFenceTable.copyWithoutTimeTravel(ArgumentMatchers.anyMap()))
+                .thenReturn(safeRelationTable);
+        Mockito.when(safeRelationTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1",
+                CoreOptions.SCAN_SNAPSHOT_ID.key(), "12"));
+
+        PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
+                Mockito.mock(PaimonPartitionInfoLoader.class),
+                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                        Collections.emptyList(), Collections.emptyList(), null));
+        NameMapping nameMapping = new NameMapping(1L, "db", "table", "db", "table");
+        Mockito.doAnswer(ignored -> new PaimonMvccSnapshot(
+                loader.loadFence(nameMapping, physicalTable)))
+                .when(externalTable).loadLatestSnapshotFence();
+        TableScanParams relationOptions = new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"),
+                Collections.emptyList());
+        PaimonSnapshotCacheValue projectedValue = Mockito.mock(PaimonSnapshotCacheValue.class);
+
+        try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(
+                PaimonUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            paimonUtils.when(() -> PaimonUtils.loadSnapshotAtFence(
+                    Mockito.eq(externalTable), Mockito.eq(safeRelationTable), Mockito.any(PaimonSnapshot.class)))
+                    .thenReturn(projectedValue);
+            StatementContext statementContext = new StatementContext(new ConnectContext(), null);
+
+            MvccSnapshot snapshot = statementContext.loadSnapshots(
+                    externalTable, Optional.empty(), Optional.of(relationOptions)).orElse(null);
+
+            Assert.assertSame(projectedValue,
+                    ((PaimonMvccSnapshot) snapshot).getSnapshotCacheValue());
+            Mockito.verify(neutralFenceTable).copyWithoutTimeTravel(ArgumentMatchers.argThat(options ->
+                    "1".equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))
+                            && "12".equals(options.get(CoreOptions.SCAN_SNAPSHOT_ID.key()))));
+        }
+    }
 
     @Test
     public void testSelectorFreeOptionsPreserveStatementSnapshot() {
