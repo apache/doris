@@ -72,6 +72,7 @@ public class ExecuteCommand extends Command {
         StatementContext statementContext = ctx.getStatementContext();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
+        statementContext.resetMvccSnapshots();
         PreparedStatementContext preparedStmtCtx = ctx.getPreparedStementContext(stmtName);
         if (null == preparedStmtCtx) {
             throw new AnalysisException(

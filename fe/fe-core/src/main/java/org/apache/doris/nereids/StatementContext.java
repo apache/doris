@@ -989,6 +989,18 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Clear MVCC state retained by a prepared statement between executions. A snapshot fence belongs
+     * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
+     */
+    public void resetMvccSnapshots() {
+        snapshots.clear();
+        latestSnapshots.clear();
+        latestSnapshotFences.clear();
+        resolvedSnapshotScanParams.clear();
+        tableMetadataSnapshots.clear();
+    }
+
+    /**
      * Obtain snapshot information of mvcc
      *
      * @param tableIf tableIf
