@@ -111,6 +111,10 @@ static bool use_remote_only_on_cache_miss(const IOContext* io_ctx) {
     if (io_ctx->file_cache_miss_policy == FileCacheMissPolicy::REMOTE_ONLY_ON_MISS) {
         return true;
     }
+    if (io_ctx->inverted_index_read_no_write_file_cache && io_ctx->is_inverted_index &&
+        io_ctx->reader_type == ReaderType::READER_QUERY && !io_ctx->is_warmup) {
+        return true;
+    }
     auto* limiter = io_ctx->remote_scan_cache_write_limiter;
     return limiter != nullptr && limiter->remote_only_on_miss();
 }
