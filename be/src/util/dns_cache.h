@@ -37,7 +37,21 @@ namespace doris {
 // fe/fe-core/src/main/java/org/apache/doris/common/DNSCache.java
 class DNSCache {
 public:
-    using Resolver = std::function<Status(const std::string&, std::string&, bool)>;
+    // (hostname, out_ip, is_ipv6, out_gai_err) -> Status.
+    // out_gai_err receives the raw getaddrinfo() return code so the cache can tell an
+    // authoritative "no such host" (EAI_NONAME) apart from a transient resolver failure.
+    using Resolver = std::function<Status(const std::string&, std::string&, bool, int*)>;
+
+    // Per-hostname failure bookkeeping. Only tracked for hostnames currently present in
+    // `cache`, which keeps the map bounded (invariant: keys(failure_count) ⊆ keys(cache)).
+    struct FailureState {
+        // Consecutive resolution failures of any kind. Drives the log throttle.
+        uint32_t count = 0;
+        // Whether the most recent failure was an authoritative NXDOMAIN. Eviction requires
+        // this to be true, so that a DNS-server outage (which yields EAI_AGAIN for every
+        // hostname at once) degrades to the stale cached IP instead of wiping the cache.
+        bool last_authoritative = false;
+    };
 
     DNSCache();
 
@@ -58,21 +72,31 @@ private:
     // returned IP is the stale cached fallback from a failed lookup.
     std::string _resolve_hostname(const std::string& hostname, bool* is_fresh = nullptr);
 
-    // update the ip of hostname in cache; out_failures (if non-null) is set to
-    // the current consecutive failure count read under the same lock; out_ip (if
-    // non-null) receives the resolved IP so callers can use it without a second
-    // cache lookup (avoids operator[] mutation under shared_lock).
-    Status _update(const std::string& hostname, uint32_t* out_failures = nullptr,
+    // update the ip of hostname in cache; out_state (if non-null) is set to the
+    // current failure bookkeeping read under the same lock; out_ip (if non-null)
+    // receives the resolved IP so callers can use it without a second cache lookup
+    // (avoids operator[] mutation under shared_lock).
+    Status _update(const std::string& hostname, FailureState* out_state = nullptr,
                    std::string* out_ip = nullptr);
 
     // erase a hostname from cache unconditionally (with unique_lock)
     void _erase(const std::string& hostname);
 
-    // Erase a hostname from cache only if failure_count still meets threshold.
-    // Re-reads the live counter under the same lock that performs the erase, so
-    // a concurrent successful resolution that cleared the counter is not lost.
-    // Returns true if the host was erased, false if the counter was already reset.
+    // Erase a hostname from cache only if it still meets the eviction criteria:
+    // failure_count >= threshold AND the most recent failure was authoritative.
+    // Re-reads the live state under the same lock that performs the erase, so a
+    // concurrent successful resolution that cleared it is not lost.
+    // Returns true if the host was erased, false otherwise.
     bool _erase_if_still_failing(const std::string& hostname, uint32_t threshold);
+
+    // Drop a hostname from the cache and write a negative-cache tombstone (subject to
+    // dns_cache_negative_ttl_seconds). Caller must already hold a unique_lock on `mutex`.
+    void _evict_locked(const std::string& hostname);
+
+    // Record a tombstone for a hostname that could not be resolved and has no cached IP,
+    // so repeated get() calls do not each pay a full blocking getaddrinfo. Uses
+    // try_emplace so an entry just re-armed by get()'s single-flight path is preserved.
+    void _remember_unresolvable(const std::string& hostname);
 
     // one refresh cycle: update every cached hostname and evict if needed
     void _refresh_once();
@@ -95,7 +119,7 @@ private:
     uint32_t failure_count_for_test(const std::string& hostname) const {
         std::shared_lock<std::shared_mutex> lock(mutex);
         auto it = failure_count.find(hostname);
-        return it != failure_count.end() ? it->second : 0;
+        return it != failure_count.end() ? it->second.count : 0;
     }
 
     // Run one refresh cycle synchronously (no sleep).  Only meaningful when
@@ -121,8 +145,8 @@ private:
     Resolver _resolver; // null → use global hostname_to_ip
     // hostname -> ip
     std::unordered_map<std::string, std::string> cache;
-    // hostname -> consecutive resolution failure count
-    std::unordered_map<std::string, uint32_t> failure_count;
+    // hostname -> consecutive resolution failure bookkeeping
+    std::unordered_map<std::string, FailureState> failure_count;
     // hostname -> eviction timestamp; effective deadline is computed as
     // eviction_time + dns_cache_negative_ttl_seconds to honor live config changes.
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> _negative_cache;
