@@ -34,6 +34,7 @@
 #include "common/defer.h"
 #include "common/logging.h"
 #include "common/util.h"
+#include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
@@ -88,23 +89,19 @@ bool MetaChecker::do_meta_tablet_key_check(std::vector<TabletInfo>& tablets_info
         }
 
         // get tablet_index to search tablet belongs which db
-        std::string tablet_index_key;
-        std::string tablet_index_val;
-        meta_tablet_idx_key({instance_id_, tablet_info.tablet_id}, &tablet_index_key);
-        err = txn->get(tablet_index_key, &tablet_index_val);
-        if (err != TxnErrorCode::TXN_OK) {
-            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        TabletIndexPB tablet_index_meta;
+        MetaServiceCode code;
+        std::string msg;
+        std::tie(code, msg) = get_tablet_index(txn.get(), instance_id_, tablet_info.tablet_id,
+                                               &tablet_index_meta);
+        if (code != MetaServiceCode::OK) {
+            if (code == MetaServiceCode::TABLET_NOT_FOUND) {
                 LOG(WARNING) << "tablet_idx not found, tablet id: " << tablet_info.tablet_id;
                 continue;
-            } else {
-                LOG(WARNING) << "failed to get tablet_idx, err: " << err
-                             << " tablet id: " << tablet_info.tablet_id;
-                continue;
             }
+            LOG(WARNING) << msg;
+            continue;
         }
-
-        TabletIndexPB tablet_index_meta;
-        tablet_index_meta.ParseFromString(tablet_index_val);
 
         if (!db_meta_.contains(tablet_index_meta.db_id())) {
             LOG(WARNING) << "tablet_idx.db_id not found in fe meta, db_id = "
@@ -358,23 +355,19 @@ bool MetaChecker::do_meta_schema_key_check(std::vector<TabletInfo>& tablets_info
         }
 
         // get tablet_index to search tablet belongs which db
-        std::string tablet_index_key;
-        std::string tablet_index_val;
-        meta_tablet_idx_key({instance_id_, tablet_info.tablet_id}, &tablet_index_key);
-        err = txn->get(tablet_index_key, &tablet_index_val);
-        if (err != TxnErrorCode::TXN_OK) {
-            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        TabletIndexPB tablet_index_meta;
+        MetaServiceCode code;
+        std::string msg;
+        std::tie(code, msg) = get_tablet_index(txn.get(), instance_id_, tablet_info.tablet_id,
+                                               &tablet_index_meta);
+        if (code != MetaServiceCode::OK) {
+            if (code == MetaServiceCode::TABLET_NOT_FOUND) {
                 LOG(WARNING) << "tablet_idx not found, tablet id: " << tablet_info.tablet_id;
                 continue;
-            } else {
-                LOG(WARNING) << "failed to get tablet_idx, err: " << err
-                             << " tablet id: " << tablet_info.tablet_id;
-                continue;
             }
+            LOG(WARNING) << msg;
+            continue;
         }
-
-        TabletIndexPB tablet_index_meta;
-        tablet_index_meta.ParseFromString(tablet_index_val);
 
         if (!db_meta_.contains(tablet_index_meta.db_id())) {
             LOG(WARNING) << "tablet_idx.db_id not found in fe meta, db_id = "
@@ -645,25 +638,19 @@ bool MetaChecker::do_meta_tablet_index_key_inverted_check() {
             continue;
         }
 
-        std::string key, val;
-        meta_tablet_idx_key({instance_id_, tablet_info.tablet_id}, &key);
-        err = txn->get(key, &val);
-        if (err != TxnErrorCode::TXN_OK) {
-            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        TabletIndexPB tablet_idx;
+        MetaServiceCode code;
+        std::string msg;
+        std::tie(code, msg) =
+                get_tablet_index(txn.get(), instance_id_, tablet_info.tablet_id, &tablet_idx);
+        if (code != MetaServiceCode::OK) {
+            if (code == MetaServiceCode::TABLET_NOT_FOUND) {
                 LOG(WARNING) << "tablet not found, tablet id: " << tablet_info.tablet_id;
                 check_res = false;
                 continue;
-            } else {
-                LOG(WARNING) << "failed to get tablet_idx, err: " << err
-                             << " tablet id: " << tablet_info.tablet_id;
-                check_res = false;
-                continue;
             }
-        }
-
-        TabletIndexPB tablet_idx;
-        if (!tablet_idx.ParseFromString(val)) [[unlikely]] {
-            LOG(WARNING) << "malformed tablet index value";
+            LOG(WARNING) << msg;
+            check_res = false;
             continue;
         }
 

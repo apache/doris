@@ -22,6 +22,7 @@
 #include <cstdint>
 
 #include "common/util.h"
+#include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
@@ -244,23 +245,18 @@ int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet
         return -1;
     }
 
-    std::string key, val;
-    meta_tablet_idx_key({instance_id, tablet_id}, &key);
-    err = txn->get(key, &val);
-    if (err != TxnErrorCode::TXN_OK) {
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            LOG(INFO) << "tablet not found, tablet_id=" << tablet_id << " key=" << hex(key);
+    MetaServiceCode code;
+    std::string msg;
+    std::tie(code, msg) = get_tablet_index(txn.get(), instance_id, tablet_id, &tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        if (code == MetaServiceCode::TABLET_NOT_FOUND) {
+            LOG(INFO) << msg;
             return 1;
         }
-        LOG(WARNING) << fmt::format("failed to get tablet_idx, err={} tablet_id={} key={}", err,
-                                    tablet_id, hex(key));
+        LOG(WARNING) << msg;
         return -1;
     }
-    if (!tablet_idx.ParseFromString(val)) [[unlikely]] {
-        LOG(WARNING) << fmt::format("malformed tablet index value, tablet_id={} key={}", tablet_id,
-                                    hex(key));
-        return -1;
-    }
+    std::string key = meta_tablet_idx_key({instance_id, tablet_id});
     if (tablet_id != tablet_idx.tablet_id()) [[unlikely]] {
         LOG(WARNING) << "unexpected error given_tablet_id=" << tablet_id
                      << " idx_pb_tablet_id=" << tablet_idx.tablet_id() << " key=" << hex(key);

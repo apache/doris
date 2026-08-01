@@ -415,7 +415,8 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
     if (!new_tablet_idx.has_table_id() || !new_tablet_idx.has_index_id() ||
         !new_tablet_idx.has_partition_id()) {
         if (!is_versioned_read) {
-            get_tablet_idx(code, msg, txn.get(), instance_id, new_tablet_id, new_tablet_idx);
+            std::tie(code, msg) =
+                    get_tablet_index(txn.get(), instance_id, new_tablet_id, &new_tablet_idx);
             if (code != MetaServiceCode::OK) return;
         } else {
             TxnErrorCode err = reader.get_tablet_index(txn.get(), tablet_id, &new_tablet_idx);
@@ -568,7 +569,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     if (!tablet_idx.has_table_id() || !tablet_idx.has_index_id() ||
         !tablet_idx.has_partition_id()) {
         if (!is_versioned_read) {
-            get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
+            std::tie(code, msg) = get_tablet_index(txn.get(), instance_id, tablet_id, &tablet_idx);
             if (code != MetaServiceCode::OK) return;
         } else {
             CloneChainReader reader(instance_id, resource_mgr_.get());
@@ -1470,7 +1471,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     if (!new_tablet_idx.has_table_id() || !new_tablet_idx.has_index_id() ||
         !new_tablet_idx.has_partition_id()) {
         if (!is_versioned_read) {
-            get_tablet_idx(code, msg, txn.get(), instance_id, new_tablet_id, new_tablet_idx);
+            std::tie(code, msg) =
+                    get_tablet_index(txn.get(), instance_id, new_tablet_id, &new_tablet_idx);
             if (code != MetaServiceCode::OK) return;
         } else {
             TxnErrorCode err = reader.get_tablet_index(txn.get(), tablet_id, &new_tablet_idx);
@@ -2014,7 +2016,8 @@ void _finish_tablet_job(const FinishTabletJobRequest* request, FinishTabletJobRe
         if (!tablet_idx.has_table_id() || !tablet_idx.has_index_id() ||
             !tablet_idx.has_partition_id()) {
             if (!is_versioned_read) {
-                get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
+                std::tie(code, msg) =
+                        get_tablet_index(txn.get(), instance_id, tablet_id, &tablet_idx);
                 if (code != MetaServiceCode::OK) return;
             } else {
                 CloneChainReader reader(instance_id, resource_mgr);

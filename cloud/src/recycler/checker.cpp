@@ -48,6 +48,7 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/blob_message.h"
@@ -2143,21 +2144,16 @@ int InstanceChecker::check_stats_tablet_key(std::string_view key, std::string_vi
                 .tag("reason", "failed to create txn");
         return -1;
     }
-    std::string tablet_idx_key = meta_tablet_idx_key({instance_id_, tablet_id});
-    std::string tablet_idx_val;
     TabletIndexPB tablet_idx;
-    err = txn->get(tablet_idx_key, &tablet_idx_val);
-    if (err != TxnErrorCode::TXN_OK) {
-        // clang-format off
-        LOG(WARNING) << "failed to get tablet index key,"
-                        << " key=" << hex(tablet_idx_key)
-                        << " code=" << err;
-        // clang-format on
+    MetaServiceCode code;
+    std::string msg;
+    std::tie(code, msg) = get_tablet_index(txn.get(), instance_id_, tablet_id, &tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        LOG(WARNING) << msg;
         return -1;
     }
-    tablet_idx.ParseFromString(tablet_idx_val);
-    MetaServiceCode code = MetaServiceCode::OK;
-    std::string msg;
+    code = MetaServiceCode::OK;
+    msg.clear();
     internal_get_tablet_stats(code, msg, txn.get(), instance_id_, tablet_idx, tablet_stats_pb);
     if (code != MetaServiceCode::OK) {
         // clang-format off
