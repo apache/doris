@@ -136,7 +136,10 @@ TEST(ColumnWithTypeAndNameTest, unnest_nullable_with_shared_nested_preserves_vis
     EXPECT_NE(result.column.get(), nested_column.get());
     EXPECT_EQ(assert_cast<const ColumnInt32&>(*result.column).get_data()[1], 0);
     EXPECT_FALSE(visible_alias->is_null_at(1));
-    EXPECT_EQ(assert_cast<const ColumnInt32&>(visible_alias->get_nested_column()).get_data()[1], 2);
+    const ColumnNullable& visible_alias_column = *visible_alias;
+    EXPECT_EQ(
+            assert_cast<const ColumnInt32&>(visible_alias_column.get_nested_column()).get_data()[1],
+            2);
 }
 
 TEST(ColumnWithTypeAndNameTest, unnest_nullable_with_shared_source_replaces_data_on_copy) {
