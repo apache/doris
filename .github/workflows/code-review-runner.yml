@@ -966,9 +966,9 @@ jobs:
             exit 0
           fi
 
+          umask 077
           remote_auth="$(mktemp "$RUNNER_TEMP/codex-auth-current.XXXXXX")"
-          trap 'rm -f "$remote_auth"' EXIT
-          chmod 600 "$remote_auth"
+          trap 'rm -f "$remote_auth" "${remote_auth}.temp"' EXIT
           if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
             --retry-times=3 --connect-timeout=10 --read-timeout=30 \
             cp -f "$CODEX_AUTH_OSS_OBJECT" "$remote_auth" >/dev/null; then
