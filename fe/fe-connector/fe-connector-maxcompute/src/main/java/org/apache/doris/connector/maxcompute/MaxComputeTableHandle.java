@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.maxcompute;
 
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
 import com.aliyun.odps.Table;
@@ -58,5 +59,28 @@ public class MaxComputeTableHandle implements ConnectorTableHandle {
 
     public TableIdentifier getTableIdentifier() {
         return tableIdentifier;
+    }
+
+    /**
+     * Rejects read/write on a MaxCompute external table or logical view: the ODPS Storage API
+     * used by the scan ({@link MaxComputeScanPlanProvider#planScan}) and write
+     * ({@link MaxComputeWritePlanProvider#planWrite}) paths only handles managed/internal tables.
+     * Mirrors legacy {@code MaxComputeExternalTable.isUnsupportedOdpsTable} and the guards added in
+     * {@code MaxComputeScanNode.getSplits} / {@code MCTransaction.beginInsert}.
+     *
+     * @param operation the gerund used in the error message, "Reading" or "Writing"
+     */
+    public void checkOperationSupported(String operation) {
+        checkOperationSupported(odpsTable.isExternalTable(), odpsTable.isVirtualView(),
+                operation, dbName, tableName);
+    }
+
+    static void checkOperationSupported(boolean isExternalTable, boolean isVirtualView,
+            String operation, String dbName, String tableName) {
+        if (isExternalTable || isVirtualView) {
+            throw new DorisConnectorException(operation
+                    + " MaxCompute external table or logical view is not supported: "
+                    + dbName + "." + tableName);
+        }
     }
 }

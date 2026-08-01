@@ -69,6 +69,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.io.IOException;
 import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -104,8 +105,12 @@ public class TrinoBootstrap {
     private final HandleResolver handleResolver;
     private final TypeRegistry typeRegistry;
     private final TrinoPluginManager pluginManager;
+    // The plugin dir this singleton was initialized with, retained so a later getInstance() with a
+    // different dir fails loudly instead of silently reusing the first dir's plugins.
+    private final String pluginDir;
 
     private TrinoBootstrap(String pluginDir) {
+        this.pluginDir = pluginDir;
         System.setProperty("jdk.attach.allowAttachSelf", "true");
         String osName = System.getProperty("os.name").toLowerCase(Locale.ENGLISH);
         if (osName.contains("mac") || osName.contains("darwin")) {
@@ -141,7 +146,44 @@ public class TrinoBootstrap {
                 }
             }
         }
+        if (!Objects.equals(canonicalize(instance.pluginDir), canonicalize(pluginDir))) {
+            throw new IllegalStateException(String.format(
+                    "TrinoBootstrap already initialized with plugin dir '%s'; cannot reuse it for a "
+                    + "different plugin dir '%s'. All trino-connector catalogs in one FE must share a "
+                    + "single plugin dir.", instance.pluginDir, pluginDir));
+        }
         return instance;
+    }
+
+    /**
+     * Best-effort canonicalization so two spellings of the same physical directory (trailing slash,
+     * relative vs absolute, symlink) are treated as equal and do not trip the mismatch guard above.
+     * Falls back to the raw string if the path cannot be resolved.
+     */
+    private static String canonicalize(String dir) {
+        if (dir == null) {
+            return null;
+        }
+        try {
+            return new File(dir).getCanonicalPath();
+        } catch (IOException e) {
+            return dir;
+        }
+    }
+
+    /**
+     * Returns the already-initialized singleton. Callers that run after a catalog has been
+     * created (e.g. scan planning) use this instead of re-resolving the plugin directory.
+     *
+     * @throws IllegalStateException if the singleton has not been initialized yet
+     */
+    public static TrinoBootstrap getInstance() {
+        TrinoBootstrap local = instance;
+        if (local == null) {
+            throw new IllegalStateException(
+                    "TrinoBootstrap is not initialized; a catalog must be created first");
+        }
+        return local;
     }
 
     /**
@@ -277,30 +319,47 @@ public class TrinoBootstrap {
     }
 
     /**
-     * Resolves the Trino plugin directory from catalog properties.
-     * Falls back to DORIS_HOME/plugins/connectors and DORIS_HOME/connectors.
+     * Resolves the Trino plugin directory.
+     *
+     * <p>This plugin runs in an isolated classloader and cannot read FE {@code Config}
+     * (it would see its own bundled copy holding default values). The FE config
+     * {@code trino_connector_plugin_dir} is therefore passed in through the engine
+     * environment map (see {@code DefaultConnectorContext}), mirroring how the JDBC
+     * connector receives {@code jdbc_drivers_dir}.
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>the per-catalog {@code trino.plugin.dir} property, when set;</li>
+     *   <li>otherwise the FE config {@code trino_connector_plugin_dir} from the environment,
+     *       used verbatim (it defaults to {@code DORIS_HOME/plugins/trino_plugins}).</li>
+     * </ol>
+     *
+     * <p>Nothing else is consulted: the dir the config names is the dir the plugins are loaded
+     * from. Earlier versions probed the pre-2.1.8 {@code DORIS_HOME/connectors} and the 2.1.8
+     * {@code DORIS_HOME/plugins/connectors} when the config was left at its default, which forced
+     * this class to duplicate the default as a literal just to tell "user set it" from "untouched".
+     * That compatibility path was dropped deliberately — a deployment whose plugins still sit in a
+     * legacy dir must move them or point {@code trino_connector_plugin_dir} at them.
+     *
+     * @param properties  catalog properties (unstripped, may carry {@code trino.plugin.dir})
+     * @param environment engine environment from {@code ConnectorContext.getEnvironment()}
      */
-    public static String resolvePluginDir(Map<String, String> properties) {
+    public static String resolvePluginDir(Map<String, String> properties, Map<String, String> environment) {
         String explicitDir = properties.get("trino.plugin.dir");
         if (explicitDir != null && !explicitDir.isEmpty()) {
             return explicitDir;
         }
 
-        String dorisHome = System.getenv("DORIS_HOME");
-        if (dorisHome == null) {
-            dorisHome = ".";
+        String configuredDir = environment.get("trino_connector_plugin_dir");
+        if (configuredDir == null || configuredDir.isEmpty()) {
+            // DefaultConnectorContext always passes the FE config, which always holds a value. Absent
+            // means the engine failed to deliver it; guessing a dir here would surface as "catalog
+            // creates fine but every query fails", so fail where the cause is still visible.
+            throw new IllegalStateException(
+                    "trino_connector_plugin_dir was not delivered through the engine environment; "
+                            + "cannot resolve the Trino plugin dir");
         }
-
-        String defaultDir = dorisHome + "/plugins/connectors";
-        String oldDir = dorisHome + "/connectors";
-        File oldDirFile = new File(oldDir);
-        if (oldDirFile.exists() && oldDirFile.isDirectory()) {
-            String[] contents = oldDirFile.list();
-            if (contents != null && contents.length > 0) {
-                return oldDir;
-            }
-        }
-        return defaultDir;
+        return configuredDir;
     }
 
     /**

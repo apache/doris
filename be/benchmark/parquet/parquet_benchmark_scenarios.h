@@ -50,8 +50,10 @@ enum class Kernel {
     DELTA_PREFIX_SUM,
     DICTIONARY_GATHER,
     NULLABLE_EXPAND,
-    RAW_PREDICATE
+    RAW_PREDICATE,
+    NESTED_SELECTION
 };
+enum class NestedSelectionImplementation { LEGACY, FUSED };
 
 struct DecoderScenario {
     Encoding encoding;
@@ -77,6 +79,7 @@ struct KernelScenario {
     int null_percent;
     Pattern pattern;
     size_t dictionary_entries;
+    NestedSelectionImplementation nested_implementation = NestedSelectionImplementation::FUSED;
 };
 
 struct SelectionRange {
@@ -139,6 +142,15 @@ inline std::vector<KernelScenario> kernel_scenarios() {
         for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
             scenarios.push_back(
                     {Kernel::RAW_PREDICATE, value_type, selectivity, 0, Pattern::ALTERNATING, 256});
+        }
+    }
+    for (const int selectivity : {1, 10, 50}) {
+        for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+            for (const auto implementation :
+                 {NestedSelectionImplementation::LEGACY, NestedSelectionImplementation::FUSED}) {
+                scenarios.push_back({Kernel::NESTED_SELECTION, ValueType::INT32, selectivity, 10,
+                                     pattern, 256, implementation});
+            }
         }
     }
     return scenarios;
@@ -374,6 +386,18 @@ inline std::string to_string(Kernel value) {
         return "nullable_expand";
     case Kernel::RAW_PREDICATE:
         return "raw_predicate";
+    case Kernel::NESTED_SELECTION:
+        return "nested_selection";
+    }
+    return "unknown";
+}
+
+inline std::string to_string(NestedSelectionImplementation value) {
+    switch (value) {
+    case NestedSelectionImplementation::LEGACY:
+        return "legacy";
+    case NestedSelectionImplementation::FUSED:
+        return "fused";
     }
     return "unknown";
 }

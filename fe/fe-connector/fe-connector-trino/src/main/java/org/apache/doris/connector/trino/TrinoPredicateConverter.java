@@ -111,10 +111,27 @@ public class TrinoPredicateConverter {
         return result;
     }
 
+    /**
+     * Folds EVERY disjunct: {@link ConnectorOr} carries a flattened N-ary list, so reading only the
+     * first two arms would silently narrow {@code a=1 OR a=2 OR a=3} down to {@code a IN (1, 2)} and
+     * lose rows the source never returns (BE re-evaluation can only remove rows, never add them back).
+     *
+     * <p>Unlike {@link #convertAnd}, a failing arm is deliberately NOT caught here: skipping an AND
+     * conjunct only widens the pushed predicate, while dropping an OR arm narrows it. Letting the
+     * failure propagate makes {@link #convert} degrade to {@code TupleDomain.all()} - no pushdown at
+     * all - which is the only safe outcome. OR is all-or-nothing, matching IcebergPredicateConverter.
+     */
     private TupleDomain<ColumnHandle> convertOr(ConnectorOr or) {
-        TupleDomain<ColumnHandle> left = doConvert(or.getDisjuncts().get(0));
-        TupleDomain<ColumnHandle> right = doConvert(or.getDisjuncts().get(1));
-        return TupleDomain.columnWiseUnion(left, right);
+        List<TupleDomain<ColumnHandle>> parts = Lists.newArrayList();
+        for (ConnectorExpression child : or.getDisjuncts()) {
+            parts.add(doConvert(child));
+        }
+        if (parts.isEmpty()) {
+            // Unreachable once ConnectorOr enforces two-or-more disjuncts, but columnWiseUnion(List)
+            // rejects an empty list, so keep the fail-safe.
+            return TupleDomain.all();
+        }
+        return TupleDomain.columnWiseUnion(parts);
     }
 
     private TupleDomain<ColumnHandle> convertComparison(ConnectorComparison cmp) {

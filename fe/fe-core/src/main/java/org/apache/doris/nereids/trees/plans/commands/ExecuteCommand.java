@@ -91,6 +91,10 @@ public class ExecuteCommand extends Command {
         StatementContext statementContext = preparedStmtCtx.getStatementContext();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
+        // A prepared EXECUTE reuses this one StatementContext across executions; drop the connector
+        // per-statement scope so a prior execution's cached tables/state never leak into this one (the
+        // scope key's queryId is a second line of defense). See StatementContext#resetConnectorStatementScope.
+        statementContext.resetConnectorStatementScope();
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
         LogicalPlan relationRoot = logicalPlan;
         if (logicalPlan instanceof InsertIntoTableCommand) {

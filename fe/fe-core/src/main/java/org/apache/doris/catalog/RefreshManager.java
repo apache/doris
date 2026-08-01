@@ -21,16 +21,14 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -118,6 +116,13 @@ public class RefreshManager {
 
     private void refreshDbInternal(ExternalDatabase db) {
         db.resetMetaToUninitialized();
+        // Also drop any connector-side caches for every table in this db (e.g. hive's metastore + directory-listing
+        // caches) so a subsequent read reflects the latest external state — otherwise REFRESH DATABASE would reset
+        // only the engine-side meta and leave the connector serving stale partition/file listings up to its TTL.
+        // Connector-agnostic (generic SPI no-op default); keyed by the REMOTE db name. Mirrors refreshTableInternal.
+        if (db.getCatalog() instanceof PluginDrivenExternalCatalog) {
+            ((PluginDrivenExternalCatalog) db.getCatalog()).getConnector().invalidateDb(db.getRemoteName());
+        }
         LOG.info("refresh database {} in catalog {}", db.getFullName(), db.getCatalog().getName());
     }
 
@@ -184,33 +189,27 @@ public class RefreshManager {
         }
         if (!Strings.isNullOrEmpty(log.getNewTableName())) {
             // this is a rename table op
+            // R4: propagate the coordinator renameTable's connector-cache invalidation (source + target) to
+            // followers/observers — the base replay below only fixes the FE name cache, so a follower kept the
+            // source name's snapshot pin (and paimon's schema memo) to the TTL after an atomic table swap.
+            // Resolve the source's REMOTE names from the still-cached table BEFORE unregister; the target keeps
+            // the new name (parity with the coordinator). getConnector() does not force-init here: this branch
+            // is reached only for an already-initialized catalog (db + table were resolved from the replay
+            // cache above), mirroring the else branch's refreshTableInternal -> getConnector() hook.
+            if (catalog instanceof PluginDrivenExternalCatalog) {
+                Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+                String remoteDb = db.get().getRemoteName();
+                connector.invalidateTable(remoteDb, table.get().getRemoteName());
+                connector.invalidateTable(remoteDb, log.getNewTableName());
+            }
             db.get().unregisterTable(log.getTableName());
             db.get().resetMetaCacheNames();
             Env.getCurrentEnv().getConstraintManager().renameTable(
                     new TableNameInfo(catalog.getName(), log.getDbName(), log.getTableName()),
                     new TableNameInfo(catalog.getName(), log.getDbName(), log.getNewTableName()));
         } else {
-            List<String> modifiedPartNames = log.getPartitionNames();
-            List<String> newPartNames = log.getNewPartitionNames();
-            if (catalog instanceof HMSExternalCatalog
-                    && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
-                    || (newPartNames != null && !newPartNames.isEmpty()))) {
-                // Partition-level cache invalidation, only for hive catalog
-                HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hive(catalog.getId());
-                cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
-                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
-                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
-                }
-                LOG.info("replay refresh partitions for table {}, "
-                                + "modified partitions count: {}, "
-                                + "new partitions count: {}",
-                        table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
-                        newPartNames == null ? 0 : newPartNames.size());
-            } else {
-                // Full table cache invalidation
-                refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
-            }
+            // Full table cache invalidation
+            refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
         }
     }
 
@@ -237,15 +236,17 @@ public class RefreshManager {
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
         table.unsetObjectCreated();
-        // Iceberg partition evolution can change partition specs across FEs.
-        // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
-        if (table instanceof IcebergExternalTable) {
-            ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
-        }
         if (updateTime > 0) {
             table.setUpdateTime(updateTime);
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+        // FIX-4: also drop any connector-side per-table cache (e.g. paimon's latest-snapshot cache) so the
+        // next read reflects the latest external state. Connector-agnostic (generic SPI no-op default); keyed
+        // by the REMOTE db/table names the connector uses.
+        if (table.getCatalog() instanceof PluginDrivenExternalCatalog) {
+            ((PluginDrivenExternalCatalog) table.getCatalog()).getConnector()
+                    .invalidateTable(db.getRemoteName(), table.getRemoteName());
+        }
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
                 table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
@@ -281,11 +282,13 @@ public class RefreshManager {
         }
 
         ExternalTable externalTable = (ExternalTable) table;
-        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(externalTable.getCatalog().getId());
-        for (String partitionName : partitionNames) {
-            cache.invalidatePartitionCache(externalTable, partitionName);
+        if (externalTable.getCatalog() instanceof PluginDrivenExternalCatalog) {
+            // The connector owns the partition cache (pull-through); invalidate by name. Mirrors
+            // refreshTableInternal's connector hook.
+            ((PluginDrivenExternalCatalog) externalTable.getCatalog()).getConnector().invalidatePartition(
+                    ((ExternalDatabase<?>) db).getRemoteName(), externalTable.getRemoteName(), partitionNames);
         }
-        ((HMSExternalTable) table).setUpdateTime(updateTime);
+        externalTable.setUpdateTime(updateTime);
     }
 
     public void addToRefreshMap(long catalogId, Integer[] sec) {
