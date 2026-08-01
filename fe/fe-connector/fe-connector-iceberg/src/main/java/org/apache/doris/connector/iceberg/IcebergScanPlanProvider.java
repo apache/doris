@@ -18,7 +18,6 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -209,8 +208,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // populateScanLevelParams, so it never reaches BE. Its presence also gates the line (absent when the cache
     // is disabled -> no line, matching legacy notContains).
     private static final String MANIFEST_CACHE_QUERYID_PROP = "iceberg.manifest_cache_query_id";
-    private static final String PREPLANNED_SCAN_NAMESPACE = "iceberg.preplanned-scan";
-
     // T08 manifest cache gate (ported from fe-core IcebergExternalCatalog + IcebergUtils.isManifestCacheEnabled
     // + CacheSpec.isCacheEnabled). Default OFF: the default scan path stays the iceberg SDK planFiles()
     // (splitFiles). When enabled, planScan re-plans at the manifest level so the per-manifest data/delete-file
@@ -442,12 +439,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         if (iceHandle.isSystemTable() || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
-            return -1;
-        }
-        // A schema-carrier preflight found a snapshot whose equality-delete state was not provably empty.
-        // Reuse that exact task set on the synchronous path; streaming would re-plan and could pair the
-        // preflight's historical key schema with a different set of applicable deletes.
-        if (preplannedScans(session).containsKey(new ScanPlanKey(iceHandle, filter))) {
             return -1;
         }
         Table table = resolveTable(session, iceHandle);
@@ -701,10 +692,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // once per file, not per slice. The streaming source below holds its own.
         PerFileScratch scratch = new PerFileScratch();
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        PreplannedSplitPlan preplanned =
-                preplannedScans(session).remove(new ScanPlanKey(iceHandle, filter));
-        try (SplitPlan plan = preplanned == null
-                ? planFileScanTask(scan, session, table, filter) : preplanned.asSplitPlan()) {
+        try (SplitPlan plan = planFileScanTask(scan, session, table, filter)) {
             for (FileScanTask task : plan.tasks) {
                 // Shared per-task mapping (rewrite-scope skip + M-2 weight denominator + v3 stash side-effect),
                 // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
@@ -1569,21 +1557,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean systemTable = iceHandle.isSystemTable();
         Schema scanSchema = null;
         TableScan exactScan = null;
-        Set<Integer> equalityDeleteFieldIds = Collections.emptySet();
+        boolean mayHaveEqualityDeletes = false;
         if (!systemTable) {
             scanSchema = pinnedSchema(table, iceHandle);
             exactScan = buildScan(table, iceHandle, filter, session);
-            if (mayHaveEqualityDeletes(exactScan.snapshot())) {
-                ScanPlanKey planKey = new ScanPlanKey(iceHandle, filter);
-                TableScan scanForPreflight = exactScan;
-                PreplannedSplitPlan preplanned = preplannedScans(session).computeIfAbsent(
-                        planKey, ignored -> preplanScan(scanForPreflight, session, table, filter));
-                equalityDeleteFieldIds =
-                        collectEqualityDeleteFieldIds(preplanned.tasks, iceHandle.getRewriteFileScope());
-            }
+            mayHaveEqualityDeletes = mayHaveEqualityDeletes(exactScan.snapshot());
             Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
             if (requiresCurrentScanSemantics(
-                    table, exactScan, scanSchema, columns, equalityDeleteFieldIds, nameMapping)) {
+                    table, exactScan, scanSchema, columns, mayHaveEqualityDeletes, nameMapping)) {
                 props.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS,
                         "Current Iceberg scan semantics");
             }
@@ -1673,10 +1654,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // (mapping off, DATETIMEV2). Thread it into every dict branch so the default matches BE's read.
             boolean enableTimestampTz = Boolean.parseBoolean(
                     properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
-            if (!equalityDeleteFieldIds.isEmpty()) {
-                Schema equalitySchema = schemaForEqualityDeletes(
-                        table, exactScan,
-                        scanSchema, equalityDeleteFieldIds);
+            if (mayHaveEqualityDeletes) {
+                Schema equalitySchema = schemaForPotentialEqualityDeletes(
+                        table, exactScan, scanSchema);
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
                         table, equalitySchema, Collections.emptyList(), appendRowLineage,
                         enableTimestampTz);
@@ -1779,47 +1759,54 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         String equalityDeletes = snapshot.summary().get(TOTAL_EQUALITY_DELETES);
-        // A missing counter is unknown (replace/cherry-pick snapshots can omit it), so inspect the exact tasks.
+        // A missing counter is unknown (replace/cherry-pick snapshots can omit it), so retain the bounded
+        // schema-history carrier. The exact task/delete binding is still decided by Iceberg during split planning.
         return equalityDeletes == null || !equalityDeletes.equals("0");
     }
 
-    private static Set<Integer> collectEqualityDeleteFieldIds(
-            Iterable<FileScanTask> tasks, Set<String> rewriteScope) {
-        Set<Integer> fieldIds = new HashSet<>();
-        for (FileScanTask task : tasks) {
-            if (rewriteScope != null && !rewriteScope.contains(task.file().path().toString())) {
-                continue;
-            }
-            for (DeleteFile deleteFile : task.deletes()) {
-                if (deleteFile.content() != FileContent.EQUALITY_DELETES) {
-                    continue;
+    /**
+     * Build a schema carrier that can resolve any equality key reachable before the selected schema without
+     * enumerating data files, manifests, or byte-split tasks. Its retained state is bounded by table schema
+     * history rather than scan cardinality. At execution time BE looks fields up by the exact IDs on each
+     * {@link FileScanTask#deletes()}; unrelated carrier fields never participate in delete matching.
+     *
+     * <p>The selected snapshot lineage wins when a field was renamed. The metadata schema list, in its actual
+     * chronology up to the selected schema (schema IDs are identifiers, not a sequence), fills schema-only
+     * changes and expired ancestors. Current fields remain first, so a dropped/re-added name still resolves the
+     * projected current field by name while a historical equality key resolves by its stable field ID.</p>
+     */
+    private static Schema schemaForPotentialEqualityDeletes(
+            Table table, TableScan scan, Schema scanSchema) {
+        List<Schema> history = potentialEqualityDeleteSchemaHistory(table, scan, scanSchema);
+        Set<Integer> missing = new HashSet<>();
+        for (Schema schema : history) {
+            for (NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
+                if (field.type().isPrimitiveType()) {
+                    missing.add(field.fieldId());
                 }
-                List<Integer> equalityIds = Objects.requireNonNull(
-                        deleteFile.equalityFieldIds(),
-                        "Iceberg equality-delete file " + deleteFile.path()
-                                + " has no equality field IDs");
-                if (equalityIds.isEmpty()) {
-                    throw new IllegalStateException("Iceberg equality-delete file "
-                            + deleteFile.path() + " has empty equality field IDs");
-                }
-                fieldIds.addAll(equalityIds);
             }
         }
-        return fieldIds;
-    }
-
-    /**
-     * Add only dropped equality-key fields from retained schema history. The selected snapshot lineage wins;
-     * the complete metadata list is a fallback for schema-only changes and expired ancestors.
-     */
-    private static Schema schemaForEqualityDeletes(
-            Table table, TableScan scan, Schema scanSchema, Set<Integer> equalityFieldIds) {
-        List<NestedField> fields = new ArrayList<>(scanSchema.columns());
-        Set<Integer> missing = new HashSet<>(equalityFieldIds);
         missing.removeAll(TypeUtil.indexById(scanSchema.asStruct()).keySet());
         if (missing.isEmpty()) {
             return scanSchema;
         }
+
+        List<NestedField> fields = new ArrayList<>(scanSchema.columns());
+        for (Schema historicalSchema : history) {
+            addHistoricalEqualityFields(fields, missing, historicalSchema);
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException(
+                    "Iceberg historical primitive fields are absent from schema history: " + missing);
+        }
+        return new Schema(scanSchema.schemaId(), fields);
+    }
+
+    private static List<Schema> potentialEqualityDeleteSchemaHistory(
+            Table table, TableScan scan, Schema scanSchema) {
+        List<Schema> history = new ArrayList<>();
+        Set<Integer> seenSchemaIds = new HashSet<>();
+        addSchemaIfAbsent(history, seenSchemaIds, scanSchema);
 
         Snapshot snapshot = scan.snapshot();
         while (snapshot != null) {
@@ -1830,20 +1817,32 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     throw new IllegalStateException(
                             "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
                 }
-                addHistoricalEqualityFields(fields, missing, historicalSchema);
+                addSchemaIfAbsent(history, seenSchemaIds, historicalSchema);
             }
             Long parentId = snapshot.parentId();
             snapshot = parentId == null ? null : table.snapshot(parentId);
         }
+
         List<Schema> metadataSchemas = metadataSchemaHistory(table);
-        for (int index = metadataSchemas.size() - 1; index >= 0; index--) {
-            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index));
+        int selectedSchemaIndex = -1;
+        for (int index = 0; index < metadataSchemas.size(); index++) {
+            if (metadataSchemas.get(index).schemaId() == scanSchema.schemaId()) {
+                selectedSchemaIndex = index;
+            }
         }
-        if (!missing.isEmpty()) {
-            throw new IllegalStateException(
-                    "Iceberg equality-delete fields are absent from schema history: " + missing);
+        int lastRelevantIndex = selectedSchemaIndex >= 0
+                ? selectedSchemaIndex : metadataSchemas.size() - 1;
+        for (int index = lastRelevantIndex; index >= 0; index--) {
+            addSchemaIfAbsent(history, seenSchemaIds, metadataSchemas.get(index));
         }
-        return new Schema(scanSchema.schemaId(), fields);
+        return history;
+    }
+
+    private static void addSchemaIfAbsent(
+            List<Schema> schemas, Set<Integer> seenSchemaIds, Schema schema) {
+        if (seenSchemaIds.add(schema.schemaId())) {
+            schemas.add(schema);
+        }
     }
 
     private static List<Schema> metadataSchemaHistory(Table table) {
@@ -1956,9 +1955,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static boolean requiresCurrentScanSemantics(
             Table table, TableScan scan, Schema scanSchema, List<ConnectorColumnHandle> columns,
-            Set<Integer> equalityFieldIds,
+            boolean mayHaveEqualityDeletes,
             Optional<Map<Integer, List<String>>> nameMapping) {
-        if (!equalityFieldIds.isEmpty()) {
+        if (mayHaveEqualityDeletes) {
             return true;
         }
         Set<Integer> projectedFieldIds = projectedFieldIds(scanSchema, columns);
@@ -2271,76 +2270,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         @Override
         public void close() throws IOException {
             tasks.close();
-        }
-    }
-
-    /** Identity of one predicate/ref/rewrite-scoped scan within a statement. */
-    private static final class ScanPlanKey {
-        private final IcebergTableHandle handle;
-        private final String filter;
-
-        private ScanPlanKey(IcebergTableHandle handle, Optional<ConnectorExpression> filter) {
-            this.handle = handle;
-            this.filter = filter.map(Object::toString).orElse("");
-        }
-
-        @Override
-        public boolean equals(Object other) {
-            if (this == other) {
-                return true;
-            }
-            if (!(other instanceof ScanPlanKey)) {
-                return false;
-            }
-            ScanPlanKey that = (ScanPlanKey) other;
-            return handle.equals(that.handle) && filter.equals(that.filter);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(handle, filter);
-        }
-    }
-
-    /**
-     * Materialized byte-split tasks discovered while building the schema carrier. Equality-delete field IDs
-     * must come from the exact predicate-filtered tasks that execution will read; keeping the tasks avoids a
-     * second metadata plan observing a different snapshot or delete set.
-     */
-    private static final class PreplannedSplitPlan {
-        private final List<FileScanTask> tasks;
-        private final long targetSplitSize;
-
-        private PreplannedSplitPlan(List<FileScanTask> tasks, long targetSplitSize) {
-            this.tasks = tasks;
-            this.targetSplitSize = targetSplitSize;
-        }
-
-        private SplitPlan asSplitPlan() {
-            return new SplitPlan(CloseableIterable.withNoopClose(tasks), targetSplitSize);
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<ScanPlanKey, PreplannedSplitPlan> preplannedScans(ConnectorSession session) {
-        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
-            return new ConcurrentHashMap<>();
-        }
-        String key = PREPLANNED_SCAN_NAMESPACE + ":" + session.getCatalogId()
-                + ":" + session.getQueryId();
-        return session.getStatementScope().computeIfAbsent(key, ConcurrentHashMap::new);
-    }
-
-    private PreplannedSplitPlan preplanScan(TableScan scan, ConnectorSession session, Table table,
-            Optional<ConnectorExpression> filter) {
-        List<FileScanTask> tasks = new ArrayList<>();
-        try (SplitPlan plan = planFileScanTask(scan, session, table, filter)) {
-            for (FileScanTask task : plan.tasks) {
-                tasks.add(task);
-            }
-            return new PreplannedSplitPlan(Collections.unmodifiableList(tasks), plan.targetSplitSize);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to close preplanned Iceberg file scan tasks", e);
         }
     }
 

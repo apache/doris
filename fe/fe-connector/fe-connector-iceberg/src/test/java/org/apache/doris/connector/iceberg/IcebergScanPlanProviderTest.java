@@ -812,6 +812,66 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void equalityDeleteCarrierKeepsLargeByteSplitScanLazyAndBatchEligible() throws Exception {
+        // A single large file with many row-group offsets represents 20,000 byte-split tasks. Building scan
+        // properties must retain only schema metadata: it must not drain and cache those tasks before dispatch.
+        // The unprojected equality key also proves that bounded planning still produces the required carrier.
+        // MUTATION: restoring preplanScan() materializes every split here and leaves a retained plan whose
+        // streamingSplitEstimate() result is -1 instead of 1.
+        int splitCount = 20_000;
+        long splitSize = 1024L;
+        List<Long> splitOffsets = new ArrayList<>(splitCount);
+        for (int index = 0; index < splitCount; index++) {
+            splitOffsets.add(index * splitSize);
+        }
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "old_key", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "name", Types.StringType.get()));
+        Map<String, String> tableProperties = new HashMap<>();
+        tableProperties.put("format-version", "2");
+        tableProperties.put(TableProperties.DEFAULT_FILE_FORMAT, "parquet");
+        Table table = createTable("large_eqdel", schema, PartitionSpec.unpartitioned(), tableProperties);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/large_eqdel/f1.parquet",
+                        splitCount * splitSize, splitOffsets, null))
+                .commit();
+        table.newRowDelta()
+                .addDeletes(equalityDeleteFile(
+                        "s3://b/db/large_eqdel/eq.parquet", FileFormat.PARQUET, 2))
+                .commit();
+        Map<String, String> sessionProperties = new HashMap<>();
+        sessionProperties.put("enable_external_table_batch_mode", "true");
+        sessionProperties.put("num_files_in_batch_mode", "1");
+        sessionProperties.put("file_split_size", Long.toString(splitSize));
+        FakeScanSession session = new FakeScanSession("UTC", sessionProperties)
+                .withScope(new TestStatementScope());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "large_eqdel");
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                session, handle,
+                Collections.singletonList(new IcebergColumnHandle("name", 3)), Optional.empty());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        TFieldPtr oldKey = params.getHistorySchemaInfo().get(0).getRootField().getFields().stream()
+                .filter(field -> field.getFieldPtr().getId() == 2).findFirst()
+                .orElseThrow(() -> new AssertionError("unprojected equality key is absent from schema carrier"));
+        Assertions.assertEquals("old_key", oldKey.getFieldPtr().getName());
+        Assertions.assertFalse(oldKey.getFieldPtr().isSetInitialDefaultValue());
+
+        Assertions.assertEquals(1L,
+                provider.streamingSplitEstimate(session, handle, Optional.empty(), false),
+                "schema-carrier planning must not retain tasks or disable streaming batch dispatch");
+        try (ConnectorSplitSource source = provider.streamSplits(
+                session, handle, Collections.emptyList(), Optional.empty(), -1L)) {
+            Assertions.assertTrue(source.hasNext(),
+                    "the first split must be dispatchable without draining all remaining byte splits");
+            Assertions.assertEquals(0L, source.next().getStart());
+        }
+    }
+
+    @Test
     public void getScanNodePropertiesEmitsSchemaEvolutionDictForPartitionedTableToo() {
         // The dict is emitted alongside path_partition_keys (it is unconditional, like legacy
         // createScanRangeLocations). MUTATION: gating the dict on unpartitioned -> absent here -> red.
