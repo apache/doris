@@ -328,8 +328,10 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  A[Single-column Predicate] --> B{Column Fully Dictionary Encoded?}
-  B -- "No" --> F[Read Actual Values and Execute VExpr]
+  A[Single-column Predicate] --> T{Logical Type Is String?}
+  T -- "No" --> F[Decode Actual Values and Apply Direct or VExpr Filtering]
+  T -- "Yes" --> B{Column Fully Dictionary Encoded?}
+  B -- "No" --> F
   B -- "Yes" --> C[Read Dictionary Page]
   C --> D[Evaluate Predicate on Dictionary Values<br>Build Dictionary-ID Bitmap]
   D --> E[Decode Data-page Dictionary IDs<br>Update SelectionVector Directly]
@@ -338,14 +340,13 @@ flowchart LR
   G -- "Yes" --> I[Gather Survivors Directly Into Target Column]
 ```
 
-- Applies to compatible equality and range predicates on non-repeated primitive columns whose
-  complete Column Chunk uses `RLE_DICTIONARY` or legacy `PLAIN_DICTIONARY` data encoding.
+- Applies to compatible equality and range predicates on non-repeated string columns whose complete
+  Column Chunk uses `RLE_DICTIONARY` or legacy `PLAIN_DICTIONARY` data encoding. Other logical types
+  decode dictionary values before reader-side direct filtering or residual VExpr evaluation.
 - Predicate-only batches decode selected IDs straight from the page decoder and never materialize
-  a row-sized predicate value column. The typed dictionary is cached once per generation. Simple
-  numeric comparisons build its ID bitmap over contiguous typed values, while string equality and
-  range comparisons operate directly on dictionary slices. When projection is required, all
-  fixed-width survivors are written by the filtering loop itself; strings pre-size their character
-  and offset buffers and copy each compact survivor once.
+  a row-sized predicate value column. The typed dictionary is cached once per generation. String
+  equality and range comparisons operate directly on dictionary slices. When projection is
+  required, strings pre-size their character and offset buffers and copy each compact survivor once.
 - Safe AND subexpressions may remove components exactly covered by dictionary evaluation. OR or
   non-equivalent expressions are not rewritten aggressively.
 - Stateful, potentially throwing, or whole-batch-sensitive expressions disable staged
@@ -596,14 +597,14 @@ only remove candidates already expressed in the same Row Group logical-row domai
 from ColumnIndex and OffsetIndex are validated together before they become `selected_ranges` and a
 per-leaf physical page-skip plan.
 
-Dictionary row filtering starts only when metadata proves every data page in the Column Chunk uses
-a dictionary encoding. The predicate is evaluated against the current dictionary to produce an
-entry bitmap; decoded IDs are checked against both dictionary length and bitmap length. A mixed
-dictionary/plain transition falls back before consuming data. Once selected dictionary reading has
-advanced a page cursor, loss of dictionary output is corruption rather than a retry through another
-path with shifted state. Predicate-only slots stop after decoder-level ID filtering and retain only
-the output row shape. Projected slots write fixed-width survivors in the filtering loop or gather
-compact string survivors directly into pre-sized target buffers.
+Dictionary row filtering starts only for string columns when metadata proves every data page in the
+Column Chunk uses a dictionary encoding. The predicate is evaluated against the current dictionary
+to produce an entry bitmap; decoded IDs are checked against both dictionary length and bitmap
+length. Non-string dictionaries stay on the decoded-value path. A mixed dictionary/plain transition
+falls back before consuming data. Once selected dictionary reading has advanced a page cursor, loss
+of dictionary output is corruption rather than a retry through another path with shifted state.
+Predicate-only string slots stop after decoder-level ID filtering and retain only the output row
+shape. Projected string slots gather compact survivors directly into pre-sized target buffers.
 
 Missing optional indexes or unsupported predicate/type combinations retain rows. Malformed
 offsets, inconsistent page counts, out-of-range dictionary IDs, overlapping/unsorted invalid ranges,
@@ -622,7 +623,7 @@ storage indexes for external Parquet files.
 | Parquet Bloom Filter | Row Group / Column Chunk | Equality and IN membership-negation predicates | Negative result can prune; positive result requires verification | Controlled by configuration; file must contain Bloom data; false positives are possible |
 | ColumnIndex | Page | Predicates evaluable from min/max/null | Produces candidate pages and row ranges | Requires an index and decodable compatible types |
 | OffsetIndex | Page → Row Range | Does not evaluate predicates directly | Maps page results to row numbers and physical skip plans | Normally used with ColumnIndex |
-| Dictionary-ID Filter | Row / Batch | Safe typed equality and range predicates | Exact filtering of actual rows without a full predicate value column | Complete dictionary encoding and non-repeated primitive only |
+| Dictionary-ID Filter | Row / Batch | Safe string equality and range predicates | Exact filtering of actual rows without a full predicate value column | Complete dictionary encoding and non-repeated string column only |
 | Condition Cache Bitmap | File-global granule | Stable cacheable conditions | Reuses previous filtering to reduce row ranges | Not a native Parquet index; uncovered ranges remain candidates |
 
 ### Index-selection overview

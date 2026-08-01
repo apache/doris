@@ -162,6 +162,11 @@ bool supports_row_level_dictionary_filter(const ParquetColumnSchema& column_sche
         column_schema.max_repetition_level > 0) {
         return false;
     }
+    if (!is_string_type(remove_nullable(column_schema.type)->get_primitive_type())) {
+        // Dictionary-id predicates are only equivalent to value predicates for strings here.
+        // Decode other dictionary types first to preserve the V1-compatible filtering domain.
+        return false;
+    }
     bool is_supported_physical_type = false;
     switch (column_metadata.type) {
     case tparquet::Type::BYTE_ARRAY:
@@ -180,11 +185,6 @@ bool supports_row_level_dictionary_filter(const ParquetColumnSchema& column_sche
         break;
     }
     if (!is_supported_physical_type) {
-        return false;
-    }
-    if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_VARBINARY) {
-        // A table STRING predicate can be rewritten through a raw VARBINARY file slot. Evaluating
-        // it on dictionary Fields before the mapping expression is neither type-safe nor exact.
         return false;
     }
     // The row filter consumes dictionary ids rather than decoded values, so a plain data page

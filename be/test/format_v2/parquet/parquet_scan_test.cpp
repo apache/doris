@@ -3125,7 +3125,7 @@ TEST_F(ParquetScanTest, DefinitionOnlyDatePredicatePreservesConversionSemantics)
     }
 }
 
-TEST_F(ParquetScanTest, PredicateOnlyDictionaryRangeSkipsTypedValueMaterialization) {
+TEST_F(ParquetScanTest, PredicateOnlyNonStringDictionaryRangeUsesDecodedValues) {
     write_dictionary_int_pair_parquet_file(_file_path);
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
@@ -3154,16 +3154,17 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryRangeSkipsTypedValueMaterializati
               (ColumnInt32::Container {30, 40, 50, 60}));
     EXPECT_EQ(block.get_by_position(0).column->size(), rows);
     EXPECT_EQ(counter_value(profile, "DictFilterCandidateColumns"), 1);
-    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
-    EXPECT_EQ(counter_value(profile, "RowsFilteredByDictFilter"), 2);
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 1);
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 6);
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterUnsupportedColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByDictFilter"), 0);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 0);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 0);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateProjectedRows"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     conjunct->close();
 }
 
-TEST_F(ParquetScanTest, PredicateOnlyDictionaryTopNUsesDictionaryIds) {
+TEST_F(ParquetScanTest, PredicateOnlyNonStringDictionaryTopNUsesDecodedValues) {
     write_dictionary_int_pair_parquet_file(_file_path);
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
@@ -3190,13 +3191,14 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryTopNUsesDictionaryIds) {
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {10, 20, 30}));
     EXPECT_EQ(counter_value(profile, "DictFilterCandidateColumns"), 1);
-    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
-    EXPECT_EQ(counter_value(profile, "RowsFilteredByDictFilter"), 3);
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterUnsupportedColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByDictFilter"), 0);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 0);
     prepared.conjunct->close();
 }
 
-TEST_F(ParquetScanTest, WideRuntimeFilterSlotUsesSparseDictionaryPlaceholders) {
+TEST_F(ParquetScanTest, WideRuntimeFilterSlotUsesDecodedDictionaryValues) {
     constexpr int COLUMN_COUNT = 128;
     constexpr int FILTER_COLUMN = COLUMN_COUNT - 1;
     write_int_columns_parquet_file(_file_path, COLUMN_COUNT, true);
@@ -3228,7 +3230,10 @@ TEST_F(ParquetScanTest, WideRuntimeFilterSlotUsesSparseDictionaryPlaceholders) {
     ASSERT_EQ(rows, 3);
     EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
               (ColumnInt32::Container {3, 5, 6}));
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterUnsupportedColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 0);
+    EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 1);
     conjunct->close();
 }
 
@@ -3271,7 +3276,7 @@ TEST_F(ParquetScanTest, DictionaryTopNPreservesNullBeforeLateBound) {
     prepared.conjunct->close();
 }
 
-TEST_F(ParquetScanTest, PredicateOnlyDictionaryBloomRuntimeFilterUsesTypedValues) {
+TEST_F(ParquetScanTest, NonStringDictionaryRuntimeFilterUsesDecodedValues) {
     write_dictionary_int_pair_parquet_file(_file_path);
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
@@ -3285,7 +3290,12 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryBloomRuntimeFilterUsesTypedValues
     ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
     ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
     request->predicate_only_columns.push_back(format::LocalColumnId(0));
-    request->conjuncts.push_back(create_int32_runtime_bloom_conjunct(0, {3, 5, 6}, 10));
+    auto conjunct = create_int32_runtime_bloom_conjunct(0, {3, 5, 6}, 10);
+    conjunct->_prepared = false;
+    conjunct->_opened = false;
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
     ASSERT_TRUE(reader->open(request).ok());
 
     Block block = build_file_block(schema);
@@ -3295,9 +3305,13 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryBloomRuntimeFilterUsesTypedValues
     ASSERT_EQ(rows, 3);
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {30, 50, 60}));
-    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
-    EXPECT_EQ(counter_value(profile, "DictFilterTypedCompareColumns"), 1);
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 6);
+    EXPECT_EQ(counter_value(profile, "DictFilterCandidateColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterUnsupportedColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictFilterTypedCompareColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 0);
+    EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 1);
+    conjunct->close();
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryBloomRuntimeFilterUsesVectorizedValues) {
@@ -3413,7 +3427,7 @@ TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryMinMaxRuntimeFilterUsesVect
     max_conjunct->close();
 }
 
-TEST_F(ParquetScanTest, ProjectedDictionaryRangeGathersOnlySurvivors) {
+TEST_F(ParquetScanTest, ProjectedNonStringDictionaryRangeUsesDecodedValues) {
     write_dictionary_int_pair_parquet_file(_file_path);
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
@@ -3441,15 +3455,16 @@ TEST_F(ParquetScanTest, ProjectedDictionaryRangeGathersOnlySurvivors) {
               (ColumnInt32::Container {3, 4, 5, 6}));
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {30, 40, 50, 60}));
-    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 1);
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 6);
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateProjectedRows"), 4);
-    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterUnsupportedColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 0);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 0);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateProjectedRows"), 0);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 1);
     conjunct->close();
 }
 
-TEST_F(ParquetScanTest, ProjectedBigIntDictionaryRangeUsesFusedGather) {
+TEST_F(ParquetScanTest, ProjectedBigIntDictionaryRangeUsesDecodedValues) {
     write_dictionary_bigint_pair_parquet_file(_file_path);
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
@@ -3477,12 +3492,11 @@ TEST_F(ParquetScanTest, ProjectedBigIntDictionaryRangeUsesFusedGather) {
               (ColumnInt64::Container {3, 4, 5, 6}));
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {30, 40, 50, 60}));
-    auto* fused_rows = profile.get_counter("DictionaryPredicateFusedProjectedRows");
-    ASSERT_NE(fused_rows, nullptr);
-    EXPECT_EQ(fused_rows->value(), 4);
-    auto* typed_filter_columns = profile.get_counter("DictFilterTypedCompareColumns");
-    ASSERT_NE(typed_filter_columns, nullptr);
-    EXPECT_EQ(typed_filter_columns->value(), 1);
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterUnsupportedColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateFusedProjectedRows"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterTypedCompareColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 1);
     conjunct->close();
 }
 
