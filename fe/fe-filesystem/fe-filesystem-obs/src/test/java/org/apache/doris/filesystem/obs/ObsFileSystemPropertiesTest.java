@@ -130,6 +130,33 @@ class ObsFileSystemPropertiesTest {
     }
 
     @Test
+    void hadoopMap_selectsObsFileSystemWithoutLinkingIt() {
+        // Premise this test rests on, and the exact shape of a deployment where fe-core no longer
+        // supplies hadoop: hadoop-huaweicloud puts org.apache.hadoop.fs.obs.OBSFileSystem on this
+        // module's classpath, while hadoop-common -- which owns its superclass
+        // org.apache.hadoop.fs.FileSystem -- is deliberately not part of this plugin. Loading the
+        // class therefore fails with NoClassDefFoundError, a LinkageError and NOT a
+        // ClassNotFoundException. Asserted so that adding hadoop-common later fails here loudly
+        // rather than quietly turning the rest of this test into a tautology.
+        Assertions.assertThrows(NoClassDefFoundError.class,
+                () -> Class.forName("org.apache.hadoop.fs.obs.OBSFileSystem", false,
+                        ObsFileSystemProperties.class.getClassLoader()));
+
+        // The probe asks whether the OBS connector ships in this plugin, not whether this JVM can
+        // link it, so an unlinkable-but-present OBSFileSystem must still select the native impl --
+        // the consumers that instantiate it carry their own hadoop. Probing with Class.forName got
+        // both halves wrong here: it threw, and catching the LinkageError would have downgraded
+        // fs.obs.impl to S3AFileSystem while the connector sat in lib/.
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBSFileSystem", hadoopKv.get("fs.obs.impl"));
+        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBS",
+                hadoopKv.get("fs.AbstractFileSystem.obs.impl"));
+    }
+
+    @Test
     void bind_rejectsPartialStaticCredentialsLikeFeCore() {
         IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> ObsFileSystemProperties.of(Map.of(
