@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import com.google.common.collect.ImmutableMap;
@@ -164,9 +165,12 @@ public class TrinoDorisConnector implements Connector {
         }
 
         // 2. Initialize Trino plugin infrastructure (singleton).
-        // The plugin dir comes from the FE engine environment (fe-core reads fe.conf);
-        // this plugin's classloader cannot see FE Config directly.
-        String pluginDir = TrinoBootstrap.resolvePluginDir(properties, context.getEnvironment());
+        // The plugin dir is a deployment-level setting: this plugin's classloader cannot see FE Config
+        // directly, so it arrives either in this plugin's own trino-connector.conf or, for a deployment
+        // that has not moved to that file, from fe.conf through the engine environment.
+        String pluginDir = TrinoBootstrap.resolvePluginDir(properties,
+                ConnectorConf.get(context, TrinoConnectorProvider.CONF_PLUGIN_DIR,
+                        TrinoConnectorProvider.ENV_PLUGIN_DIR, null));
         TrinoBootstrap bootstrap = TrinoBootstrap.getInstance(pluginDir);
 
         // 3. Create Trino Connector + Session for this catalog
