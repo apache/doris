@@ -953,23 +953,6 @@ jobs:
         if: ${{ always() && steps.auth.outcome == 'success' }}
         timeout-minutes: 5
         run: |
-          retry_oss_copy() {
-            local source="$1"
-            local destination="$2"
-            local description="$3"
-            for attempt in 1 2 3; do
-              if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-                cp -f "$source" "$destination" >/dev/null; then
-                return 0
-              fi
-              echo "::warning::$description failed (attempt $attempt/3)."
-              if [ "$attempt" -lt 3 ]; then
-                sleep 5
-              fi
-            done
-            return 1
-          }
-
           jq -e '
             .auth_mode == "chatgpt"
             and (.tokens.access_token | type == "string" and length > 0)
@@ -986,8 +969,9 @@ jobs:
           remote_auth="$(mktemp "$RUNNER_TEMP/codex-auth-current.XXXXXX")"
           trap 'rm -f "$remote_auth"' EXIT
           chmod 600 "$remote_auth"
-          if ! retry_oss_copy "$CODEX_AUTH_OSS_OBJECT" "$remote_auth" \
-            "Reading the current OSS auth"; then
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            --retry-times=2 --connect-timeout=10 --read-timeout=30 \
+            cp -f "$CODEX_AUTH_OSS_OBJECT" "$remote_auth" >/dev/null; then
             echo "::error::Could not verify the current OSS auth after 3 attempts."
             exit 1
           fi
@@ -998,8 +982,9 @@ jobs:
             exit 0
           fi
 
-          if ! retry_oss_copy "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT" \
-            "Uploading the refreshed Codex auth"; then
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            --retry-times=2 --connect-timeout=10 --read-timeout=30 \
+            cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT" >/dev/null; then
             echo "::error::Could not persist the refreshed Codex auth after 3 attempts."
             exit 1
           fi
