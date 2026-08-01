@@ -702,11 +702,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         long startTime = System.currentTimeMillis();
         try {
             Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
-            if (relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot
+            if (!(source.getExternalTable() instanceof PaimonSysExternalTable)
+                    && relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot
                     && ((PaimonMvccSnapshot) relationSnapshot.get()).getSnapshotCacheValue()
                             .getSnapshot().getSnapshotId() == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
-                // An empty snapshot is a bound generation: consulting the live table here could
-                // expose the first commit made after analysis completed.
+                // An empty data snapshot is a bound generation, but metadata system tables such as
+                // $schemas can still contain rows and must plan their own independent row domain.
                 return Collections.emptyList();
             }
             Table paimonTable = getProcessedTable();

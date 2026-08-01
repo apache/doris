@@ -68,11 +68,14 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
+import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.ScanMode;
+import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.Assert;
 import org.junit.Test;
@@ -721,6 +724,40 @@ public class PaimonScanNodeTest {
 
         Assert.assertTrue(node.getPaimonSplitFromAPI().isEmpty());
         Mockito.verify(liveTable, Mockito.never()).newReadBuilder();
+    }
+
+    @Test
+    public void testBoundEmptyDataSnapshotStillPlansMetadataSystemTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table paimonTable = Mockito.mock(Table.class);
+        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
+        TableScan scan = Mockito.mock(TableScan.class);
+        TableScan.Plan plan = Mockito.mock(TableScan.Plan.class);
+        org.apache.paimon.table.source.Split schemaSplit =
+                Mockito.mock(org.apache.paimon.table.source.Split.class);
+
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
+        Mockito.when(systemTable.getSysTableType()).thenReturn("schemas");
+        Mockito.when(systemTable.getSysPaimonTable()).thenReturn(paimonTable);
+        Mockito.when(paimonTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(paimonTable.rowType()).thenReturn(RowType.of());
+        Mockito.when(paimonTable.newReadBuilder()).thenReturn(readBuilder);
+        Mockito.when(readBuilder.withFilter(ArgumentMatchers.anyList())).thenReturn(readBuilder);
+        Mockito.when(readBuilder.withProjection(ArgumentMatchers.any(int[].class))).thenReturn(readBuilder);
+        Mockito.when(readBuilder.newScan()).thenReturn(scan);
+        Mockito.when(scan.plan()).thenReturn(plan);
+        Mockito.when(plan.splits()).thenReturn(Collections.singletonList(schemaSplit));
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "predicates", Collections.emptyList());
+        node.setRelationSnapshot(Optional.of(new PaimonMvccSnapshot(
+                new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
+                        new PaimonSnapshot(PaimonSnapshot.INVALID_SNAPSHOT_ID, 1L, paimonTable)))));
+
+        Assert.assertEquals(Collections.singletonList(schemaSplit), node.getPaimonSplitFromAPI());
+        Mockito.verify(paimonTable).newReadBuilder();
     }
 
     @Test
