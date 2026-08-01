@@ -370,8 +370,8 @@ TEST(AdbcReaderTest, StillRejectsATypeMismatchOnAColumnThatHasValues) {
     EXPECT_TRUE(values.AppendNull().ok());
     std::shared_ptr<arrow::Array> arr;
     EXPECT_TRUE(values.Finish(&arr).ok());
-    auto batch = arrow::RecordBatch::Make(
-            arrow::schema({arrow::field("c_str", arrow::int64())}), 2, {arr});
+    auto batch = arrow::RecordBatch::Make(arrow::schema({arrow::field("c_str", arrow::int64())}), 2,
+                                          {arr});
 
     auto reader = create_reader(
             &profile, fake_adbc_range(), slots,

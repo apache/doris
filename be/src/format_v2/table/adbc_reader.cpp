@@ -281,8 +281,8 @@ private:
     Status _read_partition(const std::string& base64_descriptor, AdbcErrorGuard& error) {
         std::string descriptor;
         if (!base64_decode(base64_descriptor, &descriptor)) {
-            return Status::InvalidArgument(
-                    "ADBC: the '{}' parameter is not valid base64", kParamPartitionDescriptor);
+            return Status::InvalidArgument("ADBC: the '{}' parameter is not valid base64",
+                                           kParamPartitionDescriptor);
         }
         RETURN_IF_ADBC_ERROR(
                 _driver->ConnectionReadPartition(
