@@ -171,6 +171,25 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testOldFeManifestBackstopKeepsStableMaximum() {
+        FileStoreTable visible = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "300"));
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "300"));
+
+        Table safeVisible = PaimonJniScanner.applyBackendManifestParallelism(
+                visible, null, 512);
+        Table safeFallback = PaimonJniScanner.applyBackendManifestParallelism(
+                new FallbackReadFileStoreTable(main, fallback), null, 512);
+
+        Assert.assertEquals("256", safeVisible.options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("256", ((FallbackReadFileStoreTable) safeFallback).fallback()
+                .options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
     public void testBackendCapRebuildsWrapperFromTransportedSystemSource() throws Exception {
         FileStoreTable source = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "32"));

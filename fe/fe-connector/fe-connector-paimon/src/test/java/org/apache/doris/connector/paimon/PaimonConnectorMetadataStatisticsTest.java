@@ -44,6 +44,11 @@ public class PaimonConnectorMetadataStatisticsTest {
         return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
     }
 
+    private static PaimonConnectorMetadata metadataWith(
+            RecordingPaimonCatalogOps ops, RecordingConnectorContext context) {
+        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), context);
+    }
+
     private static RowType rowType(String... columnNames) {
         RowType.Builder builder = RowType.builder();
         for (String name : columnNames) {
@@ -251,5 +256,28 @@ public class PaimonConnectorMetadataStatisticsTest {
         Assertions.assertFalse(stats.isPresent());
         Assertions.assertFalse(ops.log.contains("rowCount"),
                 "statistics must reject the pinned unsafe source before planning the system wrapper");
+    }
+
+    @Test
+    public void transientFreeSystemStatisticsReloadSourceInsideAuthenticator() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.rowCount = 7;
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.sysTable = new FakePaimonTable(
+                "t1$snapshots", rowType("snapshot_id"), Collections.emptyList(), Collections.emptyList());
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.failAuthOnInvocation = 2;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "snapshots", false);
+
+        Optional<ConnectorTableStatistics> stats =
+                metadataWith(ops, context).getTableStatistics(null, handle);
+
+        Assertions.assertFalse(stats.isPresent(),
+                "an authenticated source reload failure must degrade best-effort statistics to UNKNOWN");
+        Assertions.assertEquals(2, context.authCount);
+        Assertions.assertFalse(ops.log.contains("rowCount"),
+                "statistics planning must not continue after source authentication fails");
     }
 }

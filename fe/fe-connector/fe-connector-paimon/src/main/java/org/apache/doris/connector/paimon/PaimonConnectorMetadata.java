@@ -1532,18 +1532,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     private Table runtimeSafeSystemTable(
             PaimonTableHandle handle, Table systemTable, Map<String, String> scanOptions)
-            throws Catalog.TableNotExistException {
+            throws Exception {
         if (!handle.isSystemTable()) {
             return systemTable;
         }
-        Table dataTable = handle.getSystemTableSource();
-        if (dataTable == null) {
-            dataTable = handle.getSysBaseTable();
-        }
-        if (dataTable == null) {
-            dataTable = catalogOps.getTable(
-                    Identifier.create(handle.getDatabaseName(), handle.getTableName()));
-        }
+        Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
         return PaimonReaderOptions.runtimeSafeSystemTable(
                 handle.getSysTableName(), systemTable, dataTable, scanOptions);
     }

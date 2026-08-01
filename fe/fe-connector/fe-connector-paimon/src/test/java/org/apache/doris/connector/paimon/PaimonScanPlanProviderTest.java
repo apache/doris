@@ -200,6 +200,26 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void transientFreeSystemSourceReloadRunsInsideAuthenticator() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.sysTable = new FakePaimonTable(
+                "t1$snapshots", rowType("snapshot_id"), Collections.emptyList(), Collections.emptyList());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuthOnInvocation = 2;
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops, ctx);
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "snapshots", false);
+
+        Assertions.assertThrows(RuntimeException.class, () -> provider.resolveScanTable(handle));
+        Assertions.assertEquals(2, ctx.authCount,
+                "the system wrapper and its base source must each reload inside authentication");
+        Assertions.assertEquals(1, ops.log.size(),
+                "the second auth failure must stop the base-table RPC before it reaches the catalog seam");
+    }
+
+    @Test
     public void planScanEnumeratesSplitsInsideAuthScope(@TempDir Path warehouse) throws Exception {
         // scan.plan() reads paimon's snapshot/manifest files remotely, on the planning thread — on a
         // Kerberos filesystem catalog that read runs on the PLUGIN's UGI copy, which only the plugin doAs
