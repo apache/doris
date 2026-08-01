@@ -52,11 +52,35 @@
 #include "runtime/thread_context.h"
 #include "storage/id_manager.h"
 #include "storage/storage_engine.h"
+#include "util/thrift_util.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
 using namespace ErrorCode;
+
+Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data) {
+    ThriftSerializer serializer(false, 256);
+    uint32_t serialized_size = 0;
+    uint8_t* buffer = nullptr;
+    RETURN_IF_ERROR(serializer.serialize(&iceberg_commit_data, &serialized_size, &buffer));
+
+    constexpr size_t report_envelope_headroom = 1024 * 1024;
+    const size_t thrift_limit = static_cast<size_t>(std::max(config::thrift_max_message_size, 0));
+    const size_t commit_data_limit =
+            thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
+    std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
+    // Reject metadata while its file can still be removed; a later oversized report would strand every output.
+    if (_iceberg_commit_datas_serialized_bytes + serialized_size + sizeof(uint32_t) >
+        commit_data_limit) {
+        return Status::InternalError(
+                "Iceberg commit metadata exceeds the Thrift report limit; reduce output file "
+                "count");
+    }
+    _iceberg_commit_datas_serialized_bytes += serialized_size + sizeof(uint32_t);
+    _iceberg_commit_datas.emplace_back(std::move(iceberg_commit_data));
+    return Status::OK();
+}
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,

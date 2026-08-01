@@ -2515,16 +2515,14 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             }
         }
     }
-    if (auto icd = req.runtime_state->iceberg_commit_datas(); !icd.empty()) {
+    req.runtime_state->append_iceberg_commit_datas(&params.iceberg_commit_datas);
+    if (!params.iceberg_commit_datas.empty()) {
         params.__isset.iceberg_commit_datas = true;
-        params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(), icd.begin(),
-                                           icd.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (auto rs_icd = rs->iceberg_commit_datas(); !rs_icd.empty()) {
+            rs->append_iceberg_commit_datas(&params.iceberg_commit_datas);
+            if (!params.iceberg_commit_datas.empty()) {
                 params.__isset.iceberg_commit_datas = true;
-                params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
-                                                   rs_icd.begin(), rs_icd.end());
             }
         }
     }

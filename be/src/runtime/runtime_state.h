@@ -525,15 +525,12 @@ public:
         _hive_partition_updates.emplace_back(hive_partition_update);
     }
 
-    std::vector<TIcebergCommitData> iceberg_commit_datas() const {
+    void append_iceberg_commit_datas(std::vector<TIcebergCommitData>* output) const {
         std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
-        return _iceberg_commit_datas;
+        output->insert(output->end(), _iceberg_commit_datas.begin(), _iceberg_commit_datas.end());
     }
 
-    void add_iceberg_commit_datas(const TIcebergCommitData& iceberg_commit_data) {
-        std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
-        _iceberg_commit_datas.emplace_back(iceberg_commit_data);
-    }
+    Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
 
     std::vector<TMCCommitData> mc_commit_datas() const {
         std::lock_guard<std::mutex> lock(_mc_commit_datas_mutex);
@@ -978,6 +975,7 @@ private:
 
     mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
+    size_t _iceberg_commit_datas_serialized_bytes = 0;
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;

@@ -49,6 +49,7 @@ VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
                                          std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.iceberg_table_sink);
+    _active_writers.store(std::make_shared<ActiveWriterSnapshot>());
 }
 
 Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
@@ -329,7 +330,8 @@ Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
 Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
     RETURN_IF_ERROR(_process_row_lineage_columns(output_block));
 
-    std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Filter> writer_positions;
+    std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Permutation>
+            writer_positions;
     _row_count += output_block.rows();
 
     // Case 1: Full static partition - all data goes to a single partition
@@ -346,6 +348,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                 }
                 _partitions_to_writers.insert({_static_partition_path, writer});
                 RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
+                _publish_active_writers();
             } else {
                 if (writer_iter->second->written_len() > _target_file_size_bytes) {
                     std::string file_name(writer_iter->second->file_name());
@@ -355,6 +358,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                         RETURN_IF_ERROR(writer_iter->second->close(Status::OK()));
                     }
                     _partitions_to_writers.erase(writer_iter);
+                    _publish_active_writers();
                     try {
                         writer = _create_partition_writer(nullptr, -1, &file_name,
                                                           file_name_index + 1);
@@ -363,6 +367,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                     }
                     _partitions_to_writers.insert({_static_partition_path, writer});
                     RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
+                    _publish_active_writers();
                 } else {
                     writer = writer_iter->second;
                 }
@@ -371,7 +376,6 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -389,6 +393,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                 }
                 _partitions_to_writers.insert({"", writer});
                 RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
+                _publish_active_writers();
             } else {
                 if (writer_iter->second->written_len() > _target_file_size_bytes) {
                     std::string file_name(writer_iter->second->file_name());
@@ -398,6 +403,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                         RETURN_IF_ERROR(writer_iter->second->close(Status::OK()));
                     }
                     _partitions_to_writers.erase(writer_iter);
+                    _publish_active_writers();
                     try {
                         writer = _create_partition_writer(nullptr, -1, &file_name,
                                                           file_name_index + 1);
@@ -406,6 +412,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                     }
                     _partitions_to_writers.insert({"", writer});
                     RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
+                    _publish_active_writers();
                 } else {
                     writer = writer_iter->second;
                 }
@@ -414,7 +421,6 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -466,10 +472,8 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                     auto writer = _create_partition_writer(&transformed_block, position, file_name,
                                                            file_name_index);
                     RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
-                    IColumn::Filter filter(output_block.rows(), 0);
-                    filter[position] = 1;
-                    writer_positions.insert({writer, std::move(filter)});
                     _partitions_to_writers.insert({partition_name, writer});
+                    _publish_active_writers();
                     writer_ptr = writer;
                 } catch (doris::Exception& e) {
                     return e.to_status();
@@ -478,8 +482,8 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
             };
 
             auto writer_iter = _partitions_to_writers.find(partition_name);
+            std::shared_ptr<IPartitionWriterBase> writer;
             if (writer_iter == _partitions_to_writers.end()) {
-                std::shared_ptr<IPartitionWriterBase> writer;
                 if (_partitions_to_writers.size() + 1 >
                     config::table_sink_partition_write_max_partition_nums_per_writer) {
                     return Status::InternalError(
@@ -488,7 +492,6 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                 }
                 RETURN_IF_ERROR(create_and_open_writer(partition_name, i, nullptr, 0, writer));
             } else {
-                std::shared_ptr<IPartitionWriterBase> writer;
                 if (writer_iter->second->written_len() > _target_file_size_bytes) {
                     std::string file_name(writer_iter->second->file_name());
                     int file_name_index = writer_iter->second->file_name_index();
@@ -498,53 +501,53 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                     }
                     writer_positions.erase(writer_iter->second);
                     _partitions_to_writers.erase(writer_iter);
+                    _publish_active_writers();
                     RETURN_IF_ERROR(create_and_open_writer(partition_name, i, &file_name,
                                                            file_name_index + 1, writer));
                 } else {
                     writer = writer_iter->second;
                 }
-                auto writer_pos_iter = writer_positions.find(writer);
-                if (writer_pos_iter == writer_positions.end()) {
-                    IColumn::Filter filter(output_block.rows(), 0);
-                    filter[i] = 1;
-                    writer_positions.insert({writer, std::move(filter)});
-                } else {
-                    writer_pos_iter->second[i] = 1;
-                }
+            }
+            auto writer_pos_iter = writer_positions.find(writer);
+            if (writer_pos_iter == writer_positions.end()) {
+                IColumn::Permutation rows {static_cast<size_t>(i)};
+                writer_positions.insert({writer, std::move(rows)});
+            } else {
+                writer_pos_iter->second.push_back(static_cast<size_t>(i));
             }
         }
     }
     SCOPED_RAW_TIMER(&_partition_writers_write_ns);
     output_block.erase(_non_write_columns_indices);
     for (auto it = writer_positions.begin(); it != writer_positions.end(); ++it) {
-        Block filtered_block;
-        RETURN_IF_ERROR(_filter_block(output_block, &it->second, &filtered_block));
-        RETURN_IF_ERROR(it->first->write(filtered_block));
-        _current_writer.store(it->first);
+        Block selected_block;
+        RETURN_IF_ERROR(_select_block(output_block, it->second, &selected_block));
+        RETURN_IF_ERROR(it->first->write(selected_block));
     }
     return Status::OK();
 }
 
-Status VIcebergTableWriter::_filter_block(doris::Block& block, const IColumn::Filter* filter,
+Status VIcebergTableWriter::_select_block(doris::Block& block, const IColumn::Permutation& rows,
                                           doris::Block* output_block) {
     const ColumnsWithTypeAndName& columns_with_type_and_name =
             block.get_columns_with_type_and_name();
     ColumnsWithTypeAndName result_columns;
+    result_columns.reserve(columns_with_type_and_name.size());
     for (const auto& col : columns_with_type_and_name) {
-        result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
-                                    col.name);
+        // Across all partitions the permutations contain exactly one entry per input row, avoiding O(P*C*R).
+        result_columns.emplace_back(col.column->permute(rows, rows.size()), col.type, col.name);
     }
     *output_block = {std::move(result_columns)};
-
-    std::vector<uint32_t> columns_to_filter;
-    int column_to_keep = output_block->columns();
-    columns_to_filter.resize(column_to_keep);
-    for (uint32_t i = 0; i < column_to_keep; ++i) {
-        columns_to_filter[i] = i;
-    }
-
-    Block::filter_block_internal(output_block, columns_to_filter, *filter);
     return Status::OK();
+}
+
+void VIcebergTableWriter::_publish_active_writers() {
+    auto snapshot = std::make_shared<ActiveWriterSnapshot>();
+    snapshot->reserve(_partitions_to_writers.size());
+    for (const auto& entry : _partitions_to_writers) {
+        snapshot->push_back(entry.second);
+    }
+    _active_writers.store(std::move(snapshot));
 }
 
 Status VIcebergTableWriter::close(Status status) {
@@ -564,6 +567,7 @@ Status VIcebergTableWriter::close(Status status) {
             }
         }
         _partitions_to_writers.clear();
+        _publish_active_writers();
     }
     if (status.ok()) {
         SCOPED_TIMER(_operator_profile->total_time_counter());

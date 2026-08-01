@@ -19,24 +19,23 @@ package org.apache.doris.connector.iceberg.action;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
 /**
- * Pins the connector port of legacy {@code IcebergExecuteActionFactory} (the name registry + dispatch).
+ * Pins the Iceberg procedure name registry and dispatch.
  *
  * <p><b>WHY this matters:</b> the supported-name list is exported to {@code getSupportedProcedures()} and
- * embedded in the unknown-procedure error, so its membership and order must match legacy byte-for-byte
- * (T08 byte-parity). The {@code table} parameter is dropped (it was always dead in legacy). The 9 switch
- * cases are added in T04 (the procedure bodies); T03 fixes the registry + the faithful unknown-procedure
- * rejection.</p>
+ * embedded in the unknown-procedure error, so membership, ordering, and executable action mappings must stay
+ * synchronized.</p>
  */
 public class IcebergExecuteActionFactoryTest {
 
     @Test
-    public void getSupportedActionsReturnsNineNamesInLegacyOrder() {
+    public void getSupportedActionsIncludesOrphanCleanup() {
         Assertions.assertArrayEquals(
                 new String[] {
                         "rollback_to_snapshot",
@@ -48,6 +47,7 @@ public class IcebergExecuteActionFactoryTest {
                         "rewrite_data_files",
                         "publish_changes",
                         "rewrite_manifests",
+                        "remove_orphan_files",
                 },
                 IcebergExecuteActionFactory.getSupportedActions());
     }
@@ -60,15 +60,32 @@ public class IcebergExecuteActionFactoryTest {
         Assertions.assertEquals(
                 "Unsupported Iceberg procedure: no_such_proc. Supported procedures: rollback_to_snapshot, "
                         + "rollback_to_timestamp, set_current_snapshot, cherrypick_snapshot, fast_forward, "
-                        + "expire_snapshots, rewrite_data_files, publish_changes, rewrite_manifests",
+                        + "expire_snapshots, rewrite_data_files, publish_changes, rewrite_manifests, "
+                        + "remove_orphan_files",
                 e.getMessage());
+    }
+
+    @Test
+    public void createRemoveOrphanFilesAction() {
+        BaseIcebergAction action = IcebergExecuteActionFactory.createAction(
+                "remove_orphan_files", Collections.singletonMap("older_than", "1"),
+                Collections.emptyList(), null);
+        Assertions.assertInstanceOf(IcebergRemoveOrphanFilesAction.class, action);
+    }
+
+    @Test
+    public void removeOrphanFilesRejectsInvalidLocationUri() {
+        BaseIcebergAction action = IcebergExecuteActionFactory.createAction(
+                "remove_orphan_files", ImmutableMap.of("older_than", "1", "location", "://"),
+                Collections.emptyList(), null);
+        Assertions.assertThrows(DorisConnectorException.class, action::validate);
     }
 
     /**
      * CANARY for the dormant {@code rewrite_data_files} gap: it is advertised in {@link
-     * IcebergExecuteActionFactory#getSupportedActions()} (9 names) but has NO {@code createAction} switch
-     * case yet (8 cases), so it falls through to the faithful unknown-procedure rejection. This pins that
-     * dormant state and goes RED exactly when the T05/T06 body is wired in.
+     * IcebergExecuteActionFactory#getSupportedActions()} but has NO {@code createAction} switch
+     * case because it is dispatched through the distributed rewrite planner, so it falls through to the
+     * unknown-procedure rejection in this single-call factory.
      */
     @Test
     public void rewriteDataFilesIsAdvertisedButNotYetExecutable() {

@@ -593,6 +593,28 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void overwriteDynamicRejectsConcurrentDataInReplacedPartition() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteCtx());
+        Table concurrent = catalog.loadTable(id);
+        concurrent.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/concurrent.parquet", 1L, "region=us")).commit();
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=us/replacement.parquet", 2L, 1024L,
+                        Collections.singletonList("us"))));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit,
+                "dynamic overwrite must not silently replace data committed after its base snapshot");
+    }
+
+    @Test
     public void overwriteEmptyUnpartitionedClearsTable() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -680,6 +702,29 @@ public class IcebergConnectorTransactionTest {
                 () -> txn.beginWrite(SESSION, "db1", "t1", boundContext));
         Assertions.assertTrue(ex.getMessage().contains("partition spec changed"),
                 "a stale static overwrite must fail at begin before it can degrade to an always-true filter");
+    }
+
+    @Test
+    public void overwriteStaticRejectsConcurrentDataInTargetPartition() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(table, Collections.singletonMap("region", "us")));
+        Table concurrent = catalog.loadTable(id);
+        concurrent.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/concurrent.parquet", 1L, "region=us")).commit();
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=us/replacement.parquet", 2L, 1024L,
+                        Collections.singletonList("us"))));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit,
+                "static overwrite must reject concurrent data matching its target partition filter");
     }
 
     @Test

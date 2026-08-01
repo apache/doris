@@ -154,8 +154,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private Map<String, String> staticPartitionValues = Collections.emptyMap();
     private String branchName;
     private IcebergWriteSchemaContext writeSchemaContext;
-    // The current snapshot pinned at begin time for a DELETE/MERGE (null for INSERT/OVERWRITE). Consumed by
-    // the commit validation suite (validateFromSnapshot).
+    // The snapshot pinned at begin time for DELETE/MERGE and OVERWRITE (null for INSERT). Consumed by the
+    // commit validation suite (validateFromSnapshot).
     private Long baseSnapshotId;
     // Session zone for human-readable TIMESTAMP partition value parsing (DV-T04-f).
     private ZoneId zone = ZoneOffset.UTC;
@@ -430,7 +430,6 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             }
         } else {
             // INSERT / OVERWRITE (append path).
-            this.baseSnapshotId = null;
             if (ctx.getBranchName().isPresent()) {
                 this.branchName = ctx.getBranchName().get();
                 SnapshotRef branchRef = table.refs().get(branchName);
@@ -440,8 +439,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     throw new IllegalArgumentException(branchName
                             + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                 }
+                this.baseSnapshotId = op == WriteOperation.OVERWRITE ? branchRef.snapshotId() : null;
             } else {
                 this.branchName = null;
+                this.baseSnapshotId = op == WriteOperation.OVERWRITE ? getSnapshotIdIfPresent(table) : null;
             }
         }
     }
@@ -705,6 +706,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 if (branchName != null) {
                     overwriteFiles = overwriteFiles.toBranch(branchName);
                 }
+                // Clearing a table must fail if any data or delete landed after the statement's base snapshot.
+                overwriteFiles = validateOverwrite(overwriteFiles, Expressions.alwaysTrue());
                 TableScan overwriteScan = table.newScan();
                 if (branchName != null) {
                     overwriteScan = overwriteScan.useRef(branchName);
@@ -724,6 +727,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         if (branchName != null) {
             appendPartitionOp = appendPartitionOp.toBranch(branchName);
         }
+        // Partition replacement must preserve concurrent files instead of deleting or reviving them silently.
+        if (baseSnapshotId != null) {
+            appendPartitionOp = appendPartitionOp.validateFromSnapshot(baseSnapshotId);
+        }
+        appendPartitionOp = appendPartitionOp.validateNoConflictingData().validateNoConflictingDeletes();
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files.");
@@ -749,6 +757,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             overwriteFiles = overwriteFiles.toBranch(branchName);
         }
         overwriteFiles = overwriteFiles.overwriteByRowFilter(partitionFilter);
+        overwriteFiles = validateOverwrite(overwriteFiles, partitionFilter);
 
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
@@ -756,6 +765,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             Arrays.stream(result.dataFiles()).forEach(overwriteFiles::addFile);
         }
         overwriteFiles.commit();
+    }
+
+    private OverwriteFiles validateOverwrite(OverwriteFiles overwriteFiles, Expression conflictFilter) {
+        overwriteFiles = overwriteFiles.conflictDetectionFilter(conflictFilter);
+        if (baseSnapshotId != null) {
+            overwriteFiles = overwriteFiles.validateFromSnapshot(baseSnapshotId);
+        }
+        return overwriteFiles.validateNoConflictingData().validateNoConflictingDeletes();
     }
 
     /**

@@ -24,6 +24,22 @@
 
 namespace doris {
 
+TEST(RuntimeStateIcebergCommitDataTest, RejectsMetadataBeforeItCanExceedTheThriftLimit) {
+    RuntimeState state;
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 128;
+    TIcebergCommitData commit_data;
+    commit_data.__set_file_path(std::string(256, 'x'));
+
+    Status status = state.add_iceberg_commit_datas(commit_data);
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_FALSE(status.ok());
+    std::vector<TIcebergCommitData> collected;
+    state.append_iceberg_commit_datas(&collected);
+    EXPECT_TRUE(collected.empty());
+}
+
 // ---------------------------------------------------------------------------
 // RuntimeState::batch_size()
 // ---------------------------------------------------------------------------

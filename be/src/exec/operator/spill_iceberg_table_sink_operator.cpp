@@ -55,26 +55,26 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
     if (!_writer) {
         return 0;
     }
-    auto current_writer = _writer->current_writer();
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return 0;
+    size_t reserve_size = 0;
+    for (const auto& writer : *_writer->active_writers()) {
+        if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
+            reserve_size += sort_writer->get_reserve_mem_size(state, eos);
+        }
     }
-
-    return sort_writer->get_reserve_mem_size(state, eos);
+    return reserve_size;
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
     if (!_writer) {
         return 0;
     }
-    auto current_writer = _writer->current_writer();
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return 0;
+    size_t revocable_size = 0;
+    for (const auto& writer : *_writer->active_writers()) {
+        if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
+            revocable_size += sort_writer->data_size();
+        }
     }
-
-    return sort_writer->data_size();
+    return revocable_size;
 }
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
@@ -82,20 +82,23 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_writer) {
         return Status::OK();
     }
-    auto current_writer = _writer->current_writer();
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return Status::OK();
+    std::shared_ptr<IPartitionWriterBase> largest_writer;
+    size_t largest_size = 0;
+    for (const auto& writer : *_writer->active_writers()) {
+        if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
+            size_t size = sort_writer->data_size();
+            if (size > largest_size) {
+                largest_size = size;
+                largest_writer = writer;
+            }
+        }
     }
-
-    auto exception_catch_func = [current_writer, sort_writer]() {
-        auto status = [&]() {
-            RETURN_IF_CATCH_EXCEPTION({ return sort_writer->trigger_spill(); });
-        }();
-        return status;
-    };
-
-    return exception_catch_func();
+    if (largest_writer != nullptr) {
+        // Repeated revocation drains the largest partition first without launching O(P) spill jobs at once.
+        auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(largest_writer.get());
+        RETURN_IF_CATCH_EXCEPTION({ RETURN_IF_ERROR(sort_writer->trigger_spill()); });
+    }
+    return Status::OK();
 }
 
 SpillIcebergTableSinkOperatorX::SpillIcebergTableSinkOperatorX(

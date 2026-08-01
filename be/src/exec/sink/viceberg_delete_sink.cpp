@@ -283,8 +283,12 @@ Status VIcebergDeleteSink::close(Status close_status) {
                              _delete_file_count);
 
     if (_state != nullptr) {
-        for (const auto& commit_data : _commit_data_list) {
-            _state->add_iceberg_commit_datas(commit_data);
+        for (auto& commit_data : _commit_data_list) {
+            Status report_status = _state->add_iceberg_commit_datas(std::move(commit_data));
+            if (!report_status.ok()) {
+                _cleanup_created_files();
+                return report_status;
+            }
         }
     }
 

@@ -106,6 +106,10 @@ public:
     virtual ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
             const std::vector<ObjectCompleteMultiPart>& completed_parts) = 0;
+    virtual ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions&) {
+        return {.status = {.code = ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           .msg = "abort multipart upload is not supported"}};
+    }
     // According to the passed bucket and key, it will access whether the corresponding file exists in the object storage.
     // If it exists, it will return the corresponding file size
     virtual ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) = 0;

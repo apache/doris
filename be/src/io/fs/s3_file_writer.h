@@ -71,11 +71,12 @@ public:
     }
 
     Status close(bool non_block = false) override;
+    Status abort() override;
     Status try_finish_close() override;
 
 private:
+    Status _abort_impl();
     Status _close_impl();
-    Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
     Status _complete();

@@ -316,6 +316,21 @@ public:
     }
 };
 
+TEST_F(S3FileWriterTest, abort_cleans_up_multipart_upload) {
+    mock_client = std::make_shared<MockS3Client>();
+    doris::io::FileWriterOptions options;
+
+    io::FileWriterPtr writer;
+    ASSERT_TRUE(s3_fs->create_file("abort_multipart", &writer, &options).ok());
+    std::string data(config::s3_write_buffer_size, 'a');
+    ASSERT_TRUE(writer->append(Slice(data)).ok());
+    ASSERT_FALSE(static_cast<io::S3FileWriter*>(writer.get())->upload_id().empty());
+
+    ASSERT_TRUE(writer->abort().ok());
+    EXPECT_EQ(writer->state(), io::FileWriter::State::CLOSED);
+    EXPECT_TRUE(mock_client->contents().empty());
+}
+
 TEST_F(S3FileWriterTest, multi_part_io_error) {
     mock_client = std::make_shared<MockS3Client>();
     doris::io::FileWriterOptions state;
