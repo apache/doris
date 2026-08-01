@@ -62,6 +62,11 @@ public:
         ++calls;
         return ObjectStorageResponse::OK();
     }
+    ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions& opts) override {
+        ++calls;
+        ++abort_multipart_upload_calls;
+        return ObjectStorageResponse::OK();
+    }
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override {
         ++calls;
         return {};
@@ -106,6 +111,7 @@ public:
     int create_multipart_upload_calls = 0;
     int create_multipart_upload_provider_calls = 0;
     int create_multipart_upload_provider_calls_per_logical_call = 1;
+    int abort_multipart_upload_calls = 0;
     int delete_objects_recursively_calls = 0;
     int delete_objects_recursively_provider_calls = 0;
     int delete_objects_recursively_provider_calls_per_logical_call = 1;
@@ -366,6 +372,23 @@ TEST(RateLimitedObjStorageClientTest, multipart_control_apis_map_to_put_qps_with
 
     EXPECT_EQ(0, put_bytes->add(1));
     EXPECT_EQ(-1, put_bytes->add(1));
+}
+
+TEST(RateLimitedObjStorageClientTest, abortBypassesAnExhaustedPutLimit) {
+    RateLimiterConfigGuard guard;
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    manager.qps_limiter(S3RateLimitType::PUT)
+            ->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 1);
+    manager.bytes_limiter(S3RateLimitType::PUT)->reset(0, 0, 0);
+
+    auto fake = std::make_shared<FakeObjStorageClient>();
+    RateLimitedObjStorageClient client(fake);
+    ObjectStoragePathOptions opts {.bucket = "b", .key = "k", .upload_id = "upload"};
+
+    EXPECT_EQ(0, client.create_multipart_upload(opts).resp.status.code);
+    EXPECT_EQ(0, client.abort_multipart_upload(opts).status.code);
+    EXPECT_EQ(1, fake->abort_multipart_upload_calls);
 }
 
 TEST(RateLimitedObjStorageClientTest, delete_apis_map_to_put_qps_without_bytes) {

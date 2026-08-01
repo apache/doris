@@ -17,6 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <future>
+
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
@@ -28,6 +31,12 @@ namespace {
 
 class FakePartitionWriter final : public IPartitionWriterBase {
 public:
+    explicit FakePartitionWriter(std::atomic<int>* destroyed = nullptr) : _destroyed(destroyed) {}
+    ~FakePartitionWriter() override {
+        if (_destroyed != nullptr) {
+            ++(*_destroyed);
+        }
+    }
     Status open(RuntimeState*, RuntimeProfile*, const RowDescriptor*) override {
         return Status::OK();
     }
@@ -39,6 +48,7 @@ public:
 
 private:
     std::string _name = "fake";
+    std::atomic<int>* _destroyed;
 };
 
 TDataSink make_sink() {
@@ -60,6 +70,15 @@ protected:
     static void add_writer(VIcebergTableWriter* writer, std::string partition) {
         writer->_partitions_to_writers.emplace(std::move(partition),
                                                std::make_shared<FakePartitionWriter>());
+    }
+
+    static void add_writer(VIcebergTableWriter* writer, std::string partition,
+                           std::shared_ptr<IPartitionWriterBase> partition_writer) {
+        writer->_partitions_to_writers.emplace(std::move(partition), std::move(partition_writer));
+    }
+
+    static void clear_writers(VIcebergTableWriter* writer) {
+        writer->_partitions_to_writers.clear();
     }
 
     static void publish_active_writers(VIcebergTableWriter* writer) {
@@ -95,6 +114,31 @@ TEST_F(VIcebergTableWriterTest, ActiveWriterSnapshotContainsEveryOpenPartition) 
 
     ASSERT_NE(writer.active_writers(), nullptr);
     EXPECT_EQ(writer.active_writers()->size(), 2);
+}
+
+TEST_F(VIcebergTableWriterTest, LoadedSnapshotRetainsWritersDuringConcurrentPublication) {
+    VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
+    std::atomic<int> destroyed = 0;
+    add_writer(&writer, "p=1", std::make_shared<FakePartitionWriter>(&destroyed));
+    publish_active_writers(&writer);
+    std::promise<void> snapshot_loaded;
+    std::promise<void> replacement_published;
+
+    auto reader = std::async(std::launch::async, [&]() {
+        auto snapshot = writer.active_writers();
+        snapshot_loaded.set_value();
+        replacement_published.get_future().wait();
+        EXPECT_EQ(1, snapshot->size());
+        EXPECT_EQ("fake", snapshot->front()->file_name());
+    });
+
+    snapshot_loaded.get_future().wait();
+    clear_writers(&writer);
+    publish_active_writers(&writer);
+    EXPECT_EQ(0, destroyed.load());
+    replacement_published.set_value();
+    reader.get();
+    EXPECT_EQ(1, destroyed.load());
 }
 
 } // namespace doris

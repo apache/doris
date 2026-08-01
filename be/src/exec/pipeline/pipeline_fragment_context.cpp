@@ -468,6 +468,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
                     _params.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
             {
                 // Initialize runtime state for this task
+                task_runtime_state->set_iceberg_commit_data_budget(
+                        _runtime_state->iceberg_commit_data_budget());
                 task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
 
                 task_runtime_state->set_task_execution_context(shared_from_this());

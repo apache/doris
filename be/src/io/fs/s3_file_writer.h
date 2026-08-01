@@ -119,6 +119,7 @@ private:
     std::shared_ptr<ObjClientHolder> _obj_client;
     std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
     bool _close_latency_recorded = false;
+    bool _multipart_upload_started = false;
 };
 
 } // namespace io

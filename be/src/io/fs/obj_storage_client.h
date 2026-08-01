@@ -44,7 +44,7 @@ struct ObjectStoragePathOptions {
     std::string bucket = std::string();                  // blob container in azure
     std::string key = std::string();                     // blob name in azure
     std::string prefix = std::string();                  // for batch delete and recursive delete
-    std::optional<std::string> upload_id = std::nullopt; // only used for S3 upload
+    std::optional<std::string> upload_id = std::nullopt; // provider-specific upload token
 };
 
 struct ObjectCompleteMultiPart {
@@ -86,7 +86,7 @@ struct ObjectStorageHeadResponse : ObjectStorageResponse {
 class ObjStorageClient {
 public:
     virtual ~ObjStorageClient() = default;
-    // Create a multi-part upload request. On AWS-compatible systems, it will return an upload ID, but not on Azure.
+    // Create a multi-part upload request. The returned provider token identifies this upload's parts.
     // The input parameters should include the bucket and key for the object storage.
     virtual ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) = 0;

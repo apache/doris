@@ -40,6 +40,25 @@ TEST(RuntimeStateIcebergCommitDataTest, RejectsMetadataBeforeItCanExceedTheThrif
     EXPECT_TRUE(collected.empty());
 }
 
+TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetAcrossParallelTasks) {
+    RuntimeState first;
+    RuntimeState second;
+    auto budget = std::make_shared<IcebergCommitDataBudget>();
+    first.set_iceberg_commit_data_budget(budget);
+    second.set_iceberg_commit_data_budget(budget);
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 1024 * 1024 + 512;
+    TIcebergCommitData commit_data;
+    commit_data.__set_file_path(std::string(300, 'x'));
+
+    Status first_status = first.add_iceberg_commit_datas(commit_data);
+    Status second_status = second.add_iceberg_commit_datas(commit_data);
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_TRUE(first_status.ok()) << first_status;
+    EXPECT_FALSE(second_status.ok());
+}
+
 // ---------------------------------------------------------------------------
 // RuntimeState::batch_size()
 // ---------------------------------------------------------------------------

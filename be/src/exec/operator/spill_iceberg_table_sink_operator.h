@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "exec/operator/operator.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
@@ -26,6 +27,8 @@ namespace doris {
 
 class SpillIcebergTableSinkLocalState;
 class SpillIcebergTableSinkOperatorX;
+
+size_t bounded_iceberg_reserve_size(const std::vector<size_t>& per_partition_reservations);
 
 class SpillIcebergTableSinkLocalState final
         : public AsyncWriterSink<VIcebergTableWriter, SpillIcebergTableSinkOperatorX> {

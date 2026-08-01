@@ -38,6 +38,7 @@
 #include <exception>
 #include <iterator>
 #include <ranges>
+#include <sstream>
 #include <string_view>
 
 #include "common/exception.h"
@@ -46,8 +47,8 @@
 #include "cpp/obj_retry_strategy.h"
 #include "io/fs/obj_storage_client.h"
 #include "util/bvar_helper.h"
-#include "util/coding.h"
 #include "util/s3_util.h"
+#include "util/uuid_generator.h"
 
 using namespace Azure::Storage::Blobs;
 
@@ -64,10 +65,13 @@ std::string to_lower_ascii(std::string_view input) {
     return lowered;
 }
 
-auto base64_encode_part_num(int part_num) {
-    uint8_t buf[4];
-    doris::encode_fixed32_le(buf, static_cast<uint32_t>(part_num));
-    return Aws::Utils::HashingUtils::Base64Encode({buf, sizeof(buf)});
+std::string azure_block_id(const doris::io::ObjectStoragePathOptions& opts, int part_num) {
+    DCHECK(opts.upload_id.has_value());
+    // Azure requires every block ID for one blob to have the same decoded length.
+    std::string raw_id = fmt::format("{}:{:010}", *opts.upload_id, part_num);
+    Aws::Utils::ByteBuffer bytes(reinterpret_cast<const unsigned char*>(raw_id.data()),
+                                 raw_id.size());
+    return Aws::Utils::HashingUtils::Base64Encode(bytes);
 }
 
 // Rate limiting is applied by RateLimitedObjStorageClient, the decorator that
@@ -194,11 +198,13 @@ private:
     std::vector<Azure::Storage::DeferredResponse<Models::DeleteBlobResult>> deferred_resps;
 };
 
-// Azure would do nothing
 ObjectStorageUploadResponse AzureObjStorageClient::create_multipart_upload(
         const ObjectStoragePathOptions& opts) {
+    std::stringstream upload_id;
+    upload_id << UUIDGenerator::instance()->next_uuid();
     return ObjectStorageUploadResponse {
             .resp = ObjectStorageResponse::OK(),
+            .upload_id = upload_id.str(),
     };
 }
 
@@ -223,7 +229,7 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
                         reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
                 // The blockId must be base64 encoded
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                client.StageBlock(base64_encode_part_num(part_num), memory_body);
+                client.StageBlock(azure_block_id(opts, part_num), memory_body);
             },
             opts, _tls_debug_context);
     return ObjectStorageUploadResponse {
@@ -238,13 +244,45 @@ ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
     std::vector<std::string> string_block_ids;
     std::ranges::transform(
             completed_parts, std::back_inserter(string_block_ids),
-            [](const ObjectCompleteMultiPart& i) { return base64_encode_part_num(i.part_num); });
+            [&opts](const ObjectCompleteMultiPart& i) { return azure_block_id(opts, i.part_num); });
     return do_azure_client_call(
             [&]() {
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
                 client.CommitBlockList(string_block_ids);
             },
             opts, _tls_debug_context);
+}
+
+ObjectStorageResponse AzureObjStorageClient::abort_multipart_upload(
+        const ObjectStoragePathOptions& opts) {
+    auto client = _client->GetBlockBlobClient(opts.key);
+    auto response = do_azure_client_call(
+            [&]() {
+                GetBlockListOptions get_options;
+                get_options.ListType = Models::BlockListType::All;
+                auto block_list = client.GetBlockList(get_options);
+                if (block_list.Value.CommittedBlocks.empty()) {
+                    DeleteBlobOptions delete_options;
+                    // The ETag fence, when present, protects a concurrently committed blob.
+                    delete_options.AccessConditions.IfMatch = block_list.Value.ETag;
+                    client.Delete(delete_options);
+                    return;
+                }
+                std::vector<std::string> committed_ids;
+                committed_ids.reserve(block_list.Value.CommittedBlocks.size());
+                std::ranges::transform(block_list.Value.CommittedBlocks,
+                                       std::back_inserter(committed_ids),
+                                       [](const Models::BlobBlock& block) { return block.Name; });
+                CommitBlockListOptions commit_options;
+                commit_options.AccessConditions.IfMatch = block_list.Value.ETag;
+                // Recommitting only the old IDs discards this writer's unique staged blocks.
+                client.CommitBlockList(committed_ids, commit_options);
+            },
+            opts, _tls_debug_context);
+    // Azure creates no server-side object until the first block is staged, so absence is clean.
+    return response.http_code == static_cast<int>(Azure::Core::Http::HttpStatusCode::NotFound)
+                   ? ObjectStorageResponse::OK()
+                   : response;
 }
 
 ObjectStorageHeadResponse AzureObjStorageClient::head_object(const ObjectStoragePathOptions& opts) {

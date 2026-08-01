@@ -156,6 +156,26 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
     EXPECT_EQ(response.status.code, ErrorCode::OK);
     EXPECT_EQ(files.size(), 0);
 }
+
+TEST_F(AzureObjStorageClientTest, abort_multipart_upload_discards_staged_blocks) {
+    io::ObjectStoragePathOptions opts;
+    auto create_response =
+            AzureObjStorageClientTest::obj_storage_client->create_multipart_upload(opts);
+    ASSERT_EQ(create_response.resp.status.code, ErrorCode::OK);
+    ASSERT_TRUE(create_response.upload_id.has_value());
+    opts.key = "AzureObjStorageClientTest/abort_multipart_upload_" + *create_response.upload_id;
+    opts.upload_id = create_response.upload_id;
+
+    auto upload_response =
+            AzureObjStorageClientTest::obj_storage_client->upload_part(opts, "staged", 1);
+    ASSERT_EQ(upload_response.resp.status.code, ErrorCode::OK);
+    auto abort_response =
+            AzureObjStorageClientTest::obj_storage_client->abort_multipart_upload(opts);
+    ASSERT_EQ(abort_response.status.code, ErrorCode::OK);
+
+    auto head_response = AzureObjStorageClientTest::obj_storage_client->head_object(opts);
+    EXPECT_EQ(head_response.resp.status.code, ErrorCode::NOT_FOUND);
+}
 #else
 
 class AzureObjStorageClientTest : public testing::Test {

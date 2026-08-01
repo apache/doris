@@ -75,10 +75,7 @@ ObjectStorageResponse RateLimitedObjStorageClient::complete_multipart_upload(
 
 ObjectStorageResponse RateLimitedObjStorageClient::abort_multipart_upload(
         const ObjectStoragePathOptions& opts) {
-    S3RateLimitGuard guard(S3RateLimitType::PUT, 0);
-    if (!guard.ok()) {
-        return rate_limited_response(S3RateLimitType::PUT, guard.reject_reason());
-    }
+    // Cleanup must reach the provider even when a hard PUT limit caused the upload failure.
     return _inner->abort_multipart_upload(opts);
 }
 

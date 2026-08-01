@@ -17,12 +17,21 @@
 
 #include "exec/operator/spill_iceberg_table_sink_operator.h"
 
+#include <algorithm>
+
 #include "common/status.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
 namespace doris {
+
+size_t bounded_iceberg_reserve_size(const std::vector<size_t>& per_partition_reservations) {
+    return per_partition_reservations.empty()
+                   ? 0
+                   : *std::max_element(per_partition_reservations.begin(),
+                                       per_partition_reservations.end());
+}
 
 SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperatorXBase* parent,
                                                                  RuntimeState* state)
@@ -55,13 +64,16 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
     if (!_writer) {
         return 0;
     }
-    size_t reserve_size = 0;
-    for (const auto& writer : *_writer->active_writers()) {
+    std::vector<size_t> per_partition_reservations;
+    auto active_writers = _writer->active_writers();
+    per_partition_reservations.reserve(active_writers->size());
+    for (const auto& writer : *active_writers) {
         if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
-            reserve_size += sort_writer->get_reserve_mem_size(state, eos);
+            per_partition_reservations.push_back(sort_writer->get_reserve_mem_size(state, eos));
         }
     }
-    return reserve_size;
+    // One input block is partitioned among writers and consumed serially, so their full-batch estimates overlap.
+    return bounded_iceberg_reserve_size(per_partition_reservations);
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
@@ -69,7 +81,9 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
         return 0;
     }
     size_t revocable_size = 0;
-    for (const auto& writer : *_writer->active_writers()) {
+    // Retain the published container while the async writer may replace the current snapshot.
+    auto active_writers = _writer->active_writers();
+    for (const auto& writer : *active_writers) {
         if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
             revocable_size += sort_writer->data_size();
         }
@@ -84,7 +98,9 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
     }
     std::shared_ptr<IPartitionWriterBase> largest_writer;
     size_t largest_size = 0;
-    for (const auto& writer : *_writer->active_writers()) {
+    // Retain the published container while the async writer may replace the current snapshot.
+    auto active_writers = _writer->active_writers();
+    for (const auto& writer : *active_writers) {
         if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
             size_t size = sort_writer->data_size();
             if (size > largest_size) {

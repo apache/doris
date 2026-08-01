@@ -109,7 +109,7 @@ Status S3FileWriter::_abort_impl() {
     _wait_until_finish(
             fmt::format("wait s3 file {} before abort", _obj_storage_path_opts.path.native()));
     _pending_buf.reset();
-    if (_obj_storage_path_opts.upload_id.has_value()) {
+    if (_multipart_upload_started) {
         const auto& client = _obj_client->get();
         if (client == nullptr) {
             return Status::InternalError("invalid obj storage client");
@@ -131,6 +131,8 @@ Status S3FileWriter::_create_multi_upload_request() {
     }
     auto resp = client->create_multipart_upload(_obj_storage_path_opts);
     if (resp.resp.status.code == ErrorCode::OK) {
+        // Some providers identify staged uploads by block IDs instead of a server-issued upload ID.
+        _multipart_upload_started = true;
         _obj_storage_path_opts.upload_id = resp.upload_id;
     }
     return {resp.resp.status.code, std::move(resp.resp.status.msg)};

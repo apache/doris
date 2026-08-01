@@ -33,19 +33,25 @@ import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileInfo;
 import org.apache.iceberg.io.SupportsPrefixOperations;
+import org.apache.iceberg.util.PropertyUtil;
 
 import java.io.IOException;
 import java.net.URI;
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /** Safely lists or deletes old files that are unreachable from every retained snapshot. */
 public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
+    private static final long MIN_RETENTION_MS = Duration.ofHours(24).toMillis();
     public static final String OLDER_THAN = "older_than";
     public static final String LOCATION = "location";
     public static final String DRY_RUN = "dry_run";
@@ -84,6 +90,11 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         if (!(table.io() instanceof SupportsPrefixOperations)) {
             throw new DorisConnectorException("remove_orphan_files requires FileIO prefix listing support");
         }
+        if (!PropertyUtil.propertyAsBoolean(table.properties(), TableProperties.GC_ENABLED,
+                TableProperties.GC_ENABLED_DEFAULT)) {
+            // A GC-disabled table may share files with another table, so no destructive scan is safe.
+            throw new DorisConnectorException("Cannot remove orphan files: Iceberg GC is disabled");
+        }
         String tableLocation = normalizeLocation(table.location());
         String scanLocation = namedArguments.getString(LOCATION);
         scanLocation = scanLocation == null ? tableLocation : normalizeLocation(scanLocation);
@@ -93,16 +104,21 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         }
 
         try {
-            Set<String> reachable = collectReachableFiles(table);
+            ReachableIndex reachable = new ReachableIndex(collectReachableFiles(table));
             long orphanCount = 0;
             long deletedCount = 0;
             long olderThan = namedArguments.getLong(OLDER_THAN);
+            // The SQL procedure needs a retention fence because concurrent uploads are not reachable until commit.
+            if (olderThan > System.currentTimeMillis() - MIN_RETENTION_MS) {
+                throw new DorisConnectorException(
+                        "older_than must retain at least 24 hours of files");
+            }
             boolean dryRun = namedArguments.getBoolean(DRY_RUN);
             // Object stores use raw prefix matching, so the separator prevents "table_backup" siblings
             // from being treated as children of "table".
             String listingPrefix = scanLocation.endsWith("/") ? scanLocation : scanLocation + "/";
             for (FileInfo file : ((SupportsPrefixOperations) table.io()).listPrefix(listingPrefix)) {
-                if (file.createdAtMillis() < olderThan && !reachable.contains(file.location())) {
+                if (file.createdAtMillis() < olderThan && !isReachable(file.location(), reachable)) {
                     orphanCount++;
                     if (!dryRun) {
                         table.io().deleteFile(file.location());
@@ -118,6 +134,8 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
 
     private Set<String> collectReachableFiles(Table table) throws IOException {
         Set<String> reachable = new HashSet<>(ReachableFileUtil.metadataFileLocations(table, true));
+        // Hadoop tables consult this live pointer even though it is not part of the metadata log.
+        reachable.add(ReachableFileUtil.versionHintLocation(table));
         Set<String> scannedDeleteManifests = new HashSet<>();
         reachable.addAll(ReachableFileUtil.manifestListLocations(table));
         reachable.addAll(ReachableFileUtil.statisticsFilesLocations(table));
@@ -144,6 +162,92 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
             }
         }
         return reachable;
+    }
+
+    private static boolean isReachable(String candidate, ReachableIndex reachable) {
+        FileIdentity candidateIdentity = FileIdentity.of(candidate);
+        if (reachable.identities.contains(candidateIdentity)) {
+            return true;
+        }
+        if (reachable.paths.contains(candidateIdentity.path)) {
+            // A path collision across unknown providers/authorities cannot be classified safely.
+            throw new DorisConnectorException(
+                    "Cannot determine whether listed and reachable file locations are equivalent");
+        }
+        return false;
+    }
+
+    static boolean sameFileIdentity(String first, String second) {
+        return FileIdentity.of(first).equals(FileIdentity.of(second));
+    }
+
+    static void verifyNoPrefixMismatch(String candidate, Set<String> reachable) {
+        FileIdentity candidateIdentity = FileIdentity.of(candidate);
+        for (String retained : reachable) {
+            FileIdentity retainedIdentity = FileIdentity.of(retained);
+            // Matching paths with different providers/authorities are ambiguous; deletion must fail closed.
+            if (candidateIdentity.path.equals(retainedIdentity.path)
+                    && !candidateIdentity.equals(retainedIdentity)) {
+                throw new DorisConnectorException(
+                        "Cannot determine whether listed and reachable file locations are equivalent");
+            }
+        }
+    }
+
+    private static final class FileIdentity {
+        private final String scheme;
+        private final String authority;
+        private final String path;
+
+        private FileIdentity(String scheme, String authority, String path) {
+            this.scheme = scheme;
+            this.authority = authority;
+            this.path = path;
+        }
+
+        private static FileIdentity of(String location) {
+            URI uri = URI.create(location).normalize();
+            String scheme = uri.getScheme();
+            scheme = scheme == null ? "" : scheme.toLowerCase(Locale.ROOT);
+            if (scheme.equals("s3a") || scheme.equals("s3n")) {
+                scheme = "s3";
+            }
+            String authority = uri.getAuthority();
+            authority = authority == null ? "" : authority.toLowerCase(Locale.ROOT);
+            String path = uri.getPath();
+            return new FileIdentity(scheme, authority, path == null ? "" : path);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof FileIdentity)) {
+                return false;
+            }
+            FileIdentity that = (FileIdentity) other;
+            return scheme.equals(that.scheme) && authority.equals(that.authority)
+                    && path.equals(that.path);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(scheme, authority, path);
+        }
+    }
+
+    private static final class ReachableIndex {
+        private final Set<FileIdentity> identities = new HashSet<>();
+        private final Set<String> paths = new HashSet<>();
+
+        private ReachableIndex(Set<String> locations) {
+            for (String location : locations) {
+                FileIdentity identity = FileIdentity.of(location);
+                identities.add(identity);
+                paths.add(identity.path);
+            }
+        }
     }
 
     private String normalizeLocation(String location) {

@@ -69,15 +69,16 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
     const size_t thrift_limit = static_cast<size_t>(std::max(config::thrift_max_message_size, 0));
     const size_t commit_data_limit =
             thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
-    std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
-    // Reject metadata while its file can still be removed; a later oversized report would strand every output.
-    if (_iceberg_commit_datas_serialized_bytes + serialized_size + sizeof(uint32_t) >
+    std::lock_guard<std::mutex> budget_lock(_iceberg_commit_data_budget->mutex);
+    // Parallel task states share this budget because FE receives their vectors in one fragment report.
+    if (_iceberg_commit_data_budget->serialized_bytes + serialized_size + sizeof(uint32_t) >
         commit_data_limit) {
         return Status::InternalError(
                 "Iceberg commit metadata exceeds the Thrift report limit; reduce output file "
                 "count");
     }
-    _iceberg_commit_datas_serialized_bytes += serialized_size + sizeof(uint32_t);
+    std::lock_guard<std::mutex> data_lock(_iceberg_commit_datas_mutex);
+    _iceberg_commit_data_budget->serialized_bytes += serialized_size + sizeof(uint32_t);
     _iceberg_commit_datas.emplace_back(std::move(iceberg_commit_data));
     return Status::OK();
 }

@@ -76,6 +76,14 @@ class RuntimeFilterConsumer;
 class RuntimeFilterProducer;
 class TaskExecutionContext;
 
+class IcebergCommitDataBudget {
+    friend class RuntimeState;
+
+private:
+    std::mutex mutex;
+    size_t serialized_bytes = 0;
+};
+
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
 class RuntimeState {
@@ -532,6 +540,14 @@ public:
 
     Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
 
+    void set_iceberg_commit_data_budget(std::shared_ptr<IcebergCommitDataBudget> budget) {
+        _iceberg_commit_data_budget = std::move(budget);
+    }
+
+    const std::shared_ptr<IcebergCommitDataBudget>& iceberg_commit_data_budget() const {
+        return _iceberg_commit_data_budget;
+    }
+
     std::vector<TMCCommitData> mc_commit_datas() const {
         std::lock_guard<std::mutex> lock(_mc_commit_datas_mutex);
         return _mc_commit_datas;
@@ -975,7 +991,8 @@ private:
 
     mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
-    size_t _iceberg_commit_datas_serialized_bytes = 0;
+    std::shared_ptr<IcebergCommitDataBudget> _iceberg_commit_data_budget =
+            std::make_shared<IcebergCommitDataBudget>();
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
