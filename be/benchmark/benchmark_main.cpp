@@ -34,6 +34,7 @@
 #include "benchmark_fmod.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
+#include "benchmark_json_extract.hpp"
 #include "benchmark_pdep_unpack.hpp"
 #include "benchmark_string.hpp"
 #include "benchmark_string_replace.hpp"
