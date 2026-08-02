@@ -256,6 +256,22 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
         });
     }
 
+    @Override
+    public long getRowCount() {
+        for (Optional<MvccSnapshot> pin : scanPinMemo.values()) {
+            if (pin.isPresent() && pin.get() instanceof PluginDrivenMvccSnapshot) {
+                ConnectorMvccSnapshot connectorSnapshot =
+                        ((PluginDrivenMvccSnapshot) pin.get()).getConnectorSnapshot();
+                if (connectorSnapshot != null) {
+                    // A system relation keeps its pin in this private memo, not StatementContext; falling
+                    // back to the latest cache would give CBO cardinality from a different snapshot.
+                    return fetchRowCountAtSnapshot(connectorSnapshot);
+                }
+            }
+        }
+        return super.getRowCount();
+    }
+
     /**
      * The full schema of this system table AS OF {@code tableSnapshot}/{@code scanParams}, falling back to
      * the latest schema when this reference carries no pin.

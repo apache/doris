@@ -165,6 +165,27 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testOldFeSerializedSystemSourceRejectsFallbackZeroReadBatch() throws Exception {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.READ_BATCH_SIZE.key(), "0"));
+        Table readerBackedSystemTable = SystemTableLoader.load(
+                "audit_log", new FallbackReadFileStoreTable(main, fallback));
+        Map<String, String> params = createBaseParams();
+        params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                InstantiationUtil.serializeObject(readerBackedSystemTable)));
+        PaimonJniScanner scanner = new PaimonJniScanner(1024, params);
+        Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+        initTable.setAccessible(true);
+
+        InvocationTargetException failure = Assert.assertThrows(
+                InvocationTargetException.class, () -> initTable.invoke(scanner));
+        Assert.assertTrue(failure.getCause() instanceof IllegalArgumentException);
+        Assert.assertTrue(failure.getCause().getMessage()
+                .contains(CoreOptions.READ_BATCH_SIZE.key()));
+    }
+
+    @Test
     public void testBackendManifestCapReachesHiddenFallbackPlanner() {
         FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
         FileStoreTable fallback = serializableFileStoreTable(

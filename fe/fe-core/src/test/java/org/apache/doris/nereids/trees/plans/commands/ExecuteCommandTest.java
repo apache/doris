@@ -26,6 +26,7 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -84,6 +85,20 @@ public class ExecuteCommandTest {
         LogicalPlan relationRoot = ((DeleteFromUsingCommand) command).getLogicalQuery();
 
         assertPreparedCommandResetsScanOptions(sql, command, relationRoot);
+    }
+
+    @Test
+    public void testResolvedScanOptionsAreResetForPreparedDeleteSubquery() throws Exception {
+        String sql = "delete from target where id in "
+                + "(select id from source@options('scan.mode'='latest'))";
+        DeleteFromCommand command = (DeleteFromCommand) new NereidsParser().parseSingle(sql);
+        SubqueryExpr subquery = command.logicalQuery.<LogicalPlan>collectToList(plan -> true).stream()
+                .flatMap(plan -> plan.getExpressions().stream())
+                .flatMap(expression -> expression.<SubqueryExpr>collectToList(
+                        SubqueryExpr.class::isInstance).stream())
+                .findFirst().orElseThrow(AssertionError::new);
+
+        assertPreparedCommandResetsScanOptions(sql, command, subquery.getQueryPlan());
     }
 
     @Test
@@ -190,5 +205,9 @@ public class ExecuteCommandTest {
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
 
         Assertions.assertEquals("2", resolveNextSnapshot(scanParams, snapshotId));
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+
+        Assertions.assertEquals("3", resolveNextSnapshot(scanParams, snapshotId));
     }
 }

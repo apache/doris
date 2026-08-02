@@ -1303,8 +1303,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             FileStoreTable pinnedSource = handle.getSysBaseTable();
             if (pinnedSource != null) {
                 // $ro reads the field ids of its embedded source; a catalog reload here can observe
-                // schema generation B while the wrapper still plans generation A's files.
-                return pinnedSource;
+                // schema generation B while the wrapper still plans generation A's files. Relation scan
+                // options must also select this source, or historical splits get the latest dictionary.
+                return reapplyScanParams(
+                        pinnedSource, pinnedSource, false, handle.getScanOptions());
             }
             return reloadBaseTable(handle);
         }

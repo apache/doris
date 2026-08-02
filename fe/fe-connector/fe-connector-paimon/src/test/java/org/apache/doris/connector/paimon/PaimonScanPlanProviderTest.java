@@ -38,13 +38,17 @@ import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -886,6 +890,58 @@ public class PaimonScanPlanProviderTest {
 
             Assertions.assertEquals("pinned_id", currentName,
                     "$ro splits and schema dictionary must come from the same pinned generation");
+        }
+    }
+
+    @Test
+    public void readOptimizedSchemaDictionaryUsesOptionSelectedSnapshot(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("old_name", DataTypes.STRING())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable firstGeneration = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder writeBuilder = firstGeneration.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1, BinaryString.fromString("v")));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            long oldSnapshotId = firstGeneration.latestSnapshot().orElseThrow(AssertionError::new).id();
+            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                    .commitChanges(SchemaChange.renameColumn("old_name", "new_name"));
+            FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle base = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            base.setPaimonTable(latestGeneration);
+            PaimonTableHandle ro = (PaimonTableHandle) new PaimonConnectorMetadata(
+                    ops, Collections.emptyMap(), new RecordingConnectorContext())
+                    .getSysTableHandle(null, base, "ro").orElseThrow(AssertionError::new);
+            ro = ro.withScanOptions(PaimonScanParams.markAsOptions(Collections.singletonMap(
+                    CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(oldSnapshotId))));
+
+            Map<String, String> props = new PaimonScanPlanProvider(Collections.emptyMap(), ops)
+                    .getScanNodeProperties(null, ro,
+                            Collections.singletonList(new PaimonColumnHandle("old_name", 1)),
+                            Optional.empty());
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            PaimonScanPlanProvider.applySchemaEvolutionParam(
+                    params, props.get("paimon.schema_evolution"));
+            String currentName = params.getHistorySchemaInfo().get(0)
+                    .getRootField().getFields().get(0).getFieldPtr().getName();
+
+            Assertions.assertEquals("old_name", currentName,
+                    "$ro schema dictionary must describe the same option-selected snapshot as its splits");
         }
     }
 

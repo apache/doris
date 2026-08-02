@@ -19,10 +19,12 @@ package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -134,6 +136,29 @@ public class PluginDrivenSysExternalTableScanPinTest {
         Assertions.assertSame(statementPin, second.orElse(null));
         Assertions.assertEquals(1, statementLoads.get());
         Mockito.verify(source, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void rowCountUsesTheMemoizedSystemTablePin() {
+        long[] snapshotIds = {7L, -1L};
+        long[] expectedRows = {19L, 0L};
+        for (int i = 0; i < snapshotIds.length; i++) {
+            PluginDrivenMvccExternalTable source = Mockito.mock(PluginDrivenMvccExternalTable.class);
+            PluginDrivenSysExternalTable sysTable = sysTableOver(source);
+            PluginDrivenMvccSnapshot pin = Mockito.mock(PluginDrivenMvccSnapshot.class);
+            ConnectorMvccSnapshot connectorSnapshot = ConnectorMvccSnapshot.builder()
+                    .snapshotId(snapshotIds[i]).build();
+            Mockito.when(pin.getConnectorSnapshot()).thenReturn(connectorSnapshot);
+            Mockito.doReturn(expectedRows[i]).when(sysTable)
+                    .fetchRowCountAtSnapshot(connectorSnapshot);
+            sysTable.resolveScanPin(Optional.empty(),
+                    Optional.of(options("scan.snapshot-id", String.valueOf(snapshotIds[i]))),
+                    () -> Optional.of(pin));
+
+            Assertions.assertEquals(expectedRows[i], sysTable.getRowCount(),
+                    "positive and empty system pins must both use snapshot-aware statistics");
+            Mockito.verify(sysTable).fetchRowCountAtSnapshot(connectorSnapshot);
+        }
     }
 
     @Test
