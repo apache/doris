@@ -1642,8 +1642,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         String driverUrl = PaimonCatalogFactory.firstNonBlank(
                 properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
         if (driverUrl != null) {
-            Map<String, String> env = context != null ? context.getEnvironment() : Collections.emptyMap();
-            options.put("jdbc.driver_url", JdbcDriverSupport.resolveDriverUrl(driverUrl, env));
+            options.put("jdbc.driver_url", JdbcDriverSupport.resolveDriverUrl(driverUrl,
+                    PaimonConnectorProperties.configuredDriversDir(context),
+                    PaimonConnectorProperties.configuredDorisHome(context)));
             String driverClass = PaimonCatalogFactory.firstNonBlank(
                     properties, PaimonConnectorProperties.JDBC_DRIVER_CLASS);
             if (driverClass != null) {

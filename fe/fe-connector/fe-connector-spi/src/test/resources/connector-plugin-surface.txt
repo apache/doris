@@ -23,6 +23,7 @@ org.apache.doris.connector.spi.ConnectorContext#createSiblingConnector(java.lang
 org.apache.doris.connector.spi.ConnectorContext#executeAuthenticated(java.util.concurrent.Callable):java.lang.Object
 org.apache.doris.connector.spi.ConnectorContext#getCatalogId():long
 org.apache.doris.connector.spi.ConnectorContext#getCatalogName():java.lang.String
+org.apache.doris.connector.spi.ConnectorContext#getConnectorConfig():java.util.Map
 org.apache.doris.connector.spi.ConnectorContext#getEnvironment():java.util.Map
 org.apache.doris.connector.spi.ConnectorContext#getHttpSecurityHook():org.apache.doris.connector.api.ConnectorHttpSecurityHook
 org.apache.doris.connector.spi.ConnectorContext#getStorageContext():org.apache.doris.connector.spi.ConnectorStorageContext

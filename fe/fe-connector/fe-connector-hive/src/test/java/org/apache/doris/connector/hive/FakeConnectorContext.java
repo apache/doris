@@ -24,9 +24,10 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Minimal {@link ConnectorContext} test double: carries a fixed catalog identity and an environment map (the
- * channel through which fe-core threads the FE-global CREATE TABLE defaults). Everything else uses the
- * interface defaults.
+ * Minimal {@link ConnectorContext} test double: carries a fixed catalog identity plus the two maps a
+ * deployment-level setting can arrive in — this plugin's own {@code hms.conf}
+ * ({@link #getConnectorConfig()}) and fe.conf as forwarded by the engine ({@link #getEnvironment()}).
+ * Everything else uses the interface defaults.
  */
 public class FakeConnectorContext implements ConnectorContext, ConnectorStorageContext {
 
@@ -40,6 +41,7 @@ public class FakeConnectorContext implements ConnectorContext, ConnectorStorageC
     private final String catalogName;
     private final long catalogId;
     private final Map<String, String> environment;
+    private final Map<String, String> connectorConfig;
 
     public FakeConnectorContext() {
         this("test_catalog", 0L, Collections.emptyMap());
@@ -50,9 +52,15 @@ public class FakeConnectorContext implements ConnectorContext, ConnectorStorageC
     }
 
     public FakeConnectorContext(String catalogName, long catalogId, Map<String, String> environment) {
+        this(catalogName, catalogId, environment, Collections.emptyMap());
+    }
+
+    public FakeConnectorContext(String catalogName, long catalogId, Map<String, String> environment,
+            Map<String, String> connectorConfig) {
         this.catalogName = catalogName;
         this.catalogId = catalogId;
         this.environment = environment == null ? Collections.emptyMap() : environment;
+        this.connectorConfig = connectorConfig == null ? Collections.emptyMap() : connectorConfig;
     }
 
     @Override
@@ -68,5 +76,10 @@ public class FakeConnectorContext implements ConnectorContext, ConnectorStorageC
     @Override
     public Map<String, String> getEnvironment() {
         return environment;
+    }
+
+    @Override
+    public Map<String, String> getConnectorConfig() {
+        return connectorConfig;
     }
 }

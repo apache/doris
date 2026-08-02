@@ -28,6 +28,7 @@ import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
+import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -50,7 +51,6 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -422,8 +422,10 @@ public class PaimonConnector implements Connector {
                         MetaStoreProviders.bind(properties, storageHadoopConfig);
                 HiveConf hc = PaimonCatalogFactory.assembleHiveConf(
                         PaimonCatalogFactory.firstNonBlank(properties, "hive.conf.resources"),
-                        hms.toHiveConfOverrides(context.getEnvironment()
-                                .getOrDefault("hive_metastore_client_timeout_second", "10")));
+                        hms.toHiveConfOverrides(ConnectorConf.get(context,
+                                PaimonConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
+                                PaimonConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
+                                PaimonConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND)));
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with HMS metastore");
             }
@@ -532,8 +534,9 @@ public class PaimonConnector implements Connector {
      * allow-list (a pre-existing fe-core gap shared by all plugin connectors — see deviations-log).
      */
     private String resolveFullDriverUrl(String driverUrl) {
-        Map<String, String> env = context != null ? context.getEnvironment() : Collections.emptyMap();
-        return JdbcDriverSupport.resolveDriverUrl(driverUrl, env);
+        return JdbcDriverSupport.resolveDriverUrl(driverUrl,
+                PaimonConnectorProperties.configuredDriversDir(context),
+                PaimonConnectorProperties.configuredDorisHome(context));
     }
 
     private void registerJdbcDriver(String driverUrl, String driverClassName) {
