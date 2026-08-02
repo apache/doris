@@ -34,6 +34,9 @@ under the License.
             <unpackOptions>
                 <excludes>
                     <exclude>**/Log4j2Plugins.dat</exclude>
+                    <!-- hive-catalog-shade contains Paimon classes that conflict
+                         with the isolated Paimon connector. -->
+                    <exclude>org/apache/paimon/**</exclude>
                 </excludes>
             </unpackOptions>
         </dependencySet>
