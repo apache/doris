@@ -42,6 +42,16 @@ under the License.
             <source>${project.build.directory}/${project.build.finalName}.jar</source>
             <outputDirectory>/</outputDirectory>
         </file>
+        <!--
+          The connector's settings template. Only the .template ships; build.sh seeds the live adbc.conf
+          from it with cp -n, so unzipping a newer plugin build over a deployed directory refreshes this
+          file but never the administrator's copy. The name must equal ConnectorProvider.name() +
+          ".conf.template" - AdbcConnectorConfTest fails if it drifts.
+        -->
+        <file>
+            <source>src/main/resources/adbc.conf.template</source>
+            <outputDirectory>/</outputDirectory>
+        </file>
     </files>
 
     <dependencySets>

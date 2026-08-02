@@ -18,6 +18,7 @@
 package org.apache.doris.connector.adbc;
 
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -167,13 +168,29 @@ public class AdbcConnector implements Connector {
     }
 
     private Path resolveDriverPath() {
-        Map<String, String> env = context.getEnvironment();
         Path driverPath = AdbcDriverPathResolver.resolve(
                 properties.get(AdbcConnectorProperties.DRIVER_URL),
-                env.get(AdbcConnectorProperties.ENV_DRIVERS_DIR),
-                env.get(AdbcConnectorProperties.ENV_DRIVER_SECURE_PATH));
+                driversDir(),
+                ConnectorConf.get(context, AdbcConnectorProperties.CONF_DRIVER_SECURE_PATH, null,
+                        AdbcConnectorProperties.DEFAULT_DRIVER_SECURE_PATH));
         AdbcDriverPathResolver.checkExists(driverPath, properties.get(AdbcConnectorProperties.DRIVER_URL));
         return driverPath;
+    }
+
+    /**
+     * The directory a bare {@code driver_url} file name resolves under: adbc.conf's
+     * {@code drivers_dir}, else {@code <DORIS_HOME>/plugins/adbc_drivers}.
+     *
+     * <p>The default is computed here rather than declared as an fe.conf {@code @ConfField}, because a
+     * key in fe-core is an engine change per connector setting. Null when DORIS_HOME is unknown and the
+     * conf file says nothing -- {@link AdbcDriverPathResolver#resolve} then reports the bare name as
+     * unresolvable instead of quietly resolving it against the process working directory.
+     */
+    private String driversDir() {
+        String dorisHome = context.getEnvironment().get(AdbcConnectorProperties.ENV_DORIS_HOME);
+        String defaultDir = dorisHome == null
+                ? null : dorisHome + AdbcConnectorProperties.DEFAULT_DRIVERS_SUBDIR;
+        return ConnectorConf.get(context, AdbcConnectorProperties.CONF_DRIVERS_DIR, null, defaultDir);
     }
 
     private AdbcClient getOrCreateClient() {

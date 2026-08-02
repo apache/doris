@@ -21,12 +21,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Property constants for ADBC catalogs, and the environment keys the connector reads.
+ * Property constants for ADBC catalogs, and the keys of this plugin's own settings file.
  *
  * <p>fe-core parses no connector properties, so everything a user writes in {@code CREATE CATALOG} is
- * interpreted here. FE-global settings that are not catalog properties arrive through
- * {@code ConnectorContext#getEnvironment()}; the {@link #ENV_DRIVERS_DIR} / {@link #ENV_DRIVER_SECURE_PATH}
- * keys must stay byte-identical to the writes in fe-core's {@code DefaultConnectorContext}.
+ * interpreted here. Settings that are one-per-FE rather than one-per-catalog live in the plugin's
+ * {@code adbc.conf} instead ({@link #CONF_DRIVERS_DIR} / {@link #CONF_DRIVER_SECURE_PATH}), read with
+ * {@code ConnectorConf.get}. They have no fe.conf half: this connector is new, so there is no
+ * deployment that configured them before {@code adbc.conf} existed, and adding a {@code @ConfField}
+ * would tie a key name of this plugin into fe-core for nothing.
  */
 public final class AdbcConnectorProperties {
 
@@ -134,10 +136,28 @@ public final class AdbcConnectorProperties {
      */
     public static final String DRIVER_OPTION_PREFIX = "adbc.";
 
-    // -- environment (not catalog properties) --
+    // -- adbc.conf keys (not catalog properties) --
 
-    public static final String ENV_DRIVERS_DIR = "adbc_drivers_dir";
-    public static final String ENV_DRIVER_SECURE_PATH = "adbc_driver_secure_path";
+    /**
+     * Directory a bare {@code driver_url} file name resolves under. Defaults to
+     * {@code <DORIS_HOME>/plugins/adbc_drivers}, which is where build.sh creates the directory.
+     */
+    public static final String CONF_DRIVERS_DIR = "drivers_dir";
+
+    /**
+     * Semicolon-separated directories a driver may be loaded from; {@code *} allows any. Defaults to
+     * {@link #DEFAULT_DRIVER_SECURE_PATH}.
+     */
+    public static final String CONF_DRIVER_SECURE_PATH = "driver_secure_path";
+
+    /** The subdirectory of DORIS_HOME {@link #CONF_DRIVERS_DIR} defaults to. */
+    public static final String DEFAULT_DRIVERS_SUBDIR = "/plugins/adbc_drivers";
+
+    /** Allow any directory, matching the jdbc catalog's default. */
+    public static final String DEFAULT_DRIVER_SECURE_PATH = "*";
+
+    /** Engine-wide rather than this connector's setting, so it keeps coming from the environment. */
+    public static final String ENV_DORIS_HOME = "doris_home";
 
     /**
      * Returns the {@code adbc.}-prefixed entries with their names kept intact, in iteration order.

@@ -48,9 +48,9 @@ public class AdbcConnectorProvider implements ConnectorProvider {
     }
 
     /**
-     * Cheap presence checks only. Resolving {@code driver_url} to a path needs {@code adbc_drivers_dir} and
-     * {@code adbc_driver_secure_path}, which arrive through the connector context rather than the property
-     * map, so that half runs in {@code AdbcConnector#preCreateValidation}.
+     * Cheap presence checks only. Resolving {@code driver_url} to a path needs adbc.conf's
+     * {@code drivers_dir} and {@code driver_secure_path}, which arrive through the connector context
+     * rather than the property map, so that half runs in {@code AdbcConnector#preCreateValidation}.
      */
     @Override
     public void validateProperties(Map<String, String> properties) {

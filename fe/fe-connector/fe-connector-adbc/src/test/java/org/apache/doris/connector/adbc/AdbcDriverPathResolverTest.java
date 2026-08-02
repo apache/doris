@@ -166,7 +166,7 @@ class AdbcDriverPathResolverTest {
     @Test
     void securePathRejectsWhatIsOutsideIt() {
         String message = rejectionOf("/etc/libadbc_driver_flightsql.so", "/opt/drv");
-        Assertions.assertTrue(message.contains("adbc_driver_secure_path"), message);
+        Assertions.assertTrue(message.contains("driver_secure_path"), message);
     }
 
     @Test
@@ -174,7 +174,7 @@ class AdbcDriverPathResolverTest {
         // "/opt/drv-evil" starts with the string "/opt/drv" but is a different directory. A raw prefix
         // check would authorize it.
         String message = rejectionOf("/opt/drv-evil/libadbc_driver_flightsql.so", "/opt/drv");
-        Assertions.assertTrue(message.contains("adbc_driver_secure_path"), message);
+        Assertions.assertTrue(message.contains("driver_secure_path"), message);
     }
 
     @Test

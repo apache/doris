@@ -164,20 +164,6 @@ public class Config extends ConfigBase {
             + "so path traversal and prefix confusion are rejected."})
     public static String jdbc_driver_secure_path = "*";
 
-    @ConfField(description = {"The path to save ADBC driver shared libraries. When creating an ADBC Catalog, "
-            + "if the specified driver file is a bare file name, Doris will look for it in this path. "
-            + "The same driver file must also be placed under be/plugins/adbc_drivers on every BE: ADBC "
-            + "partition descriptors are driver-private bytes with no interoperability guarantee across "
-            + "driver implementations, so FE and BE must load the very same library"})
-    public static String adbc_drivers_dir = EnvUtils.getDorisHome() + "/plugins/adbc_drivers";
-
-    @ConfField(description = {"The safe path of the ADBC driver. When creating an ADBC Catalog, "
-            + "you can configure multiple directories that are allowed to be used, separated by semicolons. "
-            + "The default is * to allow all; if set to empty, it also means to allow all. "
-            + "When set to concrete paths, driver paths are matched structurally (component-based), "
-            + "so path traversal and prefix confusion are rejected"})
-    public static String adbc_driver_secure_path = "*";
-
     @ConfField(description = {"Functions that MySQL JDBC Catalog does not support pushing down"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 

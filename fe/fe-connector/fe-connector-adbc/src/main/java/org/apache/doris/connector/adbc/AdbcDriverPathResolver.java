@@ -62,7 +62,7 @@ public final class AdbcDriverPathResolver {
      * the allow-list can be tested without laying down files.
      *
      * @param driverUrl the raw {@code driver_url} property value
-     * @param driversDir directory a bare file name resolves under ({@code adbc_drivers_dir})
+     * @param driversDir directory a bare file name resolves under (adbc.conf's {@code drivers_dir})
      * @param securePath semicolon-separated allowed directories, or {@code *} / blank to allow all
      * @throws IllegalArgumentException on any rejected form, naming what is wrong
      */
@@ -120,11 +120,12 @@ public final class AdbcDriverPathResolver {
             throw new IllegalArgumentException("Invalid '" + AdbcConnectorProperties.DRIVER_URL
                     + "': a bare driver file name must match [A-Za-z0-9._-]+.so (got: " + raw + ")."
                     + " Use an absolute path or a file:// URL to reference a driver outside "
-                    + AdbcConnectorProperties.ENV_DRIVERS_DIR);
+                    + AdbcConnectorProperties.CONF_DRIVERS_DIR + " (adbc.conf)");
         }
         if (driversDir == null || driversDir.trim().isEmpty()) {
             throw new IllegalArgumentException("Cannot resolve the bare driver file name '" + raw
-                    + "': " + AdbcConnectorProperties.ENV_DRIVERS_DIR + " is not configured");
+                    + "': " + AdbcConnectorProperties.CONF_DRIVERS_DIR
+                    + " is not configured in adbc.conf and DORIS_HOME is unknown");
         }
         return Paths.get(driversDir.trim(), raw);
     }
@@ -164,7 +165,8 @@ public final class AdbcDriverPathResolver {
             }
         }
         throw new IllegalArgumentException("Driver path does not match any path allowed by "
-                + AdbcConnectorProperties.ENV_DRIVER_SECURE_PATH + " (" + securePath + "): " + raw);
+                + AdbcConnectorProperties.CONF_DRIVER_SECURE_PATH + " in adbc.conf ("
+                + securePath + "): " + raw);
     }
 
     /**

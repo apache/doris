@@ -150,7 +150,7 @@ suite("test_adbc_negative", "p0,external") {
                 ["driver_url"],
                 "a driver path containing '..'")
 
-        // A bare name is resolved under adbc_drivers_dir and so must look like a file name.
+        // A bare name is resolved under adbc.conf's drivers_dir and so must look like a file name.
         failsMentioning(
                 createCatalog(badCatalog,
                         """ "type" = "adbc", "driver_url" = "not a driver name.so",

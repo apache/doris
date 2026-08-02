@@ -592,11 +592,6 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         env.put("jdbc_drivers_dir", Config.jdbc_drivers_dir);
         env.put("force_sqlserver_jdbc_encrypt_false",
                 String.valueOf(Config.force_sqlserver_jdbc_encrypt_false));
-        // ADBC driver placement (fe-connector-adbc). The plugin cannot read FE Config, and the JDBC
-        // equivalents are not reusable: ConnectorValidationContext#validateAndResolveDriverPath resolves
-        // against jdbc_drivers_dir. Keys must stay byte-identical to the reads in AdbcConnectorProperties.
-        env.put("adbc_drivers_dir", Config.adbc_drivers_dir);
-        env.put("adbc_driver_secure_path", Config.adbc_driver_secure_path);
         // HMS metastore client socket-timeout default (C4): the metastore-spi cannot read FE Config
         // (no fe-common dependency), so the FE-configured value is threaded through the environment and
         // applied by HmsMetaStoreProperties.toHiveConfOverrides when the user has not overridden it.
