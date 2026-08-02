@@ -357,8 +357,10 @@ suite("test_iceberg_variant_read",
     String pagePruningProfile = getProfileByToken(pagePruningToken).toString()
     assertTrue(counterSum(pagePruningProfile, "FilteredRowsByPage") > 0,
                "Shredded Variant typed_value did not filter any Parquet page")
-    assertEquals(0L, counterSum(pagePruningProfile, "VariantLeafProjections"),
-                 "A query returning the root Variant must retain the complete physical wrapper")
+    // The predicate_access_paths contract keeps the typed leaf eager while the complete Variant
+    // root is read through the independent deferred-output projection.
+    assertTrue(counterSum(pagePruningProfile, "VariantLeafProjections") > 0,
+               "A root Variant output query did not retain its typed predicate leaf projection")
     String leafProjectionToken =
             "iceberg_variant_leaf_projection_" + UUID.randomUUID().toString()
     sql """
