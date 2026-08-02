@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -103,7 +104,8 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
-    public void testFullLatestProjectionCapsManifestParallelismBeforePartitionLoad() {
+    public void testFullLatestProjectionCapsManifestParallelismBeforePartitionLoad() throws AnalysisException {
+        // Keep the test aligned with the loader contract: partition loading may report analysis failures.
         int localCapacity = Runtime.getRuntime().availableProcessors();
         Assume.assumeTrue(localCapacity < 256);
         PaimonPartitionInfoLoader partitionLoader = Mockito.mock(PaimonPartitionInfoLoader.class);
