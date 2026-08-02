@@ -165,6 +165,21 @@ private:
     const std::string _expr_name = "MetadataInt32GreaterThanExpr";
 };
 
+class UnsafeMetadataBarrierExpr final : public VExpr {
+public:
+    UnsafeMetadataBarrierExpr() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("unsafe metadata barrier must remain on the row path");
+    }
+    bool is_safe_to_execute_on_selected_rows() const override { return false; }
+
+private:
+    const std::string _expr_name = "UnsafeMetadataBarrierExpr";
+};
+
 class MetadataBoundsProbeExpr final : public VExpr {
 public:
     explicit MetadataBoundsProbeExpr(bool require_false_boolean = false)
@@ -670,7 +685,7 @@ TEST(NativeParquetStatisticsTest, TypeDefinedBoundsRequireSupportedColumnOrder) 
     EXPECT_TRUE(selected_ranges.empty());
 }
 
-TEST(NativeParquetStatisticsTest, ZonemapPruningIgnoresDisabledSessionSwitch) {
+TEST(NativeParquetStatisticsTest, ZonemapPruningIgnoresSwitchAndPreservesUnsafePrefix) {
     auto encode_int32 = [](int32_t value) {
         std::string bytes(sizeof(value), '\0');
         memcpy(bytes.data(), &value, sizeof(value));
@@ -741,6 +756,23 @@ TEST(NativeParquetStatisticsTest, ZonemapPruningIgnoresDisabledSessionSwitch) {
                         nullptr, nullptr, &state)
                         .ok());
     EXPECT_TRUE(selected_ranges.empty());
+
+    request.conjuncts.insert(
+            request.conjuncts.begin(),
+            VExprContext::create_shared(std::make_shared<UnsafeMetadataBarrierExpr>()));
+    selected_row_groups.clear();
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(metadata, schema, request, nullptr,
+                                                               &selected_row_groups, false, nullptr,
+                                                               nullptr, &state)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
+                        nullptr, nullptr, &state)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 1);
 }
 
 TEST(NativeParquetStatisticsTest, ContradictoryAllNullPageCountsDisablePruning) {

@@ -632,9 +632,12 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
     VExprContextSPtrs conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
     VExprContextSPtrs partition_prune_conjuncts;
-    // FileScannerV2 owns its complete pruning pipeline, so safe partition predicates must not
-    // inherit the legacy scanner's session gate.
-    RETURN_IF_ERROR(_build_table_conjuncts(&partition_prune_conjuncts));
+    if (!partition_values.empty()) {
+        // A split without partition constants cannot be pruned here, so avoid cloning every
+        // conjunct solely for a consumer that must return immediately. FileScannerV2 otherwise
+        // keeps safe partition pruning enabled independently of the legacy session gate.
+        RETURN_IF_ERROR(_build_table_conjuncts(&partition_prune_conjuncts));
+    }
     RETURN_IF_ERROR(_table_reader->prepare_split({
             .partition_values = std::move(partition_values),
             .conjuncts = std::move(conjuncts),
