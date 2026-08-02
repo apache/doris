@@ -74,6 +74,9 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
                 dmlCommandType, rewrite, groupExpression, logicalProperties, child);
     }
 
+    /**
+     * Builds a connector sink with target and partition columns captured from one schema generation.
+     */
     public LogicalConnectorTableSink(ExternalDatabase database,
                                      ExternalTable targetTable,
                                      List<Column> boundTargetSchema,
