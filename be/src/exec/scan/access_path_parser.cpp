@@ -580,8 +580,36 @@ Status AccessPathParser::build_nested_children(format::ColumnDefinition* column,
                                                bool prefer_exact_name_match) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(slot_desc != nullptr);
-    return build_nested_children(column, slot_desc->all_access_paths(), schema_column,
+    return build_nested_children(column, slot_desc->all_access_paths(),
+                                 slot_desc->predicate_access_paths(), schema_column,
                                  prefer_exact_name_match);
+}
+
+Status AccessPathParser::build_nested_children(
+        format::ColumnDefinition* column, const std::vector<TColumnAccessPath>& all_access_paths,
+        const std::vector<TColumnAccessPath>& predicate_access_paths,
+        const format::ColumnDefinition* schema_column, bool prefer_exact_name_match) {
+    DORIS_CHECK(column != nullptr);
+    auto predicate_column = *column;
+    RETURN_IF_ERROR(build_nested_children(column, all_access_paths, schema_column,
+                                          prefer_exact_name_match));
+    column->has_predicate_access_paths = !predicate_access_paths.empty();
+    column->predicate_children.clear();
+    column->predicate_variant_access_paths.clear();
+    if (predicate_access_paths.empty()) {
+        return Status::OK();
+    }
+
+    predicate_column.children.clear();
+    predicate_column.variant_access_paths.clear();
+    predicate_column.has_predicate_access_paths = false;
+    predicate_column.predicate_children.clear();
+    predicate_column.predicate_variant_access_paths.clear();
+    RETURN_IF_ERROR(build_nested_children(&predicate_column, predicate_access_paths, schema_column,
+                                          prefer_exact_name_match));
+    column->predicate_children = std::move(predicate_column.children);
+    column->predicate_variant_access_paths = std::move(predicate_column.variant_access_paths);
+    return Status::OK();
 }
 
 } // namespace doris

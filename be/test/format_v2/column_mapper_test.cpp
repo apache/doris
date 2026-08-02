@@ -4570,6 +4570,71 @@ TEST(ColumnMapperTest, VariantAccessPathProjectsOnlyPhysicalTypedLeaf) {
     EXPECT_TRUE(root.children[0].children[0].children[0].project_all_children);
 }
 
+TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredStructOutputProjection) {
+    auto table_a = field_id_col("a", 2, i64());
+    auto table_b = field_id_col("b", 3, i64());
+    auto table_struct = struct_col("s", 1, {table_a, table_b});
+    table_struct.has_predicate_access_paths = true;
+    table_struct.predicate_children = {table_b};
+
+    auto file_a = field_id_col("a", 2, i64(), 0);
+    auto file_b = field_id_col("b", 3, i64(), 1);
+    auto file_struct = struct_col("s", 1, {file_a, file_b}, 0);
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    auto b = struct_element(table_slot(0, 0, table_struct.type, "s"), i64(), "b");
+    auto predicate = binary_predicate(TExprOpcode::GT, b,
+                                      literal(i64(), Field::create_field<TYPE_BIGINT>(0)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(predicate),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    ASSERT_EQ(request.non_predicate_columns.size(), 1) << request.debug_string();
+    ASSERT_EQ(request.predicate_columns[0].children.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].children[0].local_id(), 1);
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_EQ(request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
+    EXPECT_EQ(request.non_predicate_position(LocalColumnId(0)), LocalIndex(1));
+    EXPECT_TRUE(request.is_predicate_only(LocalColumnId(0)));
+}
+
+TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredVariantRootProjection) {
+    auto table_variant = field_id_col("v", 10, variant_v2());
+    table_variant.has_predicate_access_paths = true;
+    table_variant.predicate_variant_access_paths = {{"typed_col"}};
+
+    auto field_wrapper = struct_name_col(
+            "typed_col", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);
+    auto typed_value = struct_name_col("typed_value", {std::move(field_wrapper)}, 2);
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(typed_value)};
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+
+    auto typed_col =
+            element_at(table_slot(0, 0, table_variant.type, "v"), variant_v2(), "typed_col");
+    auto predicate = binary_predicate(TExprOpcode::GT, cast_expr(typed_col, i64()),
+                                      literal(i64(), Field::create_field<TYPE_BIGINT>(0)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(predicate),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_variant}, &request).ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_FALSE(request.predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_EQ(request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
+    EXPECT_EQ(request.non_predicate_position(LocalColumnId(0)), LocalIndex(1));
+    EXPECT_TRUE(request.is_predicate_only(LocalColumnId(0)));
+}
+
 TEST(ColumnMapperTest, NestedVariantAccessPathProjectsPhysicalTypedLeaf) {
     auto table_variant = field_id_col("payload", 2, variant_v2());
     table_variant.variant_access_paths = {{"typed_col"}};

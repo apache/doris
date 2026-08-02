@@ -210,6 +210,7 @@ public:
                                     RuntimeState* runtime_state = nullptr);
     void clear() {
         _mappings.clear();
+        _predicate_mappings.clear();
         _hidden_mappings.clear();
         _constant_map.clear();
         _filter_entries.clear();
@@ -233,6 +234,9 @@ protected:
     // Only Parquet currently has a Variant physical shredding schema and a reader that can
     // validate residual-value completeness before honoring a typed-leaf projection.
     virtual bool enable_variant_leaf_projection() const { return false; }
+    // Parquet can keep two independent readers/cursors for the same complex root: a narrow eager
+    // predicate subtree and the final output subtree materialized only for surviving rows.
+    virtual bool enable_independent_predicate_projection() const { return false; }
 
     const ColumnDefinition* _find_file_field(
             const ColumnDefinition& table_column,
@@ -255,6 +259,7 @@ protected:
     std::vector<ColumnMapping> _filter_visible_mappings() const;
 
     ColumnMapping* _find_mapping(GlobalIndex global_index);
+    ColumnMapping* _find_predicate_mapping(GlobalIndex global_index);
     ColumnMapping* _find_filter_mapping(GlobalIndex global_index);
 
     TableColumnMapperOptions _options;
@@ -262,6 +267,9 @@ protected:
     // describes how to get one table/global column from file-local sources, and carries metadata
     // for filter localization and result finalize.
     std::vector<ColumnMapping> _mappings;
+    // Optional mappings built from SlotDescriptor::predicate_access_paths. They deliberately keep
+    // a different file type/projection shape from the final output mappings above.
+    std::vector<ColumnMapping> _predicate_mappings;
     // Predicate-only top-level columns are not output projection columns, so keep their mappings
     // here. They are visible only to filter localization and file-reader predicate construction.
     std::vector<ColumnMapping> _hidden_mappings;
@@ -281,6 +289,7 @@ public:
 
 protected:
     bool enable_variant_leaf_projection() const override { return true; }
+    bool enable_independent_predicate_projection() const override { return true; }
 };
 
 // Mapper for readers that always materialize every required file column before filtering. The

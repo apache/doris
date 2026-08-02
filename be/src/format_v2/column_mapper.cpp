@@ -1290,6 +1290,12 @@ static bool needs_projected_file_type_rebuild(const ColumnMapping& mapping) {
         remove_nullable(mapping.table_type)->get_primitive_type()) {
         return true;
     }
+    if (remove_nullable(mapping.file_type)->get_primitive_type() == TYPE_STRUCT &&
+        mapping.child_mappings.size() != mapping.original_file_children.size()) {
+        // A predicate access path keeps the parent Struct type but intentionally carries only the
+        // referenced child descriptors; type equality alone must not restore the pruned siblings.
+        return true;
+    }
     if (!mapping.table_type->equals(*mapping.file_type)) {
         return true;
     }
@@ -1837,8 +1843,8 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         }
         const size_t digits_begin = value.front() == '+' || value.front() == '-' ? 1 : 0;
         return digits_begin < value.size() &&
-               std::ranges::all_of(value.substr(digits_begin),
-                                   [](unsigned char c) { return std::isdigit(c); });
+               std::ranges::all_of(
+                       value.substr(digits_begin), [](unsigned char c) { return std::isdigit(c); });
     };
     if (path.size() != 1 || path[0].empty() || path[0] == "NULL" ||
         path[0].find('.') != std::string::npos || is_numeric_selector(path[0]) ||
@@ -1912,32 +1918,44 @@ static bool build_variant_projection(const ColumnMapping& mapping, LocalColumnIn
     return true;
 }
 
-static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapping,
-                              bool is_predicate_column, bool force_full_complex_scan_projection,
-                              bool enable_variant_leaf_projection,
-                              const FilterProjectionMap* filter_projections = nullptr) {
+static Status build_scan_projection(ColumnMapping* mapping, bool is_predicate_column,
+                                    bool force_full_complex_scan_projection,
+                                    bool enable_variant_leaf_projection,
+                                    const FilterProjectionMap* filter_projections,
+                                    LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
     const auto file_column_id = LocalColumnId(mapping->file_local_id.value());
-    LocalColumnIndex projection = LocalColumnIndex::top_level(file_column_id);
+    *projection = LocalColumnIndex::top_level(file_column_id);
     // Columnar readers can turn a complex mapping into a nested file projection, but
     // row-oriented readers must scan the full top-level complex field because all children are
     // encoded in the same text cell.
     if (enable_variant_leaf_projection && !force_full_complex_scan_projection &&
-        build_variant_projection(*mapping, &projection)) {
+        build_variant_projection(*mapping, projection)) {
         // The per-file Parquet reader will validate residual-value statistics before honoring this
         // physical leaf projection; unsafe files atomically fall back to the complete Variant.
     } else if (!force_full_complex_scan_projection &&
                needs_nested_file_projection(*mapping, enable_variant_leaf_projection)) {
         RETURN_IF_ERROR(
-                build_complex_projection(*mapping, &projection, enable_variant_leaf_projection));
+                build_complex_projection(*mapping, projection, enable_variant_leaf_projection));
     }
     if (is_predicate_column && !force_full_complex_scan_projection) {
-        DCHECK(filter_projections != nullptr);
         // If a projected complex root is also used by a predicate, rebuild the predicate scan
         // projection from the output mapping before merging predicate-only children. For
         // `SELECT s.a WHERE s.b > 1`, build_complex_projection() produces `s -> a` and
         // merge_filter_projection() adds `s -> b`, so the predicate column reads both children.
-        RETURN_IF_ERROR(merge_filter_projection(filter_projections, &projection));
+        RETURN_IF_ERROR(merge_filter_projection(filter_projections, projection));
     }
+    return Status::OK();
+}
+
+static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapping,
+                              bool is_predicate_column, bool force_full_complex_scan_projection,
+                              bool enable_variant_leaf_projection,
+                              const FilterProjectionMap* filter_projections = nullptr) {
+    LocalColumnIndex projection;
+    RETURN_IF_ERROR(
+            build_scan_projection(mapping, is_predicate_column, force_full_complex_scan_projection,
+                                  enable_variant_leaf_projection, filter_projections, &projection));
     FileScanRequestBuilder builder(file_request);
     if (is_predicate_column) {
         return builder.add_predicate_column(std::move(projection));
@@ -1963,13 +1981,18 @@ static const LocalColumnIndex* find_scan_projection(
 // file struct `s<a,b,c>` to the projected file struct `s<a,b>`, so later filter rewrite and
 // TableReader final materialization use the same column shape as the file-local block.
 static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& file_request,
-                                                         ColumnMapping* mapping) {
+                                                         ColumnMapping* mapping,
+                                                         bool predicate_mapping = false) {
     DORIS_CHECK(mapping != nullptr);
     DORIS_CHECK(mapping->file_local_id.has_value());
     const auto file_column_id = LocalColumnId(*mapping->file_local_id);
-    // Predicate columns are the actual scan projection when a column is used by row-level filters:
-    // add_scan_column() removes the duplicate non-predicate projection in that case.
-    const auto* projection = find_scan_projection(file_request.predicate_columns, file_column_id);
+    const LocalColumnIndex* projection = nullptr;
+    if (!predicate_mapping && file_request.has_deferred_non_predicate_column(file_column_id)) {
+        projection = find_scan_projection(file_request.non_predicate_columns, file_column_id);
+    }
+    if (projection == nullptr) {
+        projection = find_scan_projection(file_request.predicate_columns, file_column_id);
+    }
     if (projection == nullptr) {
         projection = find_scan_projection(file_request.non_predicate_columns, file_column_id);
     }
@@ -2268,6 +2291,19 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
         RETURN_IF_ERROR(_create_mapping_for_column(projected_columns[column_idx],
                                                    GlobalIndex(column_idx), &mapping));
         _mappings.push_back(std::move(mapping));
+        if (enable_independent_predicate_projection() &&
+            projected_columns[column_idx].has_predicate_access_paths) {
+            auto predicate_column = projected_columns[column_idx];
+            predicate_column.children = predicate_column.predicate_children;
+            predicate_column.variant_access_paths = predicate_column.predicate_variant_access_paths;
+            predicate_column.has_predicate_access_paths = false;
+            predicate_column.predicate_children.clear();
+            predicate_column.predicate_variant_access_paths.clear();
+            ColumnMapping predicate_mapping;
+            RETURN_IF_ERROR(_create_mapping_for_column(predicate_column, GlobalIndex(column_idx),
+                                                       &predicate_mapping));
+            _predicate_mappings.push_back(std::move(predicate_mapping));
+        }
     }
     return Status::OK();
 }
@@ -2275,7 +2311,13 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
 std::vector<ColumnMapping> TableColumnMapper::_filter_visible_mappings() const {
     std::vector<ColumnMapping> mappings;
     mappings.reserve(_mappings.size() + _hidden_mappings.size());
-    mappings.insert(mappings.end(), _mappings.begin(), _mappings.end());
+    for (const auto& mapping : _mappings) {
+        const auto predicate_it = std::ranges::find_if(
+                _predicate_mappings, [&](const ColumnMapping& predicate_mapping) {
+                    return predicate_mapping.global_index == mapping.global_index;
+                });
+        mappings.push_back(predicate_it == _predicate_mappings.end() ? mapping : *predicate_it);
+    }
     mappings.insert(mappings.end(), _hidden_mappings.begin(), _hidden_mappings.end());
     return mappings;
 }
@@ -2317,6 +2359,7 @@ Status TableColumnMapper::create_scan_request(
         // continues to address the same physical column.
         file_request->local_positions = *fixed_local_positions;
     }
+    file_request->non_predicate_positions.clear();
     file_request->conjuncts.clear();
     file_request->delete_conjuncts.clear();
     _filter_entries.clear();
@@ -2379,12 +2422,12 @@ Status TableColumnMapper::create_scan_request(
         if (!mapping.file_local_id.has_value()) {
             continue;
         }
-        auto position_it =
-                file_request->local_positions.find(LocalColumnId(*mapping.file_local_id));
+        const auto local_id = LocalColumnId(*mapping.file_local_id);
+        const auto position_it = file_request->local_positions.find(local_id);
         DORIS_CHECK(position_it != file_request->local_positions.end())
                 << file_request->local_positions.size() << " " << *mapping.file_local_id << " "
                 << mapping.file_column_name;
-        rebuild_projection(&mapping, position_it->second);
+        rebuild_projection(&mapping, file_request->non_predicate_position(local_id));
     }
     return Status::OK();
 }
@@ -2398,7 +2441,19 @@ ColumnMapping* TableColumnMapper::_find_mapping(GlobalIndex global_index) {
     return nullptr;
 }
 
+ColumnMapping* TableColumnMapper::_find_predicate_mapping(GlobalIndex global_index) {
+    for (auto& mapping : _predicate_mappings) {
+        if (mapping.global_index == global_index) {
+            return &mapping;
+        }
+    }
+    return nullptr;
+}
+
 ColumnMapping* TableColumnMapper::_find_filter_mapping(GlobalIndex global_index) {
+    if (auto* mapping = _find_predicate_mapping(global_index); mapping != nullptr) {
+        return mapping;
+    }
     if (auto* mapping = _find_mapping(global_index); mapping != nullptr) {
         return mapping;
     }
@@ -2425,9 +2480,31 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                 !filter_conversion_has_local_source(mapping->filter_conversion)) {
                 continue;
             }
+            const auto* derived_filter_projections =
+                    _find_predicate_mapping(global_index) == mapping ? nullptr
+                                                                     : &filter_projections;
             RETURN_IF_ERROR(add_scan_column(file_request, mapping, enable_lazy_materialization(),
                                             force_full_complex_scan_projection(),
-                                            enable_variant_leaf_projection(), &filter_projections));
+                                            enable_variant_leaf_projection(),
+                                            derived_filter_projections));
+            auto* output_mapping = _find_mapping(global_index);
+            if (!enable_independent_predicate_projection() || output_mapping == nullptr ||
+                mapping == output_mapping || !output_mapping->file_local_id.has_value()) {
+                continue;
+            }
+            LocalColumnIndex output_projection;
+            RETURN_IF_ERROR(build_scan_projection(output_mapping, /*is_predicate_column=*/false,
+                                                  force_full_complex_scan_projection(),
+                                                  enable_variant_leaf_projection(), nullptr,
+                                                  &output_projection));
+            const auto* predicate_projection = find_scan_projection(file_request->predicate_columns,
+                                                                    output_projection.column_id());
+            DORIS_CHECK(predicate_projection != nullptr);
+            if (!same_local_column_index(*predicate_projection, output_projection)) {
+                FileScanRequestBuilder builder(file_request);
+                RETURN_IF_ERROR(
+                        builder.add_deferred_non_predicate_column(std::move(output_projection)));
+            }
         }
     }
     // Rebuild the file type for every scan-local mapping before expression rewrite. Predicate-only
@@ -2436,6 +2513,13 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         if (mapping.file_local_id.has_value() &&
             file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
             RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        }
+    }
+    for (auto& mapping : _predicate_mappings) {
+        if (mapping.file_local_id.has_value() &&
+            file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping,
+                                                                       /*predicate_mapping=*/true));
         }
     }
     for (auto& mapping : _hidden_mappings) {
@@ -2527,7 +2611,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             continue;
         }
         const auto local_id = LocalColumnId(*mapping.file_local_id);
-        if (localized_predicate_columns.contains(local_id)) {
+        if (localized_predicate_columns.contains(local_id) ||
+            file_request->has_deferred_non_predicate_column(local_id)) {
             continue;
         }
         const auto predicate_it = std::ranges::find_if(

@@ -235,6 +235,52 @@ VExprContextSPtr create_variant_int32_path_greater_than_conjunct(int column_id, 
     return VExprContext::create_shared(std::move(gt));
 }
 
+class StructInt32ChildGreaterThanExpr final : public VExpr {
+public:
+    StructInt32ChildGreaterThanExpr(int column_id, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(value) {}
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
+        const auto& structure = assert_cast<const ColumnStruct&>(nullable.get_nested_column());
+        const auto& child = assert_cast<const ColumnNullable&>(structure.get_column(0));
+        const auto& values = assert_cast<const ColumnInt32&>(child.get_nested_column()).get_data();
+        auto result = ColumnUInt8::create();
+        auto& output = result->get_data();
+        output.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            output[row] = !nullable.is_null_at(input_row) && !child.is_null_at(input_row) &&
+                          values[input_row] > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+private:
+    int _column_id;
+    int32_t _value;
+    const std::string _expr_name = "StructInt32ChildGreaterThanExpr";
+};
+
+VExprContextSPtr create_struct_int32_child_greater_than_conjunct(int column_id, int32_t value) {
+    auto context = VExprContext::create_shared(
+            std::make_shared<StructInt32ChildGreaterThanExpr>(column_id, value));
+    context->_prepared = true;
+    context->_opened = true;
+    return context;
+}
+
 class Int32DictionaryEqualsExpr final : public VExpr {
 public:
     Int32DictionaryEqualsExpr(int column_id, int32_t value)
@@ -1964,6 +2010,142 @@ TEST_F(NewParquetReaderTest, ShreddedVariantPredicateUsesTypedLeafPageIndexWithR
     EXPECT_EQ(profile.get_counter("VariantReconstructedRows")->value(), rows);
     ASSERT_NE(profile.get_counter("VariantReconstructionTime"), nullptr);
     EXPECT_GT(profile.get_counter("VariantReconstructionTime")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, ReadsVariantPredicateLeafBeforeDeferredRootOutput) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    _file_path = std::string(source_root) +
+                 "/regression-test/data/external_table_p0/iceberg/"
+                 "iceberg_variant_shredded.parquet";
+    ASSERT_TRUE(std::filesystem::exists(_file_path));
+
+    RuntimeProfile profile("variant_predicate_leaf_deferred_root");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(1024);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto find_child = [](const std::vector<format::ColumnDefinition>& children,
+                         std::string_view name) -> const format::ColumnDefinition* {
+        const auto it = std::ranges::find_if(
+                children, [name](const auto& child) { return child.name == name; });
+        return it == children.end() ? nullptr : &*it;
+    };
+    const auto* root_typed = find_child(schema[1].children, "typed_value");
+    ASSERT_NE(root_typed, nullptr);
+    const auto* n_wrapper = find_child(root_typed->children, "n");
+    ASSERT_NE(n_wrapper, nullptr);
+    const auto* n_typed = find_child(n_wrapper->children, "typed_value");
+    ASSERT_NE(n_typed, nullptr);
+
+    auto predicate_projection = format::LocalColumnIndex::partial_local(schema[1].local_id);
+    predicate_projection.children.push_back(
+            format::LocalColumnIndex::partial_local(root_typed->local_id));
+    predicate_projection.children.back().children.push_back(
+            format::LocalColumnIndex::partial_local(n_wrapper->local_id));
+    predicate_projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(n_typed->local_id));
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns.push_back(std::move(predicate_projection));
+    request->non_predicate_columns.push_back(
+            format::LocalColumnIndex::top_level(format::LocalColumnId(schema[1].local_id)));
+    request->predicate_only_columns.push_back(format::LocalColumnId(schema[1].local_id));
+    request->local_positions.emplace(format::LocalColumnId(schema[1].local_id),
+                                     format::LocalIndex(0));
+    request->non_predicate_positions.emplace(format::LocalColumnId(schema[1].local_id),
+                                             format::LocalIndex(1));
+    request->conjuncts.push_back(create_variant_int32_path_greater_than_conjunct(0, "n", 3000));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block;
+        block.insert({schema[1].type->create_column(), schema[1].type, "v_predicate"});
+        block.insert({schema[1].type->create_column(), schema[1].type, "v_output"});
+        size_t batch_rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &batch_rows, &eof).ok());
+        rows += batch_rows;
+        ASSERT_EQ(block.get_by_position(0).column->size(), batch_rows);
+        ASSERT_EQ(block.get_by_position(1).column->size(), batch_rows);
+        if (batch_rows > 0) {
+            const auto& nullable =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+            auto canonical = IColumn::mutate(nullable.get_nested_column_ptr());
+            assert_cast<ColumnVariantV2&>(*canonical).ensure_encoded();
+        }
+    }
+    EXPECT_EQ(rows, 1095);
+    ASSERT_NE(profile.get_counter("VariantLeafProjections"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantLeafProjections")->value(), 1);
+    ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
+    EXPECT_GT(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
+    ASSERT_NE(profile.get_counter("VariantReconstructedRows"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantReconstructedRows")->value(), rows);
+}
+
+TEST_F(NewParquetReaderTest, ReadsStructPredicateChildBeforeDeferredRootOutput) {
+    write_struct_filter_parquet_file(_file_path);
+    RuntimeProfile profile("struct_predicate_child_deferred_root");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    ASSERT_EQ(schema[0].children.size(), 2);
+
+    auto predicate_projection = format::LocalColumnIndex::partial_local(schema[0].local_id);
+    predicate_projection.children.push_back(
+            format::LocalColumnIndex::local(schema[0].children[0].local_id));
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns.push_back(predicate_projection);
+    request->non_predicate_columns.push_back(
+            format::LocalColumnIndex::top_level(format::LocalColumnId(schema[0].local_id)));
+    request->predicate_only_columns.push_back(format::LocalColumnId(schema[0].local_id));
+    request->local_positions.emplace(format::LocalColumnId(schema[0].local_id),
+                                     format::LocalIndex(0));
+    request->non_predicate_positions.emplace(format::LocalColumnId(schema[0].local_id),
+                                             format::LocalIndex(1));
+    request->conjuncts.push_back(create_struct_int32_child_greater_than_conjunct(0, 2));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::ColumnDefinition predicate_field;
+    ASSERT_TRUE(format::project_column_definition(schema[0], predicate_projection, &predicate_field)
+                        .ok());
+    size_t total_rows = 0;
+    std::vector<std::string> names;
+    bool eof = false;
+    while (!eof) {
+        Block block;
+        block.insert({predicate_field.type->create_column(), predicate_field.type, "s_predicate"});
+        block.insert({schema[0].type->create_column(), schema[0].type, "s_output"});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+        ASSERT_EQ(block.get_by_position(0).column->size(), rows);
+        ASSERT_EQ(block.get_by_position(1).column->size(), rows);
+        const auto& output_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        const auto& output_struct =
+                assert_cast<const ColumnStruct&>(output_nullable.get_nested_column());
+        ASSERT_EQ(output_struct.tuple_size(), 2);
+        const auto& name_nullable = assert_cast<const ColumnNullable&>(output_struct.get_column(1));
+        const auto& name_values =
+                assert_cast<const ColumnString&>(name_nullable.get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            names.push_back(name_values.get_data_at(row).to_string());
+        }
+    }
+    EXPECT_EQ(total_rows, 2);
+    EXPECT_EQ(names, (std::vector<std::string> {"ten", "eleven"}));
+    ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
+    EXPECT_GT(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {
