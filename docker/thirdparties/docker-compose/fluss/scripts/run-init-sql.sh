@@ -31,6 +31,10 @@ JOBMANAGER_PORT=8081
 WAIT_SECONDS=180
 SQL_TIMEOUT_SECONDS=900
 ATTEMPTS=3
+# Primary-key fixtures whose buckets must have been snapshotted before the
+# environment counts as ready. See wait_for_kv_snapshots.
+SNAPSHOT_TABLES=(pk_basic pk_types pk_part)
+SNAPSHOT_WAIT_SECONDS=120
 
 rm -rf "${MARKER_DIR}"
 mkdir -p "${MARKER_DIR}"
@@ -53,6 +57,55 @@ wait_for_jobmanager
 # does not expand environment variables inside SQL files.
 sed "s|__FLUSS_BOOTSTRAP_SERVERS__|${FLUSS_BOOTSTRAP_SERVERS}|g" \
     "${SQL_TEMPLATE}" >"${MARKER_DIR}/init.sql"
+
+# Waits until every primary-key fixture has a kv snapshot on disk.
+#
+# Doris BE reads those files directly, from the host, at the path this container
+# wrote them to -- a bind mount at the same absolute path on both sides. Nothing
+# but an end-to-end run covers that, and without this wait it would only be
+# covered by luck: with no snapshot a primary-key table is read by replaying its
+# whole change log, which is equally correct and takes a different code path
+# entirely. Baking the snapshot into the environment makes every later suite
+# exercise the file-reading path instead of racing the ten-second interval.
+#
+# What it proves is that a snapshot was taken, not that the coordinator has
+# committed it -- completion is registered in ZooKeeper, and the directory here
+# is created before the upload. That gap is milliseconds, and losing it costs a
+# suite nothing: the read falls back to the change log and still returns the
+# right rows. Never seeing a snapshot at all is the real problem, and that is
+# what the timeout reports.
+wait_for_kv_snapshots() {
+    local waited=0
+    local table
+    local missing
+    while :; do
+        missing=""
+        for table in "${SNAPSHOT_TABLES[@]}"; do
+            # Two shapes, because a partition sits between the table and the
+            # bucket ({partitionName}-p{partitionId}); the trailing /* requires
+            # the snapshot directory to hold a file, not merely to exist.
+            #   {remote.data.dir}/kv/{db}/{table}-{tableId}/{bucket}/snap-{id}/
+            #   {remote.data.dir}/kv/{db}/{table}-{tableId}/{partition}/{bucket}/snap-{id}/
+            local root="${FLUSS_REMOTE_DATA_DIR}/kv/fluss_test/${table}-"
+            if ! compgen -G "${root}*/*/snap-*/*" >/dev/null 2>&1 \
+                && ! compgen -G "${root}*/*/*/snap-*/*" >/dev/null 2>&1; then
+                missing="${missing} ${table}"
+            fi
+        done
+        if [[ -z "${missing}" ]]; then
+            echo "Kv snapshots present for:${SNAPSHOT_TABLES[*]}"
+            return 0
+        fi
+        if ((waited >= SNAPSHOT_WAIT_SECONDS)); then
+            echo "ERROR: no kv snapshot after ${SNAPSHOT_WAIT_SECONDS}s for:${missing}" >&2
+            echo "ERROR: expected under ${FLUSS_REMOTE_DATA_DIR}/kv/fluss_test/" >&2
+            ls -R "${FLUSS_REMOTE_DATA_DIR}/kv" >&2 2>/dev/null || true
+            return 1
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+}
 
 run_attempt() {
     local log="$1"
@@ -79,8 +132,12 @@ run_attempt() {
 for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
     echo "Running fluss init SQL (attempt ${attempt}/${ATTEMPTS})"
     if run_attempt "${MARKER_DIR}/init-attempt-${attempt}.log"; then
+        echo "Fluss init SQL finished; waiting for kv snapshots"
+        if ! wait_for_kv_snapshots; then
+            exit 1
+        fi
         touch "${MARKER_DIR}/SUCCESS"
-        echo "Fluss init SQL finished"
+        echo "Fluss environment ready"
         exec tail -f /dev/null
     fi
     echo "Fluss init SQL failed on attempt ${attempt}" >&2
