@@ -62,6 +62,11 @@ class RecordingFlussAdminOps implements FlussAdminOps {
      * unpartitioned table) — what split planning stops each bucket at.
      */
     final Map<String, Map<Integer, Long>> latestOffsetsByPartition = new HashMap<>();
+    /**
+     * Latest kv snapshot per bucket, keyed by fluss's own partition name ({@code null} for an
+     * unpartitioned table) — where primary-key planning starts each bucket's change log.
+     */
+    final Map<String, KvSnapshots> kvSnapshotsByPartition = new HashMap<>();
     /** The readable lake snapshot, or {@code null} to answer as a table nothing has been tiered from. */
     LakeSnapshot readableLakeSnapshot;
     /** When set, every call throws this instead of answering — the "cluster is unreachable" case. */
@@ -138,12 +143,23 @@ class RecordingFlussAdminOps implements FlussAdminOps {
 
     @Override
     public KvSnapshots getLatestKvSnapshots(TablePath tablePath) {
-        throw notProgrammed("getLatestKvSnapshots");
+        return recordedKvSnapshots(tablePath, null);
     }
 
     @Override
     public KvSnapshots getLatestKvSnapshots(TablePath tablePath, String partitionName) {
-        throw notProgrammed("getLatestKvSnapshots");
+        return recordedKvSnapshots(tablePath, partitionName);
+    }
+
+    private KvSnapshots recordedKvSnapshots(TablePath tablePath, String partitionName) {
+        calls.add("getLatestKvSnapshots(" + tablePath
+                + (partitionName == null ? "" : ", " + partitionName) + ")");
+        KvSnapshots snapshots = kvSnapshotsByPartition.get(partitionName);
+        if (snapshots == null) {
+            throw new IllegalStateException(
+                    "no kv snapshots programmed for partition '" + partitionName + "'");
+        }
+        return snapshots;
     }
 
     @Override
