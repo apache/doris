@@ -277,3 +277,33 @@ INSERT INTO pk_types VALUES
         CAST(NULL AS MAP<STRING, INT>),
         CAST(NULL AS ROW<r_int INT, r_string STRING>)
     );
+
+-- ---------------------------------------------------------------------------
+-- pk_part: partitioned primary-key table. A partitioned primary-key table is
+-- snapshotted per partition, so reading it wrong -- asking the table for its
+-- snapshots instead of the partition -- resumes the change log at another
+-- partition's offset. One row of one partition is updated and one deleted, so
+-- the merge has to happen inside a partition and not across the table.
+-- ---------------------------------------------------------------------------
+CREATE TABLE pk_part (
+    id INT NOT NULL,
+    name STRING,
+    dt STRING NOT NULL,
+    PRIMARY KEY (id, dt) NOT ENFORCED
+) PARTITIONED BY (dt)
+WITH (
+    'bucket.num' = '2'
+);
+
+INSERT INTO pk_part VALUES
+    (1, 'q1a', '20260101'),
+    (2, 'q1b', '20260101'),
+    (3, 'q2a', '20260102'),
+    (4, 'q2b', '20260102');
+
+INSERT INTO pk_part VALUES
+    (2, 'q1b-updated', '20260101');
+
+SET 'execution.runtime-mode' = 'batch';
+DELETE FROM pk_part WHERE id = 4 AND dt = '20260102';
+SET 'execution.runtime-mode' = 'streaming';
