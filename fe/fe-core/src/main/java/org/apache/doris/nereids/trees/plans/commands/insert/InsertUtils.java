@@ -426,17 +426,8 @@ public class InsertUtils {
                         throw new AnalysisException("Column count doesn't match value count");
                     }
                     for (int i = 0; i < values.size(); i++) {
-                        Column sameNameColumn = null;
-                        for (Column column : connectorWriteSchema(table, true)) {
-                            if (unboundLogicalSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
-                                sameNameColumn = column;
-                                break;
-                            }
-                        }
-                        if (sameNameColumn == null) {
-                            throw new AnalysisException("Unknown column '"
-                                    + unboundLogicalSink.getColNames().get(i) + "' in target table.");
-                        }
+                        Column sameNameColumn = resolveExplicitConnectorWriteColumn(
+                                table, unboundLogicalSink.getColNames().get(i));
                         if (sameNameColumn.getGeneratedColumnInfo() != null
                                 && !(values.get(i) instanceof DefaultValueSlot)) {
                             throw new AnalysisException("The value specified for generated column '"
@@ -491,6 +482,31 @@ public class InsertUtils {
             }
         }
         return table.getBaseSchema(full);
+    }
+
+    static Column resolveExplicitConnectorWriteColumn(TableIf table, String name) {
+        Column column = connectorWriteSchema(table, true).stream()
+                .filter(candidate -> candidate.getName().equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+        if (column == null && table instanceof PluginDrivenExternalTable) {
+            // A connector's pinned writer schema contains data columns only. Consult the latest full target
+            // schema solely for engine-managed invisible columns so an explicit row-lineage column retains
+            // the established rejection instead of being misreported as an unknown data column.
+            column = ((PluginDrivenExternalTable) table).getFullSchema(Optional.empty()).stream()
+                    .filter(candidate -> !candidate.isVisible())
+                    .filter(candidate -> candidate.getName().equalsIgnoreCase(name))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (column == null) {
+            throw new AnalysisException("Unknown column '" + name + "' in target table.");
+        }
+        if (!column.isVisible()) {
+            throw new AnalysisException(
+                    "Cannot specify invisible column '" + name + "' in INSERT statement");
+        }
+        return column;
     }
 
     /** buildAnalyzer */
@@ -629,7 +645,7 @@ public class InsertUtils {
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
     }
 
-    private static NamedExpression generateDefaultExpression(Column column) {
+    static NamedExpression generateDefaultExpression(Column column) {
         GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
         // Using NullLiteral as a placeholder.
         // If return the expr in generatedColumnInfo, will lead to slot not found error in analyze.
@@ -637,7 +653,8 @@ public class InsertUtils {
         if (generatedColumnInfo != null) {
             return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
         }
-        if (column.getDefaultValue() == null) {
+        String defaultValueSql = column.getDefaultValueSql();
+        if (defaultValueSql == null) {
             if (!column.isAllowNull() && !column.isAutoInc()) {
                 throw new AnalysisException("Column has no default value, column=" + column.getName());
             }
@@ -646,7 +663,7 @@ public class InsertUtils {
                     column.getName());
         } else {
             Expression defualtValueExpression = new NereidsParser().parseExpression(
-                    column.getDefaultValueSql());
+                    defaultValueSql);
             if (!(defualtValueExpression instanceof UnboundAlias)) {
                 defualtValueExpression = new UnboundAlias(defualtValueExpression);
             }

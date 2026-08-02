@@ -284,6 +284,17 @@ public class BindConnectorSinkStaticPartitionTest {
         Assertions.assertTrue(ex.getMessage().contains("nope"), "error must name the missing column");
     }
 
+    @Test
+    public void pinnedDataSchemaStillRejectsExplicitInvisibleColumn() {
+        PluginDrivenExternalTable table = tableWithRowLineage();
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () ->
+                BindSink.selectConnectorSinkBindColumns(
+                        table, ImmutableList.of(ID, VAL), ImmutableList.of("_row_id"),
+                        Collections.emptySet(), false));
+        Assertions.assertEquals(
+                "Cannot specify invisible column '_row_id' in INSERT statement", ex.getMessage());
+    }
+
     /**
      * No column list, ordinary write (not a rewrite): invisible columns (e.g. iceberg v3 row-lineage
      * {@code _row_id} / {@code _last_updated_sequence_number}) must be EXCLUDED from the default bound

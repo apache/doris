@@ -929,7 +929,8 @@ public class BindSink implements AnalysisRuleFactory {
                 colNames, staticPartitionColNames, isRewrite);
     }
 
-    private static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
+    @VisibleForTesting
+    static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
             List<Column> targetSchema, List<String> colNames,
             Set<String> staticPartitionColNames, boolean isRewrite) {
         if (colNames.isEmpty()) {
@@ -940,6 +941,16 @@ public class BindSink implements AnalysisRuleFactory {
         }
         return colNames.stream().map(cn -> {
             Column column = findColumn(targetSchema, cn);
+            if (column == null) {
+                // The pinned writer schema deliberately contains data columns only. The latest full target
+                // schema still owns engine-managed invisible columns, which must reach the explicit-invisible
+                // rejection below instead of being misclassified as an unknown data column.
+                column = sinkTargetFullSchema(table).stream()
+                        .filter(candidate -> !candidate.isVisible())
+                        .filter(candidate -> candidate.getName().equalsIgnoreCase(cn))
+                        .findFirst()
+                        .orElse(null);
+            }
             if (column == null) {
                 throw new AnalysisException(String.format("column %s is not found in table %s",
                         cn, table.getName()));

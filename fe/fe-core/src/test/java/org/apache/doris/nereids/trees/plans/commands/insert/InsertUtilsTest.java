@@ -17,10 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -258,5 +265,51 @@ public class InsertUtilsTest {
                     "non-view plugin table must not be rejected by the view guard: " + e.getMessage());
         }
     }
-}
 
+    @Test
+    public void connectorDefaultSqlExpandsExplicitDefault() {
+        Column column = new Column("v", PrimitiveType.INT, true);
+        column.setConnectorDefaultValueSql("35");
+
+        NamedExpression expression = InsertUtils.generateDefaultExpression(column);
+
+        Assertions.assertInstanceOf(UnboundAlias.class, expression);
+        Assertions.assertEquals("35", expression.child(0).toSql(),
+                "a connector SQL-only write default must not be normalized to NULL");
+    }
+
+    @Test
+    public void nativeDefaultStillExpandsExplicitDefault() {
+        Column column = new Column("v", Type.INT, false, null, true, "7", "");
+
+        NamedExpression expression = InsertUtils.generateDefaultExpression(column);
+
+        Assertions.assertInstanceOf(UnboundAlias.class, expression);
+        Assertions.assertEquals("7", expression.child(0).toSql());
+    }
+
+    @Test
+    public void nullableColumnWithoutDefaultStillExpandsToNull() {
+        Column column = new Column("v", PrimitiveType.INT, true);
+
+        NamedExpression expression = InsertUtils.generateDefaultExpression(column);
+
+        Assertions.assertInstanceOf(NullLiteral.class, expression.child(0));
+    }
+
+    @Test
+    public void explicitInvisibleColumnUsesInvisibleColumnErrorWithDataOnlyWriterSchema() {
+        Column id = new Column("id", PrimitiveType.INT);
+        Column rowId = new Column("_row_id", PrimitiveType.BIGINT);
+        rowId.setIsVisible(false);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getBaseSchema(true)).thenReturn(ImmutableList.of(id));
+        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(ImmutableList.of(id, rowId));
+
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> InsertUtils.resolveExplicitConnectorWriteColumn(table, "_row_id"));
+
+        Assertions.assertEquals(
+                "Cannot specify invisible column '_row_id' in INSERT statement", error.getMessage());
+    }
+}

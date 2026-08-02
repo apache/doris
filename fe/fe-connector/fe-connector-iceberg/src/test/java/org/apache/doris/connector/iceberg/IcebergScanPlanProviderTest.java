@@ -3239,6 +3239,27 @@ public class IcebergScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void projectedFieldIdsHandlesPrimitiveProjection() {
+        Set<Integer> projected = IcebergScanPlanProvider.projectedFieldIds(
+                SCHEMA, Collections.singletonList(new IcebergColumnHandle("id", 1)));
+
+        Assertions.assertEquals(Collections.singleton(1), projected);
+    }
+
+    @Test
+    public void projectedFieldIdsIncludesNestedDescendants() {
+        Schema nestedSchema = new Schema(Types.NestedField.optional(10, "payload",
+                Types.StructType.of(
+                        Types.NestedField.optional(11, "name", Types.StringType.get()),
+                        Types.NestedField.optional(12, "score", Types.IntegerType.get()))));
+
+        Set<Integer> projected = IcebergScanPlanProvider.projectedFieldIds(
+                nestedSchema, Collections.singletonList(new IcebergColumnHandle("payload", 10)));
+
+        Assertions.assertEquals(ImmutableSet.of(10, 11, 12), projected);
+    }
+
     private static long countSerializedSplitRows(List<ConnectorScanRange> ranges) throws Exception {
         long rows = 0;
         for (ConnectorScanRange range : ranges) {

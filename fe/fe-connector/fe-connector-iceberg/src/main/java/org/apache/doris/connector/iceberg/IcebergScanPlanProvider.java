@@ -1981,7 +1981,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 || requiresMissingRequiredFieldRejection(scanSchema, projectedFieldIds, history.get());
     }
 
-    private static Set<Integer> projectedFieldIds(
+    @VisibleForTesting
+    static Set<Integer> projectedFieldIds(
             Schema scanSchema, List<ConnectorColumnHandle> columns) {
         Set<Integer> projected = new HashSet<>();
         if (columns == null || columns.isEmpty()) {
@@ -1994,7 +1995,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 continue;
             }
             projected.add(field.fieldId());
-            projected.addAll(TypeUtil.getProjectedIds(field.type()));
+            // Iceberg's type visitor returns null for a primitive root; getProjectedIds(Type) then passes
+            // that null to ImmutableSet.copyOf. The top-level id is already present, and only nested types
+            // have descendant ids to add.
+            if (field.type().isNestedType()) {
+                projected.addAll(TypeUtil.getProjectedIds(field.type()));
+            }
         }
         return projected;
     }
