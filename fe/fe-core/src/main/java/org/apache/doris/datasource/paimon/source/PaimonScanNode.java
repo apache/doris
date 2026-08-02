@@ -526,7 +526,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
-            OptionalLong mergedRowCount = dataSplit.mergedRowCount();
+            OptionalLong mergedRowCount = applyCountPushdown
+                    ? dataSplit.mergedRowCount() : OptionalLong.empty();
             if (applyCountPushdown && mergedRowCount.isPresent()) {
                 long count = mergedRowCount.getAsLong();
                 splitStat.setMergedRowCount(count);
