@@ -371,9 +371,38 @@ public class PaimonExternalTableTest {
         FileStoreTable cachedDataTable = Mockito.mock(FileStoreTable.class);
         FileStoreTable boundDataTable = Mockito.mock(FileStoreTable.class);
         FileStoreTable projectedDataTable = Mockito.mock(FileStoreTable.class);
-        Map<String, String> options = ImmutableMap.of(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1");
-        Mockito.when(boundDataTable.copyWithoutTimeTravel(options)).thenReturn(projectedDataTable);
-        Mockito.when(projectedDataTable.options()).thenReturn(options);
+        Map<String, String> rawOptions = ImmutableMap.of(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1");
+        Map<String, String> options = PaimonScanParams.pinOptionsToSnapshot(rawOptions, 7L);
+        Mockito.when(boundDataTable.copyWithoutTimeTravel(ArgumentMatchers.anyMap()))
+                .thenReturn(projectedDataTable);
+        Mockito.when(projectedDataTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1",
+                CoreOptions.SCAN_SNAPSHOT_ID.key(), "7"));
+        TableScanParams params = new TableScanParams(
+                TableScanParams.OPTIONS, rawOptions, Collections.emptyList());
+        params.reuseResolvedMapParams(options);
+        PaimonSysExternalTable systemTable = newSystemTable(cachedDataTable);
+
+        Table actual = systemTable.getSysPaimonTable(boundDataTable, params);
+
+        Assert.assertTrue(actual instanceof PartitionsTable);
+        Mockito.verify(boundDataTable).copyWithoutTimeTravel(ArgumentMatchers.argThat(
+                (Map<String, String> applied) -> "1".equals(
+                        applied.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))
+                        && "7".equals(applied.get(CoreOptions.SCAN_SNAPSHOT_ID.key()))));
+        Mockito.verify(cachedDataTable, Mockito.never()).copy(ArgumentMatchers.anyMap());
+        Mockito.verify(cachedDataTable, Mockito.never()).copyWithoutTimeTravel(ArgumentMatchers.anyMap());
+    }
+
+    @Test
+    public void testSystemOptionsApplyExplicitTagTimeTravel() {
+        FileStoreTable cachedDataTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable boundDataTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable taggedDataTable = Mockito.mock(FileStoreTable.class);
+        Map<String, String> options = ImmutableMap.of(CoreOptions.SCAN_TAG_NAME.key(), "old_schema");
+        Mockito.when(boundDataTable.copy(ArgumentMatchers.anyMap())).thenReturn(taggedDataTable);
+        Mockito.when(boundDataTable.copyWithoutTimeTravel(ArgumentMatchers.anyMap())).thenReturn(taggedDataTable);
+        Mockito.when(taggedDataTable.options()).thenReturn(options);
         TableScanParams params = new TableScanParams(
                 TableScanParams.OPTIONS, options, Collections.emptyList());
         params.reuseResolvedMapParams(options);
@@ -382,9 +411,8 @@ public class PaimonExternalTableTest {
         Table actual = systemTable.getSysPaimonTable(boundDataTable, params);
 
         Assert.assertTrue(actual instanceof PartitionsTable);
-        Mockito.verify(boundDataTable).copyWithoutTimeTravel(options);
-        Mockito.verify(cachedDataTable, Mockito.never()).copy(ArgumentMatchers.anyMap());
-        Mockito.verify(cachedDataTable, Mockito.never()).copyWithoutTimeTravel(ArgumentMatchers.anyMap());
+        Mockito.verify(boundDataTable).copy(ArgumentMatchers.anyMap());
+        Mockito.verify(boundDataTable, Mockito.never()).copyWithoutTimeTravel(ArgumentMatchers.anyMap());
     }
 
     @Test

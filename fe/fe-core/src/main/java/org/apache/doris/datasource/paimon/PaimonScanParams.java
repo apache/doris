@@ -44,6 +44,8 @@ public final class PaimonScanParams {
     private static final String PINNED_FILE_CREATION_TIME =
             "doris.internal.paimon.file-creation-time-millis";
     private static final String PINNED_EMPTY_SCAN = "doris.internal.paimon.empty-scan";
+    private static final String PRESERVE_BOUND_SCHEMA =
+            "doris.internal.paimon.preserve-bound-schema";
 
     private static final Set<String> QUERY_OPTION_KEYS = ImmutableSet.<String>builder()
             .add(CoreOptions.SCAN_MODE.key())
@@ -167,6 +169,15 @@ public final class PaimonScanParams {
                 table.copyWithoutTimeTravel(isolatedOptions));
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);
         return effectiveTable;
+    }
+
+    public static FileStoreTable applyOptionsToBoundTable(
+            FileStoreTable table, Map<String, String> options) {
+        // Only an internal statement fence already owns its schema generation. Explicit user tags
+        // and snapshots must time-travel so system-table binding and scanning use the same schema.
+        return preservesBoundSchema(options)
+                ? applyOptionsWithoutTimeTravel(table, options)
+                : (FileStoreTable) applyOptions(table, options);
     }
 
     private static Set<String> inheritedReadStateKeys() {
@@ -333,9 +344,17 @@ public final class PaimonScanParams {
         // Statement-fence pinning removes inherited selectors, so validate the raw map first;
         // otherwise an unsupported inherited key can disappear before the common validation path.
         validateOptions(options);
-        return snapshotId == PaimonSnapshot.INVALID_SNAPSHOT_ID
+        Map<String, String> pinned = snapshotId == PaimonSnapshot.INVALID_SNAPSHOT_ID
                 ? resolvedEmptyOptions(options)
                 : resolvedSnapshotOptions(options, String.valueOf(snapshotId));
+        // This snapshot selector comes from the statement fence, whose table already owns the
+        // bound schema generation. Explicit user selectors must not carry this provenance marker.
+        pinned.put(PRESERVE_BOUND_SCHEMA, Boolean.TRUE.toString());
+        return pinned;
+    }
+
+    public static boolean preservesBoundSchema(Map<String, String> options) {
+        return options != null && Boolean.parseBoolean(options.get(PRESERVE_BOUND_SCHEMA));
     }
 
     private static Map<String, String> resolvedTagOptions(Map<String, String> options, String tagName) {

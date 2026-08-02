@@ -169,9 +169,7 @@ public class PaimonSysExternalTable extends ExternalTable {
             throw new IllegalArgumentException(
                     "Paimon system tables cannot apply a creation-time file filter.");
         }
-        // The relation fence already owns the schema generation. Replaying its snapshot selector
-        // through a normal copy could rewind schema after the cached catalog handle is replaced.
-        FileStoreTable effectiveDataTable = PaimonScanParams.applyOptionsWithoutTimeTravel(
+        FileStoreTable effectiveDataTable = PaimonScanParams.applyOptionsToBoundTable(
                 dataTable, resolvedOptions);
         return createSystemTable(effectiveDataTable);
     }
@@ -183,7 +181,7 @@ public class PaimonSysExternalTable extends ExternalTable {
     public void validateEffectiveDataTable(FileStoreTable dataTable, TableScanParams scanParams) {
         if (scanParams != null && scanParams.isOptions()) {
             // Apply the same relation copy to the data table hidden by ReadonlyTable wrappers.
-            PaimonScanParams.applyOptionsWithoutTimeTravel(
+            PaimonScanParams.applyOptionsToBoundTable(
                     dataTable, resolvedOptions(dataTable, scanParams));
         } else {
             PaimonReaderOptions.validateEffectiveTable(PaimonReaderOptions.runtimeSafeTable(dataTable));
@@ -210,7 +208,7 @@ public class PaimonSysExternalTable extends ExternalTable {
     public FileStoreTable runtimeSafeDataTable(
             FileStoreTable dataTable, TableScanParams scanParams, Map<String, String> incrementalOptions) {
         if (scanParams != null && scanParams.isOptions()) {
-            return PaimonScanParams.applyOptionsWithoutTimeTravel(
+            return PaimonScanParams.applyOptionsToBoundTable(
                     dataTable, resolvedOptions(dataTable, scanParams));
         }
         if (incrementalOptions != null && !incrementalOptions.isEmpty()) {
