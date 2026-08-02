@@ -179,6 +179,28 @@ public class PaimonBackendBoundTableTest {
     }
 
     @Test
+    public void systemOptionsDoNotReapplyFenceSnapshotToBoundSchema(@TempDir Path warehouse)
+            throws Exception {
+        FileStoreTable firstGeneration = commit(newRealTable(warehouse, "system_options_schema"), 1);
+        new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                .commitChanges(SchemaChange.addColumn("c2", DataTypes.INT()));
+        FileStoreTable latestGeneration = FileStoreTableFactory.create(
+                firstGeneration.fileIO(), firstGeneration.location());
+        Map<String, String> inheritedOptions = new HashMap<>();
+        inheritedOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), "1");
+        inheritedOptions.put(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1");
+        FileStoreTable statementSource = latestGeneration.copyWithoutTimeTravel(inheritedOptions);
+        Table systemTable = SystemTableLoader.load("audit_log", statementSource);
+
+        Table safe = PaimonReaderOptions.runtimeSafeSystemTable(
+                "audit_log", systemTable, statementSource,
+                PaimonScanParams.markAsOptions(inheritedOptions));
+
+        Assertions.assertTrue(safe.rowType().getFieldNames().contains("c2"),
+                "relation options must retain the schema generation captured by the statement fence");
+    }
+
+    @Test
     public void systemTableWithoutACapturedBaseIsHandedOverUntouched(@TempDir Path warehouse) {
         // A format / object table has no FileStoreTable base, so getSysTableHandle falls back to the
         // catalog and captures nothing. Rebuilding from some other base would be a guess; the

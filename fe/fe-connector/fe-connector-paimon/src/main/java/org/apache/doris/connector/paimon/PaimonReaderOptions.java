@@ -193,6 +193,10 @@ public final class PaimonReaderOptions {
 
     public static Table runtimeSafeSystemSource(Table sourceTable, Map<String, String> scanOptions) {
         if (PaimonScanParams.isOptionsPin(scanOptions)) {
+            if (sourceTable instanceof FileStoreTable) {
+                return PaimonScanParams.applyOptionsWithoutTimeTravel(
+                        (FileStoreTable) sourceTable, scanOptions);
+            }
             return PaimonScanParams.applyOptions(sourceTable, scanOptions);
         }
         Table effectiveSource = sourceTable;

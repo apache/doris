@@ -184,6 +184,24 @@ public final class PaimonScanParams {
         return effectiveTable;
     }
 
+    public static FileStoreTable applyOptionsWithoutTimeTravel(
+            FileStoreTable table, Map<String, String> options) {
+        Map<String, String> tableOptions = userOptions(options);
+        validateOptions(tableOptions);
+        Map<String, String> isolatedOptions = new HashMap<>(tableOptions);
+        if (hasStartupOptions(tableOptions)) {
+            INHERITED_READ_STATE_KEYS.stream()
+                    .filter(key -> !tableOptions.containsKey(key))
+                    .forEach(key -> isolatedOptions.put(key, null));
+        }
+        // The statement fence already selected the schema generation. Preserve that generation
+        // while carrying only the resolved read selector and execution options into this copy.
+        FileStoreTable effectiveTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
+                table.copyWithoutTimeTravel(isolatedOptions));
+        PaimonReaderOptions.validateEffectiveTable(effectiveTable);
+        return effectiveTable;
+    }
+
     /**
      * Paimon's inherited read-state family: startup mode, startup position and incremental range, plus
      * every fallback key. Shared with {@link PaimonIncrementalScanParams#applyResetsIfIncremental}, which
