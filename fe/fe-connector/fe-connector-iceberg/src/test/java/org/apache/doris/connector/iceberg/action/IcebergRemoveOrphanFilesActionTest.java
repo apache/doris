@@ -69,12 +69,20 @@ public class IcebergRemoveOrphanFilesActionTest {
     @Test
     public void recentCutoffCannotRaceAnUncommittedWriter(@TempDir Path temp) throws Exception {
         Table table = createTable(temp.resolve("table"), Collections.emptyMap());
+        Set<String> manifestPaths = new HashSet<>();
+        table.snapshots().forEach(snapshot -> snapshot.allManifests(table.io())
+                .forEach(manifest -> manifestPaths.add(manifest.path())));
+        RecordingFileIO recordingFileIO = new RecordingFileIO(table.io(), manifestPaths);
+        Table recordingTable = new BaseTable(
+                new StaticTableOperations(((HasTableOperations) table).operations().current(), recordingFileIO),
+                table.name());
         Path uncommitted = createOldFile(temp.resolve("table/data/uncommitted.parquet"));
         IcebergRemoveOrphanFilesAction action = action(System.currentTimeMillis(), false);
         action.validate();
 
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> action.execute(table, ActionTestTables.session("UTC")));
+                () -> action.execute(recordingTable, ActionTestTables.session("UTC")));
+        Assertions.assertEquals(0, recordingFileIO.manifestOpenCount());
         Assertions.assertTrue(Files.exists(uncommitted));
     }
 
@@ -101,32 +109,6 @@ public class IcebergRemoveOrphanFilesActionTest {
                 "s3://bucket/path/data.parquet", "s3a://bucket/path/data.parquet"));
         Assertions.assertTrue(IcebergRemoveOrphanFilesAction.sameFileIdentity(
                 "s3n://bucket/path/data.parquet", "s3://BUCKET/path/data.parquet"));
-    }
-
-    @Test
-    public void canonicalAliasRootsCollapseToOneOwnedScanRoot() {
-        Assertions.assertEquals(Collections.singletonList("s3a://bucket/table"),
-                IcebergRemoveOrphanFilesAction.minimalOwnedRoots(
-                        java.util.List.of("s3a://bucket/table", "s3://BUCKET/table")));
-    }
-
-    @Test
-    public void configuredDataAndMetadataLocationsAreSeparateOwnedRoots() {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(TableProperties.WRITE_DATA_LOCATION, "s3://bucket/data-root");
-        properties.put(TableProperties.WRITE_METADATA_LOCATION, "s3://bucket/metadata-root");
-
-        Assertions.assertEquals(java.util.List.of(
-                        "s3://bucket/table-root", "s3://bucket/data-root", "s3://bucket/metadata-root"),
-                IcebergRemoveOrphanFilesAction.resolveOwnedRoots("s3://bucket/table-root", properties));
-    }
-
-    @Test
-    public void rejectsUnresolvedPrefixMismatches() {
-        Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergRemoveOrphanFilesAction.verifyNoPrefixMismatch(
-                        "s3://first/path/data.parquet",
-                        Collections.singleton("s3://second/path/data.parquet")));
     }
 
     @Test
@@ -161,7 +143,7 @@ public class IcebergRemoveOrphanFilesActionTest {
     }
 
     @Test
-    public void scansConfiguredDataRootOutsideTableLocationByDefault(@TempDir Path temp) throws Exception {
+    public void rejectsUnprovenExternalDataRootByDefault(@TempDir Path temp) throws Exception {
         Path dataRoot = temp.resolve("owned-data");
         Table table = createTable(temp.resolve("metadata"),
                 Collections.singletonMap(TableProperties.WRITE_DATA_LOCATION,
@@ -171,15 +153,14 @@ public class IcebergRemoveOrphanFilesActionTest {
                 System.currentTimeMillis() - MIN_RETENTION_MS, false);
         action.validate();
 
-        ConnectorProcedureResult result = action.execute(table, ActionTestTables.session("UTC"));
-
-        Assertions.assertEquals("1", result.getRows().get(0).get(0));
-        Assertions.assertEquals("1", result.getRows().get(0).get(1));
-        Assertions.assertFalse(Files.exists(orphan));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> action.execute(table, ActionTestTables.session("UTC")));
+        Assertions.assertTrue(Files.exists(orphan));
     }
 
     @Test
-    public void allowsExplicitConfiguredDataRootButRejectsArbitraryRoot(@TempDir Path temp) throws Exception {
+    public void guardedExplicitDataRootDeletesButUnguardedArbitraryRootIsRejected(@TempDir Path temp)
+            throws Exception {
         Path dataRoot = temp.resolve("owned-data");
         Table table = createTable(temp.resolve("metadata"),
                 Collections.singletonMap(TableProperties.WRITE_DATA_LOCATION,
@@ -187,7 +168,7 @@ public class IcebergRemoveOrphanFilesActionTest {
         Path orphan = createOldFile(dataRoot.resolve("orphan.parquet"));
 
         IcebergRemoveOrphanFilesAction configured = action(
-                System.currentTimeMillis() - MIN_RETENTION_MS, false, dataRoot.toUri().toString());
+                System.currentTimeMillis() - MIN_RETENTION_MS, false, dataRoot.toUri().toString(), true);
         configured.validate();
         configured.execute(table, ActionTestTables.session("UTC"));
         Assertions.assertFalse(Files.exists(orphan));
@@ -201,13 +182,62 @@ public class IcebergRemoveOrphanFilesActionTest {
     }
 
     @Test
-    public void scansObjectStoreAndFolderStorageFallbackRoots(@TempDir Path temp) throws Exception {
+    public void guardedExplicitLocationCoversFormerTableRootAfterMigration(@TempDir Path temp) throws Exception {
+        Table table = createTable(temp.resolve("current-table"), Collections.emptyMap());
+        Path sharedFormerRoot = temp.resolve("former-root-now-shared");
+        Path formerDataRoot = sharedFormerRoot.resolve("old-table-data");
+        Path formerMetadataRoot = sharedFormerRoot.resolve("old-table-metadata");
+        Path dataOrphan = createOldFile(formerDataRoot.resolve("orphan.parquet"));
+        Path metadataOrphan = createOldFile(formerMetadataRoot.resolve("orphan.metadata.json"));
+        Path neighborFile = createOldFile(sharedFormerRoot.resolve("neighbor-table/live.parquet"));
+
+        IcebergRemoveOrphanFilesAction unguarded = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false,
+                sharedFormerRoot.toUri().toString());
+        unguarded.validate();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> unguarded.execute(table, ActionTestTables.session("UTC")));
+        Assertions.assertTrue(Files.exists(dataOrphan));
+        Assertions.assertTrue(Files.exists(metadataOrphan));
+        Assertions.assertTrue(Files.exists(neighborFile));
+
+        IcebergRemoveOrphanFilesAction dataAction = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false,
+                formerDataRoot.toUri().toString(), true);
+        dataAction.validate();
+        dataAction.execute(table, ActionTestTables.session("UTC"));
+        IcebergRemoveOrphanFilesAction metadataAction = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false,
+                formerMetadataRoot.toUri().toString(), true);
+        metadataAction.validate();
+        metadataAction.execute(table, ActionTestTables.session("UTC"));
+
+        Assertions.assertFalse(Files.exists(dataOrphan));
+        Assertions.assertFalse(Files.exists(metadataOrphan));
+        Assertions.assertTrue(Files.exists(neighborFile));
+    }
+
+    @Test
+    public void objectStoreOwnershipExcludesNeighborTableAndFolderRootFailsClosed(@TempDir Path temp)
+            throws Exception {
         Path objectRoot = temp.resolve("object-data");
         Map<String, String> objectProperties = new HashMap<>();
         objectProperties.put(TableProperties.OBJECT_STORE_ENABLED, "true");
-        objectProperties.put(TableProperties.OBJECT_STORE_PATH, objectRoot.toUri().toString());
+        objectProperties.put(TableProperties.WRITE_DATA_LOCATION, objectRoot.toUri().toString());
+        objectProperties.put(TableProperties.OBJECT_STORE_PATH,
+                temp.resolve("lower-precedence-object-path").toUri().toString());
+        Files.createDirectories(objectRoot);
         Table objectTable = createTable(temp.resolve("object-metadata"), objectProperties);
-        Path objectOrphan = createOldFile(objectRoot.resolve("orphan.parquet"));
+        Path ownOrphan = createOldFile(objectRoot.resolve(
+                "0000/0001/0010/0011/0100/" + temp.getFileName() + "/object-metadata/own.parquet"));
+        Path neighborFile = createOldFile(objectRoot.resolve(
+                "0000/0001/0010/0011/0100/" + temp.getFileName() + "/neighbor/live.parquet"));
+        Assertions.assertTrue(IcebergRemoveOrphanFilesAction.isOwnedObjectStorePath(
+                "s3://bucket/shared/0000/0001/0010/0011/0100/db/table/file.parquet",
+                "s3://bucket/shared", "s3://bucket/warehouse/db/table"));
+        Assertions.assertFalse(IcebergRemoveOrphanFilesAction.isOwnedObjectStorePath(
+                "s3://bucket/shared/0000/0001/0010/0011/0100/db/neighbor/file.parquet",
+                "s3://bucket/shared", "s3://bucket/warehouse/db/table"));
 
         Path folderRoot = temp.resolve("folder-data");
         Table folderTable = createTable(temp.resolve("folder-metadata"),
@@ -219,13 +249,51 @@ public class IcebergRemoveOrphanFilesActionTest {
                 System.currentTimeMillis() - MIN_RETENTION_MS, false);
         objectAction.validate();
         objectAction.execute(objectTable, ActionTestTables.session("UTC"));
+        Assertions.assertFalse(Files.exists(ownOrphan));
+        Assertions.assertTrue(Files.exists(neighborFile));
+
+        Map<String, String> prefixCollisionProperties = new HashMap<>();
+        prefixCollisionProperties.put(TableProperties.OBJECT_STORE_ENABLED, "true");
+        prefixCollisionProperties.put(TableProperties.WRITE_DATA_LOCATION,
+                temp.resolve("prefix-table-shared").toUri().toString());
+        Table prefixCollisionTable = createTable(temp.resolve("prefix-table"), prefixCollisionProperties);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> objectAction.execute(prefixCollisionTable, ActionTestTables.session("UTC")));
+
         IcebergRemoveOrphanFilesAction folderAction = action(
                 System.currentTimeMillis() - MIN_RETENTION_MS, false);
         folderAction.validate();
-        folderAction.execute(folderTable, ActionTestTables.session("UTC"));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> folderAction.execute(folderTable, ActionTestTables.session("UTC")));
+        Assertions.assertTrue(Files.exists(folderOrphan));
+    }
 
-        Assertions.assertFalse(Files.exists(objectOrphan));
-        Assertions.assertFalse(Files.exists(folderOrphan));
+    @Test
+    public void reachableIndexHasExplicitSafetyCap() {
+        Set<String> files = Set.of("s3://bucket/table/a", "s3://bucket/table/b", "s3://bucket/table/c");
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergRemoveOrphanFilesAction.verifyReachableIndexLimit(files, 2));
+    }
+
+    @Test
+    public void customLocationProviderRequiresGuardedExplicitLocation(@TempDir Path temp) throws Exception {
+        Table table = createTable(temp.resolve("table"), Collections.singletonMap(
+                TableProperties.WRITE_LOCATION_PROVIDER_IMPL, "example.CustomProvider"));
+        Path providerRoot = temp.resolve("provider-data");
+        Path orphan = createOldFile(providerRoot.resolve("orphan.parquet"));
+        IcebergRemoveOrphanFilesAction action = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, true);
+        action.validate();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> action.execute(table, ActionTestTables.session("UTC")));
+        Assertions.assertTrue(Files.exists(orphan));
+
+        IcebergRemoveOrphanFilesAction guarded = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false,
+                providerRoot.toUri().toString(), true);
+        guarded.validate();
+        guarded.execute(table, ActionTestTables.session("UTC"));
+        Assertions.assertFalse(Files.exists(orphan));
     }
 
     private static IcebergRemoveOrphanFilesAction action(long olderThan, boolean dryRun) {
@@ -233,9 +301,16 @@ public class IcebergRemoveOrphanFilesActionTest {
     }
 
     private static IcebergRemoveOrphanFilesAction action(long olderThan, boolean dryRun, String location) {
+        return action(olderThan, dryRun, location, false);
+    }
+
+    private static IcebergRemoveOrphanFilesAction action(
+            long olderThan, boolean dryRun, String location, boolean allowUnsafeLocation) {
         Map<String, String> properties = new HashMap<>();
         properties.put(IcebergRemoveOrphanFilesAction.OLDER_THAN, String.valueOf(olderThan));
         properties.put(IcebergRemoveOrphanFilesAction.DRY_RUN, String.valueOf(dryRun));
+        properties.put(IcebergRemoveOrphanFilesAction.ALLOW_UNSAFE_LOCATION,
+                String.valueOf(allowUnsafeLocation));
         if (location != null) {
             properties.put(IcebergRemoveOrphanFilesAction.LOCATION, location);
         }

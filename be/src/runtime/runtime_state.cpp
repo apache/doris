@@ -66,7 +66,14 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
     RETURN_IF_ERROR(serializer.serialize(&iceberg_commit_data, &serialized_size, &buffer));
 
     constexpr size_t report_envelope_headroom = 1024 * 1024;
-    const size_t thrift_limit = static_cast<size_t>(std::max(config::thrift_max_message_size, 0));
+    int32_t effective_thrift_limit = std::max(config::thrift_max_message_size, 0);
+    if (_query_options.__isset.coordinator_thrift_max_message_size &&
+        _query_options.coordinator_thrift_max_message_size > 0) {
+        // An older FE omits this field; otherwise the receiver's smaller limit is authoritative.
+        effective_thrift_limit = std::min(effective_thrift_limit,
+                                          _query_options.coordinator_thrift_max_message_size);
+    }
+    const size_t thrift_limit = static_cast<size_t>(effective_thrift_limit);
     const size_t commit_data_limit =
             thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
     std::lock_guard<std::mutex> budget_lock(_iceberg_commit_data_budget->mutex);

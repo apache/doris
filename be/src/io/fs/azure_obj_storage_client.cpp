@@ -21,7 +21,6 @@
 #include <aws/core/utils/HashingUtils.h>
 
 #include <algorithm>
-#include <array>
 #include <azure/core/http/http.hpp>
 #include <azure/core/http/http_status_code.hpp>
 #include <azure/core/io/body_stream.hpp>
@@ -35,7 +34,6 @@
 #include <azure/storage/common/storage_credential.hpp>
 #include <azure/storage/common/storage_exception.hpp>
 #include <cctype>
-#include <chrono>
 #include <exception>
 #include <iterator>
 #include <ranges>
@@ -66,23 +64,12 @@ std::string to_lower_ascii(std::string_view input) {
     return lowered;
 }
 
-std::string azure_block_id(const doris::io::ObjectStoragePathOptions& opts, int part_num) {
-    DCHECK(opts.upload_id.has_value());
+std::string encode_azure_block_id(std::string_view upload_id, int part_num) {
     // Azure requires every block ID for one blob to have the same decoded length.
-    std::string raw_id = fmt::format("{}:{:010}", *opts.upload_id, part_num);
+    std::string raw_id = fmt::format("{}:{:010}", upload_id, part_num);
     Aws::Utils::ByteBuffer bytes(reinterpret_cast<const unsigned char*>(raw_id.data()),
                                  raw_id.size());
     return Aws::Utils::HashingUtils::Base64Encode(bytes);
-}
-
-std::string legacy_azure_block_id(int part_num) {
-    std::array<unsigned char, sizeof(int32_t)> bytes {
-            static_cast<unsigned char>(part_num & 0xff),
-            static_cast<unsigned char>((part_num >> 8) & 0xff),
-            static_cast<unsigned char>((part_num >> 16) & 0xff),
-            static_cast<unsigned char>((part_num >> 24) & 0xff)};
-    Aws::Utils::ByteBuffer buffer(bytes.data(), bytes.size());
-    return Aws::Utils::HashingUtils::Base64Encode(buffer);
 }
 
 // Rate limiting is applied by RateLimitedObjStorageClient, the decorator that
@@ -94,8 +81,8 @@ constexpr char BlobNotFound[] = "BlobNotFound";
 
 namespace doris::io {
 
-std::string azure_multipart_temp_key(std::string_view key, std::string_view upload_id) {
-    return fmt::format("{}.__doris_multipart/{}", key, upload_id);
+std::string azure_multipart_block_id(std::string_view upload_id, int part_num) {
+    return encode_azure_block_id(upload_id, part_num);
 }
 
 // As Azure's doc said, the batch size is 256
@@ -238,22 +225,16 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
                                                                std::string_view stream,
                                                                int part_num) {
     DCHECK(opts.upload_id.has_value());
-    auto client = _client->GetBlockBlobClient(azure_multipart_temp_key(opts.key, *opts.upload_id));
-    std::string block_id = azure_block_id(opts, part_num);
+    auto client = _client->GetBlockBlobClient(opts.key);
+    std::string block_id = azure_multipart_block_id(*opts.upload_id, part_num);
     auto resp = do_azure_client_call(
             [&]() {
                 Azure::Core::IO::MemoryBodyStream memory_body(
                         reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
                 // The blockId must be base64 encoded
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
+                // Upload-scoped IDs make a conflicting writer fail closed instead of selecting its blocks.
                 client.StageBlock(block_id, memory_body);
-                if (opts.deferred_completion) {
-                    // During rolling upgrades an old FE still commits deterministic IDs on the final blob.
-                    Azure::Core::IO::MemoryBodyStream legacy_body(
-                            reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
-                    _client->GetBlockBlobClient(opts.key).StageBlock(
-                            legacy_azure_block_id(part_num), legacy_body);
-                }
             },
             opts, _tls_debug_context);
     return ObjectStorageUploadResponse {
@@ -267,48 +248,27 @@ ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
         const ObjectStoragePathOptions& opts,
         const std::vector<ObjectCompleteMultiPart>& completed_parts) {
     DCHECK(opts.upload_id.has_value());
-    auto temp_client =
-            _client->GetBlockBlobClient(azure_multipart_temp_key(opts.key, *opts.upload_id));
     auto target_client = _client->GetBlockBlobClient(opts.key);
     std::vector<std::string> string_block_ids;
-    std::ranges::transform(
-            completed_parts, std::back_inserter(string_block_ids),
-            [&opts](const ObjectCompleteMultiPart& i) { return azure_block_id(opts, i.part_num); });
-    auto response = do_azure_client_call(
+    std::ranges::transform(completed_parts, std::back_inserter(string_block_ids),
+                           [&opts](const ObjectCompleteMultiPart& i) {
+                               return azure_multipart_block_id(*opts.upload_id, i.part_num);
+                           });
+    return do_azure_client_call(
             [&]() {
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                // Per-upload temporary blobs keep Azure's blob-wide staged-block namespace isolated.
-                temp_client.CommitBlockList(string_block_ids);
-                auto copy = target_client.StartCopyFromUri(temp_client.GetUrl());
-                copy.PollUntilDone(std::chrono::milliseconds(100));
+                // Put Block List atomically replaces the committed blob; no scan-visible staging blob exists.
+                target_client.CommitBlockList(string_block_ids);
             },
             opts, _tls_debug_context);
-    if (response.status.code != ErrorCode::OK) {
-        return response;
-    }
-    auto cleanup = do_azure_client_call([&]() { temp_client.Delete(); }, opts, _tls_debug_context);
-    if (cleanup.status.code != ErrorCode::OK &&
-        cleanup.http_code != static_cast<int>(Azure::Core::Http::HttpStatusCode::NotFound)) {
-        LOG(WARNING) << "Azure multipart temporary blob cleanup failed after publication";
-    }
-    // Publication already succeeded; a cleanup failure must not turn a retry into a conflicting overwrite.
-    return response;
 }
 
 ObjectStorageResponse AzureObjStorageClient::abort_multipart_upload(
         const ObjectStoragePathOptions& opts) {
     DCHECK(opts.upload_id.has_value());
-    auto client = _client->GetBlockBlobClient(azure_multipart_temp_key(opts.key, *opts.upload_id));
-    auto response = do_azure_client_call(
-            [&]() {
-                // Never recommit the final blob: a legacy staged block may shadow a committed block ID.
-                client.Delete();
-            },
-            opts, _tls_debug_context);
-    // Azure creates no server-side object until the first block is staged, so absence is clean.
-    return response.http_code == static_cast<int>(Azure::Core::Http::HttpStatusCode::NotFound)
-                   ? ObjectStorageResponse::OK()
-                   : response;
+    // Azure cannot delete one upload's uncommitted blocks without changing the committed blob.
+    // Leaving them to service GC preserves the last successfully published value.
+    return ObjectStorageResponse::OK();
 }
 
 ObjectStorageHeadResponse AzureObjStorageClient::head_object(const ObjectStoragePathOptions& opts) {

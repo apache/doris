@@ -17,15 +17,19 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
@@ -59,6 +63,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     private final ConnectorWritePlanProvider writePlanProvider;
     private final ConnectorSession connectorSession;
     private final ConnectorTableHandle tableHandle;
+    private final ConnectorMetadata connectorMetadata;
     private final List<ConnectorColumn> connectorColumns;
     private final List<ConnectorColumn> boundTargetColumns;
     // The engine-built BE sort instruction for a connector that declares write-sort columns (iceberg
@@ -114,7 +119,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
             TSortInfo writeSortInfo, WriteOperation writeOperation) {
         this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
-                writeSortInfo, writeOperation, false);
+                writeSortInfo, writeOperation, false, null);
     }
 
     /**
@@ -127,7 +132,20 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
             TSortInfo writeSortInfo, WriteOperation writeOperation, boolean requireMergeCardinalityCheck) {
         this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
-                connectorColumns, writeSortInfo, writeOperation, requireMergeCardinalityCheck);
+                writeSortInfo, writeOperation, requireMergeCardinalityCheck, null);
+    }
+
+    /**
+     * Plan-provider mode with connector metadata used to resolve the exact branch-aware MVCC pin at bind time.
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            TSortInfo writeSortInfo, WriteOperation writeOperation, boolean requireMergeCardinalityCheck,
+            ConnectorMetadata connectorMetadata) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                connectorColumns, writeSortInfo, writeOperation, requireMergeCardinalityCheck,
+                null, connectorMetadata);
     }
 
     /**
@@ -151,11 +169,27 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             List<ConnectorColumn> boundTargetColumns, TSortInfo writeSortInfo,
             WriteOperation writeOperation, boolean requireMergeCardinalityCheck,
             String boundWriteMetadataIdentity) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                boundTargetColumns, writeSortInfo, writeOperation, requireMergeCardinalityCheck,
+                boundWriteMetadataIdentity, null);
+    }
+
+    /**
+     * Complete plan-provider mode. The schema generation and branch-aware snapshot are separate invariants:
+     * the former must stay at bind time, while the latter is resolved for the exact write branch.
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo writeSortInfo,
+            WriteOperation writeOperation, boolean requireMergeCardinalityCheck,
+            String boundWriteMetadataIdentity, ConnectorMetadata connectorMetadata) {
         super();
         this.targetTable = targetTable;
         this.writePlanProvider = writePlanProvider;
         this.connectorSession = connectorSession;
         this.tableHandle = tableHandle;
+        this.connectorMetadata = connectorMetadata;
         this.connectorColumns = connectorColumns;
         // Keep this immutable bind-time snapshot distinct from the write subset. Re-reading the live
         // table here would move the conflict-detection baseline and could miss ordinal schema drift.
@@ -221,8 +255,18 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             writeContext = ctx.getStaticPartitionSpec();
             branchName = ctx.getBranchName();
         }
+        ConnectorTableHandle boundTableHandle = tableHandle;
+        if (connectorMetadata != null && targetTable != null) {
+            Optional<TableScanParams> scanParams = branchName.map(branch ->
+                    new TableScanParams(TableScanParams.BRANCH, Collections.emptyMap(),
+                            Collections.singletonList(branch)));
+            // The write target must use the pin for its exact branch, not another reference of the same table.
+            boundTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
+                    connectorMetadata, connectorSession, tableHandle,
+                    MvccUtil.getSnapshotFromContext(targetTable, Optional.empty(), scanParams));
+        }
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, boundTargetColumns, overwrite, writeContext, writeSortInfo,
+                boundTableHandle, connectorColumns, boundTargetColumns, overwrite, writeContext, writeSortInfo,
                 boundWriteMetadataIdentity, branchName, writeOperation, requireMergeCardinalityCheck);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();

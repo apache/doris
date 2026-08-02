@@ -44,6 +44,8 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
         add_block = _get_free_block(block, rows);
     }
 
+    // The pipeline reservation protects allocations performed after this block is dequeued.
+    auto reservation = thread_context()->thread_mem_tracker_mgr->take_reserved_memory();
     std::lock_guard l(_m);
     // if io task failed, just return error status to
     // end the query
@@ -55,9 +57,12 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
     if (_is_finished()) {
         _dependency->set_ready();
     }
-    if (rows) {
-        _memory_used_counter->update(add_block->allocated_bytes());
-        _data_queue.emplace_back(std::move(add_block));
+    if (rows || eos) {
+        if (rows) {
+            _memory_used_counter->update(add_block->allocated_bytes());
+        }
+        _data_queue.emplace_back(QueuedBlock {
+                .block = std::move(add_block), .reservation = std::move(reservation), .eos = eos});
         if (!_data_queue_is_available() && !_is_finished()) {
             _dependency->block();
         }
@@ -71,17 +76,19 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
     return Status::OK();
 }
 
-std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
+AsyncResultWriter::QueuedBlock AsyncResultWriter::_get_block_from_queue() {
     std::lock_guard l(_m);
     DCHECK(!_data_queue.empty());
-    auto block = std::move(_data_queue.front());
+    auto queued = std::move(_data_queue.front());
     _data_queue.pop_front();
     DCHECK(_dependency);
     if (_data_queue_is_available()) {
         _dependency->set_ready();
     }
-    _memory_used_counter->update(-block->allocated_bytes());
-    return block;
+    if (queued.block) {
+        _memory_used_counter->update(-queued.block->allocated_bytes());
+    }
+    return queued;
 }
 
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* operator_profile) {
@@ -165,9 +172,12 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         }
 
         //2) get the block from  data queue and write to downstream
-        auto block = _get_block_from_queue();
-        auto status = write(state, *block);
+        auto queued = _get_block_from_queue();
+        thread_context()->thread_mem_tracker_mgr->adopt_reserved_memory(
+                std::move(queued.reservation));
+        Status status = queued.block ? write(state, *queued.block) : Status::OK();
         if (!status.ok()) [[unlikely]] {
+            thread_context()->thread_mem_tracker_mgr->shrink_reserved();
             std::unique_lock l(_m);
             _writer_status.update(status);
             if (_is_finished()) {
@@ -176,7 +186,14 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
             break;
         }
 
-        _return_free_block(std::move(block));
+        if (queued.block) {
+            _return_free_block(std::move(queued.block));
+        }
+        if (queued.eos) {
+            // Keep the final reservation through finish(), where buffered sorters are committed.
+            break;
+        }
+        thread_context()->thread_mem_tracker_mgr->shrink_reserved();
     }
 
     bool need_finish = false;

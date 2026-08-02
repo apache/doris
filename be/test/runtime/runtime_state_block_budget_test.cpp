@@ -59,6 +59,20 @@ TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetAcrossParallelTasks
     EXPECT_FALSE(second_status.ok());
 }
 
+TEST(RuntimeStateIcebergCommitDataTest, UsesTheSmallerCoordinatorThriftLimit) {
+    RuntimeState state;
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 4 * 1024 * 1024;
+    state._query_options.__set_coordinator_thrift_max_message_size(1024 * 1024 + 128);
+    TIcebergCommitData commit_data;
+    commit_data.__set_file_path(std::string(256, 'x'));
+
+    Status status = state.add_iceberg_commit_datas(commit_data);
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_FALSE(status.ok());
+}
+
 // ---------------------------------------------------------------------------
 // RuntimeState::batch_size()
 // ---------------------------------------------------------------------------

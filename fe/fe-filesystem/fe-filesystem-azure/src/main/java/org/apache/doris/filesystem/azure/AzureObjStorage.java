@@ -48,12 +48,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -229,8 +231,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
             BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
-                    .getBlobClient(multipartTempKey(uri.key(), uploadId)).getBlockBlobClient();
-            String blockId = toBlockId(partNum);
+                    .getBlobClient(uri.key()).getBlockBlobClient();
+            String blockId = multipartBlockId(uploadId, partNum);
             blockBlobClient.stageBlock(blockId, body.content(), body.contentLength());
             return new UploadPartResult(partNum, blockId);
         } catch (BlobStorageException e) {
@@ -251,24 +253,11 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             boolean exactBlockIds = !sorted.isEmpty() && sorted.stream()
                     .allMatch(part -> part.etag() != null && !part.etag().isEmpty());
             for (UploadPartResult part : sorted) {
-                // A mixed-version upload must use one namespace consistently; new BEs also stage legacy IDs.
+                // Missing IDs identify an older BE upload, whose blocks use the legacy namespace.
                 blockIds.add(exactBlockIds ? part.etag() : toBlockId(part.partNumber()));
             }
-            String commitKey = exactBlockIds ? multipartTempKey(uri.key(), uploadId) : uri.key();
-            BlobClient commitBlob = containerClient.getBlobClient(commitKey);
-            commitBlob.getBlockBlobClient().commitBlockList(blockIds);
-            if (exactBlockIds) {
-                BlobClient targetBlob = containerClient.getBlobClient(uri.key());
-                // The temporary blob is the provider-visible writer fence; only a completed copy publishes it.
-                targetBlob.beginCopy(commitBlob.getBlobUrl(), null).waitForCompletion();
-                try {
-                    commitBlob.delete();
-                } catch (BlobStorageException cleanupFailure) {
-                    // Publication already succeeded; cleanup must not make a retry overwrite a newer writer.
-                    LOG.warn("Azure multipart temporary blob cleanup failed after publication: {}",
-                            cleanupFailure.getMessage());
-                }
-            }
+            // Put Block List is the atomic publication point and does not expose a staging blob to scans.
+            containerClient.getBlobClient(uri.key()).getBlockBlobClient().commitBlockList(blockIds);
         } catch (BlobStorageException e) {
             throw new IOException("completeMultipartUpload failed for " + remotePath
                     + ": " + e.getMessage(), e);
@@ -277,18 +266,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        try {
-            AzureUri uri = AzureUri.parse(remotePath);
-            // Abort is scoped to this writer's temporary blob. Legacy final-blob blocks are left to expire,
-            // because recommitting their IDs can select a staged replacement for committed user data.
-            getClient().getBlobContainerClient(uri.container())
-                    .getBlobClient(multipartTempKey(uri.key(), uploadId)).deleteIfExists();
-        } catch (BlobStorageException e) {
-            // Best-effort: log and swallow rather than mask the original failure that
-            // triggered the abort path. Uncommitted blocks will be GC'd by the service.
-            LOG.warn("abortMultipartUpload best-effort cleanup failed for {}: {}",
-                    remotePath, e.getMessage());
-        }
+        // Azure has no per-upload abort for blocks staged on a shared blob. A no-op is the only
+        // choice that cannot delete or recommit the last successfully published value.
     }
 
     /**
@@ -518,7 +497,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return Base64.getEncoder().encodeToString(bytes);
     }
 
-    static String multipartTempKey(String key, String uploadId) {
-        return key + ".__doris_multipart/" + uploadId;
+    static String multipartBlockId(String uploadId, int partNum) {
+        String rawId = String.format(Locale.ROOT, "%s:%010d", uploadId, partNum);
+        return Base64.getEncoder().encodeToString(rawId.getBytes(StandardCharsets.UTF_8));
     }
 }

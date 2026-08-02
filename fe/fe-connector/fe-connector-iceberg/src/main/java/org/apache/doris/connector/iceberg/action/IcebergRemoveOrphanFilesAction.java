@@ -50,13 +50,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /** Safely lists or deletes old files that are unreachable from every retained snapshot. */
 public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
     private static final long MIN_RETENTION_MS = Duration.ofHours(24).toMillis();
+    private static final int MAX_REACHABLE_FILES = 5_000_000;
     public static final String OLDER_THAN = "older_than";
     public static final String LOCATION = "location";
     public static final String DRY_RUN = "dry_run";
+    public static final String ALLOW_UNSAFE_LOCATION = "allow_unsafe_location";
 
     public IcebergRemoveOrphanFilesAction(Map<String, String> properties, List<String> partitionNames,
             ConnectorPredicate whereCondition) {
@@ -67,10 +70,13 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
     protected void registerIcebergArguments() {
         namedArguments.registerRequiredArgument(OLDER_THAN, "Creation time cutoff in milliseconds",
                 ArgumentParsers.nonNegativeLong(OLDER_THAN));
-        namedArguments.registerOptionalArgument(LOCATION, "Prefix within the table location",
+        namedArguments.registerOptionalArgument(LOCATION, "Prefix to scan for orphan files",
                 null, ArgumentParsers.nonEmptyString(LOCATION));
         namedArguments.registerOptionalArgument(DRY_RUN, "Only count orphan files", true,
                 ArgumentParsers.booleanValue(DRY_RUN));
+        namedArguments.registerOptionalArgument(ALLOW_UNSAFE_LOCATION,
+                "Allow an explicitly supplied location whose table ownership cannot be proved",
+                false, ArgumentParsers.booleanValue(ALLOW_UNSAFE_LOCATION));
     }
 
     @Override
@@ -97,25 +103,23 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
             // A GC-disabled table may share files with another table, so no destructive scan is safe.
             throw new DorisConnectorException("Cannot remove orphan files: Iceberg GC is disabled");
         }
-        List<String> scanLocations = resolveScanLocations(table);
+        long olderThan = namedArguments.getLong(OLDER_THAN);
+        // Reject an unsafe cutoff before opening any metadata or manifest file.
+        if (olderThan > System.currentTimeMillis() - MIN_RETENTION_MS) {
+            throw new DorisConnectorException("older_than must retain at least 24 hours of files");
+        }
+        List<ScanScope> scanScopes = resolveScanScopes(table);
 
         try {
-            ReachableIndex reachable = new ReachableIndex(collectReachableFiles(table));
+            ReachableIndex reachable = collectReachableFiles(table);
             long orphanCount = 0;
             long deletedCount = 0;
-            long olderThan = namedArguments.getLong(OLDER_THAN);
-            // The SQL procedure needs a retention fence because concurrent uploads are not reachable until commit.
-            if (olderThan > System.currentTimeMillis() - MIN_RETENTION_MS) {
-                throw new DorisConnectorException(
-                        "older_than must retain at least 24 hours of files");
-            }
             boolean dryRun = namedArguments.getBoolean(DRY_RUN);
-            Set<String> visitedFiles = new HashSet<>();
-            for (String scanLocation : scanLocations) {
+            for (ScanScope scope : scanScopes) {
                 // Object stores use raw prefix matching, so the separator excludes sibling prefixes.
-                String listingPrefix = scanLocation.endsWith("/") ? scanLocation : scanLocation + "/";
+                String listingPrefix = scope.root.endsWith("/") ? scope.root : scope.root + "/";
                 for (FileInfo file : ((SupportsPrefixOperations) table.io()).listPrefix(listingPrefix)) {
-                    if (visitedFiles.add(file.location()) && file.createdAtMillis() < olderThan
+                    if (scope.owns(file.location()) && file.createdAtMillis() < olderThan
                             && !isReachable(file.location(), reachable)) {
                         orphanCount++;
                         if (!dryRun) {
@@ -131,67 +135,69 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         }
     }
 
-    private List<String> resolveScanLocations(Table table) {
-        List<String> ownedRoots = resolveOwnedRoots(table.location(), table.properties());
-
+    private List<ScanScope> resolveScanScopes(Table table) {
+        String tableRoot = normalizeLocation(table.location());
         String requested = namedArguments.getString(LOCATION);
         if (requested != null) {
             String normalized = normalizeLocation(requested);
-            boolean owned = ownedRoots.stream().anyMatch(root -> isWithin(normalized, root));
-            if (!owned) {
+            if (isWithin(normalized, tableRoot)) {
+                return Lists.newArrayList(ScanScope.exclusive(normalized));
+            }
+            if (!namedArguments.getBoolean(ALLOW_UNSAFE_LOCATION)) {
                 throw new DorisConnectorException(
-                        "location must be within an Iceberg table-owned metadata or data location");
+                        "Cannot prove that location is owned by this table; set allow_unsafe_location=true "
+                                + "only after verifying the prefix is exclusive to the table");
             }
-            return Lists.newArrayList(normalized);
+            // This explicit escape hatch also covers historical roots after a table-location migration.
+            return Lists.newArrayList(ScanScope.exclusive(normalized));
         }
-
-        return minimalOwnedRoots(ownedRoots);
-    }
-
-    static List<String> resolveOwnedRoots(String tableLocation, Map<String, String> properties) {
-        String tableRoot = normalizeLocation(tableLocation);
-        String dataRoot = normalizeLocation(resolveDataLocation(properties, tableRoot));
-        List<String> configuredRoots = new ArrayList<>();
-        configuredRoots.add(tableRoot);
-        configuredRoots.add(dataRoot);
-        // Iceberg may place metadata outside both table and data roots, so it remains an independent owned root.
-        String metadataRoot = nonEmpty(properties.get(TableProperties.WRITE_METADATA_LOCATION));
-        if (metadataRoot != null) {
-            configuredRoots.add(normalizeLocation(metadataRoot));
+        if (nonEmpty(table.properties().get(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)) != null) {
+            throw new DorisConnectorException(
+                    "remove_orphan_files cannot infer ownership for a custom write.location-provider.impl; "
+                            + "provide location with allow_unsafe_location=true after verifying exclusivity");
         }
-        return canonicalOwnedRoots(configuredRoots);
-    }
-
-    static List<String> minimalOwnedRoots(List<String> roots) {
-        List<String> canonicalRoots = canonicalOwnedRoots(roots);
-        List<String> minimal = new ArrayList<>();
-        for (String candidate : canonicalRoots) {
-            // Canonically equal aliases are deduplicated first, so only strict containment removes a root.
-            if (canonicalRoots.stream().noneMatch(other -> !sameFileIdentity(other, candidate)
-                    && isWithinLocation(candidate, other))) {
-                minimal.add(candidate);
+        String metadataRoot = nonEmpty(table.properties().get(TableProperties.WRITE_METADATA_LOCATION));
+        if (metadataRoot != null && !isWithin(normalizeLocation(metadataRoot), tableRoot)) {
+            throw new DorisConnectorException(
+                    "Cannot prove that the configured external metadata location is table-exclusive; "
+                            + "provide location with allow_unsafe_location=true after verifying exclusivity");
+        }
+        List<ScanScope> scopes = new ArrayList<>();
+        scopes.add(ScanScope.exclusive(tableRoot));
+        if (Boolean.parseBoolean(table.properties().get(TableProperties.OBJECT_STORE_ENABLED))) {
+            // Match Iceberg's ObjectStoreLocationProvider precedence exactly.
+            String objectRoot = nonEmpty(table.properties().get(TableProperties.WRITE_DATA_LOCATION));
+            if (objectRoot == null) {
+                objectRoot = nonEmpty(table.properties().get(TableProperties.OBJECT_STORE_PATH));
+            }
+            if (objectRoot == null) {
+                objectRoot = nonEmpty(table.properties().get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION));
+            }
+            if (objectRoot != null) {
+                String normalizedObjectRoot = normalizeLocation(objectRoot);
+                if (!isWithin(normalizedObjectRoot, tableRoot)) {
+                    if (normalizedObjectRoot.startsWith(tableRoot)) {
+                        // Iceberg omits table context for this raw-prefix case, so ownership is not recoverable.
+                        throw new DorisConnectorException(
+                                "Cannot prove object-store ownership because its path has the table location "
+                                        + "as a non-directory prefix; provide a verified explicit location");
+                    }
+                    scopes.add(ScanScope.objectStore(normalizedObjectRoot, tableRoot));
+                }
+            }
+        } else {
+            String externalDataRoot = nonEmpty(table.properties().get(TableProperties.WRITE_DATA_LOCATION));
+            if (externalDataRoot == null) {
+                externalDataRoot = nonEmpty(
+                        table.properties().get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION));
+            }
+            if (externalDataRoot != null && !isWithin(normalizeLocation(externalDataRoot), tableRoot)) {
+                throw new DorisConnectorException(
+                        "Cannot prove that the configured external data location is table-exclusive; "
+                                + "provide location with allow_unsafe_location=true after verifying exclusivity");
             }
         }
-        return minimal;
-    }
-
-    private static List<String> canonicalOwnedRoots(List<String> roots) {
-        Map<FileIdentity, String> byIdentity = new LinkedHashMap<>();
-        for (String root : roots) {
-            byIdentity.putIfAbsent(FileIdentity.of(root), root);
-        }
-        return new ArrayList<>(byIdentity.values());
-    }
-
-    private static String resolveDataLocation(Map<String, String> properties, String tableRoot) {
-        String dataLocation = nonEmpty(properties.get(TableProperties.WRITE_DATA_LOCATION));
-        if (dataLocation == null && Boolean.parseBoolean(properties.get(TableProperties.OBJECT_STORE_ENABLED))) {
-            dataLocation = nonEmpty(properties.get(TableProperties.OBJECT_STORE_PATH));
-        }
-        if (dataLocation == null) {
-            dataLocation = nonEmpty(properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION));
-        }
-        return dataLocation == null ? tableRoot + "/data" : dataLocation;
+        return scopes;
     }
 
     private static String nonEmpty(String location) {
@@ -210,8 +216,9 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
                 && (child.path.equals(parent.path) || child.path.startsWith(pathPrefix));
     }
 
-    private Set<String> collectReachableFiles(Table table) throws IOException {
-        Set<String> reachable = new HashSet<>(ReachableFileUtil.metadataFileLocations(table, true));
+    private ReachableIndex collectReachableFiles(Table table) throws IOException {
+        ReachableIndex reachable = new ReachableIndex(MAX_REACHABLE_FILES);
+        reachable.addAll(ReachableFileUtil.metadataFileLocations(table, true));
         // Hadoop tables consult this live pointer even though it is not part of the metadata log.
         reachable.add(ReachableFileUtil.versionHintLocation(table));
         Set<String> scannedDataManifests = new HashSet<>();
@@ -243,10 +250,11 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
 
     private static boolean isReachable(String candidate, ReachableIndex reachable) {
         FileIdentity candidateIdentity = FileIdentity.of(candidate);
-        if (reachable.identities.contains(candidateIdentity)) {
+        FileIdentity retainedIdentity = reachable.byPath.get(candidateIdentity.path);
+        if (candidateIdentity.equals(retainedIdentity)) {
             return true;
         }
-        if (reachable.paths.contains(candidateIdentity.path)) {
+        if (retainedIdentity != null) {
             // A path collision across unknown providers/authorities cannot be classified safely.
             throw new DorisConnectorException(
                     "Cannot determine whether listed and reachable file locations are equivalent");
@@ -256,19 +264,6 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
 
     static boolean sameFileIdentity(String first, String second) {
         return FileIdentity.of(first).equals(FileIdentity.of(second));
-    }
-
-    static void verifyNoPrefixMismatch(String candidate, Set<String> reachable) {
-        FileIdentity candidateIdentity = FileIdentity.of(candidate);
-        for (String retained : reachable) {
-            FileIdentity retainedIdentity = FileIdentity.of(retained);
-            // Matching paths with different providers/authorities are ambiguous; deletion must fail closed.
-            if (candidateIdentity.path.equals(retainedIdentity.path)
-                    && !candidateIdentity.equals(retainedIdentity)) {
-                throw new DorisConnectorException(
-                        "Cannot determine whether listed and reachable file locations are equivalent");
-            }
-        }
     }
 
     private static final class FileIdentity {
@@ -314,16 +309,92 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         }
     }
 
-    private static final class ReachableIndex {
-        private final Set<FileIdentity> identities = new HashSet<>();
-        private final Set<String> paths = new HashSet<>();
+    static void verifyReachableIndexLimit(Set<String> locations, int maxEntries) {
+        ReachableIndex index = new ReachableIndex(maxEntries);
+        index.addAll(locations);
+    }
 
-        private ReachableIndex(Set<String> locations) {
-            for (String location : locations) {
-                FileIdentity identity = FileIdentity.of(location);
-                identities.add(identity);
-                paths.add(identity.path);
+    static boolean isOwnedObjectStorePath(String candidate, String storageRoot, String tableLocation) {
+        return ScanScope.objectStore(normalizeLocation(storageRoot), normalizeLocation(tableLocation))
+                .owns(candidate);
+    }
+
+    private static final class ReachableIndex {
+        private final Map<String, FileIdentity> byPath = new LinkedHashMap<>();
+        private final int maxEntries;
+
+        private ReachableIndex(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        private void addAll(Iterable<String> locations) {
+            locations.forEach(this::add);
+        }
+
+        private void add(String location) {
+            FileIdentity identity = FileIdentity.of(location);
+            FileIdentity existing = byPath.putIfAbsent(identity.path, identity);
+            if (existing != null && !existing.equals(identity)) {
+                throw new DorisConnectorException(
+                        "Cannot determine whether reachable file locations are equivalent");
             }
+            if (existing == null && byPath.size() > maxEntries) {
+                throw new DorisConnectorException(
+                        "Reachable file index exceeds the safe in-memory limit of " + maxEntries);
+            }
+        }
+    }
+
+    private static final class ScanScope {
+        private final String root;
+        private final Pattern ownedRelativePath;
+
+        private ScanScope(String root, Pattern ownedRelativePath) {
+            this.root = root;
+            this.ownedRelativePath = ownedRelativePath;
+        }
+
+        private static ScanScope exclusive(String root) {
+            return new ScanScope(root, null);
+        }
+
+        private static ScanScope objectStore(String root, String tableLocation) {
+            URI tableUri = URI.create(tableLocation);
+            String[] segments = tableUri.getPath().split("/");
+            List<String> names = new ArrayList<>();
+            for (String segment : segments) {
+                if (!segment.isEmpty()) {
+                    names.add(segment);
+                }
+            }
+            if (names.isEmpty()) {
+                throw new DorisConnectorException(
+                        "Cannot infer an object-store table context from the table location");
+            }
+            String context = names.size() > 1
+                    ? names.get(names.size() - 2) + "/" + names.get(names.size() - 1)
+                    : names.get(names.size() - 1);
+            return new ScanScope(root, Pattern.compile(
+                    "[01]{4}/[01]{4}/[01]{4}/[01]{4}/[01]{4}/"
+                            + Pattern.quote(context) + "/.+"));
+        }
+
+        private boolean owns(String candidate) {
+            if (ownedRelativePath == null) {
+                return isWithinLocation(candidate, root);
+            }
+            FileIdentity child = FileIdentity.of(candidate);
+            FileIdentity parent = FileIdentity.of(root);
+            if (!child.scheme.equals(parent.scheme) || !child.authority.equals(parent.authority)) {
+                return false;
+            }
+            if (!isWithinLocation(candidate, root)) {
+                return false;
+            }
+            String relative = child.path.substring(Math.min(child.path.length(), parent.path.length()));
+            relative = relative.startsWith("/") ? relative.substring(1) : relative;
+            // Iceberg's ObjectStoreLocationProvider prefixes five 4-bit hash directories before context.
+            return ownedRelativePath.matcher(relative).matches();
         }
     }
 

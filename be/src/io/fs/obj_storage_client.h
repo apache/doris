@@ -45,7 +45,6 @@ struct ObjectStoragePathOptions {
     std::string key = std::string();                     // blob name in azure
     std::string prefix = std::string();                  // for batch delete and recursive delete
     std::optional<std::string> upload_id = std::nullopt; // provider-specific upload token
-    bool deferred_completion = false; // another process commits the uploaded parts
 };
 
 struct ObjectCompleteMultiPart {

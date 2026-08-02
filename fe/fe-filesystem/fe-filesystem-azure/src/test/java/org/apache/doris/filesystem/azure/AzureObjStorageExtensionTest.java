@@ -380,28 +380,22 @@ class AzureObjStorageExtensionTest {
     // ------------------------------------------------------------------
 
     @Test
-    void multipartTempKey_isolatesSameTargetWriters() {
-        Assertions.assertEquals("stage/blob.__doris_multipart/upload-a",
-                AzureObjStorage.multipartTempKey("stage/blob", "upload-a"));
+    void multipartBlockId_isolatesSameTargetWritersWithFixedLengthIds() {
         Assertions.assertNotEquals(
-                AzureObjStorage.multipartTempKey("stage/blob", "upload-a"),
-                AzureObjStorage.multipartTempKey("stage/blob", "upload-b"));
+                AzureObjStorage.multipartBlockId("upload-a", 1),
+                AzureObjStorage.multipartBlockId("upload-b", 1));
+        Assertions.assertEquals(
+                AzureObjStorage.multipartBlockId("upload-a", 1).length(),
+                AzureObjStorage.multipartBlockId("upload-a", 999).length());
     }
 
     @Test
     void completeMultipartUpload_usesExactBlockIdsReportedByBe() throws Exception {
         com.azure.storage.blob.specialized.BlockBlobClient blockClient =
                 Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
-        BlobClient tempBlob = Mockito.mock(BlobClient.class);
-        Mockito.when(tempBlob.getBlockBlobClient()).thenReturn(blockClient);
-        Mockito.when(tempBlob.getBlobUrl()).thenReturn("https://account/container/temp");
         BlobClient targetBlob = Mockito.mock(BlobClient.class);
-        com.azure.core.util.polling.SyncPoller<com.azure.storage.blob.models.BlobCopyInfo, Void> poller =
-                Mockito.mock(com.azure.core.util.polling.SyncPoller.class);
-        Mockito.when(targetBlob.beginCopy("https://account/container/temp", null)).thenReturn(poller);
+        Mockito.when(targetBlob.getBlockBlobClient()).thenReturn(blockClient);
         BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
-        Mockito.when(containerClient.getBlobClient(
-                "stage/blob.__doris_multipart/be-generated-upload-id")).thenReturn(tempBlob);
         Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(targetBlob);
         BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
         Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
@@ -416,8 +410,7 @@ class AzureObjStorageExtensionTest {
                         new UploadPartResult(1, firstBlockId)));
 
         Mockito.verify(blockClient).commitBlockList(Arrays.asList(firstBlockId, secondBlockId));
-        Mockito.verify(poller).waitForCompletion();
-        Mockito.verify(tempBlob).delete();
+        Mockito.verify(targetBlob, Mockito.never()).beginCopy(Mockito.anyString(), Mockito.isNull());
     }
 
     @Test
@@ -462,11 +455,8 @@ class AzureObjStorageExtensionTest {
     }
 
     @Test
-    void abortMultipartUpload_deletesOnlyWriterTemporaryBlob() throws Exception {
-        BlobClient tempBlob = Mockito.mock(BlobClient.class);
+    void abortMultipartUpload_doesNotMutatePublishedTarget() throws Exception {
         BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
-        Mockito.when(containerClient.getBlobClient(
-                "stage/blob.__doris_multipart/uploadId")).thenReturn(tempBlob);
 
         BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
         Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
@@ -476,8 +466,8 @@ class AzureObjStorageExtensionTest {
         storage.abortMultipartUpload(
                 "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob", "uploadId");
 
-        Mockito.verify(tempBlob).deleteIfExists();
         Mockito.verify(containerClient, Mockito.never()).getBlobClient("stage/blob");
+        Mockito.verifyNoInteractions(containerClient);
     }
 
     // ------------------------------------------------------------------

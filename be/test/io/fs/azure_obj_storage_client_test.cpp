@@ -34,14 +34,14 @@
 
 namespace doris {
 
-TEST(AzureObjStorageClientMultipartHelperTest, isolates_uploads_with_temporary_blob_keys) {
-    EXPECT_EQ("table/file.parquet.__doris_multipart/upload-a",
-              io::azure_multipart_temp_key("table/file.parquet", "upload-a"));
-    EXPECT_NE(io::azure_multipart_temp_key("table/file.parquet", "upload-a"),
-              io::azure_multipart_temp_key("table/file.parquet", "upload-b"));
-}
-
 #ifdef USE_AZURE
+
+TEST(AzureObjStorageClientMultipartHelperTest, isolates_uploads_with_fixed_length_block_ids) {
+    EXPECT_NE(io::azure_multipart_block_id("upload-a", 1),
+              io::azure_multipart_block_id("upload-b", 1));
+    EXPECT_EQ(io::azure_multipart_block_id("upload-a", 1).size(),
+              io::azure_multipart_block_id("upload-a", 999).size());
+}
 
 using namespace Azure::Storage::Blobs;
 
@@ -166,7 +166,7 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
     EXPECT_EQ(files.size(), 0);
 }
 
-TEST_F(AzureObjStorageClientTest, abort_multipart_upload_discards_staged_blocks) {
+TEST_F(AzureObjStorageClientTest, abort_multipart_upload_leaves_no_visible_blob) {
     io::ObjectStoragePathOptions opts;
     auto create_response =
             AzureObjStorageClientTest::obj_storage_client->create_multipart_upload(opts);
@@ -232,7 +232,9 @@ TEST_F(AzureObjStorageClientTest, concurrent_multipart_uploads_do_not_share_stag
     ASSERT_EQ(obj_storage_client->upload_part(second, "second", 1).resp.status.code, ErrorCode::OK);
     ASSERT_EQ(obj_storage_client->complete_multipart_upload(first, {{.part_num = 1}}).status.code,
               ErrorCode::OK);
-    ASSERT_EQ(obj_storage_client->complete_multipart_upload(second, {{.part_num = 1}}).status.code,
+    // Committing one writer discards all other uncommitted blocks on the blob. The loser must fail
+    // instead of publishing a mixture of blocks from two uploads.
+    EXPECT_NE(obj_storage_client->complete_multipart_upload(second, {{.part_num = 1}}).status.code,
               ErrorCode::OK);
 
     std::array<char, 6> contents {};
@@ -241,7 +243,7 @@ TEST_F(AzureObjStorageClientTest, concurrent_multipart_uploads_do_not_share_stag
                       ->get_object(second, contents.data(), 0, contents.size(), &size_return)
                       .status.code,
               ErrorCode::OK);
-    EXPECT_EQ(std::string_view(contents.data(), size_return), "second");
+    EXPECT_EQ(std::string_view(contents.data(), size_return), "first");
     EXPECT_EQ(obj_storage_client->delete_object(second).status.code, ErrorCode::OK);
 }
 #else
