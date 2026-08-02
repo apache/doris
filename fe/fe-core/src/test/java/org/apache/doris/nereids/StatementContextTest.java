@@ -360,7 +360,8 @@ public class StatementContextTest {
     @Test
     public void testResetMvccSnapshotsClearsPreloadCompletionButKeepsCandidates() {
         StatementContext statementContext = new StatementContext();
-        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        // Keep this test on the connector-neutral table seam available across FE branches.
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getId()).thenReturn(42L);
         Mockito.when(table.supportsExternalMetadataPreload()).thenReturn(true);
         statementContext.registerExternalTableForPreload(table, Optional.empty(), Optional.empty());

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRequest;
@@ -543,9 +544,12 @@ public class PaimonScanPlanProviderTest {
 
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
 
-        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+        // The connector boundary must keep one stable exception type while preserving the
+        // validation failure as its cause for diagnostics.
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.resolveScanTable(handle));
-        Assertions.assertTrue(e.getMessage().contains("scan.manifest.parallelism"));
+        Assertions.assertInstanceOf(IllegalArgumentException.class, e.getCause());
+        Assertions.assertTrue(e.getCause().getMessage().contains("scan.manifest.parallelism"));
     }
 
     @Test
@@ -570,9 +574,10 @@ public class PaimonScanPlanProviderTest {
 
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
 
-        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.resolveScanTable(system));
-        Assertions.assertTrue(e.getMessage().contains("scan.manifest.parallelism"));
+        Assertions.assertInstanceOf(IllegalArgumentException.class, e.getCause());
+        Assertions.assertTrue(e.getCause().getMessage().contains("scan.manifest.parallelism"));
     }
 
     @Test
