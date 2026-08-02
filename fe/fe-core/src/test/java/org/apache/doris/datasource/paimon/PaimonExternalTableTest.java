@@ -367,6 +367,27 @@ public class PaimonExternalTableTest {
     }
 
     @Test
+    public void testSystemOptionsProjectRelationBoundDataTableWithoutTimeTravel() {
+        FileStoreTable cachedDataTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable boundDataTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable projectedDataTable = Mockito.mock(FileStoreTable.class);
+        Map<String, String> options = ImmutableMap.of(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1");
+        Mockito.when(boundDataTable.copyWithoutTimeTravel(options)).thenReturn(projectedDataTable);
+        Mockito.when(projectedDataTable.options()).thenReturn(options);
+        TableScanParams params = new TableScanParams(
+                TableScanParams.OPTIONS, options, Collections.emptyList());
+        params.reuseResolvedMapParams(options);
+        PaimonSysExternalTable systemTable = newSystemTable(cachedDataTable);
+
+        Table actual = systemTable.getSysPaimonTable(boundDataTable, params);
+
+        Assert.assertTrue(actual instanceof PartitionsTable);
+        Mockito.verify(boundDataTable).copyWithoutTimeTravel(options);
+        Mockito.verify(cachedDataTable, Mockito.never()).copy(ArgumentMatchers.anyMap());
+        Mockito.verify(cachedDataTable, Mockito.never()).copyWithoutTimeTravel(ArgumentMatchers.anyMap());
+    }
+
+    @Test
     public void testPartitionsTableValidatesHiddenDataTableWithOverridePrecedence() throws Exception {
         FileStoreTable unsafeDataTable = newFileStoreTable(
                 "partitions", ImmutableMap.of("scan.manifest.parallelism", "0"), null);

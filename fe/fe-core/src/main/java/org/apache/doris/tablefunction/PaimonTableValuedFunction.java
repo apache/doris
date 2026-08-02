@@ -31,6 +31,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonReaderOptions;
+import org.apache.doris.datasource.paimon.PaimonTableDecorators;
 import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -115,7 +116,8 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         // disposable data handle before wrapping it so metadata TVFs cannot bypass the CPU cap.
         FileStoreTable safeDataTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(dataTable);
         PaimonReaderOptions.validateEffectiveTable(safeDataTable);
-        Table systemTable = SystemTableLoader.load(queryType, safeDataTable);
+        Table systemTable = SystemTableLoader.load(
+                queryType, PaimonTableDecorators.unwrapToFallbackOrBase(safeDataTable));
         if (systemTable == null) {
             throw new IllegalArgumentException("Unknown Paimon system table '" + queryType + "'.");
         }

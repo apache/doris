@@ -196,8 +196,10 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
-        if (desc.getTable() instanceof PaimonExternalTable) {
-            // Rebuild the source before applying query options so both layers use this relation's snapshot.
+        if (desc.getTable() instanceof PaimonExternalTable
+                || desc.getTable() instanceof PaimonSysExternalTable) {
+            // Rebuild from the logical scan's snapshot: system-table snapshots are keyed by their
+            // source table and cannot be recovered by looking up the synthetic descriptor table.
             source = new PaimonSource(desc, relationSnapshot);
         } else if (source == null) {
             source = new PaimonSource(desc);
@@ -222,8 +224,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         backendPaimonOptions = new HashMap<>(getBackendPaimonOptions());
         OptionalInt manifestCap;
         if (source.getExternalTable() instanceof PaimonSysExternalTable) {
-            manifestCap = ((PaimonSysExternalTable) source.getExternalTable())
-                    .runtimeSafeManifestParallelism(getScanParams());
+            manifestCap = source.runtimeSafeManifestParallelism(getScanParams());
         } else {
             manifestCap = PaimonReaderOptions.backendManifestParallelismCap(processedTable);
         }
@@ -235,7 +236,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             TableScanParams scanParams = getScanParams();
             Map<String, String> incrementalOptions = scanParams != null && scanParams.incrementalRead()
                     ? getIncrReadParams() : Collections.emptyMap();
-            FileStoreTable effectiveSource = systemTable.runtimeSafeDataTable(
+            FileStoreTable effectiveSource = source.runtimeSafeSystemDataTable(
                     scanParams, incrementalOptions);
             // A system wrapper can hide its physical option map. Ship the exact source so a smaller
             // BE can cap it and rebuild without guessing through the wrapper.
@@ -1076,7 +1077,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (systemTable != null) {
                 // System wrappers hide the manifest-planning data table. Start paths that copy the
                 // wrapper directly from a disposable CPU-capped handle.
-                baseTable = systemTable.getSysPaimonTable();
+                baseTable = source.getPaimonTable(null);
             }
             // System table handles are cached, so preserve query isolation by applying dynamic
             // options to a copied Paimon table instead of changing the shared handle.
@@ -1088,7 +1089,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 throw new UserException(e.getMessage(), e);
             }
         } else {
-            finalTable = systemTable == null ? baseTable : systemTable.getSysPaimonTable();
+            finalTable = systemTable == null ? baseTable : source.getPaimonTable(null);
         }
         try {
             // This is the last common boundary before planning and serialization, including scans
@@ -1097,8 +1098,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             PaimonReaderOptions.validateEffectiveTable(finalTable);
             if (source.getExternalTable() instanceof PaimonSysExternalTable) {
                 // Read-only system wrappers hide the data table that performs manifest planning.
-                ((PaimonSysExternalTable) source.getExternalTable())
-                        .validateEffectiveDataTable(theScanParams);
+                source.validateEffectiveSystemDataTable(theScanParams);
             }
         } catch (IllegalArgumentException e) {
             throw new UserException(e.getMessage(), e);

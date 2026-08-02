@@ -623,7 +623,7 @@ public class PaimonScanNodeTest {
         Table copiedTable = Mockito.mock(Table.class);
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
-        Mockito.when(systemTable.getSysPaimonTable()).thenReturn(baseTable);
+        Mockito.when(source.getPaimonTable((TableScanParams) null)).thenReturn(baseTable);
         node.setSource(source);
 
         Map<String, String> params = new HashMap<>();
@@ -741,7 +741,7 @@ public class PaimonScanNodeTest {
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
         Mockito.when(systemTable.getSysTableType()).thenReturn("schemas");
-        Mockito.when(systemTable.getSysPaimonTable()).thenReturn(paimonTable);
+        Mockito.when(source.getPaimonTable((TableScanParams) null)).thenReturn(paimonTable);
         Mockito.when(paimonTable.options()).thenReturn(Collections.emptyMap());
         Mockito.when(paimonTable.rowType()).thenReturn(RowType.of());
         Mockito.when(paimonTable.newReadBuilder()).thenReturn(readBuilder);
@@ -771,7 +771,7 @@ public class PaimonScanNodeTest {
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(rawSource);
         Mockito.when(systemTable.getSysTableType()).thenReturn("partitions");
-        Mockito.when(systemTable.getSysPaimonTable()).thenReturn(safeWrapper);
+        Mockito.when(source.getPaimonTable((TableScanParams) null)).thenReturn(safeWrapper);
         Mockito.when(safeWrapper.options()).thenReturn(Collections.emptyMap());
         node.setSource(source);
 
@@ -779,7 +779,7 @@ public class PaimonScanNodeTest {
         // outer wrapper with one cap would broadcast it and erase a smaller sibling preference.
         Assert.assertSame(safeWrapper, invokePrivateMethod(node, "getProcessedTable"));
         Mockito.verify(safeWrapper, Mockito.never()).copy(ArgumentMatchers.anyMap());
-        Mockito.verify(systemTable).validateEffectiveDataTable(null);
+        Mockito.verify(source).validateEffectiveSystemDataTable(null);
     }
 
     @Test

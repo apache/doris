@@ -22,12 +22,12 @@ import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 
 /** Utilities for preserving Paimon's planning decorator invariants. */
-final class PaimonTableDecorators {
+public final class PaimonTableDecorators {
 
     private PaimonTableDecorators() {
     }
 
-    static FileStoreTable unwrapToFallbackOrBase(FileStoreTable table) {
+    public static FileStoreTable unwrapToFallbackOrBase(FileStoreTable table) {
         FileStoreTable current = table;
         // Fallback dispatch requires the pair to be the system wrapper's immediate child. Paimon
         // does not privilege-wrap system tables, so peeling privilege-only delegates matches its
