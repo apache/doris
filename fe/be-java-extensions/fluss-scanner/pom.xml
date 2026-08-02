@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>be-java-extensions</artifactId>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>fluss-scanner</artifactId>
+
+    <properties>
+        <!--
+          Java 8 bytecode like every other be-java-extension, even though fluss-client itself is
+          compiled to Java 11 bytecode: javac reads a newer classpath fine, and the BE JVM that loads
+          both is 17.
+        -->
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>java-common</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!--
+          The whole fluss client, as one ~69MB unrelocated fat jar: fluss-common, fluss-rpc,
+          frocksdbjni (with its natives, for the kv-snapshot path) and a relocated Arrow
+          (org.apache.fluss.shaded.arrow.**, allocator included) are all inside it. So do NOT add
+          fluss-common, fluss-rpc or any org.apache.arrow artifact — a second copy of those classes
+          on this scanner's classloader is a split-brain risk, and the arrow coordinates fluss's pom
+          marks `provided` are not the ones its code uses.
+          The version is fe/pom.xml's single fluss.version, shared with fe-connector-fluss: FE plans
+          the offsets this scanner reads at, and the two link the same fluss classes on either side
+          of a JNI call. Never override it here.
+        -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-client</artifactId>
+            <version>${fluss.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          TEST ONLY: a real fluss cluster in the test JVM (coordinator + tablet server + an embedded
+          ZooKeeper). Reading records back is exactly the part that cannot be tested against our own
+          idea of what a cluster produces, so the tests write through the fluss client and read through
+          this scanner. Same four dependencies fe-connector-fluss needs, for the same reasons:
+          FlussClusterExtension lives in fluss-server's test-jar, and fluss-test-utils and curator-test
+          are test-scope dependencies of fluss-server that do not arrive with it.
+        -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-server</artifactId>
+            <version>${fluss.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-server</artifactId>
+            <version>${fluss.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-test-utils</artifactId>
+            <version>${fluss.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.curator</groupId>
+            <artifactId>curator-test</artifactId>
+            <version>5.4.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>fluss-scanner</finalName>
+        <directory>${project.basedir}/target/</directory>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      Arrow's off-heap MemoryUtil reflects into java.nio.Buffer and refuses to
+                      initialize without this on JDK 9+. Fluss's default log format is arrow, so both
+                      writing the fixtures and reading them back need it. bin/start_be.sh already
+                      passes the same flag to the BE JVM that hosts this scanner.
+                    -->
+                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <descriptors>
+                        <descriptor>src/main/resources/package.xml</descriptor>
+                    </descriptors>
+                    <archive>
+                        <manifest>
+                            <mainClass></mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
