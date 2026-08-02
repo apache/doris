@@ -82,6 +82,7 @@ path string.
 | `log_basic` | log table, 3 rows, table and column comments |
 | `log_types` | log table, one column per mapped fluss type, plus an all-NULL row |
 | `log_part` | log table partitioned by `dt`, partitions `20260101`, `20260102`, `20260103` |
+| `log_empty` | log table with no rows at all (planning must emit zero scan ranges) |
 | `pk_basic` | primary-key table, one updated row and one deleted row |
 | `pk_types` | primary-key table with the same type coverage as `log_types` |
 
