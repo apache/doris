@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe-connector</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>fe-connector-fluss</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Connector - Fluss</name>
+    <description>
+        Fluss connector plugin for Doris FE.
+        Provides metadata operations (list databases, list tables, get schema) and read-side scan
+        planning for Fluss clusters via the connector SPI.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- connector-api provides the SPI interfaces this connector implements -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          The fluss java client. Version comes from fe/pom.xml's single ${fluss.version} property, which
+          pins every fluss consumer at once (see the INVARIANT comment there).
+
+          It ships as ONE ~69MB fat jar with NO relocation: fluss-common and fluss-rpc
+          (org.apache.fluss.**), frocksdbjni (org.rocksdb.** plus the librocksdbjni-*.so natives),
+          commons-lang3 and zstd-jni are all shaded INSIDE it. Two consequences worth knowing before
+          editing this block:
+            - do NOT additionally declare fluss-common / fluss-rpc here. Their classes are already in
+              this jar, and a second copy on the child-first plugin classpath is a split-brain risk.
+            - frocksdbjni CANNOT be excluded: it is not a transitive dependency, so there is nothing to
+              exclude. The FE carries it even though only the BE-side scanner ever opens a kv snapshot.
+          The one thing fluss-client does NOT bring is Arrow: it declares arrow-vector and
+          arrow-memory-netty `provided`, so a consumer that reaches fluss's ARROW log format has to add
+          them itself. This module does not (metadata and split planning stay off that path); the
+          BE-side scanner, which decodes log records, is expected to need them.
+        -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-client</artifactId>
+            <version>${fluss.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-fe-connector-fluss</finalName>
+        <plugins>
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <appendAssemblyId>false</appendAssemblyId>
+                    <descriptors>
+                        <descriptor>src/main/assembly/plugin-zip.xml</descriptor>
+                    </descriptors>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
