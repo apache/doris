@@ -185,16 +185,19 @@ private:
 };
 
 namespace {
-MutableColumnPtr create_string_array_column(const std::vector<std::vector<std::string>>& rows) {
+MutableColumnPtr create_string_array_column(const std::vector<std::vector<std::string>>& rows,
+                                            const std::vector<UInt8>& null_map = {}) {
     auto nested_column = ColumnString::create();
     auto null_map_column = ColumnUInt8::create();
     auto offsets_column = ColumnOffset64::create();
 
     IColumn::Offset offset = 0;
+    size_t element = 0;
     for (const auto& row : rows) {
         for (const auto& value : row) {
             nested_column->insert_data(value.data(), value.size());
-            null_map_column->insert_value(0);
+            null_map_column->insert_value(null_map.empty() ? 0 : null_map[element]);
+            ++element;
         }
         offset += row.size();
         offsets_column->insert_value(offset);
@@ -385,6 +388,38 @@ TEST(AIFunctionTest, AIClassifyTest) {
     ASSERT_EQ(prompt,
               "Labels: [\"positive\", \"negative\", \"neutral\"]\n"
               "Text: This product exceeded my expectations");
+}
+
+TEST(AIFunctionTest, NullableLabelElementsAreSkipped) {
+    std::vector<std::string> texts = {"good product"};
+    auto labels = create_string_array_column({{"positive", "unused-null", "negative"}},
+                                             std::vector<UInt8> {0, 1, 0});
+
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeString>({"resource_name"}),
+                  std::make_shared<DataTypeString>(), "resource"});
+    block.insert({ColumnHelper::create_column<DataTypeString>(texts),
+                  std::make_shared<DataTypeString>(), "text"});
+    block.insert({std::move(labels),
+                  std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()), "labels"});
+
+    Columns prompt_columns = get_prompt_columns(block, {0, 1, 2});
+    std::string prompt;
+    const std::string expected =
+            "Labels: [\"positive\", \"negative\"]\n"
+            "Text: good product";
+
+    FunctionAIClassify classify;
+    ASSERT_TRUE(classify.build_prompt(prompt_columns, 0, prompt).ok());
+    EXPECT_EQ(prompt, expected);
+
+    FunctionAIExtract extract;
+    ASSERT_TRUE(extract.build_prompt(prompt_columns, 0, prompt).ok());
+    EXPECT_EQ(prompt, expected);
+
+    FunctionAIMask mask;
+    ASSERT_TRUE(mask.build_prompt(prompt_columns, 0, prompt).ok());
+    EXPECT_EQ(prompt, expected);
 }
 
 TEST(AIFunctionTest, AITranslateTest) {
@@ -1334,6 +1369,35 @@ TEST(AIFunctionTest, NullableArrayArgumentThroughPreparedFunction) {
     EXPECT_TRUE(result.is_null_at(0));
     EXPECT_EQ(nested.get_data_at(1).to_string(), "positive");
     EXPECT_TRUE(result.is_null_at(2));
+}
+
+TEST(AIFunctionTest, NullableLabelElementsThroughPreparedFunction) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    setenv("AI_TEST_RESULT", R"(["positive"])", 1);
+
+    auto labels = create_string_array_column({{"positive", "unused-null", "negative"}},
+                                             std::vector<UInt8> {0, 1, 0});
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeString>({"mock_resource"}),
+                  std::make_shared<DataTypeString>(), "resource"});
+    block.insert({ColumnHelper::create_column<DataTypeString>({"good product"}),
+                  std::make_shared<DataTypeString>(), "text"});
+    block.insert({std::move(labels),
+                  std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()), "labels"});
+
+    auto return_type = std::make_shared<DataTypeString>();
+    auto function = get_ai_function("ai_classify", block, return_type);
+    ASSERT_NE(function, nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+    Status status = function->execute(ctx.get(), block, {0, 1, 2}, 3, 1);
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnString&>(*block.get_by_position(3).column);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(result.get_data_at(0).to_string(), "positive");
 }
 
 TEST(AIFunctionTest, AllNullConstArgumentReturnsConstNull) {
