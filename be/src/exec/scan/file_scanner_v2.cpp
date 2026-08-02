@@ -50,6 +50,7 @@
 #include "format/format_common.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/jni/fluss_jni_reader.h"
 #include "format_v2/jni/iceberg_sys_table_reader.h"
 #include "format_v2/jni/jdbc_reader.h"
 #include "format_v2/jni/max_compute_jni_reader.h"
@@ -133,7 +134,8 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
                (params.file_format == "parquet" || params.file_format == "orc");
     }
     return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
-           table_format == "max_compute" || table_format == "trino_connector";
+           table_format == "max_compute" || table_format == "trino_connector" ||
+           table_format == "fluss";
 }
 
 bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
@@ -617,6 +619,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::paimon::PaimonHybridReader>();
     } else if (table_format == "hudi") {
         *reader = std::make_unique<format::hudi::HudiHybridReader>();
+    } else if (table_format == "fluss") {
+        *reader = std::make_unique<format::fluss::FlussJniReader>();
     } else if (table_format == "jdbc") {
         *reader = std::make_unique<format::jdbc::JdbcJniReader>();
     } else if (table_format == "max_compute") {
