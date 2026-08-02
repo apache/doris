@@ -207,6 +207,15 @@ public final class PaimonReaderOptions {
                 Runtime.getRuntime().availableProcessors()));
     }
 
+    public static OptionalInt backendManifestParallelismCap(Table table) {
+        List<Integer> configuredValues = new ArrayList<>();
+        collectManifestParallelism(table, configuredValues);
+        // The transport value is the execution ceiling, not the smallest branch preference;
+        // the BE preserves each branch's lower value while independently capping larger siblings.
+        return OptionalInt.of(Math.min(
+                Runtime.getRuntime().availableProcessors(), MAX_MANIFEST_PARALLELISM));
+    }
+
     private static void collectManifestParallelism(Table table, List<Integer> configuredValues) {
         Map<String, String> options = table.options();
         String key = CoreOptions.SCAN_MANIFEST_PARALLELISM.key();

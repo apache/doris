@@ -101,6 +101,21 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testOldFeSerializedSystemSourceRejectsZeroSplitTarget() {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key(), "0 B"));
+        Table filesTable = SystemTableLoader.load(
+                "files", new FallbackReadFileStoreTable(main, fallback));
+
+        IllegalArgumentException failure = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonJniScanner.applyDefaultReadBatchSize(filesTable, 1024));
+        Assert.assertTrue(failure.getMessage()
+                .contains(CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key()));
+    }
+
+    @Test
     public void testConfiguredPaimonReadBatchSizeIsNotOverwrittenByDorisBatchSize() {
         Table configuredTable = tableWithOptions(Collections.singletonMap(
                 CoreOptions.READ_BATCH_SIZE.key(), "4096"));
@@ -182,6 +197,39 @@ public class PaimonJniScannerTest {
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
         Assert.assertEquals("256", ((FallbackReadFileStoreTable) safeFallback).fallback()
                 .options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testMissingManifestParallelismGetsStableBackendCap() {
+        FileStoreTable table = serializableFileStoreTable(Collections.emptyMap());
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(table, null, 512);
+
+        Assert.assertEquals("256",
+                safe.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testFallbackManifestParallelismIsCappedPerBranch() {
+        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
+        Table pair = new FallbackReadFileStoreTable(main, fallback);
+
+        FallbackReadFileStoreTable unchanged = (FallbackReadFileStoreTable)
+                PaimonJniScanner.applyBackendManifestParallelism(pair, "128", 128);
+        Assert.assertEquals("1", unchanged.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("128", unchanged.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+
+        FallbackReadFileStoreTable capped = (FallbackReadFileStoreTable)
+                PaimonJniScanner.applyBackendManifestParallelism(pair, "128", 64);
+        Assert.assertEquals("1", capped.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("64", capped.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
     }
 
     @Test

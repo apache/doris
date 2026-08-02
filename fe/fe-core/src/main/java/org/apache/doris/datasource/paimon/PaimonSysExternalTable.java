@@ -182,7 +182,7 @@ public class PaimonSysExternalTable extends ExternalTable {
         Table effectiveDataTable = runtimeSafeDataTable(scanParams, Collections.emptyMap());
         // The serialized system wrapper does not expose this hidden value, so transport the
         // FE-safe bound separately for a smaller BE to lower after deserialization.
-        return PaimonReaderOptions.runtimeSafeManifestParallelism(effectiveDataTable);
+        return PaimonReaderOptions.backendManifestParallelismCap(effectiveDataTable);
     }
 
     public FileStoreTable runtimeSafeDataTable(

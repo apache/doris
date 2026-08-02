@@ -51,11 +51,11 @@ import java.lang.management.MemoryUsage;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -674,9 +674,6 @@ public class PaimonJniScanner extends JniScanner {
     static Table applyBackendManifestParallelism(
             Table table, String feParallelismCap, int localCapacity,
             FileStoreTable systemSource, String systemTableType) {
-        Table planningTable = systemSource == null ? table : systemSource;
-        List<Integer> configuredValues = new ArrayList<>();
-        collectManifestParallelism(planningTable, configuredValues);
         // Old FEs do not send a cap, so the BE must still preserve the hardware-independent
         // ceiling that prevents one scan from growing Paimon's JVM-global executor beyond 256.
         int requestedBound = Math.min(localCapacity, MAX_MANIFEST_PARALLELISM);
@@ -684,28 +681,9 @@ public class PaimonJniScanner extends JniScanner {
             requestedBound = Math.min(parsePositiveManifestParallelism(feParallelismCap), requestedBound);
         }
         final int safeBound = requestedBound;
-        // The FE cap is a requested bound, not proof that every serialized wrapper carries it;
-        // a later table rebuild can expose the original physical value to this BE.
-        if (configuredValues.isEmpty()) {
-            if (systemSource == null && !(table instanceof FileStoreTable)) {
-                // Legacy FEs serialize only the system wrapper, whose public options hide the
-                // source planner. Wrapper copy is the only compatible way to enforce the BE cap.
-                return table.copy(Collections.singletonMap(
-                        CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeBound)));
-            }
-            return table;
-        }
-        if (configuredValues.stream().noneMatch(value -> value > safeBound)) {
-            return table;
-        }
-        int safeParallelism = Math.min(
-                configuredValues.stream().mapToInt(Integer::intValue).min().getAsInt(),
-                safeBound);
-        Map<String, String> cap = Collections.singletonMap(
-                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeParallelism));
-        // Preserve the FE-selected schema while lowering only the BE-local execution bound.
         if (systemSource != null && systemTableType != null) {
-            FileStoreTable cappedSource = systemSource.copyWithoutTimeTravel(cap);
+            FileStoreTable cappedSource =
+                    (FileStoreTable) applyManifestParallelismBound(systemSource, safeBound);
             // Read-only wrappers hide the data table's option map. Rebuild from the transported
             // exact source so a smaller BE can lower that hidden planner without rewinding schema.
             Table rebuilt = SystemTableLoader.load(systemTableType, cappedSource);
@@ -715,8 +693,37 @@ public class PaimonJniScanner extends JniScanner {
             }
             return rebuilt;
         }
+        return applyManifestParallelismBound(table, safeBound);
+    }
+
+    private static Table applyManifestParallelismBound(Table table, int safeBound) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            FileStoreTable main = applyManifestParallelismBound(pair.wrapped(), safeBound);
+            FileStoreTable fallback = applyManifestParallelismBound(pair.fallback(), safeBound);
+            if (main == pair.wrapped() && fallback == pair.fallback()) {
+                return table;
+            }
+            // Each branch owns an independent planner setting; a smaller sibling is not an
+            // execution ceiling and must never throttle the other branch.
+            return new FallbackReadFileStoreTable(main, fallback);
+        }
+
+        String configured = table.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
+        if (configured != null && parsePositiveManifestParallelism(configured) <= safeBound) {
+            return table;
+        }
+        // An absent option inherits Paimon's processor-count default, so materialize the stable
+        // bound instead of assuming that an empty option map is already safe on large hosts.
+        Map<String, String> cap = Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeBound));
         return table instanceof FileStoreTable
                 ? ((FileStoreTable) table).copyWithoutTimeTravel(cap) : table.copy(cap);
+    }
+
+    private static FileStoreTable applyManifestParallelismBound(
+            FileStoreTable table, int safeBound) {
+        return (FileStoreTable) applyManifestParallelismBound((Table) table, safeBound);
     }
 
     private static int parsePositiveManifestParallelism(String value) {
@@ -728,19 +735,6 @@ public class PaimonJniScanner extends JniScanner {
             return parsed;
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Paimon manifest parallelism cap must be an integer.", e);
-        }
-    }
-
-    private static void collectManifestParallelism(Table table, List<Integer> values) {
-        String configured = table.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
-        if (configured != null) {
-            values.add(parsePositiveManifestParallelism(configured));
-        }
-        if (table instanceof FallbackReadFileStoreTable) {
-            collectManifestParallelism(((FallbackReadFileStoreTable) table).fallback(), values);
-        }
-        if (table instanceof DelegatedFileStoreTable) {
-            collectManifestParallelism(((DelegatedFileStoreTable) table).wrapped(), values);
         }
     }
 
@@ -759,11 +753,48 @@ public class PaimonJniScanner extends JniScanner {
     private static void validateSerializedReaderOptions(Table table) {
         validateSerializedReadBatchSize(table.options().get(CoreOptions.READ_BATCH_SIZE.key()));
         validateSerializedAsyncThreshold(table.options().get(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()));
+        validateSerializedSplitTargetSize(table.options().get(CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key()));
         if (table instanceof FallbackReadFileStoreTable) {
             validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).fallback());
         }
         if (table instanceof DelegatedFileStoreTable) {
             validateSerializedReaderOptions(((DelegatedFileStoreTable) table).wrapped());
+            return;
+        }
+        hiddenSystemSource(table).ifPresent(PaimonJniScanner::validateSerializedReaderOptions);
+    }
+
+    private static Optional<FileStoreTable> hiddenSystemSource(Table table) {
+        for (Class<?> type = table.getClass(); type != null; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (!FileStoreTable.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+                try {
+                    // Old FE system-table payloads carry no source side channel, while Paimon
+                    // intentionally hides the planner table behind a private wrapper field.
+                    field.setAccessible(true);
+                    return Optional.ofNullable((FileStoreTable) field.get(table));
+                } catch (IllegalAccessException | RuntimeException e) {
+                    throw new IllegalArgumentException(
+                            "Unable to validate the serialized Paimon system table source", e);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static void validateSerializedSplitTargetSize(String value) {
+        if (value == null) {
+            return;
+        }
+        Optional<Long> bytes = parseDataSizeBytes(value);
+        // Old FE payloads bypass the allowlist validator; zero disables bin packing and can turn
+        // one deferred system-table plan into one split per data file.
+        if (!bytes.isPresent() || bytes.get() < 1L) {
+            throw new IllegalArgumentException("Paimon option '"
+                    + CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key()
+                    + "' must be positive, but was " + value);
         }
     }
 

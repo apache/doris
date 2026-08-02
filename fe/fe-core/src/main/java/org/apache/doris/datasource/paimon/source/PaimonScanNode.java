@@ -225,7 +225,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             manifestCap = ((PaimonSysExternalTable) source.getExternalTable())
                     .runtimeSafeManifestParallelism(getScanParams());
         } else {
-            manifestCap = PaimonReaderOptions.runtimeSafeManifestParallelism(processedTable);
+            manifestCap = PaimonReaderOptions.backendManifestParallelismCap(processedTable);
         }
         // The hidden planner's option is not visible on a serialized system wrapper.
         manifestCap.ifPresent(cap -> backendPaimonOptions.put(
