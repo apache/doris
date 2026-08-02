@@ -29,6 +29,7 @@ import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.apache.fluss.client.admin.OffsetSpec;
+import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.table.scanner.log.LogScanner;
 import org.apache.fluss.exception.LakeTableSnapshotNotExistException;
 import org.apache.fluss.metadata.PartitionInfo;
@@ -51,14 +52,19 @@ import java.util.Set;
  * a bucket planned later would read rows written after the query started while an earlier bucket did
  * not. A bucket that has never been written to (stopping offset 0) yields no range at all.
  *
- * <p>Planning only reads metadata — partition lists and offsets — so it is safe to run for an
- * {@code EXPLAIN}, which does reach {@code planScan}. (There is no explain-only signal on the SPI in
- * this branch; the point is that fluss does not need one. A future change that takes a snapshot lease
- * during planning would.)
+ * <p>A primary-key table cannot be read that way: its log is a change log, so replaying it verbatim
+ * returns superseded and deleted rows. Each bucket is read instead as its latest kv snapshot plus the
+ * change log that followed, which the scanner merges by key. A bucket fluss has never snapshotted is
+ * rebuilt by replaying its whole change log, which is equally correct and only slower.
  *
- * <p>What is NOT here yet: primary-key tables, and the union of a table's lake with its log. Both are
- * refused loudly rather than served as a partial answer — a datalake table read as fluss-only would
- * silently return just the rows that have not been tiered away, which looks like a working query.
+ * <p>Planning only reads metadata — partition lists, offsets and snapshot ids — so it is safe to run
+ * for an {@code EXPLAIN}, which does reach {@code planScan}. (There is no explain-only signal on the
+ * SPI in this branch; the point is that fluss does not need one. A future change that takes a snapshot
+ * lease during planning would.)
+ *
+ * <p>What is NOT here yet: the union of a table's lake with its log. It is refused loudly rather than
+ * served as a partial answer — a datalake table read as fluss-only would silently return just the rows
+ * that have not been tiered away, which looks like a working query.
  * {@code fluss.union_read.mode=disabled} is how a user asks for the fluss-only read on purpose.
  */
 public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
@@ -90,6 +96,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * either means revisiting this (the ES provider carries the same caveat).
      */
     private int plannedLogRanges;
+    private int plannedPkRanges;
     private boolean plannedUnionRead;
 
     public FlussScanPlanProvider(FlussAdminOps adminOps, Map<String, String> catalogProperties) {
@@ -104,28 +111,59 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 FlussConnectorProperties.unionReadMode(catalogProperties);
         rejectWhatIsNotImplemented(handle, mode);
 
-        TablePath tablePath = handle.toTablePath();
         List<Integer> buckets = allBuckets(handle.getBucketCount());
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
         if (handle.isPartitioned()) {
             for (PartitionInfo partition : selectedPartitions(handle, request.getRequiredPartitions())) {
                 // fluss's own partition name ("20260101$cn"), not the Doris one: this is a fluss API.
-                Map<Integer, Long> stopping = adminOps.listOffsets(
-                        tablePath, partition.getPartitionName(), buckets, new OffsetSpec.LatestSpec());
-                appendLogRanges(ranges,
+                appendPartitionRanges(ranges, handle,
                         FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
-                        buckets, stopping);
+                        buckets, partition.getPartitionName());
             }
         } else {
-            Map<Integer, Long> stopping =
-                    adminOps.listOffsets(tablePath, buckets, new OffsetSpec.LatestSpec());
-            appendLogRanges(ranges, FlussScanRange.Partition.NONE, buckets, stopping);
+            appendPartitionRanges(ranges, handle, FlussScanRange.Partition.NONE, buckets, null);
         }
 
-        plannedLogRanges = ranges.size();
+        plannedLogRanges = count(ranges, FlussScanRange.RangeType.LOG);
+        plannedPkRanges = count(ranges, FlussScanRange.RangeType.PK_FULL);
         plannedUnionRead = false;
         return ranges;
+    }
+
+    /**
+     * The ranges covering one partition of a table, or the whole of an unpartitioned one
+     * ({@code flussPartitionName} is null, which is also how the two admin overloads are told apart).
+     */
+    private void appendPartitionRanges(List<ConnectorScanRange> ranges, FlussTableHandle handle,
+            FlussScanRange.Partition partition, List<Integer> buckets, String flussPartitionName) {
+        TablePath tablePath = handle.toTablePath();
+        if (!handle.hasPrimaryKey()) {
+            appendLogRanges(ranges, partition, buckets,
+                    latestOffsets(tablePath, flussPartitionName, buckets));
+            return;
+        }
+        // Snapshots BEFORE offsets, and the order is load-bearing. A snapshot committed between the two
+        // calls ends past the offset planning stopped at; that bucket would then be read from a snapshot
+        // already containing rows written after the query started, while every other bucket stopped
+        // where planning saw it. Log offsets only move forward, so asking in this order keeps every
+        // snapshot at or behind the stopping offset.
+        KvSnapshots snapshots = latestKvSnapshots(tablePath, flussPartitionName);
+        appendPkRanges(ranges, partition, buckets, snapshots,
+                latestOffsets(tablePath, flussPartitionName, buckets));
+    }
+
+    private KvSnapshots latestKvSnapshots(TablePath tablePath, String flussPartitionName) {
+        return flussPartitionName == null
+                ? adminOps.getLatestKvSnapshots(tablePath)
+                : adminOps.getLatestKvSnapshots(tablePath, flussPartitionName);
+    }
+
+    private Map<Integer, Long> latestOffsets(TablePath tablePath, String flussPartitionName,
+            List<Integer> buckets) {
+        return flussPartitionName == null
+                ? adminOps.listOffsets(tablePath, buckets, new OffsetSpec.LatestSpec())
+                : adminOps.listOffsets(tablePath, flussPartitionName, buckets, new OffsetSpec.LatestSpec());
     }
 
     /**
@@ -136,11 +174,6 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private void rejectWhatIsNotImplemented(FlussTableHandle handle,
             FlussConnectorProperties.UnionReadMode mode) {
-        if (handle.hasPrimaryKey()) {
-            throw new DorisConnectorException("Reading the fluss primary-key table '"
-                    + handle.getDatabaseName() + "." + handle.getTableName()
-                    + "' is not supported yet; only log tables can be read.");
-        }
         if (!handle.isDataLakeEnabled() || mode == FlussConnectorProperties.UnionReadMode.DISABLED) {
             // Not a lake table, or the user asked for the fluss-only read explicitly.
             return;
@@ -203,6 +236,39 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         }
     }
 
+    /**
+     * One range per bucket that holds anything: its latest kv snapshot, plus the change log from where
+     * that snapshot ended up to where planning saw the log. A bucket fluss has never snapshotted gets
+     * {@code -1} and the earliest sentinel, and its state is rebuilt by replaying the whole change log
+     * — correct, because a primary-key table's log carries every change, just slower.
+     */
+    private static void appendPkRanges(List<ConnectorScanRange> ranges,
+            FlussScanRange.Partition partition, List<Integer> buckets, KvSnapshots snapshots,
+            Map<Integer, Long> stopping) {
+        for (int bucket : buckets) {
+            long snapshotId = snapshots.getSnapshotId(bucket).orElse(FlussScanRange.NO_KV_SNAPSHOT);
+            long logStart = snapshots.getLogOffset(bucket).orElse(LogScanner.EARLIEST_OFFSET);
+            Long stop = stopping.get(bucket);
+            long logStop = stop == null ? 0L : stop;
+            if (snapshotId == FlussScanRange.NO_KV_SNAPSHOT && logStop <= 0) {
+                // Nothing snapshotted and nothing logged: the bucket is empty. A bucket WITH a snapshot
+                // is planned even when its log has caught up, because the snapshot still holds rows.
+                continue;
+            }
+            ranges.add(FlussScanRange.pkFull(partition, bucket, snapshotId, logStart, logStop));
+        }
+    }
+
+    private static int count(List<ConnectorScanRange> ranges, FlussScanRange.RangeType rangeType) {
+        int found = 0;
+        for (ConnectorScanRange range : ranges) {
+            if (((FlussScanRange) range).getRangeType() == rangeType) {
+                found++;
+            }
+        }
+        return found;
+    }
+
     private static List<Integer> allBuckets(int bucketCount) {
         List<Integer> buckets = new ArrayList<>(bucketCount);
         for (int bucket = 0; bucket < bucketCount; bucket++) {
@@ -249,7 +315,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * The line a regression test reads to tell which way a scan was actually planned. {@code auto}
      * silently falls back to a fluss-only read, so "did this query read the lake?" is otherwise
-     * invisible in the plan and a union-read test would pass without having tested anything.
+     * invisible in the plan and a union-read test would pass without having tested anything. Log and
+     * primary-key ranges are counted apart for the same reason: they are read by different code, and a
+     * single total cannot tell a primary-key table planned the right way from one planned the wrong way.
      */
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> nodeProperties) {
@@ -257,6 +325,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 .append("flussScan: unionRead=").append(plannedUnionRead ? "yes" : "no")
                 .append(", lakeSplits=0")
                 .append(", logRanges=").append(plannedLogRanges)
+                .append(", pkRanges=").append(plannedPkRanges)
                 .append(", mode=")
                 .append(FlussConnectorProperties.unionReadMode(catalogProperties).propertyValue())
                 .append("\n");

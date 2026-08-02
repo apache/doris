@@ -222,23 +222,6 @@ public class FlussLogScanPlanClusterTest {
         Assertions.assertEquals(6, rows);
     }
 
-    /** Reading a primary-key table is refused loudly rather than answered with the log alone. */
-    @Test
-    public void primaryKeyTablesAreStillRefusedAgainstARealCluster() throws Exception {
-        admin.createTable(TablePath.of(db, "pk_table"),
-                TableDescriptor.builder()
-                        .schema(Schema.newBuilder()
-                                .column("id", DataTypes.BIGINT())
-                                .column("v", DataTypes.STRING())
-                                .primaryKey("id")
-                                .build())
-                        .distributedBy(2, "id")
-                        .build(),
-                true).get();
-
-        Assertions.assertThrows(RuntimeException.class, () -> plan("pk_table"));
-    }
-
     private List<ConnectorScanRange> plan(String tableName) {
         FlussTestSession session = new FlussTestSession(1L, "cluster-plan");
         ConnectorTableHandle handle = connector.getMetadata(session)
