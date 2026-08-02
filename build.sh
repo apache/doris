@@ -853,6 +853,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/java-udf")
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
+    modules+=("be-java-extensions/fluss-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-connector")
     modules+=("be-java-extensions/java-writer")
@@ -883,8 +884,8 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
         # anyway, silently.
         ignorable_modules=(
             "iceberg-metadata-scanner" "hadoop-hudi-scanner" "java-udf" "jdbc-scanner"
-            "paimon-scanner" "trino-connector-scanner" "max-compute-connector" "java-writer"
-            "${HADOOP_DEPS_NAME}"
+            "paimon-scanner" "fluss-scanner" "trino-connector-scanner" "max-compute-connector"
+            "java-writer" "${HADOOP_DEPS_NAME}"
         )
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
         for module in "${ignore_modules[@]}"; do
@@ -1526,6 +1527,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         plugin_modules+=("iceberg-metadata-scanner:iceberg")
         plugin_modules+=("max-compute-connector:max-compute")
         plugin_modules+=("paimon-scanner:paimon")
+        plugin_modules+=("fluss-scanner:fluss")
         plugin_modules+=("hadoop-hudi-scanner:hudi")
         plugin_modules+=("trino-connector-scanner:trino-connector")
         plugin_modules+=("java-udf:java-udf")
