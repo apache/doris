@@ -998,6 +998,9 @@ public class StatementContext implements Closeable {
         latestSnapshotFences.clear();
         resolvedSnapshotScanParams.clear();
         tableMetadataSnapshots.clear();
+        // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
+        // not suppress preloading after the next EXECUTE resets its snapshot generation.
+        externalMetadataPreloadResult = null;
     }
 
     /**

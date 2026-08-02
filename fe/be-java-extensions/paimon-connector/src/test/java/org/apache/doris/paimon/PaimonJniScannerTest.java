@@ -198,6 +198,31 @@ public class PaimonJniScannerTest {
         Assert.assertEquals(SystemTableLoader.load("partitions", source).getClass(), safe.getClass());
         Assert.assertEquals("4", ((FileStoreTable) storeTable.get(safe)).options()
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+
+        FileStoreTable largeSource = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "300"));
+        Table largeWrapper = SystemTableLoader.load("partitions", largeSource);
+        Table stableSafe = PaimonJniScanner.applyBackendManifestParallelism(
+                largeWrapper, null, 512);
+        Field stableStoreTable = stableSafe.getClass().getDeclaredField("storeTable");
+        stableStoreTable.setAccessible(true);
+        Assert.assertEquals("256", ((FileStoreTable) stableStoreTable.get(stableSafe)).options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testOldFeSystemWrapperGetsBackendManifestBackstop() throws Exception {
+        FileStoreTable source = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "32"));
+        Table hiddenWrapper = SystemTableLoader.load("partitions", source);
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                hiddenWrapper, null, 4);
+
+        Field storeTable = safe.getClass().getDeclaredField("storeTable");
+        storeTable.setAccessible(true);
+        Assert.assertEquals("4", ((FileStoreTable) storeTable.get(safe)).options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
     }
 
     private static FileStoreTable serializableFileStoreTable(Map<String, String> options) {

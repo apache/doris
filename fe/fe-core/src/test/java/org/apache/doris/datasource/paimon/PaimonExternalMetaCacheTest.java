@@ -50,6 +50,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -99,6 +100,43 @@ public class PaimonExternalMetaCacheTest {
                         && options.entrySet().stream()
                                 .filter(entry -> entry.getValue() != null)
                                 .count() == 1));
+    }
+
+    @Test
+    public void testFullLatestProjectionCapsManifestParallelismBeforePartitionLoad() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        Assume.assumeTrue(localCapacity < 256);
+        PaimonPartitionInfoLoader partitionLoader = Mockito.mock(PaimonPartitionInfoLoader.class);
+        Mockito.when(partitionLoader.load(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(PaimonPartitionInfo.EMPTY);
+        PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
+                partitionLoader,
+                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                        Collections.emptyList(), Collections.emptyList(), null));
+        NameMapping nameMapping = new NameMapping(1L, "db", "table", "remote_db", "remote_table");
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable pinnedTable = Mockito.mock(FileStoreTable.class);
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        TableSchema latestSchema = Mockito.mock(TableSchema.class);
+        Mockito.when(baseTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
+        Mockito.when(latestSchemaTable.options()).thenReturn(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "256"));
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(snapshot));
+        Mockito.when(snapshot.id()).thenReturn(12L);
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(pinnedTable);
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+        Mockito.when(latestSchema.id()).thenReturn(4L);
+
+        loader.load(nameMapping, baseTable);
+
+        Mockito.verify(latestSchemaTable).copyWithoutTimeTravel(Mockito.argThat(options ->
+                String.valueOf(localCapacity).equals(
+                        options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))
+                        && "12".equals(options.get(CoreOptions.SCAN_SNAPSHOT_ID.key()))));
+        Mockito.verify(partitionLoader).load(nameMapping, pinnedTable, Collections.emptyList());
     }
 
     @Test

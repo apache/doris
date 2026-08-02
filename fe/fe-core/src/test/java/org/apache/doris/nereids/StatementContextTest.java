@@ -714,6 +714,33 @@ public class StatementContextTest {
         return Mockito.mock(DatabaseIf.class);
     }
 
+    @Test
+    public void testResetMvccSnapshotsClearsPreloadCompletionButKeepsCandidates() {
+        StatementContext statementContext = new StatementContext();
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(42L);
+        Mockito.when(table.supportsExternalMetadataPreload()).thenReturn(true);
+        statementContext.registerExternalTableForPreload(table, Optional.empty(), Optional.empty());
+        statementContext.setExternalMetadataPreloadResult(
+                ExternalMetadataPreloadResult.executed(1, 1, 1L));
+
+        statementContext.resetMvccSnapshots();
+
+        org.junit.jupiter.api.Assertions.assertFalse(
+                statementContext.getExternalMetadataPreloadResult().isPresent());
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                statementContext.getExternalTablePreloadCandidateCount());
+
+        statementContext.setExternalMetadataPreloadResult(
+                ExternalMetadataPreloadResult.executed(1, 1, 1L));
+        statementContext.resetMvccSnapshots();
+
+        org.junit.jupiter.api.Assertions.assertFalse(
+                statementContext.getExternalMetadataPreloadResult().isPresent());
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                statementContext.getExternalTablePreloadCandidateCount());
+    }
+
     private CatalogIf<?> mockCatalog() {
         return Mockito.mock(CatalogIf.class);
     }

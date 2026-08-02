@@ -57,7 +57,7 @@ public final class PaimonLatestSnapshotProjectionLoader {
 
     public PaimonSnapshotCacheValue load(NameMapping nameMapping, Table paimonTable) {
         try {
-            PaimonSnapshot latestSnapshot = resolveLatestSnapshot(paimonTable);
+            PaimonSnapshot latestSnapshot = resolveLatestSnapshot(paimonTable, true);
             List<Column> partitionColumns = schemaValueLoader.load(nameMapping, latestSnapshot.getSchemaId())
                     .getPartitionColumns();
             PaimonPartitionInfo partitionInfo =
@@ -75,7 +75,7 @@ public final class PaimonLatestSnapshotProjectionLoader {
             // A statement fence needs version/schema identity only; enumerating partitions here
             // can fail before relation-level options have replaced an unsafe physical setting.
             return new PaimonSnapshotCacheValue(
-                    PaimonPartitionInfo.EMPTY, resolveLatestSnapshot(paimonTable));
+                    PaimonPartitionInfo.EMPTY, resolveLatestSnapshot(paimonTable, false));
         } catch (Exception e) {
             throw new CacheException("failed to load paimon snapshot fence %s.%s.%s: %s",
                     e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
@@ -114,20 +114,27 @@ public final class PaimonLatestSnapshotProjectionLoader {
         }
     }
 
-    private PaimonSnapshot resolveLatestSnapshot(Table paimonTable) {
+    private PaimonSnapshot resolveLatestSnapshot(Table paimonTable, boolean normalizeForPartitionLoad) {
         FileStoreTable latestSchemaTable = ((FileStoreTable) paimonTable).copyWithLatestSchema();
         Table snapshotTable = latestSchemaTable;
         long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
         Optional<Snapshot> optionalSnapshot = latestSchemaTable.latestSnapshot();
+        Map<String, String> projectionOptions = Collections.emptyMap();
         if (optionalSnapshot.isPresent()) {
             latestSnapshotId = optionalSnapshot.get().id();
             // Pin the data snapshot for MVCC while retaining the latest table schema. A normal
             // copy applies time travel and falls back to the snapshot's schema, which can be stale
             // immediately after a schema change that has not produced a new data snapshot.
-            // The lightweight fence must not validate physical planning options before relation
-            // overrides are composed; validation belongs to loadEffectiveAtFence's final copy.
-            snapshotTable = latestSchemaTable.copyWithoutTimeTravel(
-                    PaimonScanParams.isolateSnapshotRead(latestSnapshotId));
+            projectionOptions = PaimonScanParams.isolateSnapshotRead(latestSnapshotId);
+        }
+        if (normalizeForPartitionLoad) {
+            // Full projection enumerates partitions immediately, so its physical planner must be
+            // safe now; the lightweight fence remains neutral until relation overrides are known.
+            projectionOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
+                    latestSchemaTable, projectionOptions);
+        }
+        if (!projectionOptions.isEmpty()) {
+            snapshotTable = latestSchemaTable.copyWithoutTimeTravel(projectionOptions);
         }
         DataTable dataTable = (DataTable) latestSchemaTable;
         long latestSchemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);

@@ -686,8 +686,16 @@ public class PaimonJniScanner extends JniScanner {
         final int safeBound = requestedBound;
         // The FE cap is a requested bound, not proof that every serialized wrapper carries it;
         // a later table rebuild can expose the original physical value to this BE.
-        if (configuredValues.isEmpty()
-                || configuredValues.stream().noneMatch(value -> value > safeBound)) {
+        if (configuredValues.isEmpty()) {
+            if (systemSource == null && !(table instanceof FileStoreTable)) {
+                // Legacy FEs serialize only the system wrapper, whose public options hide the
+                // source planner. Wrapper copy is the only compatible way to enforce the BE cap.
+                return table.copy(Collections.singletonMap(
+                        CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeBound)));
+            }
+            return table;
+        }
+        if (configuredValues.stream().noneMatch(value -> value > safeBound)) {
             return table;
         }
         int safeParallelism = Math.min(
