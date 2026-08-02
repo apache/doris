@@ -53,10 +53,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -295,19 +298,25 @@ public class ExternalRowLevelMergePlanBuilder {
         return projection;
     }
 
-    private List<NamedExpression> generateFinalProjections(List<String> colNames,
-            List<List<Expression>> finalProjections) {
+    static List<NamedExpression> generateFinalProjections(List<String> colNames,
+            List<DataType> outputTypes, List<List<Expression>> finalProjections) {
         for (List<Expression> projection : finalProjections) {
             if (projection.size() != finalProjections.get(0).size()) {
                 throw new AnalysisException("Column count doesn't match each other");
             }
         }
+        Preconditions.checkState(colNames.size() == outputTypes.size()
+                        && colNames.size() == finalProjections.get(0).size(),
+                "Merge projection must match the pinned writer schema");
         List<NamedExpression> output = new ArrayList<>();
         for (int i = 0; i < finalProjections.get(0).size(); i++) {
-            Expression project = new NullLiteral();
+            DataType outputType = outputTypes.get(i);
+            Expression project = new NullLiteral(outputType);
             for (int j = 0; j < finalProjections.size(); j++) {
+                Expression branch = TypeCoercionUtils.castUnbound(
+                        finalProjections.get(j).get(i), outputType);
                 project = new If(new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
-                        finalProjections.get(j).get(i), project);
+                        branch, project);
             }
             output.add(new UnboundAlias(project, colNames.get(i)));
         }
@@ -365,12 +374,16 @@ public class ExternalRowLevelMergePlanBuilder {
         List<String> colNames = new ArrayList<>();
         colNames.add(MergeOperation.OPERATION_COLUMN);
         colNames.add(Column.ICEBERG_ROWID_COL);
+        List<DataType> outputTypes = new ArrayList<>();
+        outputTypes.add(TinyIntType.INSTANCE);
+        outputTypes.add(rowIdType);
         for (Column column : columns) {
             if (column.isVisible() || column.isReservedPassthrough()) {
                 colNames.add(column.getName());
+                outputTypes.add(DataType.fromCatalogType(column.getType()));
             }
         }
-        plan = new LogicalProject<>(generateFinalProjections(colNames, finalProjections), plan);
+        plan = new LogicalProject<>(generateFinalProjections(colNames, outputTypes, finalProjections), plan);
 
         if (cte.isPresent()) {
             plan = (LogicalPlan) cte.get().withChildren(plan);

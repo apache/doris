@@ -77,10 +77,10 @@ import java.util.UUID;
  * {@code children_column_exists} DCHECK relies on (CI #969249). Per-field {@code name_mapping} (from the
  * table's {@code schema.name-mapping.default}) is carried for BE's old-file fallback
  * ({@code by_parquet_field_id_with_name_mapping}). Each {@code TField} carries only what BE's field-id path
- * consumes — {@code id} / {@code name} / a nested-vs-scalar {@code type.type} tag (a {@code STRING}
- * placeholder for every scalar; BE never inspects the scalar tag) / {@code name_mapping} — and, faithful to
- * legacy {@code ExternalUtil}, an {@code id}/{@code name} at EVERY nesting level (array element, map
- * key/value, struct child), unlike paimon which omits them on collection elements.</p>
+ * consumes — {@code id} / {@code name} / the mapped Doris column type / {@code name_mapping} — and, faithful
+ * to legacy {@code ExternalUtil}, an {@code id}/{@code name} at EVERY nesting level (array element, map
+ * key/value, struct child), unlike paimon which omits them on collection elements. The scalar type is also
+ * required when BE parses an Iceberg initial default or resolves a promoted equality-delete field.</p>
  */
 public final class IcebergSchemaUtils {
 
@@ -114,7 +114,7 @@ public final class IcebergSchemaUtils {
      * (count-only scan / no column handles) falls back to all top-level schema columns.
      */
     static String encodeSchemaEvolutionProp(Table table, List<String> requestedLowerNames) {
-        return encodeSchemaEvolutionProp(table, table.schema(), requestedLowerNames, false, false);
+        return encodeSchemaEvolutionProp(table, table.schema(), requestedLowerNames, false, false, false);
     }
 
     /**
@@ -132,9 +132,10 @@ public final class IcebergSchemaUtils {
      */
     static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
             boolean appendRowLineage) {
-        // Thin overload: default enableTimestampTz=false (the callers that do not thread the catalog's
-        // enable.mapping.timestamp_tz flag keep the pre-#65502 UTC-wall-time behaviour).
-        return encodeSchemaEvolutionProp(table, dictSchema, requestedLowerNames, appendRowLineage, false);
+        // Thin overload: keep both optional type mappings disabled for callers that do not thread catalog
+        // properties.
+        return encodeSchemaEvolutionProp(
+                table, dictSchema, requestedLowerNames, appendRowLineage, false, false);
     }
 
     /**
@@ -145,11 +146,19 @@ public final class IcebergSchemaUtils {
      */
     static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
             boolean appendRowLineage, boolean enableTimestampTz) {
+        return encodeSchemaEvolutionProp(
+                table, dictSchema, requestedLowerNames, appendRowLineage, false, enableTimestampTz);
+    }
+
+    /** Build and encode a schema dictionary with the catalog's Doris type-mapping options. */
+    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
+            boolean appendRowLineage, boolean enableVarbinary, boolean enableTimestampTz) {
         Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping(table);
         // #65784: it is the PRESENCE of the table-level mapping (not its non-emptiness) that makes it
         // authoritative for BE, so thread isPresent() through as hasNameMapping.
         TSchema current = buildCurrentSchema(dictSchema, requestedLowerNames,
-                nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(), enableTimestampTz);
+                nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(), enableVarbinary,
+                enableTimestampTz);
         if (appendRowLineage) {
             appendRowLineageFields(current.getRootField());
         }
@@ -239,7 +248,7 @@ public final class IcebergSchemaUtils {
         // hasNameMapping from the map (a non-empty map ⇒ the table carried a mapping — the #65784 default;
         // the production path threads the precise isPresent() instead).
         return buildCurrentSchema(schema, requestedLowerNames, nameMapping,
-                nameMapping != null && !nameMapping.isEmpty(), false);
+                nameMapping != null && !nameMapping.isEmpty(), false, false);
     }
 
     /**
@@ -251,13 +260,21 @@ public final class IcebergSchemaUtils {
      */
     static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableTimestampTz) {
+        return buildCurrentSchema(schema, requestedLowerNames, nameMapping, hasNameMapping, false,
+                enableTimestampTz);
+    }
+
+    /** Build the dictionary using the same Doris scalar mappings as the connector's catalog columns. */
+    static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
+            Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableVarbinary,
+            boolean enableTimestampTz) {
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(CURRENT_SCHEMA_ID);
         TStructField root = new TStructField();
         if (requestedLowerNames == null || requestedLowerNames.isEmpty()) {
             for (Types.NestedField field : schema.columns()) {
                 addField(root, buildField(field, field.name().toLowerCase(Locale.ROOT), nameMapping,
-                        hasNameMapping, enableTimestampTz));
+                        hasNameMapping, enableVarbinary, enableTimestampTz));
             }
         } else {
             for (String name : requestedLowerNames) {
@@ -266,7 +283,8 @@ public final class IcebergSchemaUtils {
                     throw new RuntimeException("iceberg schema-evolution: requested column '" + name
                             + "' not found in the table schema");
                 }
-                addField(root, buildField(field, name, nameMapping, hasNameMapping, enableTimestampTz));
+                addField(root, buildField(
+                        field, name, nameMapping, hasNameMapping, enableVarbinary, enableTimestampTz));
             }
         }
         tSchema.setRootField(root);
@@ -285,11 +303,12 @@ public final class IcebergSchemaUtils {
      * For array {@code element} / map {@code key}/{@code value} the lowercasing is a no-op (iceberg's canonical
      * names are already lowercase; BE matches collection nodes positionally anyway). Carries the iceberg field
      * id + name + nullability +
-     * name-mapping at EVERY level (legacy {@code ExternalUtil} parity), and a nested-vs-scalar {@code type.type}
-     * (a {@code STRING} placeholder for scalars — BE uses it only as a discriminator).
+     * name-mapping at EVERY level (legacy {@code ExternalUtil} parity), including the mapped Doris scalar type
+     * BE needs to parse initial defaults and promoted equality-delete fields.
      */
     private static TField buildField(Types.NestedField field, String nameOverride,
-            Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableTimestampTz) {
+            Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableVarbinary,
+            boolean enableTimestampTz) {
         TField tField = new TField();
         tField.setId(field.fieldId());
         tField.setName(nameOverride != null ? nameOverride : field.name().toLowerCase(Locale.ROOT));
@@ -326,10 +345,7 @@ public final class IcebergSchemaUtils {
         Type type = field.type();
         TColumnType columnType = new TColumnType();
         if (type.isPrimitiveType()) {
-            // Scalar: BE reads type.type only as a nested-vs-scalar discriminator (it never inspects the
-            // specific scalar tag in the field-id path), so a single placeholder is sufficient.
-            columnType.setType(TPrimitiveType.STRING);
-            tField.setType(columnType);
+            tField.setType(buildPrimitiveColumnType(type, enableVarbinary, enableTimestampTz));
             return tField;
         }
 
@@ -340,7 +356,8 @@ public final class IcebergSchemaUtils {
                 Types.ListType listType = (Types.ListType) type;
                 TArrayField arrayField = new TArrayField();
                 arrayField.setItemField(fieldPtr(
-                        buildField(listType.fields().get(0), null, nameMapping, hasNameMapping, enableTimestampTz)));
+                        buildField(listType.fields().get(0), null, nameMapping, hasNameMapping,
+                                enableVarbinary, enableTimestampTz)));
                 nestedField.setArrayField(arrayField);
                 break;
             }
@@ -350,9 +367,11 @@ public final class IcebergSchemaUtils {
                 List<Types.NestedField> kv = mapType.fields();
                 TMapField mapField = new TMapField();
                 mapField.setKeyField(fieldPtr(
-                        buildField(kv.get(0), null, nameMapping, hasNameMapping, enableTimestampTz)));
+                        buildField(kv.get(0), null, nameMapping, hasNameMapping, enableVarbinary,
+                                enableTimestampTz)));
                 mapField.setValueField(fieldPtr(
-                        buildField(kv.get(1), null, nameMapping, hasNameMapping, enableTimestampTz)));
+                        buildField(kv.get(1), null, nameMapping, hasNameMapping, enableVarbinary,
+                                enableTimestampTz)));
                 nestedField.setMapField(mapField);
                 break;
             }
@@ -361,7 +380,8 @@ public final class IcebergSchemaUtils {
                 Types.StructType structType = (Types.StructType) type;
                 TStructField structField = new TStructField();
                 for (Types.NestedField child : structType.fields()) {
-                    addField(structField, buildField(child, null, nameMapping, hasNameMapping, enableTimestampTz));
+                    addField(structField, buildField(child, null, nameMapping, hasNameMapping,
+                            enableVarbinary, enableTimestampTz));
                 }
                 nestedField.setStructField(structField);
                 break;
@@ -376,6 +396,72 @@ public final class IcebergSchemaUtils {
         tField.setType(columnType);
         tField.setNestedField(nestedField);
         return tField;
+    }
+
+    private static TColumnType buildPrimitiveColumnType(
+            Type type, boolean enableVarbinary, boolean enableTimestampTz) {
+        TColumnType columnType = new TColumnType();
+        switch (type.typeId()) {
+            case BOOLEAN:
+                columnType.setType(TPrimitiveType.BOOLEAN);
+                break;
+            case INTEGER:
+                columnType.setType(TPrimitiveType.INT);
+                break;
+            case LONG:
+                columnType.setType(TPrimitiveType.BIGINT);
+                break;
+            case FLOAT:
+                columnType.setType(TPrimitiveType.FLOAT);
+                break;
+            case DOUBLE:
+                columnType.setType(TPrimitiveType.DOUBLE);
+                break;
+            case STRING:
+                columnType.setType(TPrimitiveType.STRING);
+                break;
+            case UUID:
+            case BINARY:
+                // Legacy ScalarType.toColumnTypeThrift omits len for VARBINARY, including UUID(16) and
+                // unbounded BINARY. Keep that carrier shape; BE only needs the primitive class here.
+                columnType.setType(enableVarbinary ? TPrimitiveType.VARBINARY : TPrimitiveType.STRING);
+                break;
+            case FIXED:
+                columnType.setType(enableVarbinary ? TPrimitiveType.VARBINARY : TPrimitiveType.CHAR);
+                if (!enableVarbinary) {
+                    columnType.setLen(((Types.FixedType) type).length());
+                }
+                break;
+            case DECIMAL:
+                Types.DecimalType decimal = (Types.DecimalType) type;
+                if (decimal.precision() <= 9) {
+                    columnType.setType(TPrimitiveType.DECIMAL32);
+                } else if (decimal.precision() <= 18) {
+                    columnType.setType(TPrimitiveType.DECIMAL64);
+                } else {
+                    columnType.setType(TPrimitiveType.DECIMAL128I);
+                }
+                columnType.setPrecision(decimal.precision());
+                columnType.setScale(decimal.scale());
+                break;
+            case DATE:
+                columnType.setType(TPrimitiveType.DATEV2);
+                break;
+            case TIMESTAMP:
+                boolean timestampTz = enableTimestampTz
+                        && ((Types.TimestampType) type).shouldAdjustToUTC();
+                columnType.setType(timestampTz ? TPrimitiveType.TIMESTAMPTZ : TPrimitiveType.DATETIMEV2);
+                columnType.setPrecision(18);
+                columnType.setScale(IcebergTypeMapping.ICEBERG_DATETIME_SCALE_MS);
+                break;
+            default:
+                // BE's thrift_to_type intentionally has no UNSUPPORTED mapping. Keep unrepresentable Iceberg
+                // primitives as scalar leaves without asking BE to instantiate an unsupported data type; the
+                // connector's catalog column remains UNSUPPORTED and therefore unqueryable.
+                columnType.setType(TPrimitiveType.STRING);
+                break;
+        }
+        return columnType;
     }
 
     private static String serializeInitialDefault(Type type, Object value, boolean enableTimestampTz) {
@@ -459,11 +545,10 @@ public final class IcebergSchemaUtils {
         TField tField = new TField();
         tField.setId(id);
         tField.setName(lowerName);
-        // Byte-match buildField's scalar leaf: is_optional true (inert on BE's field-id path) + a STRING
-        // placeholder type tag (BE reads type.type only as a nested-vs-scalar discriminator).
+        // Row-lineage fields are Iceberg LONG values and use the same Doris BIGINT mapping as catalog columns.
         tField.setIsOptional(true);
         TColumnType columnType = new TColumnType();
-        columnType.setType(TPrimitiveType.STRING);
+        columnType.setType(TPrimitiveType.BIGINT);
         tField.setType(columnType);
         addField(root, tField);
     }

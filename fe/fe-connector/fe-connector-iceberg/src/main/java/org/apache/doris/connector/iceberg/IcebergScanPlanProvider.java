@@ -1646,24 +1646,27 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // FileQueryScanNode.classifyColumn categorizes it PARTITION_KEY, i.e. a NON-file slot filled from
         // columns_from_path. BE resolves through this dict only the slots it decodes FROM the file, so such a
         // column is never looked up in it whether or not the query projects it.
+        boolean enableVarbinary = Boolean.parseBoolean(
+                properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
+        boolean enableTimestampTz = Boolean.parseBoolean(
+                properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
         if (!systemTable) {
             String dict;
             boolean appendRowLineage = getFormatVersion(table) >= 3;
-            // #65502: the catalog's enable.mapping.timestamp_tz flag controls whether a TIMESTAMPTZ column's
-            // iceberg initial default keeps its trailing offset (mapping on) or is rendered as UTC wall time
-            // (mapping off, DATETIMEV2). Thread it into every dict branch so the default matches BE's read.
-            boolean enableTimestampTz = Boolean.parseBoolean(
-                    properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+            // The catalog's type-mapping flags control the Doris scalar types represented in the dictionary.
+            // In particular, enable.mapping.timestamp_tz decides whether an initial default keeps its trailing
+            // offset, while enable.mapping.varbinary decides the binary-like storage class. Thread both into
+            // every branch so the default and current field type match BE's read.
             if (mayHaveEqualityDeletes) {
                 Schema equalitySchema = schemaForPotentialEqualityDeletes(
                         table, exactScan, scanSchema);
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
                         table, equalitySchema, Collections.emptyList(), appendRowLineage,
-                        enableTimestampTz);
+                        enableVarbinary, enableTimestampTz);
             } else if (iceHandle.hasSnapshotPin()) {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
                         table, scanSchema, Collections.emptyList(), appendRowLineage,
-                        enableTimestampTz);
+                        enableVarbinary, enableTimestampTz);
             } else if (iceHandle.isTopnLazyMaterialize()) {
                 // Top-N lazy materialization (M-4): BE re-fetches the non-projected columns of the surviving
                 // rows by the synthesized row-id, so the dict must span the FULL latest schema, not just the
@@ -1671,11 +1674,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // field-id entry and the native read drops/mis-reads it. An empty requested list builds the
                 // dict over every top-level column (legacy initSchemaInfoForAllColumn parity).
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), Collections.emptyList(), appendRowLineage, enableTimestampTz);
+                        table, table.schema(), Collections.emptyList(), appendRowLineage,
+                        enableVarbinary, enableTimestampTz);
             } else {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
                         table, table.schema(), requestedLowerNames(columns),
-                        appendRowLineage, enableTimestampTz);
+                        appendRowLineage, enableVarbinary, enableTimestampTz);
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
         } else if (isPositionDeletesSysTable(iceHandle)) {
@@ -1704,7 +1708,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table metadataTable = MetadataTableUtils.createMetadataTableInstance(
                     table, MetadataTableType.POSITION_DELETES);
             props.put(SCHEMA_EVOLUTION_PROP, IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                    metadataTable, metadataTable.schema(), requestedLowerNames(columns), false));
+                    metadataTable, metadataTable.schema(), requestedLowerNames(columns), false,
+                    enableVarbinary, enableTimestampTz));
         }
         // Pushed-predicate EXPLAIN prop (explain gap): serialize the iceberg Expression form of each pushed
         // conjunct so appendExplainInfo can re-emit the legacy `icebergPredicatePushdown=` block. Same converter

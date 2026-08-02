@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -311,5 +312,17 @@ public class InsertUtilsTest {
 
         Assertions.assertEquals(
                 "Cannot specify invisible column '_row_id' in INSERT statement", error.getMessage());
+    }
+
+    @Test
+    public void nativeExplicitInvisibleColumnRemainsSupported() {
+        Column id = new Column("id", PrimitiveType.INT);
+        Column deleteSign = new Column("__DORIS_DELETE_SIGN__", PrimitiveType.TINYINT);
+        deleteSign.setIsVisible(false);
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.getBaseSchema(true)).thenReturn(ImmutableList.of(id, deleteSign));
+
+        Assertions.assertSame(deleteSign,
+                InsertUtils.resolveExplicitConnectorWriteColumn(table, "__doris_delete_sign__"));
     }
 }

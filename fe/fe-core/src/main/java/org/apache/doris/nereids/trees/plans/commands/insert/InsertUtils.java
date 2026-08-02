@@ -502,7 +502,7 @@ public class InsertUtils {
         if (column == null) {
             throw new AnalysisException("Unknown column '" + name + "' in target table.");
         }
-        if (!column.isVisible()) {
+        if (table instanceof PluginDrivenExternalTable && !column.isVisible()) {
             throw new AnalysisException(
                     "Cannot specify invisible column '" + name + "' in INSERT statement");
         }

@@ -215,6 +215,9 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertTrue(fields.containsKey("_last_updated_sequence_number"));
         Assertions.assertEquals(2147483540, fields.get("_row_id").getId());
         Assertions.assertEquals(2147483539, fields.get("_last_updated_sequence_number").getId());
+        Assertions.assertEquals(TPrimitiveType.BIGINT, fields.get("_row_id").getType().getType());
+        Assertions.assertEquals(TPrimitiveType.BIGINT,
+                fields.get("_last_updated_sequence_number").getType().getType());
         // the requested data columns are still carried (row-lineage is APPENDED, not a replacement)
         Assertions.assertTrue(fields.containsKey("id"));
         Assertions.assertTrue(fields.containsKey("name"));
@@ -290,11 +293,13 @@ public class IcebergSchemaUtilsTest {
                 Types.NestedField.optional("added_binary").withId(4).ofType(Types.BinaryType.get())
                         .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF})).build(),
                 Types.NestedField.optional("added_fixed").withId(5).ofType(Types.FixedType.ofLength(4))
-                        .withInitialDefault(ByteBuffer.wrap(new byte[] {3, 2, 1, 0})).build());
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {3, 2, 1, 0})).build(),
+                Types.NestedField.optional("added_bool").withId(6).ofType(Types.BooleanType.get())
+                        .withInitialDefault(false).build());
 
         Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
-                Arrays.asList("added_int", "added_ts", "added_uuid", "added_binary", "added_fixed"),
-                Collections.emptyMap()));
+                Arrays.asList("added_int", "added_ts", "added_uuid", "added_binary", "added_fixed",
+                        "added_bool"), Collections.emptyMap()));
 
         // INT -> plain Doris string form, NOT flagged base64.
         Assertions.assertEquals("7", fields.get("added_int").getInitialDefaultValue());
@@ -310,6 +315,9 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertTrue(fields.get("added_binary").isInitialDefaultValueIsBase64());
         Assertions.assertEquals("AwIBAA==", fields.get("added_fixed").getInitialDefaultValue());
         Assertions.assertTrue(fields.get("added_fixed").isInitialDefaultValueIsBase64());
+        // The mapped primitive type is part of the carrier: BE uses it to create the typed default literal.
+        Assertions.assertEquals("false", fields.get("added_bool").getInitialDefaultValue());
+        Assertions.assertEquals(TPrimitiveType.BOOLEAN, fields.get("added_bool").getType().getType());
     }
 
     @Test
@@ -392,17 +400,56 @@ public class IcebergSchemaUtilsTest {
                 IcebergSchemaUtils.writeDefaultToDorisString(noDefault.type(), noDefault.writeDefault(), false));
     }
 
-    // --- scalar placeholder + nested struct/array/map carry field ids at every level ---
+    // --- mapped scalar types + nested struct/array/map field ids at every level ---
 
     @Test
-    public void scalarFieldsUseStringPlaceholder() {
-        // BE reads type.type only as a nested-vs-scalar discriminator on the field-id path, so every scalar is a
-        // single STRING placeholder regardless of the real iceberg type (no full type conversion needed).
-        // MUTATION: map INT -> TPrimitiveType.INT -> still passes BE but diverges from the verified placeholder;
-        // the assertion pins the placeholder so the simplification is intentional, not accidental.
-        Table table = createTable("t1", SCHEMA);
-        Map<String, TField> fields = topFields(dict(table, "id"));
-        Assertions.assertEquals(TPrimitiveType.STRING, fields.get("id").getType().getType());
+    public void scalarFieldsCarryMappedDorisTypes() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "bool_col", Types.BooleanType.get()),
+                Types.NestedField.optional(2, "int_col", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "long_col", Types.LongType.get()),
+                Types.NestedField.optional(4, "decimal_col", Types.DecimalType.of(12, 2)),
+                Types.NestedField.optional(5, "timestamp_col", Types.TimestampType.withoutZone()),
+                Types.NestedField.optional(6, "fixed_col", Types.FixedType.ofLength(4)));
+
+        Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                Arrays.asList("bool_col", "int_col", "long_col", "decimal_col", "timestamp_col",
+                        "fixed_col"), Collections.emptyMap(), false, false, false));
+
+        Assertions.assertEquals(TPrimitiveType.BOOLEAN, fields.get("bool_col").getType().getType());
+        Assertions.assertEquals(TPrimitiveType.INT, fields.get("int_col").getType().getType());
+        Assertions.assertEquals(TPrimitiveType.BIGINT, fields.get("long_col").getType().getType());
+        Assertions.assertEquals(TPrimitiveType.DECIMAL64, fields.get("decimal_col").getType().getType());
+        Assertions.assertEquals(12, fields.get("decimal_col").getType().getPrecision());
+        Assertions.assertEquals(2, fields.get("decimal_col").getType().getScale());
+        Assertions.assertEquals(TPrimitiveType.DATETIMEV2,
+                fields.get("timestamp_col").getType().getType());
+        Assertions.assertEquals(6, fields.get("timestamp_col").getType().getScale());
+        Assertions.assertEquals(TPrimitiveType.CHAR, fields.get("fixed_col").getType().getType());
+        Assertions.assertEquals(4, fields.get("fixed_col").getType().getLen());
+
+        Schema mappedSchema = new Schema(
+                Types.NestedField.optional(1, "timestamp_tz_col", Types.TimestampType.withZone()),
+                Types.NestedField.optional(2, "binary_col", Types.BinaryType.get()));
+        Map<String, TField> mappedFields = topFields(IcebergSchemaUtils.buildCurrentSchema(mappedSchema,
+                Arrays.asList("timestamp_tz_col", "binary_col"), Collections.emptyMap(), false, true, true));
+        Assertions.assertEquals(TPrimitiveType.TIMESTAMPTZ,
+                mappedFields.get("timestamp_tz_col").getType().getType());
+        Assertions.assertEquals(TPrimitiveType.VARBINARY,
+                mappedFields.get("binary_col").getType().getType());
+    }
+
+    @Test
+    public void unsupportedPrimitiveKeepsSafeScalarCarrier() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "time_col", Types.TimeType.get()));
+
+        TField field = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                Collections.singletonList("time_col"), Collections.emptyMap())).get("time_col");
+
+        // Doris exposes Iceberg TIME as UNSUPPORTED at the catalog boundary, but BE cannot instantiate
+        // TPrimitiveType.UNSUPPORTED. STRING is the inert scalar discriminator used for unsupported leaves.
+        Assertions.assertEquals(TPrimitiveType.STRING, field.getType().getType());
     }
 
     @Test
@@ -434,7 +481,7 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals(TPrimitiveType.STRUCT, info.getType().getType());
         Assertions.assertEquals(infoType.field("a").fieldId(), childByName(info, "a").getId());
         Assertions.assertEquals(infoType.field("b").fieldId(), childByName(info, "b").getId());
-        Assertions.assertEquals(TPrimitiveType.STRING, childByName(info, "a").getType().getType());
+        Assertions.assertEquals(TPrimitiveType.INT, childByName(info, "a").getType().getType());
 
         // array element
         TField tags = fields.get("tags");
