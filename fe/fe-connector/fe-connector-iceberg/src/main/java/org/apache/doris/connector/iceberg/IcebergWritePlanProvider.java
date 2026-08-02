@@ -260,9 +260,11 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             ConnectorColumn bound = boundColumns.get(i);
             ConnectorType currentType = IcebergTypeMapping.fromIcebergType(
                     current.type(), enableVarbinary, enableTimestampTz);
+            // Do not compare top-level nullability: Doris widens Iceberg required columns in its read schema
+            // so evolution default-fill may yield NULL. Nested requiredness remains authoritative in
+            // sameBoundType, while current schema JSON enforces writes at the root.
             if (!current.name().equalsIgnoreCase(bound.getName())
                     || !sameBoundType(currentType, bound.getType())
-                    || current.isOptional() != bound.isNullable()
                     || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())) {
                 // BE maps write expressions to schema-json by ordinal, so accepting a reordered live
                 // schema here could silently place values under the wrong Iceberg field names.

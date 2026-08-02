@@ -438,6 +438,21 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteAcceptsReadFacingTopLevelNullability() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        List<ConnectorColumn> boundSchema = Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null)
+                        .withUniqueId(table.schema().findField("id").fieldId()),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
+                        .withUniqueId(table.schema().findField("name").fieldId()));
+
+        // Iceberg exposes required top-level fields as nullable Doris scan columns so schema-evolution
+        // default fill can still produce NULL. The write validator must not treat that read contract as drift.
+        Assertions.assertDoesNotThrow(() -> planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t2")).boundTargetColumns(boundSchema)));
+    }
+
+    @Test
     public void planWriteAcceptsDorisPhysicalScalarAliases() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "amount", Types.DecimalType.of(12, 2)),
