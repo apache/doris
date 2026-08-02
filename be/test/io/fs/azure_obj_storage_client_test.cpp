@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+
 #include "io/fs/file_system.h"
 #include "io/fs/obj_storage_client.h"
 #include "util/s3_util.h"
@@ -31,6 +33,12 @@
 #endif
 
 namespace doris {
+
+TEST(AzureObjStorageClientAbortHelperTest, preserves_committed_put_blob_without_block_list) {
+    EXPECT_FALSE(io::azure_block_list_has_committed_blob(0, false));
+    EXPECT_TRUE(io::azure_block_list_has_committed_blob(0, true));
+    EXPECT_TRUE(io::azure_block_list_has_committed_blob(1, false));
+}
 
 #ifdef USE_AZURE
 
@@ -175,6 +183,36 @@ TEST_F(AzureObjStorageClientTest, abort_multipart_upload_discards_staged_blocks)
 
     auto head_response = AzureObjStorageClientTest::obj_storage_client->head_object(opts);
     EXPECT_EQ(head_response.resp.status.code, ErrorCode::NOT_FOUND);
+}
+
+TEST_F(AzureObjStorageClientTest, abort_multipart_upload_preserves_existing_put_blob) {
+    io::ObjectStoragePathOptions opts;
+    auto create_response =
+            AzureObjStorageClientTest::obj_storage_client->create_multipart_upload(opts);
+    ASSERT_EQ(create_response.resp.status.code, ErrorCode::OK);
+    ASSERT_TRUE(create_response.upload_id.has_value());
+    opts.key = "AzureObjStorageClientTest/abort_preserves_put_blob_" + *create_response.upload_id;
+    opts.upload_id = create_response.upload_id;
+
+    auto put_response = AzureObjStorageClientTest::obj_storage_client->put_object(opts, "original");
+    ASSERT_EQ(put_response.status.code, ErrorCode::OK);
+    auto upload_response =
+            AzureObjStorageClientTest::obj_storage_client->upload_part(opts, "replacement", 1);
+    ASSERT_EQ(upload_response.resp.status.code, ErrorCode::OK);
+
+    auto abort_response =
+            AzureObjStorageClientTest::obj_storage_client->abort_multipart_upload(opts);
+    ASSERT_EQ(abort_response.status.code, ErrorCode::OK);
+    std::array<char, 8> contents {};
+    size_t size_return = 0;
+    auto get_response = AzureObjStorageClientTest::obj_storage_client->get_object(
+            opts, contents.data(), 0, contents.size(), &size_return);
+    ASSERT_EQ(get_response.status.code, ErrorCode::OK);
+    EXPECT_EQ(size_return, contents.size());
+    EXPECT_EQ(std::string_view(contents.data(), contents.size()), "original");
+
+    EXPECT_EQ(AzureObjStorageClientTest::obj_storage_client->delete_object(opts).status.code,
+              ErrorCode::OK);
 }
 #else
 

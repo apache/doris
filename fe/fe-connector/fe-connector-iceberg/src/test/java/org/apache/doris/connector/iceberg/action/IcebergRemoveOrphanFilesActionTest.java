@@ -21,11 +21,21 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReachableFileUtil;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.hadoop.HadoopTables;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.FileInfo;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,7 +46,9 @@ import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class IcebergRemoveOrphanFilesActionTest {
     private static final long MIN_RETENTION_MS = Duration.ofHours(24).toMillis();
@@ -99,6 +111,37 @@ public class IcebergRemoveOrphanFilesActionTest {
                         Collections.singleton("s3://second/path/data.parquet")));
     }
 
+    @Test
+    public void readsEachSharedDataManifestOnlyOnce(@TempDir Path temp) throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(TableProperties.MANIFEST_MERGE_ENABLED, "false");
+        Table table = createTable(temp.resolve("table"), properties);
+        appendDataFile(table, createOldFile(temp.resolve("table/data/first.parquet")));
+        appendDataFile(table, createOldFile(temp.resolve("table/data/second.parquet")));
+
+        Set<String> dataManifestPaths = new HashSet<>();
+        int[] manifestReferenceCount = {0};
+        table.snapshots().forEach(snapshot -> snapshot.dataManifests(table.io())
+                .forEach(manifest -> {
+                    manifestReferenceCount[0]++;
+                    dataManifestPaths.add(manifest.path());
+                }));
+        Assertions.assertTrue(manifestReferenceCount[0] > dataManifestPaths.size());
+        RecordingFileIO recordingFileIO = new RecordingFileIO(table.io(), dataManifestPaths);
+        Table recordingTable = new BaseTable(
+                new StaticTableOperations(((HasTableOperations) table).operations().current(), recordingFileIO),
+                table.name());
+        IcebergRemoveOrphanFilesAction action = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, true);
+        action.validate();
+
+        action.execute(recordingTable, ActionTestTables.session("UTC"));
+
+        Assertions.assertEquals(dataManifestPaths.size(), recordingFileIO.manifestOpenCount());
+        dataManifestPaths.forEach(path -> Assertions.assertEquals(1,
+                recordingFileIO.openCounts.getOrDefault(path, 0), path));
+    }
+
     private static IcebergRemoveOrphanFilesAction action(long olderThan, boolean dryRun) {
         Map<String, String> properties = new HashMap<>();
         properties.put(IcebergRemoveOrphanFilesAction.OLDER_THAN, String.valueOf(olderThan));
@@ -117,5 +160,74 @@ public class IcebergRemoveOrphanFilesActionTest {
         Files.write(path, new byte[] {1});
         Files.setLastModifiedTime(path, FileTime.fromMillis(1));
         return path;
+    }
+
+    private static void appendDataFile(Table table, Path path) {
+        DataFile dataFile = DataFiles.builder(table.spec())
+                .withPath(path.toUri().toString())
+                .withFileSizeInBytes(1)
+                .withRecordCount(1)
+                .build();
+        table.newFastAppend().appendFile(dataFile).commit();
+    }
+
+    private static final class RecordingFileIO implements SupportsPrefixOperations {
+        private final FileIO delegate;
+        private final SupportsPrefixOperations prefixDelegate;
+        private final Set<String> manifestPaths;
+        private final Map<String, Integer> openCounts = new HashMap<>();
+
+        private RecordingFileIO(FileIO delegate, Set<String> manifestPaths) {
+            this.delegate = delegate;
+            this.prefixDelegate = (SupportsPrefixOperations) delegate;
+            this.manifestPaths = manifestPaths;
+        }
+
+        private void record(String path) {
+            if (manifestPaths.contains(path)) {
+                openCounts.merge(path, 1, Integer::sum);
+            }
+        }
+
+        private int manifestOpenCount() {
+            return openCounts.values().stream().mapToInt(Integer::intValue).sum();
+        }
+
+        @Override
+        public InputFile newInputFile(String path) {
+            record(path);
+            return delegate.newInputFile(path);
+        }
+
+        @Override
+        public InputFile newInputFile(String path, long length) {
+            record(path);
+            return delegate.newInputFile(path, length);
+        }
+
+        @Override
+        public OutputFile newOutputFile(String path) {
+            return delegate.newOutputFile(path);
+        }
+
+        @Override
+        public void deleteFile(String path) {
+            delegate.deleteFile(path);
+        }
+
+        @Override
+        public Map<String, String> properties() {
+            return delegate.properties();
+        }
+
+        @Override
+        public Iterable<FileInfo> listPrefix(String prefix) {
+            return prefixDelegate.listPrefix(prefix);
+        }
+
+        @Override
+        public void deletePrefix(String prefix) {
+            prefixDelegate.deletePrefix(prefix);
+        }
     }
 }

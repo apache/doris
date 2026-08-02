@@ -261,11 +261,14 @@ ObjectStorageResponse AzureObjStorageClient::abort_multipart_upload(
                 GetBlockListOptions get_options;
                 get_options.ListType = Models::BlockListType::All;
                 auto block_list = client.GetBlockList(get_options);
+                const bool has_committed_blob = azure_block_list_has_committed_blob(
+                        block_list.Value.CommittedBlocks.size(), block_list.Value.ETag.HasValue());
+                if (!has_committed_blob) {
+                    // Uncommitted blocks are invisible and expire without deleting a racing commit.
+                    return;
+                }
                 if (block_list.Value.CommittedBlocks.empty()) {
-                    DeleteBlobOptions delete_options;
-                    // The ETag fence, when present, protects a concurrently committed blob.
-                    delete_options.AccessConditions.IfMatch = block_list.Value.ETag;
-                    client.Delete(delete_options);
+                    // Azure cannot selectively discard staged blocks without replacing Put Blob content.
                     return;
                 }
                 std::vector<std::string> committed_ids;

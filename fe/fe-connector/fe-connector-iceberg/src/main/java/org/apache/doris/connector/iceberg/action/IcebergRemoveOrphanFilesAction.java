@@ -25,8 +25,9 @@ import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.foundation.util.ArgumentParsers;
 
 import com.google.common.collect.Lists;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
-import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
@@ -34,7 +35,6 @@ import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileInfo;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.util.PropertyUtil;
@@ -136,28 +136,27 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         Set<String> reachable = new HashSet<>(ReachableFileUtil.metadataFileLocations(table, true));
         // Hadoop tables consult this live pointer even though it is not part of the metadata log.
         reachable.add(ReachableFileUtil.versionHintLocation(table));
+        Set<String> scannedDataManifests = new HashSet<>();
         Set<String> scannedDeleteManifests = new HashSet<>();
         reachable.addAll(ReachableFileUtil.manifestListLocations(table));
         reachable.addAll(ReachableFileUtil.statisticsFilesLocations(table));
         for (Snapshot snapshot : table.snapshots()) {
             for (ManifestFile manifest : snapshot.allManifests(table.io())) {
                 reachable.add(manifest.path());
-            }
-            for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
-                if (!scannedDeleteManifests.add(manifest.path())) {
-                    continue;
-                }
-                // A retained delete file may not apply to any current data task, so read delete manifests directly.
-                try (ManifestReader<DeleteFile> deletes =
-                        ManifestFiles.readDeleteManifest(manifest, table.io(), table.specs())) {
-                    deletes.forEach(delete -> reachable.add(delete.location()));
-                }
-            }
-            try (CloseableIterable<FileScanTask> tasks = table.newScan()
-                    .useSnapshot(snapshot.snapshotId()).planFiles()) {
-                for (FileScanTask task : tasks) {
-                    reachable.add(task.file().location());
-                    task.deletes().forEach(delete -> reachable.add(delete.location()));
+                if (manifest.content() == ManifestContent.DATA) {
+                    // Snapshots inherit manifests, so read each path once to keep work linear.
+                    if (scannedDataManifests.add(manifest.path())) {
+                        try (ManifestReader<DataFile> dataFiles =
+                                ManifestFiles.read(manifest, table.io(), table.specs())) {
+                            dataFiles.forEach(dataFile -> reachable.add(dataFile.location()));
+                        }
+                    }
+                } else if (scannedDeleteManifests.add(manifest.path())) {
+                    // A retained delete file may not apply to any current data task, so read it directly.
+                    try (ManifestReader<DeleteFile> deletes =
+                            ManifestFiles.readDeleteManifest(manifest, table.io(), table.specs())) {
+                        deletes.forEach(delete -> reachable.add(delete.location()));
+                    }
                 }
             }
         }
