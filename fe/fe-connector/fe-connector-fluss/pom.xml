@@ -110,11 +110,18 @@ under the License.
             <scope>test</scope>
         </dependency>
 
+        <!--
+          Spelled as classifier "tests" rather than type "test-jar", which resolve to the very same
+          file: the build cache extension takes a dependency's type for its file extension when it
+          hashes the module's inputs, so type "test-jar" sends it looking for a
+          fluss-server-1.0-SNAPSHOT.test-jar that exists in no repository, and the frontend build
+          fails before it compiles anything. No other module here depends on a foreign test-jar.
+        -->
         <dependency>
             <groupId>org.apache.fluss</groupId>
             <artifactId>fluss-server</artifactId>
             <version>${fluss.version}</version>
-            <type>test-jar</type>
+            <classifier>tests</classifier>
             <scope>test</scope>
         </dependency>
 
