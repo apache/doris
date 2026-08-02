@@ -164,12 +164,12 @@ public class IcebergConnectorTransactionTest {
 
     private static IcebergWriteContext deleteCtxPinned(long readSnapshotId) {
         return new IcebergWriteContext(
-                WriteOperation.DELETE, false, Collections.emptyMap(), Optional.empty(), readSnapshotId);
+                WriteOperation.DELETE, false, Collections.emptyMap(), Optional.empty(), readSnapshotId, true);
     }
 
     private static IcebergWriteContext mergeCtxPinned(long readSnapshotId) {
         return new IcebergWriteContext(
-                WriteOperation.MERGE, false, Collections.emptyMap(), Optional.empty(), readSnapshotId);
+                WriteOperation.MERGE, false, Collections.emptyMap(), Optional.empty(), readSnapshotId, true);
     }
 
     /**
@@ -520,6 +520,22 @@ public class IcebergConnectorTransactionTest {
 
         Assertions.assertEquals(Long.valueOf(readSnapshot), txn.getBaseSnapshotId(),
                 "MERGE must anchor baseSnapshotId at the pinned read snapshot, not the current snapshot");
+    }
+
+    @Test
+    public void beginDeletePreservesExplicitEmptyReadSnapshot() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db1/t1/concurrent.parquet", 1L)).commit();
+
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtxPinned(-1L));
+
+        Assertions.assertEquals(Long.valueOf(-1L), txn.getBaseSnapshotId(),
+                "an explicit empty read is an OCC fence, not an absent pin");
     }
 
     @Test
@@ -1044,6 +1060,23 @@ public class IcebergConnectorTransactionTest {
         Assertions.assertEquals(1, committedFiles.size(), "the failed MERGE must not add a duplicate row file");
         Assertions.assertEquals("s3://b/db1/t1/concurrent.parquet",
                 committedFiles.get(0).path().toString());
+    }
+
+    @Test
+    public void deleteFromExplicitEmptySnapshotDetectsFirstConcurrentCommit() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtxPinned(-1L));
+
+        catalog.loadTable(id).newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db1/t1/concurrent.parquet", 7L)).commit();
+        txn.addCommitData(commitBytes(positionDeleteItem(
+                "s3://b/db1/t1/del.parquet", 1L, "s3://b/db1/t1/concurrent.parquet")));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit,
+                "validateFromSnapshot(-1) must reject the first snapshot committed after an empty read");
     }
 
     @Test

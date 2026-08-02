@@ -33,10 +33,7 @@ class ObjClientHolder;
 bool is_azure_tls_ca_error_message(std::string_view message);
 std::string build_azure_tls_debug_suffix(std::string_view error_message,
                                          std::string_view tls_debug_context);
-inline bool azure_block_list_has_committed_blob(size_t committed_block_count, bool has_etag) {
-    // Put Blob creates committed content without block IDs; its ETag is the only safe discriminator.
-    return committed_block_count > 0 || has_etag;
-}
+std::string azure_multipart_temp_key(std::string_view key, std::string_view upload_id);
 
 class AzureObjStorageClient final : public ObjStorageClient {
 public:

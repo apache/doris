@@ -104,6 +104,24 @@ public class IcebergRemoveOrphanFilesActionTest {
     }
 
     @Test
+    public void canonicalAliasRootsCollapseToOneOwnedScanRoot() {
+        Assertions.assertEquals(Collections.singletonList("s3a://bucket/table"),
+                IcebergRemoveOrphanFilesAction.minimalOwnedRoots(
+                        java.util.List.of("s3a://bucket/table", "s3://BUCKET/table")));
+    }
+
+    @Test
+    public void configuredDataAndMetadataLocationsAreSeparateOwnedRoots() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(TableProperties.WRITE_DATA_LOCATION, "s3://bucket/data-root");
+        properties.put(TableProperties.WRITE_METADATA_LOCATION, "s3://bucket/metadata-root");
+
+        Assertions.assertEquals(java.util.List.of(
+                        "s3://bucket/table-root", "s3://bucket/data-root", "s3://bucket/metadata-root"),
+                IcebergRemoveOrphanFilesAction.resolveOwnedRoots("s3://bucket/table-root", properties));
+    }
+
+    @Test
     public void rejectsUnresolvedPrefixMismatches() {
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> IcebergRemoveOrphanFilesAction.verifyNoPrefixMismatch(

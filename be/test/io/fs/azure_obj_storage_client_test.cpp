@@ -34,10 +34,11 @@
 
 namespace doris {
 
-TEST(AzureObjStorageClientAbortHelperTest, preserves_committed_put_blob_without_block_list) {
-    EXPECT_FALSE(io::azure_block_list_has_committed_blob(0, false));
-    EXPECT_TRUE(io::azure_block_list_has_committed_blob(0, true));
-    EXPECT_TRUE(io::azure_block_list_has_committed_blob(1, false));
+TEST(AzureObjStorageClientMultipartHelperTest, isolates_uploads_with_temporary_blob_keys) {
+    EXPECT_EQ("table/file.parquet.__doris_multipart/upload-a",
+              io::azure_multipart_temp_key("table/file.parquet", "upload-a"));
+    EXPECT_NE(io::azure_multipart_temp_key("table/file.parquet", "upload-a"),
+              io::azure_multipart_temp_key("table/file.parquet", "upload-b"));
 }
 
 #ifdef USE_AZURE
@@ -215,6 +216,33 @@ TEST_F(AzureObjStorageClientTest, abort_multipart_upload_preserves_existing_put_
 
     EXPECT_EQ(AzureObjStorageClientTest::obj_storage_client->delete_object(opts).status.code,
               ErrorCode::OK);
+}
+
+TEST_F(AzureObjStorageClientTest, concurrent_multipart_uploads_do_not_share_staged_blocks) {
+    io::ObjectStoragePathOptions first {.key = "AzureObjStorageClientTest/concurrent_multipart"};
+    io::ObjectStoragePathOptions second = first;
+    auto first_create = obj_storage_client->create_multipart_upload(first);
+    auto second_create = obj_storage_client->create_multipart_upload(second);
+    ASSERT_TRUE(first_create.upload_id.has_value());
+    ASSERT_TRUE(second_create.upload_id.has_value());
+    first.upload_id = first_create.upload_id;
+    second.upload_id = second_create.upload_id;
+
+    ASSERT_EQ(obj_storage_client->upload_part(first, "first", 1).resp.status.code, ErrorCode::OK);
+    ASSERT_EQ(obj_storage_client->upload_part(second, "second", 1).resp.status.code, ErrorCode::OK);
+    ASSERT_EQ(obj_storage_client->complete_multipart_upload(first, {{.part_num = 1}}).status.code,
+              ErrorCode::OK);
+    ASSERT_EQ(obj_storage_client->complete_multipart_upload(second, {{.part_num = 1}}).status.code,
+              ErrorCode::OK);
+
+    std::array<char, 6> contents {};
+    size_t size_return = 0;
+    ASSERT_EQ(obj_storage_client
+                      ->get_object(second, contents.data(), 0, contents.size(), &size_return)
+                      .status.code,
+              ErrorCode::OK);
+    EXPECT_EQ(std::string_view(contents.data(), size_return), "second");
+    EXPECT_EQ(obj_storage_client->delete_object(second).status.code, ErrorCode::OK);
 }
 #else
 

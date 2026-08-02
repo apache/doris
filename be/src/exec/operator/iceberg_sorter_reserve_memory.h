@@ -42,4 +42,13 @@ inline size_t bounded_iceberg_reserve_size(
            retained_growth;
 }
 
+inline size_t iceberg_reserve_size(
+        const std::vector<IcebergSorterReserveMemory>& per_partition_reservations,
+        size_t incoming_block_bytes) {
+    size_t sorter_reserve = bounded_iceberg_reserve_size(per_partition_reservations);
+    // The incoming block creates cold partition writers before they can appear in the published snapshot.
+    return std::min(std::numeric_limits<size_t>::max() - sorter_reserve, incoming_block_bytes) +
+           sorter_reserve;
+}
+
 } // namespace doris

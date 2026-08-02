@@ -67,7 +67,8 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
         }
     }
     // Column growth remains in every touched sorter, while sorting workspace is reused by serial dispatch.
-    return bounded_iceberg_reserve_size(per_partition_reservations);
+    return iceberg_reserve_size(per_partition_reservations,
+                                eos ? 0 : state->minimum_operator_memory_required_bytes());
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {

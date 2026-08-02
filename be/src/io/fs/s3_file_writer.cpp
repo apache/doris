@@ -66,6 +66,7 @@ S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string 
                                   .key = std::move(key)}),
           _used_by_s3_committer(opts ? opts->used_by_s3_committer : false),
           _obj_client(std::move(client)) {
+    _obj_storage_path_opts.deferred_completion = _used_by_s3_committer;
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
     Aws::Http::SetCompliantRfc3986Encoding(true);

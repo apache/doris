@@ -21,6 +21,7 @@
 #include <aws/core/utils/HashingUtils.h>
 
 #include <algorithm>
+#include <array>
 #include <azure/core/http/http.hpp>
 #include <azure/core/http/http_status_code.hpp>
 #include <azure/core/io/body_stream.hpp>
@@ -74,6 +75,16 @@ std::string azure_block_id(const doris::io::ObjectStoragePathOptions& opts, int 
     return Aws::Utils::HashingUtils::Base64Encode(bytes);
 }
 
+std::string legacy_azure_block_id(int part_num) {
+    std::array<unsigned char, sizeof(int32_t)> bytes {
+            static_cast<unsigned char>(part_num & 0xff),
+            static_cast<unsigned char>((part_num >> 8) & 0xff),
+            static_cast<unsigned char>((part_num >> 16) & 0xff),
+            static_cast<unsigned char>((part_num >> 24) & 0xff)};
+    Aws::Utils::ByteBuffer buffer(bytes.data(), bytes.size());
+    return Aws::Utils::HashingUtils::Base64Encode(buffer);
+}
+
 // Rate limiting is applied by RateLimitedObjStorageClient, the decorator that
 // S3ClientFactory wraps around this client when the bucket is subject to limiting.
 
@@ -82,6 +93,10 @@ constexpr char BlobNotFound[] = "BlobNotFound";
 } // namespace
 
 namespace doris::io {
+
+std::string azure_multipart_temp_key(std::string_view key, std::string_view upload_id) {
+    return fmt::format("{}.__doris_multipart/{}", key, upload_id);
+}
 
 // As Azure's doc said, the batch size is 256
 // You can find out the num in https://learn.microsoft.com/en-us/rest/api/storageservices/blob-batch?tabs=microsoft-entra-id
@@ -222,7 +237,8 @@ ObjectStorageResponse AzureObjStorageClient::put_object(const ObjectStoragePathO
 ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStoragePathOptions& opts,
                                                                std::string_view stream,
                                                                int part_num) {
-    auto client = _client->GetBlockBlobClient(opts.key);
+    DCHECK(opts.upload_id.has_value());
+    auto client = _client->GetBlockBlobClient(azure_multipart_temp_key(opts.key, *opts.upload_id));
     std::string block_id = azure_block_id(opts, part_num);
     auto resp = do_azure_client_call(
             [&]() {
@@ -231,6 +247,13 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
                 // The blockId must be base64 encoded
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
                 client.StageBlock(block_id, memory_body);
+                if (opts.deferred_completion) {
+                    // During rolling upgrades an old FE still commits deterministic IDs on the final blob.
+                    Azure::Core::IO::MemoryBodyStream legacy_body(
+                            reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
+                    _client->GetBlockBlobClient(opts.key).StageBlock(
+                            legacy_azure_block_id(part_num), legacy_body);
+                }
             },
             opts, _tls_debug_context);
     return ObjectStorageUploadResponse {
@@ -243,46 +266,43 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
 ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
         const ObjectStoragePathOptions& opts,
         const std::vector<ObjectCompleteMultiPart>& completed_parts) {
-    auto client = _client->GetBlockBlobClient(opts.key);
+    DCHECK(opts.upload_id.has_value());
+    auto temp_client =
+            _client->GetBlockBlobClient(azure_multipart_temp_key(opts.key, *opts.upload_id));
+    auto target_client = _client->GetBlockBlobClient(opts.key);
     std::vector<std::string> string_block_ids;
     std::ranges::transform(
             completed_parts, std::back_inserter(string_block_ids),
             [&opts](const ObjectCompleteMultiPart& i) { return azure_block_id(opts, i.part_num); });
-    return do_azure_client_call(
+    auto response = do_azure_client_call(
             [&]() {
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                client.CommitBlockList(string_block_ids);
+                // Per-upload temporary blobs keep Azure's blob-wide staged-block namespace isolated.
+                temp_client.CommitBlockList(string_block_ids);
+                auto copy = target_client.StartCopyFromUri(temp_client.GetUrl());
+                copy.PollUntilDone(std::chrono::milliseconds(100));
             },
             opts, _tls_debug_context);
+    if (response.status.code != ErrorCode::OK) {
+        return response;
+    }
+    auto cleanup = do_azure_client_call([&]() { temp_client.Delete(); }, opts, _tls_debug_context);
+    if (cleanup.status.code != ErrorCode::OK &&
+        cleanup.http_code != static_cast<int>(Azure::Core::Http::HttpStatusCode::NotFound)) {
+        LOG(WARNING) << "Azure multipart temporary blob cleanup failed after publication";
+    }
+    // Publication already succeeded; a cleanup failure must not turn a retry into a conflicting overwrite.
+    return response;
 }
 
 ObjectStorageResponse AzureObjStorageClient::abort_multipart_upload(
         const ObjectStoragePathOptions& opts) {
-    auto client = _client->GetBlockBlobClient(opts.key);
+    DCHECK(opts.upload_id.has_value());
+    auto client = _client->GetBlockBlobClient(azure_multipart_temp_key(opts.key, *opts.upload_id));
     auto response = do_azure_client_call(
             [&]() {
-                GetBlockListOptions get_options;
-                get_options.ListType = Models::BlockListType::All;
-                auto block_list = client.GetBlockList(get_options);
-                const bool has_committed_blob = azure_block_list_has_committed_blob(
-                        block_list.Value.CommittedBlocks.size(), block_list.Value.ETag.HasValue());
-                if (!has_committed_blob) {
-                    // Uncommitted blocks are invisible and expire without deleting a racing commit.
-                    return;
-                }
-                if (block_list.Value.CommittedBlocks.empty()) {
-                    // Azure cannot selectively discard staged blocks without replacing Put Blob content.
-                    return;
-                }
-                std::vector<std::string> committed_ids;
-                committed_ids.reserve(block_list.Value.CommittedBlocks.size());
-                std::ranges::transform(block_list.Value.CommittedBlocks,
-                                       std::back_inserter(committed_ids),
-                                       [](const Models::BlobBlock& block) { return block.Name; });
-                CommitBlockListOptions commit_options;
-                commit_options.AccessConditions.IfMatch = block_list.Value.ETag;
-                // Recommitting only the old IDs discards this writer's unique staged blocks.
-                client.CommitBlockList(committed_ids, commit_options);
+                // Never recommit the final blob: a legacy staged block may shadow a committed block ID.
+                client.Delete();
             },
             opts, _tls_debug_context);
     // Azure creates no server-side object until the first block is staged, so absence is clean.

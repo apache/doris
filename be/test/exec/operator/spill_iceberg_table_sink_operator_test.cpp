@@ -36,4 +36,10 @@ TEST(SpillIcebergTableSinkOperatorTest, AccumulatesRetainedGrowthAcrossTouchedPa
     EXPECT_EQ(14 * 1024 * 1024, bounded_iceberg_reserve_size(per_partition_reservations));
 }
 
+TEST(SpillIcebergTableSinkOperatorTest, ReservesIncomingBlockBeforeAnyPartitionWriterExists) {
+    std::vector<IcebergSorterReserveMemory> no_published_sorters;
+
+    EXPECT_EQ(6 * 1024 * 1024, iceberg_reserve_size(no_published_sorters, 6 * 1024 * 1024));
+}
+
 } // namespace doris

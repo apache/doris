@@ -44,7 +44,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -132,11 +132,7 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
     }
 
     private List<String> resolveScanLocations(Table table) {
-        String tableRoot = normalizeLocation(table.location());
-        String dataRoot = normalizeLocation(resolveDataLocation(table, tableRoot));
-        Set<String> ownedRoots = new LinkedHashSet<>();
-        ownedRoots.add(tableRoot);
-        ownedRoots.add(dataRoot);
+        List<String> ownedRoots = resolveOwnedRoots(table.location(), table.properties());
 
         String requested = namedArguments.getString(LOCATION);
         if (requested != null) {
@@ -149,18 +145,45 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
             return Lists.newArrayList(normalized);
         }
 
-        List<String> roots = new ArrayList<>();
-        for (String candidate : ownedRoots) {
-            // Avoid listing a nested default data directory twice when the table root already covers it.
-            if (ownedRoots.stream().noneMatch(other -> !other.equals(candidate) && isWithin(candidate, other))) {
-                roots.add(candidate);
-            }
-        }
-        return roots;
+        return minimalOwnedRoots(ownedRoots);
     }
 
-    private String resolveDataLocation(Table table, String tableRoot) {
-        Map<String, String> properties = table.properties();
+    static List<String> resolveOwnedRoots(String tableLocation, Map<String, String> properties) {
+        String tableRoot = normalizeLocation(tableLocation);
+        String dataRoot = normalizeLocation(resolveDataLocation(properties, tableRoot));
+        List<String> configuredRoots = new ArrayList<>();
+        configuredRoots.add(tableRoot);
+        configuredRoots.add(dataRoot);
+        // Iceberg may place metadata outside both table and data roots, so it remains an independent owned root.
+        String metadataRoot = nonEmpty(properties.get(TableProperties.WRITE_METADATA_LOCATION));
+        if (metadataRoot != null) {
+            configuredRoots.add(normalizeLocation(metadataRoot));
+        }
+        return canonicalOwnedRoots(configuredRoots);
+    }
+
+    static List<String> minimalOwnedRoots(List<String> roots) {
+        List<String> canonicalRoots = canonicalOwnedRoots(roots);
+        List<String> minimal = new ArrayList<>();
+        for (String candidate : canonicalRoots) {
+            // Canonically equal aliases are deduplicated first, so only strict containment removes a root.
+            if (canonicalRoots.stream().noneMatch(other -> !sameFileIdentity(other, candidate)
+                    && isWithinLocation(candidate, other))) {
+                minimal.add(candidate);
+            }
+        }
+        return minimal;
+    }
+
+    private static List<String> canonicalOwnedRoots(List<String> roots) {
+        Map<FileIdentity, String> byIdentity = new LinkedHashMap<>();
+        for (String root : roots) {
+            byIdentity.putIfAbsent(FileIdentity.of(root), root);
+        }
+        return new ArrayList<>(byIdentity.values());
+    }
+
+    private static String resolveDataLocation(Map<String, String> properties, String tableRoot) {
         String dataLocation = nonEmpty(properties.get(TableProperties.WRITE_DATA_LOCATION));
         if (dataLocation == null && Boolean.parseBoolean(properties.get(TableProperties.OBJECT_STORE_ENABLED))) {
             dataLocation = nonEmpty(properties.get(TableProperties.OBJECT_STORE_PATH));
@@ -171,11 +194,15 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         return dataLocation == null ? tableRoot + "/data" : dataLocation;
     }
 
-    private String nonEmpty(String location) {
+    private static String nonEmpty(String location) {
         return location == null || location.isEmpty() ? null : location;
     }
 
     private boolean isWithin(String location, String root) {
+        return isWithinLocation(location, root);
+    }
+
+    private static boolean isWithinLocation(String location, String root) {
         FileIdentity child = FileIdentity.of(location);
         FileIdentity parent = FileIdentity.of(root);
         String pathPrefix = parent.path.endsWith("/") ? parent.path : parent.path + "/";
@@ -300,7 +327,7 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         }
     }
 
-    private String normalizeLocation(String location) {
+    private static String normalizeLocation(String location) {
         String normalized = URI.create(location).normalize().toString();
         return normalized.length() > 1 && normalized.endsWith("/")
                 ? normalized.substring(0, normalized.length() - 1) : normalized;
