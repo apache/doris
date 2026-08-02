@@ -681,26 +681,31 @@ public class PaimonJniScanner extends JniScanner {
             requestedBound = Math.min(parsePositiveManifestParallelism(feParallelismCap), requestedBound);
         }
         final int safeBound = requestedBound;
+        boolean materializeAbsent = localCapacity > safeBound;
         if (systemSource != null && systemTableType != null) {
             FileStoreTable cappedSource =
-                    (FileStoreTable) applyManifestParallelismBound(systemSource, safeBound);
+                    applyManifestParallelismBound(systemSource, safeBound, materializeAbsent);
+            FileStoreTable planningSource = unwrapSystemPlanningSource(cappedSource);
             // Read-only wrappers hide the data table's option map. Rebuild from the transported
             // exact source so a smaller BE can lower that hidden planner without rewinding schema.
-            Table rebuilt = SystemTableLoader.load(systemTableType, cappedSource);
+            Table rebuilt = SystemTableLoader.load(systemTableType, planningSource);
             if (rebuilt == null) {
                 throw new IllegalArgumentException(
                         "Unsupported Paimon system table '" + systemTableType + "'");
             }
             return rebuilt;
         }
-        return applyManifestParallelismBound(table, safeBound);
+        return applyManifestParallelismBound(table, safeBound, materializeAbsent);
     }
 
-    private static Table applyManifestParallelismBound(Table table, int safeBound) {
+    private static Table applyManifestParallelismBound(
+            Table table, int safeBound, boolean materializeAbsent) {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
-            FileStoreTable main = applyManifestParallelismBound(pair.wrapped(), safeBound);
-            FileStoreTable fallback = applyManifestParallelismBound(pair.fallback(), safeBound);
+            FileStoreTable main = applyManifestParallelismBound(
+                    pair.wrapped(), safeBound, materializeAbsent);
+            FileStoreTable fallback = applyManifestParallelismBound(
+                    pair.fallback(), safeBound, materializeAbsent);
             if (main == pair.wrapped() && fallback == pair.fallback()) {
                 return table;
             }
@@ -709,7 +714,35 @@ public class PaimonJniScanner extends JniScanner {
             return new FallbackReadFileStoreTable(main, fallback);
         }
 
+        if (table instanceof DelegatedFileStoreTable) {
+            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
+            FileStoreTable normalized = applyManifestParallelismBound(
+                    wrapped, safeBound, materializeAbsent);
+            if (normalized == wrapped) {
+                return table;
+            }
+            // FE planning already enforced privilege delegates. Keeping one here would hide the
+            // fallback tree and force a single copied cap onto branches with independent values.
+            return normalized;
+        }
+
+        Optional<FileStoreTable> hiddenSource = hiddenSystemSource(table);
+        if (hiddenSource.isPresent()) {
+            FileStoreTable normalized = applyManifestParallelismBound(
+                    hiddenSource.get(), safeBound, materializeAbsent);
+            FileStoreTable planningSource = unwrapSystemPlanningSource(normalized);
+            return planningSource == hiddenSource.get()
+                    ? table : rebuildHiddenSystemTable(table, planningSource);
+        }
+
+        if (!(table instanceof FileStoreTable)) {
+            return table;
+        }
+
         String configured = table.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
+        if (configured == null && !materializeAbsent) {
+            return table;
+        }
         if (configured != null && parsePositiveManifestParallelism(configured) <= safeBound) {
             return table;
         }
@@ -717,13 +750,39 @@ public class PaimonJniScanner extends JniScanner {
         // bound instead of assuming that an empty option map is already safe on large hosts.
         Map<String, String> cap = Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeBound));
-        return table instanceof FileStoreTable
-                ? ((FileStoreTable) table).copyWithoutTimeTravel(cap) : table.copy(cap);
+        return ((FileStoreTable) table).copyWithoutTimeTravel(cap);
+    }
+
+    private static Table rebuildHiddenSystemTable(Table wrapper, FileStoreTable normalizedSource) {
+        try {
+            // Old FE payloads have no type/source side channel. Every Paimon 1.3 system wrapper
+            // owns a FileStoreTable constructor, which preserves the exact wrapper without a
+            // broadcast copy that would flatten fallback branch preferences.
+            Constructor<?> constructor = wrapper.getClass().getDeclaredConstructor(FileStoreTable.class);
+            constructor.setAccessible(true);
+            return (Table) constructor.newInstance(normalizedSource);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new IllegalArgumentException(
+                    "Unable to rebuild serialized Paimon system table "
+                            + wrapper.getClass().getName(), e);
+        }
     }
 
     private static FileStoreTable applyManifestParallelismBound(
-            FileStoreTable table, int safeBound) {
-        return (FileStoreTable) applyManifestParallelismBound((Table) table, safeBound);
+            FileStoreTable table, int safeBound, boolean materializeAbsent) {
+        return (FileStoreTable) applyManifestParallelismBound(
+                (Table) table, safeBound, materializeAbsent);
+    }
+
+    private static FileStoreTable unwrapSystemPlanningSource(FileStoreTable table) {
+        FileStoreTable current = table;
+        // System wrappers dispatch fallback reads only when the fallback pair is their direct
+        // source; FE authorization has already run, so privilege-only delegates must not hide it.
+        while (current instanceof DelegatedFileStoreTable
+                && !(current instanceof FallbackReadFileStoreTable)) {
+            current = ((DelegatedFileStoreTable) current).wrapped();
+        }
+        return current;
     }
 
     private static int parsePositiveManifestParallelism(String value) {

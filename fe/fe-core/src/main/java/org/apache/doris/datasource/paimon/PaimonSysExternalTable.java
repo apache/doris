@@ -210,7 +210,8 @@ public class PaimonSysExternalTable extends ExternalTable {
     }
 
     private Table createSystemTable(FileStoreTable dataTable) {
-        Table systemTable = SystemTableLoader.load(sysTableType, dataTable);
+        Table systemTable = SystemTableLoader.load(
+                sysTableType, PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
         if (systemTable == null) {
             throw new IllegalArgumentException("Unknown Paimon system table '" + sysTableType + "'.");
         }

@@ -761,6 +761,28 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testSystemWrapperIsNotRecappedAfterItsHiddenSource() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table rawSource = Mockito.mock(Table.class);
+        Table safeWrapper = Mockito.mock(Table.class);
+
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(rawSource);
+        Mockito.when(systemTable.getSysTableType()).thenReturn("partitions");
+        Mockito.when(systemTable.getSysPaimonTable()).thenReturn(safeWrapper);
+        Mockito.when(safeWrapper.options()).thenReturn(Collections.emptyMap());
+        node.setSource(source);
+
+        // The system-table factory has already normalized each hidden fallback leaf. Copying the
+        // outer wrapper with one cap would broadcast it and erase a smaller sibling preference.
+        Assert.assertSame(safeWrapper, invokePrivateMethod(node, "getProcessedTable"));
+        Mockito.verify(safeWrapper, Mockito.never()).copy(ArgumentMatchers.anyMap());
+        Mockito.verify(systemTable).validateEffectiveDataTable(null);
+    }
+
+    @Test
     public void testSystemTableRejectsIncrementalReadWhenReaderIgnoresRange() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
@@ -885,20 +907,21 @@ public class PaimonScanNodeTest {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
-        Table rawTable = Mockito.mock(Table.class);
-        Table safeTable = Mockito.mock(Table.class);
+        FileStoreTable rawTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable safeTable = Mockito.mock(FileStoreTable.class);
         Mockito.when(source.getExternalTable()).thenReturn(externalTable);
         Mockito.when(source.getPaimonTable()).thenReturn(rawTable);
         Mockito.when(rawTable.options()).thenReturn(ImmutableMap.of(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity + 1)));
-        Mockito.when(rawTable.copy(ArgumentMatchers.anyMap())).thenReturn(safeTable);
+        Mockito.when(rawTable.copyWithoutTimeTravel(ArgumentMatchers.anyMap())).thenReturn(safeTable);
         Mockito.when(safeTable.options()).thenReturn(ImmutableMap.of(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity)));
         node.setSource(source);
 
         Assert.assertSame(safeTable, invokePrivateMethod(node, "getProcessedTable"));
-        Mockito.verify(rawTable).copy(ArgumentMatchers.argThat(options -> String.valueOf(localCapacity)
-                .equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))));
+        Mockito.verify(rawTable).copyWithoutTimeTravel(ArgumentMatchers.argThat(options ->
+                String.valueOf(localCapacity)
+                        .equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))));
     }
 
     @Test

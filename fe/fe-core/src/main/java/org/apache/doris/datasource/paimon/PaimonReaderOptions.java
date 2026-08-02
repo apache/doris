@@ -22,14 +22,14 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalInt;
@@ -152,84 +152,87 @@ public final class PaimonReaderOptions {
         validateIfPresentForRuntime(options, CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
     }
 
-    public static Map<String, String> runtimeSafeCopyOptions(Table table, Map<String, String> copyOptions) {
-        Map<String, String> safeOptions = new LinkedHashMap<>(copyOptions);
-        String key = CoreOptions.SCAN_MANIFEST_PARALLELISM.key();
-        if (safeOptions.containsKey(key)) {
-            String configured = safeOptions.get(key);
-            if (configured == null) {
-                return safeOptions;
-            }
-            validateManifestParallelism(configured);
-            int requested = Integer.parseInt(configured);
-            int localCapacity = Runtime.getRuntime().availableProcessors();
-            if (requested > localCapacity) {
-                safeOptions.put(key, String.valueOf(localCapacity));
-            }
-            return safeOptions;
-        }
-
-        List<Integer> configuredValues = new ArrayList<>();
-        collectManifestParallelism(table, configuredValues);
-        if (configuredValues.isEmpty()) {
-            return safeOptions;
-        }
-        int localCapacity = Runtime.getRuntime().availableProcessors();
-        if (configuredValues.stream().anyMatch(value -> value > localCapacity)) {
-            // Keep persisted semantics stable across heterogeneous FEs, but cap the execution copy
-            // conservatively across every nested planner hidden by a wrapper.
-            int safeParallelism = configuredValues.stream()
-                    .mapToInt(Integer::intValue)
-                    .min()
-                    .orElse(localCapacity);
-            safeOptions.put(key, String.valueOf(Math.min(safeParallelism, localCapacity)));
-        }
-        return safeOptions;
-    }
-
     public static Table runtimeSafeTable(Table table) {
-        Map<String, String> safeOptions = runtimeSafeCopyOptions(table, Collections.emptyMap());
-        return safeOptions.isEmpty() ? table : table.copy(safeOptions);
+        return runtimeSafeTable(table, Runtime.getRuntime().availableProcessors());
     }
 
     public static Table runtimeSafeTable(Table table, Map<String, String> copyOptions) {
-        return table.copy(runtimeSafeCopyOptions(table, copyOptions));
+        // Relation options intentionally apply to both fallback branches. Runtime safety is a
+        // different operation and must normalize each resulting planner without flattening them.
+        return runtimeSafeTable(table.copy(copyOptions));
     }
 
-    public static OptionalInt runtimeSafeManifestParallelism(Table table) {
-        List<Integer> configuredValues = new ArrayList<>();
-        collectManifestParallelism(table, configuredValues);
-        if (configuredValues.isEmpty()) {
-            return OptionalInt.empty();
+    static Table runtimeSafeTable(Table table, int localCapacity) {
+        if (localCapacity < 1) {
+            throw new IllegalArgumentException("Paimon planning capacity must be positive.");
         }
-        return OptionalInt.of(Math.min(
-                configuredValues.stream().mapToInt(Integer::intValue).min().getAsInt(),
-                Runtime.getRuntime().availableProcessors()));
+        int safeBound = Math.min(localCapacity, MAX_MANIFEST_PARALLELISM);
+        return normalizeManifestParallelism(table, safeBound, localCapacity > safeBound);
     }
 
     public static OptionalInt backendManifestParallelismCap(Table table) {
-        List<Integer> configuredValues = new ArrayList<>();
-        collectManifestParallelism(table, configuredValues);
         // The transport value is the execution ceiling, not the smallest branch preference;
         // the BE preserves each branch's lower value while independently capping larger siblings.
         return OptionalInt.of(Math.min(
                 Runtime.getRuntime().availableProcessors(), MAX_MANIFEST_PARALLELISM));
     }
 
-    private static void collectManifestParallelism(Table table, List<Integer> configuredValues) {
-        Map<String, String> options = table.options();
-        String key = CoreOptions.SCAN_MANIFEST_PARALLELISM.key();
-        if (options != null && options.containsKey(key) && options.get(key) != null) {
-            String configured = options.get(key);
-            validateManifestParallelism(configured);
-            configuredValues.add(Integer.parseInt(configured));
-        }
+    private static Table normalizeManifestParallelism(
+            Table table, int safeBound, boolean materializeAbsent) {
         if (table instanceof FallbackReadFileStoreTable) {
-            collectManifestParallelism(((FallbackReadFileStoreTable) table).fallback(), configuredValues);
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            FileStoreTable main = normalizeManifestParallelism(
+                    pair.wrapped(), safeBound, materializeAbsent);
+            FileStoreTable fallback = normalizeManifestParallelism(
+                    pair.fallback(), safeBound, materializeAbsent);
+            return main == pair.wrapped() && fallback == pair.fallback()
+                    ? table : new FallbackReadFileStoreTable(main, fallback);
         }
+
         if (table instanceof DelegatedFileStoreTable) {
-            collectManifestParallelism(((DelegatedFileStoreTable) table).wrapped(), configuredValues);
+            if (!(table instanceof PrivilegedFileStoreTable)) {
+                throw new IllegalArgumentException("Unsupported Paimon planning table delegate: "
+                        + table.getClass().getName());
+            }
+            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
+            FileStoreTable normalized = normalizeManifestParallelism(
+                    wrapped, safeBound, materializeAbsent);
+            if (normalized == wrapped) {
+                return table;
+            }
+            // A delegate copy broadcasts one value to every fallback branch. Check authorization
+            // before peeling the privilege-only layer so branch-local limits remain independent.
+            ((FileStoreTable) table).newScan();
+            return normalized;
         }
+
+        if (!(table instanceof FileStoreTable)) {
+            // System-table wrappers hide the already-normalized source. Treating the wrapper as a
+            // planning leaf would broadcast one cap through its private fallback tree on copy().
+            return table;
+        }
+
+        String key = CoreOptions.SCAN_MANIFEST_PARALLELISM.key();
+        String configured = table.options().get(key);
+        if (configured == null && !materializeAbsent) {
+            return table;
+        }
+        if (configured != null) {
+            validateManifestParallelism(configured);
+            if (Integer.parseInt(configured) <= safeBound) {
+                return table;
+            }
+        }
+        // Paimon's absent value inherits the processor count. Materialize the bound on every leaf;
+        // otherwise one missing fallback child can escape a safe explicit sibling on a large FE.
+        Map<String, String> cap = Collections.singletonMap(key, String.valueOf(safeBound));
+        return ((FileStoreTable) table).copyWithoutTimeTravel(cap);
+    }
+
+    private static FileStoreTable normalizeManifestParallelism(
+            FileStoreTable table, int safeBound, boolean materializeAbsent) {
+        return (FileStoreTable) normalizeManifestParallelism(
+                (Table) table, safeBound, materializeAbsent);
     }
 
     public static void validateEffectiveTable(Table table) {

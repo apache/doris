@@ -163,8 +163,8 @@ public final class PaimonScanParams {
         }
         // The captured fence already selected the schema generation; only carry the resolved reader
         // selector and runtime limits without asking Paimon to rewind that schema again.
-        FileStoreTable effectiveTable = table.copyWithoutTimeTravel(
-                PaimonReaderOptions.runtimeSafeCopyOptions(table, isolatedOptions));
+        FileStoreTable effectiveTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
+                table.copyWithoutTimeTravel(isolatedOptions));
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);
         return effectiveTable;
     }

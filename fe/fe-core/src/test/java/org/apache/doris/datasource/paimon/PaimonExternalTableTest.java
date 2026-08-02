@@ -356,12 +356,12 @@ public class PaimonExternalTableTest {
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity + 1)));
         Mockito.when(safeDataTable.options()).thenReturn(ImmutableMap.of(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity)));
-        Mockito.when(dataTable.copy(ArgumentMatchers.anyMap())).thenReturn(safeDataTable);
+        Mockito.when(dataTable.copyWithoutTimeTravel(ArgumentMatchers.anyMap())).thenReturn(safeDataTable);
 
         Table systemTable = newSystemTable(dataTable).getSysPaimonTable();
 
         Assert.assertTrue(systemTable instanceof PartitionsTable);
-        Mockito.verify(dataTable).copy(ArgumentMatchers.argThat((Map<String, String> options) ->
+        Mockito.verify(dataTable).copyWithoutTimeTravel(ArgumentMatchers.argThat((Map<String, String> options) ->
                 String.valueOf(localCapacity)
                         .equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))));
     }
@@ -477,13 +477,15 @@ public class PaimonExternalTableTest {
     public void testFetchRowCountCapsAcceptedManifestParallelismBeforePlanning() {
         int localCapacity = Runtime.getRuntime().availableProcessors();
         org.junit.Assume.assumeTrue(localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
-        Table rawTable = Mockito.mock(Table.class);
-        Table cappedTable = Mockito.mock(Table.class);
+        FileStoreTable rawTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable cappedTable = Mockito.mock(FileStoreTable.class);
         ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class, Mockito.RETURNS_DEEP_STUBS);
         Mockito.when(rawTable.options()).thenReturn(ImmutableMap.of(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity + 1)));
-        Mockito.when(rawTable.copy(ArgumentMatchers.argThat(options -> String.valueOf(localCapacity)
-                .equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))))).thenReturn(cappedTable);
+        Mockito.when(rawTable.copyWithoutTimeTravel(ArgumentMatchers.argThat(options ->
+                String.valueOf(localCapacity)
+                        .equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key())))))
+                .thenReturn(cappedTable);
         Mockito.when(cappedTable.options()).thenReturn(ImmutableMap.of(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity)));
         Mockito.when(cappedTable.newReadBuilder()).thenReturn(readBuilder);
@@ -496,7 +498,7 @@ public class PaimonExternalTableTest {
 
             Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT, externalTable.fetchRowCount());
         }
-        Mockito.verify(rawTable).copy(ArgumentMatchers.anyMap());
+        Mockito.verify(rawTable).copyWithoutTimeTravel(ArgumentMatchers.anyMap());
     }
 
     @Test

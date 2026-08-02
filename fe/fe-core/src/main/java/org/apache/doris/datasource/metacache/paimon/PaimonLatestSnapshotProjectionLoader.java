@@ -98,9 +98,9 @@ public final class PaimonLatestSnapshotProjectionLoader {
             if (fence.getSnapshotId() != PaimonSnapshot.INVALID_SNAPSHOT_ID) {
                 // Pin data at the statement fence without replaying time travel, which would
                 // discard a schema-only ALTER that happened after the last data snapshot.
-                Map<String, String> projectionOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
-                        latestSchemaTable, PaimonScanParams.isolateSnapshotRead(fence.getSnapshotId()));
-                snapshotTable = latestSchemaTable.copyWithoutTimeTravel(projectionOptions);
+                snapshotTable = PaimonReaderOptions.runtimeSafeTable(
+                        latestSchemaTable.copyWithoutTimeTravel(
+                                PaimonScanParams.isolateSnapshotRead(fence.getSnapshotId())));
             }
             List<Column> partitionColumns = schemaValueLoader.load(nameMapping, fence.getSchemaId())
                     .getPartitionColumns();
@@ -128,14 +128,13 @@ public final class PaimonLatestSnapshotProjectionLoader {
             // immediately after a schema change that has not produced a new data snapshot.
             projectionOptions = PaimonScanParams.isolateSnapshotRead(latestSnapshotId);
         }
-        if (normalizeForPartitionLoad) {
-            // Full projection enumerates partitions immediately, so its physical planner must be
-            // safe now; the lightweight fence remains neutral until relation overrides are known.
-            projectionOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
-                    latestSchemaTable, projectionOptions);
-        }
         if (!projectionOptions.isEmpty()) {
             snapshotTable = latestSchemaTable.copyWithoutTimeTravel(projectionOptions);
+        }
+        if (normalizeForPartitionLoad) {
+            // Full projection enumerates partitions immediately, so normalize the complete
+            // planning tree after pinning; the lightweight fence remains relation-neutral.
+            snapshotTable = PaimonReaderOptions.runtimeSafeTable(snapshotTable);
         }
         DataTable dataTable = (DataTable) latestSchemaTable;
         long latestSchemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);

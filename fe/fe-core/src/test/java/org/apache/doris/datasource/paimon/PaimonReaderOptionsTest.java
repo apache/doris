@@ -117,17 +117,48 @@ public class PaimonReaderOptionsTest {
     }
 
     @Test
-    void testManifestParallelismIsCappedOnlyOnRuntimeCopy() {
-        Table table = Mockito.mock(Table.class);
-        int localCapacity = Runtime.getRuntime().availableProcessors();
-        int requested = Math.min(PaimonReaderOptions.MAX_MANIFEST_PARALLELISM, localCapacity + 1);
-        Mockito.when(table.options()).thenReturn(Collections.emptyMap());
+    void testRuntimeCapNormalizesEveryPlanningLeafIndependently() {
+        FileStoreTable empty = newFileStoreTable("empty", Collections.emptyMap());
+        FileStoreTable explicit = newFileStoreTable("explicit", ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
 
-        Map<String, String> normalized = PaimonReaderOptions.runtimeSafeCopyOptions(table,
-                ImmutableMap.of(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(requested)));
+        FileStoreTable safeEmpty = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(empty, 512);
+        FallbackReadFileStoreTable explicitThenEmpty = (FallbackReadFileStoreTable)
+                PaimonReaderOptions.runtimeSafeTable(
+                        new FallbackReadFileStoreTable(explicit, empty), 512);
+        FallbackReadFileStoreTable emptyThenExplicit = (FallbackReadFileStoreTable)
+                PaimonReaderOptions.runtimeSafeTable(
+                        new FallbackReadFileStoreTable(empty, explicit), 512);
+        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
+                new FallbackReadFileStoreTable(explicit, empty),
+                Mockito.mock(PrivilegeChecker.class), Identifier.create("db", "table"));
+        Table normalizedDelegate = PaimonReaderOptions.runtimeSafeTable(privileged, 512);
 
-        Assertions.assertEquals(String.valueOf(Math.min(requested, localCapacity)),
-                normalized.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertEquals("256", safeEmpty.options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertEquals("1", explicitThenEmpty.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertEquals("256", explicitThenEmpty.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertEquals("256", emptyThenExplicit.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertEquals("1", emptyThenExplicit.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertInstanceOf(FallbackReadFileStoreTable.class, normalizedDelegate);
+        Assertions.assertEquals("256", ((FallbackReadFileStoreTable) normalizedDelegate)
+                .fallback().options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    void testSystemSourceKeepsFallbackAsOutermostPlanningDecorator() {
+        FileStoreTable main = newFileStoreTable("main", Collections.emptyMap());
+        FileStoreTable fallback = newFileStoreTable("fallback", Collections.emptyMap());
+        FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback);
+        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
+                pair, Mockito.mock(PrivilegeChecker.class),
+                Identifier.create("db", "privileged_fallback"));
+
+        Assertions.assertSame(pair, PaimonTableDecorators.unwrapToFallbackOrBase(privileged));
     }
 
     @Test
