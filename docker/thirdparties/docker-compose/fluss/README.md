@@ -85,5 +85,23 @@ path string.
 | `log_empty` | log table with no rows at all (planning must emit zero scan ranges) |
 | `pk_basic` | primary-key table, one updated row and one deleted row |
 | `pk_types` | primary-key table with the same type coverage as `log_types` |
+| `pk_part` | primary-key table partitioned by `dt`, with an update and a delete inside a partition |
 
 Data-lake tables and the tiering service are added when union read lands.
+
+### Primary-key tables come with a kv snapshot
+
+The server takes kv snapshots every ten seconds here rather than every ten
+minutes, and startup does not report the environment ready until each
+primary-key table has one on disk (`wait_for_kv_snapshots` in
+`scripts/run-init-sql.sh`).
+
+That is not tuning: Doris BE reads those snapshot files directly, from the
+host, at the path this container wrote them to — the directory is bind mounted
+at the same absolute path on both sides — and nothing but an end-to-end run
+covers that. A primary-key table with no snapshot is read by replaying its
+whole change log instead, which is equally correct and takes a different code
+path, so without the wait the interesting path would only be exercised by luck.
+
+Short intervals do not pile up files: a tablet whose log has not advanced since
+its last snapshot is skipped, and the fixtures stop writing when init ends.

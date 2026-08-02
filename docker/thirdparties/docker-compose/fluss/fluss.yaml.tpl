@@ -98,6 +98,15 @@ services:
         # rejects every write, and the client retries ~2^31 times instead of
         # failing, so the environment hangs instead of reporting anything.
         server.data-disk.write-limit-ratio: 1.0
+        # Ten minutes by default, which would leave the primary-key fixtures
+        # with no kv snapshot for as long as the suites take to run: they would
+        # then be read by replaying the change log, and the path where Doris BE
+        # reads a snapshot FILE this container wrote -- the one thing only an
+        # end-to-end run can check -- would never be exercised. Short enough
+        # that init can wait for it; this does not pile up files, because a
+        # tablet whose log has not advanced since its last snapshot is skipped
+        # (KvTabletSnapshotTarget), and the fixtures stop writing after init.
+        kv.snapshot.interval: 10s
     volumes:
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}
     healthcheck:
@@ -172,6 +181,9 @@ services:
     environment:
       - FLUSS_BOOTSTRAP_SERVERS=doris--fluss-coordinator:9123
       - FLUSS_JOBMANAGER_HOST=doris--fluss-jobmanager
+      # Read-only, and only so that init can wait for the kv snapshots to be
+      # written before declaring the environment ready.
+      - FLUSS_REMOTE_DATA_DIR=${FLUSS_REMOTE_DATA_DIR}
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: doris--fluss-jobmanager
@@ -179,6 +191,7 @@ services:
     volumes:
       - ./sql:/opt/fluss-sql:ro
       - ./scripts:/opt/fluss-scripts:ro
+      - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}:ro
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/fluss-init/SUCCESS"]
       interval: 5s
