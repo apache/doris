@@ -119,6 +119,7 @@ public class PaimonExternalMetaCacheTest {
         FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
         FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
         FileStoreTable pinnedTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable cappedTable = Mockito.mock(FileStoreTable.class);
         Snapshot snapshot = Mockito.mock(Snapshot.class);
         SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
         TableSchema latestSchema = Mockito.mock(TableSchema.class);
@@ -128,6 +129,11 @@ public class PaimonExternalMetaCacheTest {
         Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(snapshot));
         Mockito.when(snapshot.id()).thenReturn(12L);
         Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(pinnedTable);
+        // Model Paimon's option inheritance after snapshot pinning. The cap must be applied to the
+        // resulting planning leaf so fallback branches keep their independent lower limits.
+        Mockito.when(pinnedTable.options()).thenReturn(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "256"));
+        Mockito.when(pinnedTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(cappedTable);
         Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
         Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
         Mockito.when(latestSchema.id()).thenReturn(4L);
@@ -135,10 +141,11 @@ public class PaimonExternalMetaCacheTest {
         loader.load(nameMapping, baseTable);
 
         Mockito.verify(latestSchemaTable).copyWithoutTimeTravel(Mockito.argThat(options ->
+                "12".equals(options.get(CoreOptions.SCAN_SNAPSHOT_ID.key()))));
+        Mockito.verify(pinnedTable).copyWithoutTimeTravel(Mockito.argThat(options ->
                 String.valueOf(localCapacity).equals(
-                        options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))
-                        && "12".equals(options.get(CoreOptions.SCAN_SNAPSHOT_ID.key()))));
-        Mockito.verify(partitionLoader).load(nameMapping, pinnedTable, Collections.emptyList());
+                        options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))));
+        Mockito.verify(partitionLoader).load(nameMapping, cappedTable, Collections.emptyList());
     }
 
     @Test
