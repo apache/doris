@@ -64,10 +64,12 @@ under the License.
               this jar, and a second copy on the child-first plugin classpath is a split-brain risk.
             - frocksdbjni CANNOT be excluded: it is not a transitive dependency, so there is nothing to
               exclude. The FE carries it even though only the BE-side scanner ever opens a kv snapshot.
-          The one thing fluss-client does NOT bring is Arrow: it declares arrow-vector and
-          arrow-memory-netty `provided`, so a consumer that reaches fluss's ARROW log format has to add
-          them itself. This module does not (metadata and split planning stay off that path); the
-          BE-side scanner, which decodes log records, is expected to need them.
+          Arrow needs no declaration either, despite fluss-client's pom marking arrow-vector and
+          arrow-memory-netty `provided`: fluss does not use those coordinates. Its ARROW log format
+          goes through a relocated copy bundled in this same jar (org.apache.fluss.shaded.arrow.**),
+          allocator included, so a consumer that decodes log records is already served. What such a
+          consumer DOES need is the add-opens=java.base/java.nio=ALL-UNNAMED JVM flag, which arrow's
+          off-heap MemoryUtil requires on JDK 9+ (bin/start_be.sh already passes it).
         -->
         <dependency>
             <groupId>org.apache.fluss</groupId>

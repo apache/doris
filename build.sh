@@ -822,6 +822,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/java-udf")
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
+    modules+=("be-java-extensions/fluss-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-connector")
     # lakesoul-scanner has been deprecated
@@ -1328,6 +1329,7 @@ EOF
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
+    extensions_modules+=("fluss-scanner")
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-connector")
     # lakesoul-scanner has been deprecated
