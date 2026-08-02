@@ -19,10 +19,13 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
@@ -30,6 +33,10 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.List;
 import java.util.Map;
 
@@ -199,6 +206,107 @@ public class DistributionHashTypeTest {
         HashDistributionInfo info = (HashDistributionInfo) desc.toDistributionInfo(schema);
         Assert.assertEquals(HashType.CRC32, info.getHashType());
         Assert.assertEquals(2, info.getDistributionColumns().size());
+    }
+
+    // ------------------------------------------------------------------
+    // ColocateGroupSchema: hashType participates in colocate compatibility and metadata
+    // ------------------------------------------------------------------
+
+    private ColocateGroupSchema schemaWith(HashType type) {
+        return new ColocateGroupSchema(new GroupId(1L, 2L), Lists.newArrayList(intCol("id")), 8,
+                new ReplicaAllocation((short) 1), type);
+    }
+
+    @Test
+    public void testCheckDistributionAllowsSameHashType() throws DdlException {
+        // A table whose distribution hashType matches the group's must pass checkDistribution.
+        for (HashType type : HashType.values()) {
+            ColocateGroupSchema schema = schemaWith(type);
+            HashDistributionInfo info = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), type);
+            schema.checkDistribution(info); // should not throw
+        }
+    }
+
+    @Test
+    public void testCheckDistributionRejectsDifferentHashType() {
+        // Mixing hash types inside one colocate group would break co-location, so it must be
+        // rejected before the buckets-num / column checks even when those are identical.
+        HashType[] types = HashType.values();
+        for (int i = 0; i < types.length; i++) {
+            for (int j = 0; j < types.length; j++) {
+                if (i == j) {
+                    continue;
+                }
+                ColocateGroupSchema schema = schemaWith(types[i]);
+                HashDistributionInfo info
+                        = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), types[j]);
+                Assert.assertThrows(DdlException.class, () -> schema.checkDistribution(info));
+            }
+        }
+    }
+
+    @Test
+    public void testWritableRoundTripPreservesHashType() throws Exception {
+        // With a current-version journal, write() appends the hashType name and readFields() must
+        // restore it verbatim for every hash type.
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_141);
+        metaContext.setThreadLocalInfo();
+        try {
+            for (HashType type : HashType.values()) {
+                ColocateGroupSchema original = schemaWith(type);
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                original.write(new DataOutputStream(bos));
+                ColocateGroupSchema restored
+                        = ColocateGroupSchema.read(new DataInputStream(new ByteArrayInputStream(bos.toByteArray())));
+                Assert.assertEquals("hashType lost in Writable round trip: " + type, type, restored.getHashType());
+                Assert.assertEquals(8, restored.getBucketsNum());
+            }
+        } finally {
+            MetaContext.remove();
+        }
+    }
+
+    @Test
+    public void testReadFieldsBeforeVersion141FallsBackToCrc32() throws Exception {
+        // Metadata streams written before VERSION_141 have no trailing hashType token. Simulate an
+        // old reader (journal version < 141) so readFields must skip that read and fall back to
+        // CRC32 to keep legacy colocate groups on their historical bucket layout.
+        MetaContext writeContext = new MetaContext();
+        writeContext.setMetaVersion(FeMetaVersion.VERSION_141);
+        writeContext.setThreadLocalInfo();
+        byte[] bytes;
+        try {
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            schemaWith(HashType.CRC32).write(new DataOutputStream(bos));
+            bytes = bos.toByteArray();
+        } finally {
+            MetaContext.remove();
+        }
+        // Now read with an old journal version: readFields must NOT consume any hashType token and
+        // returns CRC32 regardless of what trailing bytes exist.
+        MetaContext readContext = new MetaContext();
+        readContext.setMetaVersion(FeMetaVersion.VERSION_140);
+        readContext.setThreadLocalInfo();
+        try {
+            ColocateGroupSchema restored
+                    = ColocateGroupSchema.read(new DataInputStream(new ByteArrayInputStream(bytes)));
+            Assert.assertEquals(HashType.CRC32, restored.getHashType());
+        } finally {
+            MetaContext.remove();
+        }
+    }
+
+    @Test
+    public void testGetHashTypeNullFallsBackToCrc32() {
+        // Legacy gson metadata has no "hashType" field; getHashType() must not NPE and defaults to
+        // CRC32, matching HashDistributionInfo's fallback.
+        ColocateGroupSchema schema = schemaWith(HashType.IDENTITY);
+        String json = GsonUtils.GSON.toJson(schema);
+        String legacyJson = json.replaceAll(",?\\s*\"hashType\"\\s*:\\s*\"[A-Z0-9_]+\"", "");
+        Assert.assertFalse(legacyJson.contains("hashType"));
+        ColocateGroupSchema restored = GsonUtils.GSON.fromJson(legacyJson, ColocateGroupSchema.class);
+        Assert.assertEquals(HashType.CRC32, restored.getHashType());
     }
 
     // Alternate the case of each character so the parse path is exercised case-insensitively
