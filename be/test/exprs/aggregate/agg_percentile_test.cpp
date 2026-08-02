@@ -212,7 +212,7 @@ ColumnWithTypeAndName create_percentile_array_const_column(const std::vector<dou
             "quantiles"};
 }
 
-double read_result(AggregateFunctionPtr fn, AggregateDataPtr place) {
+double read_scalar_result(AggregateFunctionPtr fn, AggregateDataPtr place) {
     auto result_column = ColumnFloat64::create();
     fn->insert_result_into(place, *result_column);
     return result_column->get_element(0);
@@ -220,7 +220,7 @@ double read_result(AggregateFunctionPtr fn, AggregateDataPtr place) {
 
 } // namespace
 
-TEST(AggregateFunctionPercentileApproxArrayTest, AddAndBatchPaths) {
+TEST(AggregateFunctionPercentileTest, AddAndBatchPaths) {
     const std::vector<double> values {1, 2, 3, 4, 5, 100};
     const std::vector<double> quantiles {0.9, 0.0, 0.5, 0.5, 1.0};
     auto function = create_percentile_approx_array_function(false);
@@ -259,7 +259,7 @@ TEST(AggregateFunctionPercentileApproxArrayTest, AddAndBatchPaths) {
     function->destroy(range_place);
 }
 
-TEST(AggregateFunctionPercentileApproxArrayTest, CompressionSerializationAndMerge) {
+TEST(AggregateFunctionPercentileTest, CompressionSerializationAndMerge) {
     const std::vector<double> values {5, 10, 15, 20, 25, 30};
     const std::vector<double> quantiles {0.25, 0.5, 0.75};
     auto function = create_percentile_approx_array_function(true);
@@ -303,7 +303,7 @@ TEST(AggregateFunctionPercentileApproxArrayTest, CompressionSerializationAndMerg
     function->destroy(merged_place);
 }
 
-TEST(AggregateFunctionPercentileApproxArrayTest, MergeCompatibleInitializedStates) {
+TEST(AggregateFunctionPercentileTest, MergeCompatibleInitializedStates) {
     const std::vector<double> left_values {5, 10, 15};
     const std::vector<double> right_values {20, 25, 30};
     const std::vector<double> quantiles {0.25, 0.5, 0.75};
@@ -337,7 +337,7 @@ TEST(AggregateFunctionPercentileApproxArrayTest, MergeCompatibleInitializedState
     function->destroy(right.get());
 }
 
-TEST(AggregateFunctionPercentileApproxArrayTest, EmptyQuantilesAndInvalidQuantile) {
+TEST(AggregateFunctionPercentileTest, EmptyQuantilesAndInvalidQuantile) {
     auto function = create_percentile_approx_array_function(false);
     ASSERT_NE(function, nullptr);
     Arena arena;
@@ -392,7 +392,7 @@ TEST(AggregateFunctionPercentileApproxArrayTest, EmptyQuantilesAndInvalidQuantil
     function->destroy(invalid_place);
 }
 
-TEST(AggregateFunctionPercentileApproxArrayTest, RejectsIncompatibleStates) {
+TEST(AggregateFunctionPercentileTest, RejectsIncompatibleStates) {
     auto function = create_percentile_approx_array_function(true);
     ASSERT_NE(function, nullptr);
     Arena arena;
@@ -421,7 +421,7 @@ TEST(AggregateFunctionPercentileApproxArrayTest, RejectsIncompatibleStates) {
     function->destroy(different_compression.get());
 }
 
-TEST(AggregateFunctionPercentileApproxArrayTest, HandlesNonFiniteParameters) {
+TEST(AggregateFunctionPercentileTest, HandlesNonFiniteParameters) {
     const std::vector<double> non_finite_values {std::numeric_limits<double>::quiet_NaN(),
                                                  std::numeric_limits<double>::infinity(),
                                                  -std::numeric_limits<double>::infinity()};
@@ -481,6 +481,38 @@ TEST(AggregateFunctionPercentileTest, reservoir_state_caches_const_level_across_
     EXPECT_DOUBLE_EQ(state.get(), 15.0);
 }
 
+TEST(AggregateFunctionPercentileTest, reservoir_state_serialization_preserves_initialization) {
+    QuantileReservoirSampler empty_state;
+    auto empty_buffer = ColumnString::create();
+    BufferWritable empty_writer(*empty_buffer);
+    empty_state.serialize(empty_writer);
+    empty_writer.commit();
+
+    QuantileReservoirSampler deserialized_empty_state;
+    BufferReadable empty_reader(empty_buffer->get_data_at(0));
+    deserialized_empty_state.deserialize(empty_reader);
+    EXPECT_FALSE(deserialized_empty_state.is_level_initialized());
+
+    QuantileReservoirSampler initialized_state;
+    initialized_state.init(0.5);
+    initialized_state.add(1.0);
+    initialized_state.add(3.0);
+    initialized_state.merge(deserialized_empty_state);
+    EXPECT_TRUE(initialized_state.is_level_initialized());
+    EXPECT_DOUBLE_EQ(initialized_state.get(), 2.0);
+
+    auto initialized_buffer = ColumnString::create();
+    BufferWritable initialized_writer(*initialized_buffer);
+    initialized_state.serialize(initialized_writer);
+    initialized_writer.commit();
+
+    QuantileReservoirSampler deserialized_initialized_state;
+    BufferReadable initialized_reader(initialized_buffer->get_data_at(0));
+    deserialized_initialized_state.deserialize(initialized_reader);
+    EXPECT_TRUE(deserialized_initialized_state.is_level_initialized());
+    EXPECT_DOUBLE_EQ(deserialized_initialized_state.get(), 2.0);
+}
+
 TEST(AggregateFunctionPercentileTest, optimized_single_place_paths) {
     auto fn = create_percentile_reservoir_function(
             {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>()});
@@ -499,7 +531,7 @@ TEST(AggregateFunctionPercentileTest, optimized_single_place_paths) {
     const IColumn* columns[] = {arguments[0].column.get(), arguments[1].column.get()};
 
     fn->add_batch_single_place(4, place, columns, arena);
-    EXPECT_DOUBLE_EQ(read_result(fn, place), 2.5);
+    EXPECT_DOUBLE_EQ(read_scalar_result(fn, place), 2.5);
 
     fn->reset(place);
 
@@ -509,7 +541,7 @@ TEST(AggregateFunctionPercentileTest, optimized_single_place_paths) {
                                &could_use_previous_result);
     EXPECT_FALSE(use_null_result);
     EXPECT_TRUE(could_use_previous_result);
-    EXPECT_DOUBLE_EQ(read_result(fn, place), 2.5);
+    EXPECT_DOUBLE_EQ(read_scalar_result(fn, place), 2.5);
 
     fn->reset(place);
     use_null_result = false;
@@ -567,7 +599,7 @@ TEST(AggregateFunctionPercentileTest, nullable_const_null_short_circuit) {
         fn->create(place);
 
         fn->add_batch_single_place(2, place, columns, arena);
-        EXPECT_TRUE(std::isnan(read_result(fn, place)));
+        EXPECT_TRUE(std::isnan(read_scalar_result(fn, place)));
         fn->destroy(place);
     }
 }
@@ -591,7 +623,7 @@ TEST(AggregateFunctionPercentileTest, nullable_const_level_across_rows) {
         fn->create(place);
 
         fn->add_batch_single_place(4, place, columns, arena);
-        EXPECT_DOUBLE_EQ(read_result(fn, place), 2.5);
+        EXPECT_DOUBLE_EQ(read_scalar_result(fn, place), 2.5);
         fn->destroy(place);
     }
 }

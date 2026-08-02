@@ -53,8 +53,13 @@ struct QuantileReservoirSampler {
     void add_batch(const double* values, size_t size) { data.insert_many(values, size); }
 
     void merge(const QuantileReservoirSampler& rhs) {
-        level = rhs.level;
-        level_initialized = rhs.level_initialized;
+        if (!rhs.level_initialized) {
+            return;
+        }
+        if (!level_initialized) {
+            level = rhs.level;
+            level_initialized = true;
+        }
         data.merge(rhs.data);
     }
 
@@ -65,14 +70,23 @@ struct QuantileReservoirSampler {
     }
 
     void serialize(BufferWritable& buf) const {
+        buf.write_binary(level_initialized);
+        if (!level_initialized) {
+            return;
+        }
         buf.write_binary(level);
         data.write(buf);
     }
 
     void deserialize(BufferReadable& buf) {
+        level = 0.0;
+        data.clear();
+        buf.read_binary(level_initialized);
+        if (!level_initialized) {
+            return;
+        }
         buf.read_binary(level);
         check_quantile(level);
-        level_initialized = true;
         data.read(buf);
     }
 
