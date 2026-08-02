@@ -85,11 +85,13 @@ under the License.
             <scope>test</scope>
         </dependency>
 
+        <!-- Classifier rather than type "test-jar" for the reason spelled out in fe-connector-fluss:
+             the build cache extension would resolve the type as a file extension and find nothing. -->
         <dependency>
             <groupId>org.apache.fluss</groupId>
             <artifactId>fluss-server</artifactId>
             <version>${fluss.version}</version>
-            <type>test-jar</type>
+            <classifier>tests</classifier>
             <scope>test</scope>
         </dependency>
 
