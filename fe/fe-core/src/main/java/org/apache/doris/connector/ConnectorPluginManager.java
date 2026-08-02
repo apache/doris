@@ -462,11 +462,20 @@ public class ConnectorPluginManager {
     public void validatePropertiesForUpdate(String catalogType,
             Map<String, String> currentProperties, Map<String, String> updatedProperties) {
         for (ConnectorProvider provider : providers) {
-            Map<String, String> matchProperties = currentProperties == null
-                    ? Collections.emptyMap() : currentProperties;
-            if (provider.supports(catalogType, matchProperties)) {
-                provider.validatePropertiesForUpdate(currentProperties, updatedProperties);
-                return;
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try {
+                // Directory providers may resolve validation helpers through TCCL, so selection and
+                // validation must run under the same plugin loader and never leak it to the FE caller.
+                thread.setContextClassLoader(provider.getClass().getClassLoader());
+                Map<String, String> matchProperties = currentProperties == null
+                        ? Collections.emptyMap() : currentProperties;
+                if (provider.supports(catalogType, matchProperties)) {
+                    provider.validatePropertiesForUpdate(currentProperties, updatedProperties);
+                    return;
+                }
+            } finally {
+                thread.setContextClassLoader(previous);
             }
         }
     }
