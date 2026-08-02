@@ -167,7 +167,7 @@ public class FlussJniScanner extends JniScanner {
                 projectedTypes.add(rowType.getTypeAt(index));
             }
 
-            logScanner = table.newScan().project(projection).createLogScanner();
+            logScanner = table.newScan().project(scanProjection(projection)).createLogScanner();
             subscribe();
         } catch (Throwable e) {
             try {
@@ -212,6 +212,18 @@ public class FlussJniScanner extends JniScanner {
             projection[i] = index;
         }
         return projection;
+    }
+
+    /**
+     * What to actually ask fluss for. Normally the projected columns, but a query can need none of
+     * them — selecting only partition columns leaves this scanner with an empty projection, because
+     * BE materializes those from the range instead. Fluss rejects an empty projection outright
+     * ({@code Projection.of}), so the narrowest legal request stands in for it. Nothing reads the
+     * column that comes back: {@link #getNext} iterates over {@link #fields}, which is empty, and
+     * reports the row count alone. A fluss table always has a first column.
+     */
+    private static int[] scanProjection(int[] projection) {
+        return projection.length == 0 ? new int[] {0} : projection;
     }
 
     private Configuration clientConfig() {
