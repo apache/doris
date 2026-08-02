@@ -113,10 +113,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitTest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCountAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
@@ -305,7 +302,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
@@ -930,20 +926,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bitmapAndCount, context);
     }
 
-    default R visitBitmapAndNot(BitmapAndNot bitmapAndNot, C context) {
-        return visitScalarFunction(bitmapAndNot, context);
-    }
-
     default R visitBitmapAndNotCount(BitmapAndNotCount bitmapAndNotCount, C context) {
         return visitScalarFunction(bitmapAndNotCount, context);
-    }
-
-    default R visitBitmapAndNotAlias(BitmapAndNotAlias bitmapAndNotAlias, C context) {
-        return visitScalarFunction(bitmapAndNotAlias, context);
-    }
-
-    default R visitBitmapAndNotCountAlias(BitmapAndNotCountAlias bitmapAndNotCountAlias, C context) {
-        return visitScalarFunction(bitmapAndNotCountAlias, context);
     }
 
     default R visitBitmapContains(BitmapContains bitmapContains, C context) {
@@ -1746,10 +1730,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonObjectFlatten(JsonObjectFlatten jsonObjectFlatten, C context) {
         return visitScalarFunction(jsonObjectFlatten, context);
-    }
-
-    default R visitJsonExtractNoQuotes(JsonExtractNoQuotes jsonExtract, C context) {
-        return visitScalarFunction(jsonExtract, context);
     }
 
     default R visitJsonHash(JsonHash jsonhash, C context) {

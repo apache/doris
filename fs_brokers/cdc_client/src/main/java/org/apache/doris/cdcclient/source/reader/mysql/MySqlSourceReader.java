@@ -92,6 +92,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static io.debezium.connector.mysql.MySqlStreamingChangeEventSource.EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT;
 import static org.apache.doris.cdcclient.common.Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS;
 import static org.apache.doris.cdcclient.utils.ConfigUtil.is13Timestamp;
 import static org.apache.doris.cdcclient.utils.ConfigUtil.isJson;
@@ -102,6 +103,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.mysql.cj.conf.ConnectionUrl;
+import com.mysql.cj.conf.PropertyKey;
 import io.debezium.connector.mysql.MySqlConnection;
 import io.debezium.connector.mysql.MySqlConnectorConfig;
 import io.debezium.connector.mysql.MySqlPartition;
@@ -138,6 +140,11 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     public MySqlSourceReader() {
         this.serializer = new MySqlDebeziumJsonDeserializer();
         this.snapshotReaderContexts = new CopyOnWriteArrayList<>();
+    }
+
+    /** Whether server heartbeat events should be excluded from the restart event count. */
+    protected boolean excludeHeartbeatFromEventCount() {
+        return false;
     }
 
     @Override
@@ -743,7 +750,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                         splitStart,
                         splitEnd,
                         null,
-                        tableSchemas);
+                        Collections.singletonMap(tableId, tableChange));
         return split;
     }
 
@@ -994,6 +1001,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         dbzProps.setProperty(
                 MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
                 DEBEZIUM_HEARTBEAT_INTERVAL_MS + "");
+        dbzProps.setProperty(
+                EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT,
+                Boolean.toString(excludeHeartbeatFromEventCount()));
 
         if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_MODE)) {
             String normalized =
@@ -1018,6 +1028,13 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
         // Keep genuinely ancient (<100) DATE/DATETIME years; MySQL already completes 2-digit years.
         dbzProps.setProperty("enable.time.adjuster", "false");
+        // The converter is valid only when snapshot JDBC exposes YEAR values as numbers.
+        if ("false"
+                .equalsIgnoreCase(
+                        jdbcProperteis.getProperty(PropertyKey.yearIsDateType.getKeyName()))) {
+            dbzProps.setProperty("converters", "dorisYear");
+            dbzProps.setProperty("dorisYear.type", MySqlYearConverter.class.getName());
+        }
 
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));

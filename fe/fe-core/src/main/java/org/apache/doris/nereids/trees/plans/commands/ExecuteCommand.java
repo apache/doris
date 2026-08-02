@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -89,7 +91,34 @@ public class ExecuteCommand extends Command {
         StatementContext statementContext = preparedStmtCtx.getStatementContext();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
+        // A prepared EXECUTE reuses this one StatementContext across executions; drop the connector
+        // per-statement scope so a prior execution's cached tables/state never leak into this one (the
+        // scope key's queryId is a second line of defense). See StatementContext#resetConnectorStatementScope.
+        statementContext.resetConnectorStatementScope();
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
+        LogicalPlan relationRoot = logicalPlan;
+        if (logicalPlan instanceof InsertIntoTableCommand) {
+            relationRoot = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+        } else if (logicalPlan instanceof InsertOverwriteTableCommand) {
+            relationRoot = ((InsertOverwriteTableCommand) logicalPlan).getLogicalQuery();
+        } else if (logicalPlan instanceof UpdateCommand) {
+            relationRoot = ((UpdateCommand) logicalPlan).getLogicalQuery();
+        } else if (logicalPlan instanceof Command) {
+            // Non-DML commands deliberately have no traversable children; they cannot own a
+            // relation scan tree whose resolved state needs resetting.
+            relationRoot = null;
+        }
+        // PREPARE retains relation objects across executions. Clear only their resolved scan state
+        // so each EXECUTE resolves a fresh snapshot while one execution still uses one snapshot.
+        if (relationRoot != null) {
+            for (UnboundRelation relation : relationRoot.<UnboundRelation>collectToList(
+                    UnboundRelation.class::isInstance)) {
+                TableScanParams scanParams = relation.getScanParams();
+                if (scanParams != null) {
+                    scanParams.resetResolvedMapParams();
+                }
+            }
+        }
         if (logicalPlan instanceof LogicalSqlCache) {
             throw new AnalysisException("Unsupported sql cache for server prepared statement");
         }

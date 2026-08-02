@@ -1519,9 +1519,30 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     bool fe_with_old_version = false;
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
+        if (enable_query_cache) {
+            if (_query_cache_runtime == nullptr) {
+                // The plan tree is built in pre-order and the cache source
+                // sits above the scan, so the runtime it created must already
+                // exist here. Running the scan with its own runtime instead
+                // would silently drop data on a HIT (the scan skips scanning
+                // while no cache source emits the entry), so a malformed plan
+                // shape must fail loudly.
+                return Status::InternalError(
+                        "query cache runtime is absent at the scan node, node_id={}, "
+                        "cache node_id={}",
+                        tnode.node_id, _params.fragment.query_cache_param.node_id);
+            }
+            if (tnode.olap_scan_node.__isset.read_row_binlog &&
+                tnode.olap_scan_node.read_row_binlog) {
+                // Row-binlog scans read a different data stream: they must
+                // neither serve nor fill the query cache.
+                _query_cache_runtime->disable_for_binlog_scan();
+            }
+        }
         op = std::make_shared<OlapScanOperatorX>(
                 pool, tnode, next_operator_id(), descs, _num_instances,
-                enable_query_cache ? _params.fragment.query_cache_param : TQueryCacheParam {});
+                enable_query_cache ? _params.fragment.query_cache_param : TQueryCacheParam {},
+                enable_query_cache ? _query_cache_runtime : nullptr);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
@@ -1583,8 +1604,13 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         auto create_query_cache_operator = [&](PipelinePtr& new_pipe) {
             auto cache_node_id = _params.local_params[0].per_node_scan_ranges.begin()->first;
             auto cache_source_id = next_operator_id();
+            if (_query_cache_runtime == nullptr) {
+                _query_cache_runtime =
+                        std::make_shared<QueryCacheRuntime>(_params.fragment.query_cache_param);
+            }
             op = std::make_shared<CacheSourceOperatorX>(pool, cache_node_id, cache_source_id,
-                                                        _params.fragment.query_cache_param);
+                                                        _params.fragment.query_cache_param,
+                                                        _query_cache_runtime);
             RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
             const auto downstream_pipeline_id = cur_pipe->id();

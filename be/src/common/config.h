@@ -536,6 +536,7 @@ DECLARE_mInt64(vertical_compaction_max_segment_size);
 DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 // Enable RLE batch Put optimization for compaction
 DECLARE_mBool(enable_rle_batch_put_optimization);
+DECLARE_Bool(enable_bmi2_optimizations);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
@@ -1527,6 +1528,8 @@ DECLARE_mInt32(group_commit_queue_mem_limit);
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
 DECLARE_Bool(group_commit_wait_replay_wal_finish);
+// Max WAL count for one table before rejecting async group commit loads. 0 means no limit.
+DECLARE_mInt32(group_commit_max_wal_num_per_table);
 // Max time(ms) to wait for creating group commit plan fragment. 0 means no timeout.
 DECLARE_mInt32(group_commit_create_plan_timeout_ms);
 
@@ -1618,6 +1621,22 @@ DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
 DECLARE_mInt64(s3_rate_limiter_log_interval);
+
+// CPU-aware S3 rate limiter: GET/PUT QPS per CPU core. A negative value means unset and
+// falls back to the legacy absolute token configs above; 0 disables QPS limiting.
+DECLARE_mInt64(s3_get_requests_per_second_per_core);
+DECLARE_mInt64(s3_put_requests_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_requests_per_second_max);
+DECLARE_mInt64(s3_put_requests_per_second_max);
+// GET/PUT bytes per second per CPU core. A non-positive value disables byte-rate limiting.
+DECLARE_mInt64(s3_get_bytes_per_second_per_core);
+DECLARE_mInt64(s3_put_bytes_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_bytes_per_second_max);
+DECLARE_mInt64(s3_put_bytes_per_second_max);
+// Override for cores used to derive effective limits: a non-positive value means auto-detect.
+DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will
@@ -1759,6 +1778,9 @@ DECLARE_mInt32(check_score_rounds_num);
 
 // MB
 DECLARE_Int32(query_cache_size);
+// Max incremental merges on one query cache entry before forcing a full
+// recompute to compact the entry (see query_cache.h QueryCacheRuntime).
+DECLARE_mInt32(query_cache_max_incremental_merge_count);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 // Enable validation to check the correctness of table size.

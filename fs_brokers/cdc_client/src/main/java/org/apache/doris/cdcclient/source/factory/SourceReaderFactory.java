@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.source.factory;
 
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
+import org.apache.doris.cdcclient.source.reader.oceanbase.OceanBaseSourceReader;
 import org.apache.doris.cdcclient.source.reader.postgres.PostgresSourceReader;
 
 import java.util.Map;
@@ -38,6 +39,7 @@ public final class SourceReaderFactory {
     static {
         register(DataSource.MYSQL, MySqlSourceReader::new);
         register(DataSource.POSTGRES, PostgresSourceReader::new);
+        register(DataSource.OCEANBASE, OceanBaseSourceReader::new);
     }
 
     private SourceReaderFactory() {}

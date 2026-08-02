@@ -26,7 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
@@ -367,7 +367,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mpi.getPctTables()).thenReturn(pctTables);
 
         if (externalNoPrune) {
-            HMSExternalTable ext = Mockito.mock(HMSExternalTable.class);
+            PluginDrivenMvccExternalTable ext = Mockito.mock(PluginDrivenMvccExternalTable.class);
             Mockito.when(ext.supportInternalPartitionPruned()).thenReturn(false);
             Set<TableIf> tbls = new HashSet<>(pctTables);
             tbls.add(ext);

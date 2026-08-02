@@ -73,6 +73,7 @@
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "gen_cpp/Types_types.h"
 #include "io/fs/buffered_reader.h"
 #include "io/io_common.h"
@@ -357,6 +358,21 @@ private:
     const int _column_id;
     const int32_t _value;
     const std::string _expr_name = "NullableInt32GreaterThanExpr";
+};
+
+class FailingRowFilterExpr final : public VExpr {
+public:
+    FailingRowFilterExpr() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InvalidArgument("synthetic row filter failure");
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const std::string _expr_name = "FailingRowFilterExpr";
 };
 
 class NullableInt32LessThanExpr final : public VExpr {
@@ -5262,16 +5278,17 @@ TEST_F(NewOrcReaderTest, StripePrefetchPublishesMergedReadProfile) {
     }
     ASSERT_TRUE(reader->close().ok());
 
-    ASSERT_NE(profile.get_counter("RequestIO"), nullptr);
-    ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
-    ASSERT_NE(profile.get_counter("ApplyBytes"), nullptr);
-    ASSERT_NE(profile.get_counter("ClusterNum"), nullptr);
-    ASSERT_NE(profile.get_counter("OverReadBytes"), nullptr);
-    EXPECT_GT(profile.get_counter("RequestIO")->value(), profile.get_counter("MergedIO")->value());
-    EXPECT_GT(profile.get_counter("MergedIO")->value(), 0);
-    EXPECT_GT(profile.get_counter("ApplyBytes")->value(), 0);
-    EXPECT_GT(profile.get_counter("ClusterNum")->value(), 0);
-    EXPECT_GE(profile.get_counter("OverReadBytes")->value(), 0);
+    ASSERT_NE(profile.get_counter("OrcMergedRequestIO"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcMergedIO"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcMergedApplyBytes"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcMergedClusterNum"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcMergedOverReadBytes"), nullptr);
+    EXPECT_GT(profile.get_counter("OrcMergedRequestIO")->value(),
+              profile.get_counter("OrcMergedIO")->value());
+    EXPECT_GT(profile.get_counter("OrcMergedIO")->value(), 0);
+    EXPECT_GT(profile.get_counter("OrcMergedApplyBytes")->value(), 0);
+    EXPECT_GT(profile.get_counter("OrcMergedClusterNum")->value(), 0);
+    EXPECT_GE(profile.get_counter("OrcMergedOverReadBytes")->value(), 0);
 }
 
 TEST_F(NewOrcReaderTest, StripePrefetchCanBeDisabledByZeroOnceMaxReadBytes) {
@@ -5662,6 +5679,29 @@ TEST_F(NewOrcReaderTest, ConjunctFiltersRows) {
     EXPECT_EQ(values.get_data_at(2).to_string(), "five");
 }
 
+TEST_F(NewOrcReaderTest, RowFilterFailureRetainsNextBatchContext) {
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block(schema);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<FailingRowFilterExpr>()));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_NE(status.to_string().find("nextBatch failed"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("synthetic row filter failure"), std::string::npos) << status;
+}
+
 TEST_F(NewOrcReaderTest, OrcLazyDecodesOnlySelectedNonPredicateRows) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -5722,8 +5762,8 @@ TEST_F(NewOrcReaderTest, ClosePublishesOrcLazyStatisticsToRuntimeProfile) {
     ASSERT_EQ(rows, 3);
     ASSERT_TRUE(reader->close().ok());
 
-    ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 2);
+    ASSERT_NE(profile.get_counter("OrcFilteredRowsByLazyRead"), nullptr);
+    EXPECT_EQ(profile.get_counter("OrcFilteredRowsByLazyRead")->value(), 2);
 }
 
 TEST_F(NewOrcReaderTest, DisableOrcLazyMaterializationKeepsLazyProfileZero) {
@@ -5752,8 +5792,8 @@ TEST_F(NewOrcReaderTest, DisableOrcLazyMaterializationKeepsLazyProfileZero) {
     ASSERT_EQ(rows, 3);
     ASSERT_TRUE(reader->close().ok());
 
-    ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
+    ASSERT_NE(profile.get_counter("OrcFilteredRowsByLazyRead"), nullptr);
+    EXPECT_EQ(profile.get_counter("OrcFilteredRowsByLazyRead")->value(), 0);
 }
 
 TEST_F(NewOrcReaderTest, ConditionCacheMissMarksSurvivingGranules) {
@@ -6701,13 +6741,13 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     ASSERT_EQ(result_rows, 200);
     ASSERT_TRUE(reader->close().ok());
 
-    ASSERT_NE(profile.get_counter("RowGroupsFiltered"), nullptr);
-    ASSERT_NE(profile.get_counter("RowGroupsFilteredByMinMax"), nullptr);
-    ASSERT_NE(profile.get_counter("RowGroupsReadNum"), nullptr);
-    ASSERT_NE(profile.get_counter("FilteredRowsByGroup"), nullptr);
-    ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
-    ASSERT_NE(profile.get_counter("FilteredBytes"), nullptr);
-    ASSERT_NE(profile.get_counter("FileNum"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFiltered"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFilteredByMinMax"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcRowGroupsReadNum"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcFilteredRowsByGroup"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcFilteredRowsByLazyRead"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcFilteredBytes"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcFileNum"), nullptr);
     const std::array<std::string_view, 13> orc_reader_metric_counters {
             "ReaderCall",
             "ReaderInclusiveLatencyUs",
@@ -6726,17 +6766,61 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     for (const auto counter_name : orc_reader_metric_counters) {
         ASSERT_NE(profile.get_counter(std::string(counter_name)), nullptr) << counter_name;
     }
-    EXPECT_EQ(profile.get_counter("RowGroupsFiltered")->value(), 2);
-    EXPECT_EQ(profile.get_counter("RowGroupsFilteredByMinMax")->value(), 2);
-    EXPECT_EQ(profile.get_counter("RowGroupsReadNum")->value(), 1);
+    EXPECT_EQ(profile.get_counter("OrcRowGroupsFiltered")->value(), 2);
+    EXPECT_EQ(profile.get_counter("OrcRowGroupsFilteredByMinMax")->value(), 2);
+    EXPECT_EQ(profile.get_counter("OrcRowGroupsReadNum")->value(), 1);
     EXPECT_EQ(profile.get_counter("SelectedRowGroupCount")->value(), 1);
     EXPECT_EQ(profile.get_counter("EvaluatedRowGroupCount")->value(), 3);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByGroup")->value(), 400);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
-    EXPECT_GT(profile.get_counter("FilteredBytes")->value(), 0);
-    EXPECT_EQ(profile.get_counter("FileNum")->value(), 1);
+    EXPECT_EQ(profile.get_counter("OrcFilteredRowsByGroup")->value(), 400);
+    EXPECT_EQ(profile.get_counter("OrcFilteredRowsByLazyRead")->value(), 0);
+    EXPECT_GT(profile.get_counter("OrcFilteredBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("OrcFileNum")->value(), 1);
     EXPECT_EQ(profile.get_counter("ReadRowCount")->value(),
               static_cast<int64_t>(file_reader_stats.read_rows));
+}
+
+TEST_F(NewOrcReaderTest, ProfileKeepsPruningCountersBelowOrcReader) {
+    RuntimeProfile profile("new_orc_reader_hierarchy_profile");
+    auto reader = create_reader(&profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes.front().child_counters_map;
+    ASSERT_TRUE(children.contains("OrcReader"));
+    EXPECT_TRUE(children.at("OrcReader").contains("OrcRowGroupsFiltered"));
+    EXPECT_TRUE(children.at("OrcReader").contains("OrcRowGroupsReadNum"));
+    EXPECT_TRUE(children.at("OrcReader").contains("OrcFilteredRowsByGroup"));
+}
+
+TEST_F(NewOrcReaderTest, ProfileCountersStayIsolatedWhenParquetInitializesFirst) {
+    RuntimeProfile profile("parquet_then_orc_profile");
+    format::parquet::ParquetProfile parquet_profile;
+    parquet_profile.init(&profile);
+    auto reader = create_reader(&profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFiltered"), nullptr);
+    ASSERT_NE(profile.get_counter("RowGroupsFiltered"), nullptr);
+    EXPECT_NE(profile.get_counter("OrcRowGroupsFiltered"),
+              profile.get_counter("RowGroupsFiltered"));
+}
+
+TEST_F(NewOrcReaderTest, ProfileCountersStayIsolatedWhenOrcInitializesFirst) {
+    RuntimeProfile profile("orc_then_parquet_profile");
+    auto reader = create_reader(&profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    format::parquet::ParquetProfile parquet_profile;
+    parquet_profile.init(&profile);
+
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFiltered"), nullptr);
+    ASSERT_NE(profile.get_counter("RowGroupsFiltered"), nullptr);
+    EXPECT_NE(profile.get_counter("OrcRowGroupsFiltered"),
+              profile.get_counter("RowGroupsFiltered"));
 }
 
 TEST_F(NewOrcReaderTest, DisableOrcFilterByMinMaxKeepsRowGroupProfileZero) {
@@ -6775,10 +6859,10 @@ TEST_F(NewOrcReaderTest, DisableOrcFilterByMinMaxKeepsRowGroupProfileZero) {
 
     ASSERT_NE(profile.get_counter("SelectedRowGroupCount"), nullptr);
     ASSERT_NE(profile.get_counter("EvaluatedRowGroupCount"), nullptr);
-    ASSERT_NE(profile.get_counter("RowGroupsFilteredByMinMax"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFilteredByMinMax"), nullptr);
     EXPECT_EQ(profile.get_counter("SelectedRowGroupCount")->value(), 0);
     EXPECT_EQ(profile.get_counter("EvaluatedRowGroupCount")->value(), 0);
-    EXPECT_EQ(profile.get_counter("RowGroupsFilteredByMinMax")->value(), 0);
+    EXPECT_EQ(profile.get_counter("OrcRowGroupsFilteredByMinMax")->value(), 0);
 }
 
 TEST_F(NewOrcReaderTest, SargConjunctPrunesStripes) {

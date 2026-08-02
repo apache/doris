@@ -57,6 +57,11 @@ private:
     std::vector<uint8_t> _data;
 };
 
+static Status parse_and_load_page(ColumnChunkReader<false, false>* reader) {
+    RETURN_IF_ERROR(reader->parse_page_header());
+    return reader->load_page_data();
+}
+
 TEST(ParquetPageCacheTest, CacheHitReturnsDecompressedPayload) {
     ParquetPageReadContext ctx;
     ctx.enable_parquet_file_page_cache = true;
@@ -113,7 +118,7 @@ TEST(ParquetPageCacheTest, CacheHitReturnsDecompressedPayload) {
     ColumnChunkReader<false, false> ccr(&reader, &cc, &field_schema, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr.init().ok());
     // load_page_data should hit the cache and return decompressed payload
-    ASSERT_TRUE(ccr.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr).ok());
     Slice s = ccr.get_page_data();
     ASSERT_EQ(s.size, payload.size());
     ASSERT_EQ(0, memcmp(s.data, payload.data(), payload.size()));
@@ -168,14 +173,14 @@ TEST(ParquetPageCacheTest, DecompressedPageInsertedByColumnChunkReader) {
         field_schema.definition_level = 0;
         ColumnChunkReader<false, false> ccr(&reader, &cc, &field_schema, nullptr, 0, nullptr, ctx);
         ASSERT_TRUE(ccr.init().ok());
-        ASSERT_TRUE(ccr.load_page_data().ok());
+        ASSERT_TRUE(parse_and_load_page(&ccr).ok());
 
         // Now cache should have an entry; verify by creating a fresh ColumnChunkReader and hitting cache
         ColumnChunkReader<false, false> ccr_check(&reader, &cc, &field_schema, nullptr, 0, nullptr,
                                                   ctx);
         ASSERT_TRUE(ccr_check.init().ok());
         // ASSERT_TRUE(ccr_check.next_page().ok());
-        ASSERT_TRUE(ccr_check.load_page_data().ok());
+        ASSERT_TRUE(parse_and_load_page(&ccr_check).ok());
         Slice s = ccr_check.get_page_data();
         ASSERT_EQ(s.size, payload.size());
         EXPECT_EQ(0, memcmp(s.data, payload.data(), payload.size()));
@@ -236,13 +241,13 @@ TEST(ParquetPageCacheTest, V2LevelsPreservedInCache) {
     {
         ColumnChunkReader<false, false> ccr(&reader, &cc, &field_schema, nullptr, 0, nullptr, ctx);
         ASSERT_TRUE(ccr.init().ok());
-        ASSERT_TRUE(ccr.load_page_data().ok());
+        ASSERT_TRUE(parse_and_load_page(&ccr).ok());
 
         // Now cache should have entry; verify by creating a ColumnChunkReader and hitting cache
         ColumnChunkReader<false, false> ccr_check(&reader, &cc, &field_schema, nullptr, 0, nullptr,
                                                   ctx);
         ASSERT_TRUE(ccr_check.init().ok());
-        ASSERT_TRUE(ccr_check.load_page_data().ok());
+        ASSERT_TRUE(parse_and_load_page(&ccr_check).ok());
         Slice s = ccr_check.get_page_data();
         ASSERT_EQ(s.size, payload.size());
         EXPECT_EQ(0, memcmp(s.data, payload.data(), payload.size()));
@@ -254,7 +259,7 @@ TEST(ParquetPageCacheTest, V2LevelsPreservedInCache) {
     field_schema2.definition_level = 1;
     ColumnChunkReader<false, false> ccr2(&reader, &cc, &field_schema2, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr2.init().ok());
-    ASSERT_TRUE(ccr2.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr2).ok());
     // Level slices should equal the original level bytes
     const Slice& rep = ccr2.v2_rep_levels();
     const Slice& def = ccr2.v2_def_levels();
@@ -318,7 +323,7 @@ TEST(ParquetPageCacheTest, CompressedV1PageCachedAndHit) {
     // Load page to trigger decompression + cache insert
     ColumnChunkReader<false, false> ccr(&reader, &cc, &field_schema, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr.init().ok());
-    ASSERT_TRUE(ccr.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr).ok());
     EXPECT_EQ(ccr.statistics().page_cache_write_counter, 1);
 
     // Now verify a fresh reader hits the cache and returns payload
@@ -326,7 +331,7 @@ TEST(ParquetPageCacheTest, CompressedV1PageCachedAndHit) {
                                               ctx);
     ASSERT_TRUE(ccr_check.init().ok());
     // ASSERT_TRUE(ccr_check.next_page().ok());
-    ASSERT_TRUE(ccr_check.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr_check).ok());
     Slice s = ccr_check.get_page_data();
     ASSERT_EQ(s.size, payload.size());
     EXPECT_EQ(0, memcmp(s.data, payload.data(), payload.size()));
@@ -393,7 +398,7 @@ TEST(ParquetPageCacheTest, CompressedV2LevelsPreservedInCache) {
     // Load page to trigger decompression + cache insert
     ColumnChunkReader<false, false> ccr(&reader, &cc, &field_schema, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr.init().ok());
-    ASSERT_TRUE(ccr.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr).ok());
     EXPECT_EQ(ccr.statistics().page_cache_write_counter, 1);
 
     // Now verify a fresh reader hits the cache and v2 levels are preserved
@@ -403,7 +408,7 @@ TEST(ParquetPageCacheTest, CompressedV2LevelsPreservedInCache) {
     ColumnChunkReader<false, false> ccr_check(&reader, &cc, &field_schema2, nullptr, 0, nullptr,
                                               ctx);
     ASSERT_TRUE(ccr_check.init().ok());
-    ASSERT_TRUE(ccr_check.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr_check).ok());
     Slice s = ccr_check.get_page_data();
     ASSERT_EQ(s.size, payload.size());
     EXPECT_EQ(0, memcmp(s.data, payload.data(), payload.size()));
@@ -498,7 +503,7 @@ TEST(ParquetPageCacheTest, MultiPagesMixedV1V2CacheHit) {
     field_schema1.definition_level = 0;
     ColumnChunkReader<false, false> ccr1(&reader1, &cc1, &field_schema1, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr1.init().ok());
-    ASSERT_TRUE(ccr1.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr1).ok());
     Slice s1 = ccr1.get_page_data();
     ASSERT_EQ(s1.size, payload1.size());
     EXPECT_EQ(0, memcmp(s1.data, payload1.data(), payload1.size()));
@@ -516,7 +521,7 @@ TEST(ParquetPageCacheTest, MultiPagesMixedV1V2CacheHit) {
     field_schema2.definition_level = dl;
     ColumnChunkReader<false, false> ccr2(&reader2, &cc2, &field_schema2, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr2.init().ok());
-    ASSERT_TRUE(ccr2.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr2).ok());
     Slice s2 = ccr2.get_page_data();
     ASSERT_EQ(s2.size, payload2.size());
     EXPECT_EQ(0, memcmp(s2.data, payload2.data(), payload2.size()));
@@ -566,7 +571,7 @@ TEST(ParquetPageCacheTest, CacheMissThenHit) {
     // First reader: should not hit cache, but should write cache
     ColumnChunkReader<false, false> ccr(&reader, &cc, &fs, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr.init().ok());
-    ASSERT_TRUE(ccr.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr).ok());
     auto& statistics = ccr.statistics();
     EXPECT_EQ(statistics.page_cache_hit_counter, 0);
     EXPECT_EQ(statistics.page_cache_write_counter, 1);
@@ -574,7 +579,7 @@ TEST(ParquetPageCacheTest, CacheMissThenHit) {
     // Second reader: should hit cache
     ColumnChunkReader<false, false> ccr2(&reader, &cc, &fs, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr2.init().ok());
-    ASSERT_TRUE(ccr2.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr2).ok());
     auto& statistics2 = ccr2.statistics();
     EXPECT_EQ(statistics2.page_cache_hit_counter, 1);
     EXPECT_EQ(statistics2.page_cache_decompressed_hit_counter, 1);
@@ -632,7 +637,7 @@ TEST(ParquetPageCacheTest, DecompressThresholdCachesCompressed) {
     ColumnChunkReader<false, false> ccr_small_thresh(&reader, &cc, &fs, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr_small_thresh.init().ok());
     // ASSERT_TRUE(ccr_small_thresh.next_page().ok());
-    ASSERT_TRUE(ccr_small_thresh.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr_small_thresh).ok());
     EXPECT_EQ(ccr_small_thresh.statistics().page_cache_write_counter, 1);
 
     // Inspect cache entry: payload stored should be compressed size
@@ -706,7 +711,7 @@ TEST(ParquetPageCacheTest, DecompressThresholdCachesDecompressed) {
     ColumnChunkReader<false, false> ccr_large_thresh(&reader, &cc, &fs, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr_large_thresh.init().ok());
     // ASSERT_TRUE(ccr_large_thresh.next_page().ok());
-    ASSERT_TRUE(ccr_large_thresh.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr_large_thresh).ok());
     EXPECT_EQ(ccr_large_thresh.statistics().page_cache_write_counter, 1);
 
     // Inspect cache entry for large threshold: payload stored should be uncompressed size
@@ -726,7 +731,7 @@ TEST(ParquetPageCacheTest, DecompressThresholdCachesDecompressed) {
     ColumnChunkReader<false, false> ccr_check(&reader, &cc, &fs, nullptr, 0, nullptr, ctx);
     ASSERT_TRUE(ccr_check.init().ok());
     // ASSERT_TRUE(ccr_check.next_page().ok());
-    ASSERT_TRUE(ccr_check.load_page_data().ok());
+    ASSERT_TRUE(parse_and_load_page(&ccr_check).ok());
     EXPECT_EQ(ccr_check.statistics().page_cache_hit_counter, 1);
     // restore config
     config::parquet_page_cache_decompress_threshold = old_thresh;
@@ -789,7 +794,7 @@ TEST(ParquetPageCacheTest, MultipleReadersShareCachedEntry) {
         fs.definition_level = dl;
         ColumnChunkReader<false, false> ccr(&reader, &cc, &fs, nullptr, 0, nullptr, ctx);
         ASSERT_TRUE(ccr.init().ok());
-        ASSERT_TRUE(ccr.load_page_data().ok());
+        ASSERT_TRUE(parse_and_load_page(&ccr).ok());
         Slice s = ccr.get_page_data();
         ASSERT_EQ(s.size, payload.size());
         EXPECT_EQ(0, memcmp(s.data, payload.data(), payload.size()));

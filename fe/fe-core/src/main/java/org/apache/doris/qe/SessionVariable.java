@@ -174,6 +174,8 @@ public class SessionVariable implements Serializable, Writable {
             "enable_distinct_streaming_agg_force_passthrough";
     public static final String ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH = "enable_broadcast_join_force_passthrough";
     public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_AGG = "enable_local_exchange_before_agg";
+    public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG =
+            "enable_local_exchange_before_streaming_agg";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
     public static final String COLOCATE_MAX_PARALLEL_NUM = "colocate_max_parallel_num";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
@@ -202,6 +204,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
+    public static final String ENABLE_QUERY_CACHE_INCREMENTAL = "enable_query_cache_incremental";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
     public static final String QUERY_CACHE_ENTRY_MAX_BYTES = "query_cache_entry_max_bytes";
     public static final String QUERY_CACHE_ENTRY_MAX_ROWS = "query_cache_entry_max_rows";
@@ -847,6 +850,7 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
     public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
+    public static final String ENABLE_VARIANT_V2 = "enable_variant_v2";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -1406,6 +1410,9 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, fuzzy = true)
     public boolean enableLocalExchangeBeforeAgg = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, fuzzy = true)
+    public boolean enableLocalExchangeBeforeStreamingAgg = false;
+
     @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
     public boolean enableDistinctStreamingAggForcePassthrough = true;
 
@@ -1544,16 +1551,57 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_HIVE_SQL_CACHE, fuzzy = false)
     public boolean enableHiveSqlCache = false;
 
-    @VarAttrDef.VarAttr(name = ENABLE_QUERY_CACHE, fuzzy = true)
+    // Forwarded because query cache normalization runs wherever the statement is
+    // planned: a forwarded statement is planned by the master in a fresh
+    // ConnectContext, which starts from the master's global value and then sees
+    // only what getForwardVariables() sends, so without this a session-level
+    // setting (or a SET_VAR hint) never reaches the planner: the cache follows
+    // the master's global instead, and enable_query_cache_incremental, which
+    // requires this switch, would arrive alone and never take effect.
+    @VarAttrDef.VarAttr(name = ENABLE_QUERY_CACHE, fuzzy = true, needForward = true)
     public boolean enableQueryCache = false;
 
-    @VarAttrDef.VarAttr(name = QUERY_CACHE_FORCE_REFRESH)
+    // Allow BE to reuse a stale query cache entry by scanning only the delta
+    // rowsets since the cached version and merging them with the cached partial
+    // aggregation blocks. Only takes effect when the cache point aggregation is
+    // non-finalize (its output is merged again upstream) and the selected index
+    // is append-only: DUP_KEYS, or merge-on-write UNIQUE_KEYS whose delta did
+    // not rewrite pre-existing keys (BE checks the delete bitmap per tablet);
+    // BE falls back to a full recompute whenever the delta cannot be captured
+    // (compacted away), contains delete predicates or rewrites history rows.
+    // Experimental: shown as `experimental_enable_query_cache_incremental` and
+    // settable with or without the prefix; to be promoted to EXPERIMENTAL_ONLINE
+    // once it graduates.
+    @VarAttrDef.VarAttr(name = ENABLE_QUERY_CACHE_INCREMENTAL,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true,
+            description = {"是否允许 BE 以增量合并的方式复用过期的 Query Cache 条目：只扫描缓存版本之后的"
+                    + "增量 rowset，并与缓存的聚合中间结果一起交给上游合并。仅对聚合直压扫描且不做 finalize "
+                    + "的缓存点生效，且选中索引须为追加写：DUP_KEYS 表，或增量窗口内未改写既有主键的写时合并"
+                    + "（merge-on-write）UNIQUE_KEYS 表（BE 按 tablet 检查 delete bitmap）；增量不可捕获（如"
+                    + "已被 compaction 合并）、含 DELETE 谓词或改写了历史行时自动回退全量重算。需与 "
+                    + "enable_query_cache 同时开启。",
+                    "Whether BE may reuse a stale query cache entry by incremental merge: scan only"
+                    + " the delta rowsets since the cached version and emit them together with the"
+                    + " cached partial aggregation blocks for the upstream merge. Only takes effect"
+                    + " when the cache point is a non-finalize aggregation directly over the scan"
+                    + " and the selected index is append-only: DUP_KEYS, or merge-on-write"
+                    + " UNIQUE_KEYS whose delta did not rewrite pre-existing keys (BE checks the"
+                    + " delete bitmap per tablet); falls back to a full recompute whenever the"
+                    + " delta cannot be captured (e.g. compacted away), contains delete predicates"
+                    + " or rewrites history rows. Requires enable_query_cache."})
+    public boolean enableQueryCacheIncremental = false;
+
+    // Forwarded for the same reason as enable_query_cache: the master builds
+    // the query cache param when it plans a forwarded statement, so without
+    // this a forwarded statement would silently ignore a forced refresh and
+    // size the entries by the master's defaults instead of the session's.
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_FORCE_REFRESH, needForward = true)
     private boolean queryCacheForceRefresh = false;
 
-    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_BYTES)
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_BYTES, needForward = true)
     private long queryCacheEntryMaxBytes = 5242880;
 
-    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS)
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS, needForward = true)
     private long queryCacheEntryMaxRows = 500000;
 
     @VarAttrDef.VarAttr(name = ENABLE_CONDITION_CACHE)
@@ -3737,6 +3785,18 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVariantSchemaAutoCast = true;
 
     @VarAttrDef.VarAttr(
+            name = ENABLE_VARIANT_V2,
+            needForward = true,
+            affectQueryResultInPlan = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {
+                    "是否对纯计算表达式启用 ColumnVariantV2，默认关闭。",
+                    "Whether to enable ColumnVariantV2 for compute expressions. The default is false."
+            }
+    )
+    public boolean enableVariantV2 = false;
+
+    @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             needForward = true,
             fuzzy = true
@@ -3848,6 +3908,7 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
+        this.enableLocalExchangeBeforeStreamingAgg = random.nextBoolean();
         this.enableDistinctStreamingAggForcePassthrough = random.nextBoolean();
         this.enableBroadcastJoinForcePassthrough = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
@@ -4678,6 +4739,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableQueryCache(boolean enableQueryCache) {
         this.enableQueryCache = enableQueryCache;
+    }
+
+    public boolean getEnableQueryCacheIncremental() {
+        return enableQueryCacheIncremental;
+    }
+
+    public void setEnableQueryCacheIncremental(boolean enableQueryCacheIncremental) {
+        this.enableQueryCacheIncremental = enableQueryCacheIncremental;
     }
 
     public boolean isQueryCacheForceRefresh() {
@@ -5656,6 +5725,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
         tResult.setEnableLocalExchangeBeforeAgg(enableLocalExchangeBeforeAgg);
+        tResult.setEnableLocalExchangeBeforeStreamingAgg(enableLocalExchangeBeforeStreamingAgg);
         tResult.setEnableDistinctStreamingAggForcePassthrough(enableDistinctStreamingAggForcePassthrough);
         tResult.setEnableBroadcastJoinForcePassthrough(enableBroadcastJoinForcePassthrough);
         tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
@@ -5816,6 +5886,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableInsertStrict(enableInsertStrict);
         tResult.setNewVersionUnixTimestamp(true); // once FE upgraded, always use new version
         tResult.setNewVersionPercentile(true);
+        tResult.setNewVersionBitmapOpCount(true);
 
         tResult.setHnswEfSearch(hnswEFSearch);
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
@@ -6625,6 +6696,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableVariantSchemaAutoCast() {
         return enableVariantSchemaAutoCast;
+    }
+
+    public boolean isEnableVariantV2() {
+        return enableVariantV2;
     }
 
     public void setProfileLevel(String profileLevel) {

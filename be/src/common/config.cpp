@@ -467,6 +467,10 @@ DEFINE_mDouble(sparse_column_compaction_threshold_percent, "0.05");
 // Enable RLE batch Put optimization for compaction
 DEFINE_mBool(enable_rle_batch_put_optimization, "true");
 
+// Enable PDEP-based bit unpacking. Disable it on CPUs where PDEP is microcoded and slower than
+// the scalar implementation, such as AMD Zen+ and Zen 2.
+DEFINE_Bool(enable_bmi2_optimizations, "true");
+
 // If enabled, segments will be flushed column by column
 DEFINE_mBool(enable_vertical_segment_writer, "true");
 
@@ -722,7 +726,7 @@ DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
-// not introduce seeks.  The literature seems to agree that with 8 MB reads, random
+// not introduce seeks. The literature seems to agree that with 8 MB reads, random
 // io and sequential io perform similarly.
 DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
@@ -1446,6 +1450,9 @@ DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
+// Max WAL count for one table before rejecting async group commit loads.
+// 0 means no limit.
+DEFINE_mInt32(group_commit_max_wal_num_per_table, "10");
 // Max time(ms) to wait for creating group commit plan fragment.
 // 0 means no timeout, default 2min.
 DEFINE_mInt32(group_commit_create_plan_timeout_ms, "120000");
@@ -1543,7 +1550,38 @@ DEFINE_mInt64(s3_put_token_limit, "0");
 DEFINE_mInt64(s3_rate_limiter_log_interval, "1000");
 DEFINE_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 
-DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
+// CPU-aware S3 rate limiter. Effective GET/PUT requests per second =
+// requests_per_second_per_core * BE cpu cores, capped by the corresponding
+// requests_per_second_max. A negative value means unset: fall back to the legacy absolute
+// s3_{get,put}_token_* configs above. 0 disables request-rate limiting for that operation.
+DEFINE_mInt64(s3_get_requests_per_second_per_core, "-1");
+DEFINE_mInt64(s3_put_requests_per_second_per_core, "-1");
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
+DEFINE_mInt64(s3_get_requests_per_second_max, "0");
+DEFINE_mInt64(s3_put_requests_per_second_max, "0");
+
+// CPU-aware S3 bandwidth limiter. Effective GET/PUT bytes/s = bytes_per_second_per_core *
+// BE cpu cores, capped by the corresponding bytes_per_second_max. A non-positive value disables
+// byte-rate limiting for that operation (there is no legacy fallback for bandwidth).
+// Note: the derived per-BE bytes/s should not be set below the single IO upper bound
+// per second (s3_write_buffer_size, 5MB by default). A single IO larger than 1 second
+// of quota only reserves 1 second worth of tokens; the excess bytes are not accounted
+// (reservation clamp in S3RateLimitGuard).
+DEFINE_mInt64(s3_get_bytes_per_second_per_core, "-1");
+DEFINE_mInt64(s3_put_bytes_per_second_per_core, "-1");
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
+DEFINE_mInt64(s3_get_bytes_per_second_max, "0");
+DEFINE_mInt64(s3_put_bytes_per_second_max, "0");
+
+// Override the CPU cores used to derive the effective S3 rate limits. A non-positive value
+// means auto-detect from the cgroup cpu quota (fall back to physical cores); the control plane
+// can push a positive value via /api/update_config when resizing a serverless BE.
+DEFINE_mInt32(s3_rate_limiter_cpu_cores_override, "0");
+
+// The dir TrinoConnectorPluginLoader loads Trino's own plugins from, used verbatim. Keep the default
+// in sync with FE Config.trino_connector_plugin_dir: FE and BE load the same plugins and an operator
+// who leaves both untouched expects both to find them.
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
@@ -1704,6 +1742,12 @@ DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
+// Max number of incremental merges accumulated on one query cache entry before
+// a full recompute is forced. Each incremental merge appends the delta partial
+// blocks to the entry, so the entry gets more fragmented (and the upstream merge
+// aggregation does more work) as deltas accumulate; a periodic full recompute
+// compacts the entry back to a minimal set of blocks.
+DEFINE_mInt32(query_cache_max_incremental_merge_count, "8");
 
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");

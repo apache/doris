@@ -24,8 +24,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.service.FrontendOptions;
 
@@ -69,6 +70,18 @@ public final class FileSystemFactory {
      */
     public static void initPluginManager(FileSystemPluginManager manager) {
         pluginManager = manager;
+        // The storage facade keeps its own handle so datasource.storage never has to reach
+        // back into this runtime layer (dependency direction stays fs -> datasource.storage).
+        StorageAdapter.initPluginManager(manager);
+    }
+
+    /**
+     * Returns the plugin manager singleton set at FE startup, or null when not initialized
+     * (unit-test / migration path). Callers needing raw-props binding go through
+     * {@link FileSystemPluginManager#bindPrimary}/{@code bindAll} on this instance.
+     */
+    public static FileSystemPluginManager getPluginManager() {
+        return pluginManager;
     }
 
     /**
@@ -106,13 +119,77 @@ public final class FileSystemFactory {
     }
 
     /**
-     * SPI entry point accepting legacy {@link StorageProperties}.
-     * Converts via {@link StoragePropertiesConverter} then delegates to
-     * {@link #getFileSystem(Map)}.
+     * Binds the given raw properties into the catalog's typed fe-filesystem
+     * {@link org.apache.doris.filesystem.properties.StorageProperties} list (one entry per configured
+     * backend), for connectors to consume via {@code ConnectorStorageContext.getStorageProperties()}.
+     *
+     * <p>Delegates to {@link FileSystemPluginManager#bindAll}, which mirrors the legacy
+     * {@code StorageProperties.createAll} routing (fixed priority, explicit {@code fs.<x>.support}
+     * flags, OSS-HDFS/OSS and JFS/HDFS exclusivity, default-HDFS fallback at index 0). Falls back to
+     * ServiceLoader discovery when {@link #initPluginManager} has not run (unit-test / migration
+     * path); that fallback has no priority table, so it stays best-effort. Never returns null.
      */
-    public static org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties storageProperties)
+    public static List<org.apache.doris.filesystem.properties.StorageProperties> bindAllStorageProperties(
+            Map<String, String> properties) {
+        // Bridge the operator-configured hadoop config dir to filesystem plugins: a plugin leaf cannot import
+        // fe-core Config, so the HDFS plugin's config-resource loader reads this system property instead. Keep
+        // the key in sync with HdfsConfigFileLoader.CONFIG_DIR_PROPERTY ("doris.hadoop.config.dir").
+        System.setProperty("doris.hadoop.config.dir", Config.hadoop_config_dir);
+        FileSystemPluginManager mgr = pluginManager;
+        if (mgr != null) {
+            return new ArrayList<>(mgr.bindAll(properties));
+        }
+        // Fallback: ServiceLoader discovery (unit-test / migration path), mirroring getFileSystem(Map).
+        List<org.apache.doris.filesystem.properties.StorageProperties> result = new ArrayList<>();
+        for (FileSystemProvider provider : getProviders()) {
+            if (provider.supports(properties)) {
+                try {
+                    result.add(provider.bind(properties));
+                } catch (UnsupportedOperationException e) {
+                    LOG.debug("FileSystemProvider {} has no typed binding; skipping in "
+                            + "bindAllStorageProperties", provider.name());
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * SPI entry point accepting an already-bound typed properties object (e.g. from
+     * {@code StorageAdapter.getSpiProperties()}). Unlike {@link #getFileSystem(Map)}, no
+     * provider re-selection happens: the provider that produced the binding (matched by
+     * {@code providerName()}) creates the filesystem, so the routing decision made at bind
+     * time is preserved even for property maps several providers would accept.
+     */
+    public static org.apache.doris.filesystem.FileSystem getFileSystem(
+            FileSystemProperties spiProperties) throws IOException {
+        String providerName = spiProperties.providerName();
+        FileSystemPluginManager mgr = pluginManager;
+        List<FileSystemProvider> providers = mgr != null ? mgr.getProviders() : getProviders();
+        for (FileSystemProvider provider : providers) {
+            if (provider.name().equalsIgnoreCase(providerName)) {
+                try {
+                    return provider.createUntyped(spiProperties);
+                } catch (UnsupportedOperationException e) {
+                    // Providers without typed creation (BROKER/LOCAL) keep the map entry point.
+                    return provider.create(new HashMap<>(spiProperties.rawProperties()));
+                }
+            }
+        }
+        throw new IOException(String.format(
+                "No FileSystemProvider named '%s' is loaded. "
+                        + "Ensure the corresponding fe-filesystem-xxx jar is on the classpath.",
+                providerName));
+    }
+
+    /**
+     * SPI entry point accepting the {@link StorageAdapter} facade; delegates to
+     * {@link #getFileSystem(FileSystemProperties)} so the
+     * bind-time provider routing decision is preserved. No converter marker keys involved.
+     */
+    public static org.apache.doris.filesystem.FileSystem getFileSystem(StorageAdapter adapter)
             throws IOException {
-        return getFileSystem(StoragePropertiesConverter.toMap(storageProperties));
+        return getFileSystem(adapter.getSpiProperties());
     }
 
     /**
@@ -151,10 +228,10 @@ public final class FileSystemFactory {
     /**
      * Creates a {@link org.apache.doris.filesystem.FileSystem} for the given {@link BrokerDesc}.
      *
-     * <p>For broker storage ({@link BrokerProperties}), resolves the live broker host:port via
+     * <p>For broker storage, resolves the live broker host:port via
      * {@code BrokerMgr} and delegates to {@link #getBrokerFileSystem}. For all other storage
-     * types (HDFS, S3, etc.), converts via {@link StoragePropertiesConverter} and delegates to
-     * {@link #getFileSystem(StorageProperties)}.
+     * types (HDFS, S3, etc.), delegates to {@link #getFileSystem(StorageAdapter)} so the
+     * bind-time provider routing decision is preserved.
      *
      * <p>This is the preferred entry point for fe-core code that holds a {@code BrokerDesc}
      * and wants to perform filesystem operations (list, delete, read, write) via the unified
@@ -166,21 +243,20 @@ public final class FileSystemFactory {
      */
     public static org.apache.doris.filesystem.FileSystem getFileSystem(BrokerDesc brokerDesc)
             throws UserException {
-        StorageProperties sp = brokerDesc.getStorageProperties();
-        if (sp instanceof BrokerProperties) {
-            BrokerProperties bp = (BrokerProperties) sp;
+        StorageAdapter adapter = brokerDesc.getStorageAdapter();
+        if (adapter != null && adapter.getType() == StorageTypeId.BROKER) {
             try {
                 String localIP = FrontendOptions.getLocalHostAddress();
-                FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(bp.getBrokerName(), localIP);
+                FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(adapter.getBrokerName(), localIP);
                 String clientId = NetUtils.getHostPortInAccessibleFormat(localIP, Config.edit_log_port);
-                return getBrokerFileSystem(broker.host, broker.port, clientId, bp.getBrokerParams());
+                return getBrokerFileSystem(broker.host, broker.port, clientId, adapter.getBrokerParams());
             } catch (AnalysisException | IOException e) {
                 throw new UserException("Failed to create broker filesystem for '"
                         + brokerDesc.getName() + "': " + e.getMessage(), e);
             }
         }
         try {
-            return getFileSystem(sp);
+            return getFileSystem(adapter);
         } catch (IOException e) {
             throw new UserException("Failed to create filesystem for '"
                     + brokerDesc.getName() + "': " + e.getMessage(), e);

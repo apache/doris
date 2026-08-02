@@ -64,6 +64,41 @@ under the License.
             <artifactId>huaweicloud-sdk-iam</artifactId>
             <version>${huaweicloud-sdk-iam.version}</version>
         </dependency>
+        <!-- Supplies org.apache.hadoop.fs.obs.OBSFileSystem. Nothing here calls it: this module reaches OBS
+             through the native esdk SDK above, and the ONLY reference is the initialize=false
+             Class.forName probe in ObsFileSystemProperties, which decides whether toHadoopConfigurationMap
+             emits fs.obs.impl=OBSFileSystem or falls back to fs.obs.impl=S3AFileSystem. The probe resolves
+             against THIS module's own classloader, so the jar has to sit in this plugin for the probe to
+             tell the truth. Consumers that actually instantiate the class carry their own copy
+             (fe-connector-paimon, be-java-extensions/hadoop-deps); fe-connector-iceberg needs none because
+             it normalizes obs:// to s3 and goes through S3AFileSystem.
+             runtime scope keeps it off the compile classpath; plugin-zip.xml packs the runtime closure.
+
+             com/obs/* DUPLICATION — read before touching versions or artifact names. The -hw-46 jar is a
+             fat jar that inlines the whole esdk SDK (762 com/obs/* classes, identical to the
+             esdk-obs-java-optimised 3.21.8.2 content), and esdk-obs-java-bundle above ships 511 of which
+             510 collide. That is TWO copies of com.obs.services.ObsClient in this plugin's lib/, at
+             DIFFERENT versions (3.21.11 declared above vs 3.21.8.2 inlined here), and ObsObjStorage
+             compiles against the former. DirectoryPluginRuntimeManager.collectJars sorts lib/ jars
+             lexicographically, so "esdk-obs-java-bundle-*" precedes "hadoop-huaweicloud-*" and the
+             declared 3.21.11 wins — correct, but only because of that ordering. If either artifact is
+             renamed or the esdk coordinates change, re-check that the bundle still sorts first.
+             The transitive esdk-obs-java-optimised is excluded below: it is a third, redundant copy of
+             the same classes already inlined in the fat jar, and the only one that could shadow the
+             declared bundle if the sort order ever shifted.
+             NOTE: the -hw-46 artifact is NOT in Maven Central; it comes from the huawei-obs-sdk repo
+             declared in <repositories> below (fe-connector-paimon declares the same repo for the same dep). -->
+        <dependency>
+            <groupId>com.huaweicloud</groupId>
+            <artifactId>hadoop-huaweicloud</artifactId>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.huaweicloud</groupId>
+                    <artifactId>esdk-obs-java-optimised</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>
@@ -75,6 +110,14 @@ under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <repositories>
+        <!-- for huawei obs sdk (hadoop-huaweicloud is not published to Maven Central) -->
+        <repository>
+            <id>huawei-obs-sdk</id>
+            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+        </repository>
+    </repositories>
 
     <build>
         <finalName>doris-fe-filesystem-obs</finalName>

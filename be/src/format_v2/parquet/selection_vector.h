@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -33,11 +34,11 @@ struct RowRange {
 struct ParquetPageSkipPlan {
     int leaf_column_id = -1;
     // Page ordinal is the data-page ordinal in the column chunk. It intentionally excludes
-    // dictionary pages, matching Arrow PageReader::set_data_page_filter().
+    // dictionary pages, matching the native page reader's ordinal domain.
     std::vector<uint8_t> skipped_pages;
     std::vector<int64_t> skipped_page_compressed_sizes;
-    // Row ranges covered by skipped data pages. ScalarColumnReader uses these ranges to avoid
-    // calling RecordReader::SkipRecords() again for pages already skipped by Arrow.
+    // Row ranges covered by skipped data pages. NativeColumnReader uses these ranges to avoid
+    // consuming logical rows twice after the page reader has already skipped their payload.
     std::vector<RowRange> skipped_ranges;
 
     bool empty() const { return skipped_ranges.empty(); }
@@ -66,6 +67,8 @@ public:
         _owned.clear();
         _data = data;
         _size = count;
+        _identity = data == nullptr;
+        ++_generation;
     }
 
     void resize(size_t count) {
@@ -75,19 +78,29 @@ public:
         for (size_t idx = 0; idx < count; ++idx) {
             _data[idx] = static_cast<Index>(idx);
         }
+        _identity = true;
+        ++_generation;
     }
 
     void clear() {
         _owned.clear();
         _data = nullptr;
         _size = 0;
+        _identity = true;
+        ++_generation;
     }
 
     size_t size() const { return _size; }
 
     bool is_set() const { return _data != nullptr; }
 
-    Index* data() { return _data; }
+    Index* data() {
+        // A mutable pointer can change indices without set_index(), so identity can no longer be
+        // proven until resize() rebuilds it. This keeps the O(1) dense fast path conservative.
+        _identity = false;
+        ++_generation;
+        return _data;
+    }
 
     const Index* data() const { return _data; }
 
@@ -98,7 +111,39 @@ public:
         return _data[idx];
     }
 
-    void set_index(size_t idx, Index value) { _data[idx] = value; }
+    void set_index(size_t idx, Index value) {
+        _data[idx] = value;
+        if (value != idx) {
+            _identity = false;
+        }
+        ++_generation;
+    }
+
+    Status materialize_filter(size_t count, int64_t batch_rows, const uint8_t** filter) const {
+        DORIS_CHECK(filter != nullptr);
+        if (batch_rows >= 0 && std::cmp_equal(count, batch_rows) && _identity &&
+            (_data == nullptr || count <= _size)) {
+            // A proven identity selection is equivalent to no FilterMap. Returning nullptr avoids
+            // constructing and rescanning one dense byte per source row.
+            *filter = nullptr;
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(verify(count, batch_rows));
+        if (_filter_generation != _generation || _filter_count != count ||
+            _filter_batch_rows != batch_rows) {
+            // Selection is shared by all readers in one scheduler batch. Cache its dense bitmap so
+            // a wide lazy projection does not rebuild the same O(batch_rows) filter per column.
+            _filter.assign(static_cast<size_t>(batch_rows), 0);
+            for (size_t idx = 0; idx < count; ++idx) {
+                _filter[get_index(idx)] = 1;
+            }
+            _filter_generation = _generation;
+            _filter_count = count;
+            _filter_batch_rows = batch_rows;
+        }
+        *filter = _filter.data();
+        return Status::OK();
+    }
 
     Status verify(size_t count, int64_t batch_rows) const {
         if (batch_rows < 0) {
@@ -135,13 +180,20 @@ private:
     std::vector<Index> _owned;
     Index* _data = nullptr;
     size_t _size = 0;
+    bool _identity = true;
+    uint64_t _generation = 0;
+    mutable std::vector<uint8_t> _filter;
+    mutable uint64_t _filter_generation = std::numeric_limits<uint64_t>::max();
+    mutable size_t _filter_count = 0;
+    mutable int64_t _filter_batch_rows = -1;
 };
 
-inline std::vector<RowRange> selection_to_ranges(const SelectionVector& selection,
-                                                 uint16_t selected_rows) {
-    std::vector<RowRange> ranges;
+inline void selection_to_ranges(const SelectionVector& selection, uint16_t selected_rows,
+                                std::vector<RowRange>* ranges) {
+    DORIS_CHECK(ranges != nullptr);
+    ranges->clear();
     if (selected_rows == 0) {
-        return ranges;
+        return;
     }
 
     int64_t range_start = selection.get_index(0);
@@ -152,11 +204,17 @@ inline std::vector<RowRange> selection_to_ranges(const SelectionVector& selectio
             previous = current;
             continue;
         }
-        ranges.push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
+        ranges->push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
         range_start = current;
         previous = current;
     }
-    ranges.push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
+    ranges->push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
+}
+
+inline std::vector<RowRange> selection_to_ranges(const SelectionVector& selection,
+                                                 uint16_t selected_rows) {
+    std::vector<RowRange> ranges;
+    selection_to_ranges(selection, selected_rows, &ranges);
     return ranges;
 }
 

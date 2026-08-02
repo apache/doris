@@ -53,6 +53,16 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testConstructorAcceptsDorisShortTimeZoneForNonTemporalProjection() {
+        Map<String, String> params = createBaseParams();
+        params.put("required_fields", "id");
+        params.put("columns_types", "int");
+        params.put("time_zone", "EST");
+
+        new PaimonJniScanner(128, params);
+    }
+
+    @Test
     public void testIOManagerOptionHelpers() throws Exception {
         Map<String, String> params = createBaseParams();
         Assert.assertFalse(PaimonJniScanner.isIOManagerEnabled(params));

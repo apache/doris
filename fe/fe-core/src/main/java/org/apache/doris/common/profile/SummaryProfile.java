@@ -106,6 +106,7 @@ public class SummaryProfile {
     public static final String FETCH_RESULT_TIME = "Fetch Result Time";
     public static final String WRITE_RESULT_TIME = "Write Result Time";
     public static final String GET_META_VERSION_TIME = "Get Meta Version Time";
+    public static final String GET_META_VERSION_RATE_LIMIT_WAIT_TIME = "Get Meta Version Rate Limit Wait Time";
     public static final String GET_PARTITION_VERSION_TIME = "Get Partition Version Time";
     public static final String GET_PARTITION_VERSION_COUNT = "Get Partition Version Count";
     public static final String GET_PARTITION_VERSION_BY_HAS_DATA_COUNT = "Get Partition Version Count (hasData)";
@@ -154,8 +155,6 @@ public class SummaryProfile {
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
     public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
-    public static final String ICEBERG_SCAN_METRICS = "Iceberg Scan Metrics";
-    public static final String PAIMON_SCAN_METRICS = "Paimon Scan Metrics";
     public static final String WAIT_CHANGE_VISIBLE_TIME = "Wait Change Visible Time";
     private boolean isWarmUp = false;
 
@@ -214,10 +213,9 @@ public class SummaryProfile {
             EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME,
             SINK_SET_PARTITION_VALUES_TIME,
             CREATE_SCAN_RANGE_TIME,
-            ICEBERG_SCAN_METRICS,
-            PAIMON_SCAN_METRICS,
             NEREIDS_DISTRIBUTE_TIME,
             GET_META_VERSION_TIME,
+            GET_META_VERSION_RATE_LIMIT_WAIT_TIME,
             GET_PARTITION_VERSION_TIME,
             GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
             GET_PARTITION_VERSION_COUNT,
@@ -273,8 +271,7 @@ public class SummaryProfile {
             .put(EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME, 5)
             .put(SINK_SET_PARTITION_VALUES_TIME, 3)
             .put(CREATE_SCAN_RANGE_TIME, 2)
-            .put(ICEBERG_SCAN_METRICS, 3)
-            .put(PAIMON_SCAN_METRICS, 3)
+            .put(GET_META_VERSION_RATE_LIMIT_WAIT_TIME, 1)
             .put(GET_PARTITION_VERSION_TIME, 1)
             .put(GET_PARTITION_VERSION_COUNT, 1)
             .put(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, 1)
@@ -403,6 +400,8 @@ public class SummaryProfile {
     private long getTableVersionTime = 0;
     @SerializedName(value = "getTableVersionCount")
     private long getTableVersionCount = 0;
+    @SerializedName(value = "getMetaVersionRateLimitWaitTime")
+    private long getMetaVersionRateLimitWaitTime = 0;
     @SerializedName(value = "transactionCommitBeginTime")
     private long transactionCommitBeginTime = -1;
     @SerializedName(value = "transactionCommitEndTime")
@@ -678,6 +677,8 @@ public class SummaryProfile {
 
         if (Config.isCloudMode()) {
             executionSummaryProfile.addInfoString(GET_META_VERSION_TIME, getPrettyGetMetaVersionTime());
+            executionSummaryProfile.addInfoString(GET_META_VERSION_RATE_LIMIT_WAIT_TIME,
+                    getPrettyGetMetaVersionRateLimitWaitTime());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_TIME, getPrettyGetPartitionVersionTime());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_COUNT, getPrettyGetPartitionVersionCount());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
@@ -882,6 +883,10 @@ public class SummaryProfile {
         this.getTableVersionCount += 1;
     }
 
+    public void addGetMetaVersionRateLimitWaitTime(long ns) {
+        this.getMetaVersionRateLimitWaitTime += ns;
+    }
+
     public void incGetPartitionVersionByHasDataCount() {
         this.getPartitionVersionByHasDataCount += 1;
     }
@@ -1065,6 +1070,13 @@ public class SummaryProfile {
         return RuntimeProfile.printCounter(getMetaVersionTime, TUnit.TIME_NS);
     }
 
+    private String getPrettyGetMetaVersionRateLimitWaitTime() {
+        if (getMetaVersionRateLimitWaitTime == 0) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(getMetaVersionRateLimitWaitTime, TUnit.TIME_NS);
+    }
+
     private String getPrettyGetPartitionVersionTime() {
         if (getPartitionVersionTime == 0) {
             return "N/A";
@@ -1095,8 +1107,8 @@ public class SummaryProfile {
         return RuntimeProfile.printCounter(getTableVersionCount, TUnit.UNIT);
     }
 
-    public long getGetPartitionVersionTime() {
-        return getPartitionVersionTime;
+    public long getGetPartitionVersionTimeMs() {
+        return TimeUnit.NANOSECONDS.toMillis(getPartitionVersionTime);
     }
 
     public long getGetPartitionVersionCount() {
@@ -1107,12 +1119,16 @@ public class SummaryProfile {
         return getPartitionVersionByHasDataCount;
     }
 
-    public long getGetTableVersionTime() {
-        return getTableVersionTime;
+    public long getGetTableVersionTimeMs() {
+        return TimeUnit.NANOSECONDS.toMillis(getTableVersionTime);
     }
 
     public long getGetTableVersionCount() {
         return getTableVersionCount;
+    }
+
+    public long getGetMetaVersionRateLimitWaitTime() {
+        return getMetaVersionRateLimitWaitTime;
     }
 
     private String getPrettyTime(long end, long start, TUnit unit) {
@@ -1383,13 +1399,17 @@ public class SummaryProfile {
     }
 
     public String getMetaTime() {
-        return "{"
-                + "\"get_partition_version_time_ms\"" + ":" + this.getGetPartitionVersionTime() + ","
+        String metaTime = "{"
+                + "\"get_partition_version_time_ms\"" + ":" + this.getGetPartitionVersionTimeMs() + ","
                 + "\"get_partition_version_count_has_data\"" + ":" + this.getGetPartitionVersionByHasDataCount() + ","
                 + "\"get_partition_version_count\"" + ":" + this.getGetPartitionVersionCount() + ","
-                + "\"get_table_version_time_ms\"" + ":" + this.getGetTableVersionTime() + ","
-                + "\"get_table_version_count\"" + ":" + this.getGetTableVersionCount()
-                + "}";
+                + "\"get_table_version_time_ms\"" + ":" + this.getGetTableVersionTimeMs() + ","
+                + "\"get_table_version_count\"" + ":" + this.getGetTableVersionCount();
+        if (this.getGetMetaVersionRateLimitWaitTime() > 0) {
+            metaTime += ",\"get_meta_version_rate_limit_wait_time_ms\"" + ":"
+                    + TimeUnit.NANOSECONDS.toMillis(this.getGetMetaVersionRateLimitWaitTime());
+        }
+        return metaTime + "}";
     }
 
     public String getScheduleTime() {

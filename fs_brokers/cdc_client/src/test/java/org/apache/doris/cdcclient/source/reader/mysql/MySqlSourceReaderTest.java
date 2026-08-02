@@ -20,23 +20,37 @@ package org.apache.doris.cdcclient.source.reader.mysql;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.doris.cdcclient.source.reader.oceanbase.OceanBaseSourceReader;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 
 import com.github.shyiko.mysql.binlog.GtidSet;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
+import org.apache.flink.cdc.connectors.mysql.source.split.MySqlSnapshotSplit;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.sql.Types;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+
+import io.debezium.relational.Column;
+import io.debezium.relational.Table;
+import io.debezium.relational.TableEditor;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
 
 public class MySqlSourceReaderTest {
 
     private static final String SERVER_UUID = "24bc7850-2c16-11e6-a073-0242ac110002";
+    private static final String EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT =
+            "doris.cdc.exclude.heartbeat.from.event.count";
 
     @Test
     void testNormalizeSslModeMapsAllLegalValues() {
@@ -115,6 +129,94 @@ public class MySqlSourceReaderTest {
         assertFalse(config.isIncludeSchemaChanges());
     }
 
+    @Test
+    void mysqlHeartbeatContributesToRestartEventCount() throws Exception {
+        MySqlSourceConfig config =
+                sourceConfig(new MySqlSourceReader(), "initial", Map.of());
+
+        assertFalse(
+                config.getDbzConfiguration()
+                        .getBoolean(EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT));
+    }
+
+    @Test
+    void oceanBaseHeartbeatDoesNotContributeToRestartEventCount() throws Exception {
+        MySqlSourceConfig config =
+                sourceConfig(new OceanBaseSourceReader(), "initial", Map.of());
+
+        assertTrue(
+                config.getDbzConfiguration()
+                        .getBoolean(EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT));
+    }
+
+    @Test
+    void snapshotSplitContainsOnlyCurrentTableSchema() throws Exception {
+        TableId tableId = TableId.parse("testdb.orders");
+        TableId otherTableId = TableId.parse("testdb.other_orders");
+        TableChanges.TableChange tableChange = tableChange(tableId, "pk");
+        Map<TableId, TableChanges.TableChange> tableSchemas = new HashMap<>();
+        tableSchemas.put(tableId, tableChange);
+        tableSchemas.put(otherTableId, tableChange(otherTableId, "other_id"));
+
+        MySqlSourceReader reader =
+                new MySqlSourceReader() {
+                    @Override
+                    protected Class<?> probeSplitKeyClass(
+                            TableId ignoredTableId,
+                            Column ignoredSplitColumn,
+                            JobBaseConfig ignoredJobConfig) {
+                        return Integer.class;
+                    }
+                };
+        reader.setTableSchemas(tableSchemas);
+
+        Method method =
+                MySqlSourceReader.class.getDeclaredMethod(
+                        "createSnapshotSplit", Map.class, JobBaseConfig.class);
+        method.setAccessible(true);
+        MySqlSnapshotSplit split =
+                (MySqlSnapshotSplit)
+                        method.invoke(
+                                reader,
+                                snapshotOffset("testdb.orders", "pk"),
+                                new JobBaseConfig("job-1", "MYSQL", Map.of(), null));
+
+        assertEquals(tableId, split.getTableId());
+        assertEquals(Map.of(tableId, tableChange), split.getTableSchemas());
+        assertFalse(split.getTableSchemas().containsKey(otherTableId));
+        assertEquals(2, reader.getTableSchemas().size());
+        assertTrue(reader.getTableSchemas().containsKey(tableId));
+        assertTrue(reader.getTableSchemas().containsKey(otherTableId));
+    }
+
+    @Test
+    void mysqlConfigRegistersYearConverterOnlyWhenYearIsDateTypeIsFalse() throws Exception {
+        MySqlSourceConfig falseConfig =
+                sourceConfig(
+                        "initial",
+                        Map.of(
+                                DataSourceConfigKeys.JDBC_URL,
+                                "jdbc:mysql://localhost:3306/testdb?yearIsDateType=false"));
+
+        assertEquals("dorisYear", falseConfig.getDbzProperties().getProperty("converters"));
+        assertEquals(
+                "org.apache.doris.cdcclient.source.reader.mysql.MySqlYearConverter",
+                falseConfig.getDbzProperties().getProperty("dorisYear.type"));
+
+        MySqlSourceConfig trueConfig =
+                sourceConfig(
+                        "initial",
+                        Map.of(
+                                DataSourceConfigKeys.JDBC_URL,
+                                "jdbc:mysql://localhost:3306/testdb?yearIsDateType=true"));
+        assertNull(trueConfig.getDbzProperties().getProperty("converters"));
+        assertNull(trueConfig.getDbzProperties().getProperty("dorisYear.type"));
+
+        MySqlSourceConfig missingConfig = sourceConfig("initial");
+        assertNull(missingConfig.getDbzProperties().getProperty("converters"));
+        assertNull(missingConfig.getDbzProperties().getProperty("dorisYear.type"));
+    }
+
     // Drive the real generateMySqlConfig JSON-offset path and return the rebuilt startup offset.
     private BinlogOffset startupBinlogOffset(String offsetJson) throws Exception {
         return sourceConfig(offsetJson).getStartupOptions().binlogOffset;
@@ -125,6 +227,12 @@ public class MySqlSourceReaderTest {
     }
 
     private MySqlSourceConfig sourceConfig(String offset, Map<String, String> overrides)
+            throws Exception {
+        return sourceConfig(new MySqlSourceReader(), offset, overrides);
+    }
+
+    private MySqlSourceConfig sourceConfig(
+            MySqlSourceReader reader, String offset, Map<String, String> overrides)
             throws Exception {
         Map<String, String> cfg = new HashMap<>();
         cfg.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://localhost:3306/testdb");
@@ -138,6 +246,29 @@ public class MySqlSourceReaderTest {
                 MySqlSourceReader.class.getDeclaredMethod(
                         "generateMySqlConfig", Map.class, String.class, int.class);
         m.setAccessible(true);
-        return (MySqlSourceConfig) m.invoke(new MySqlSourceReader(), cfg, "job-1", 0);
+        return (MySqlSourceConfig) m.invoke(reader, cfg, "job-1", 0);
+    }
+
+    private static Map<String, Object> snapshotOffset(String tableId, String splitKey) {
+        Map<String, Object> offset = new HashMap<>();
+        offset.put("splitId", tableId + ":0");
+        offset.put("tableId", tableId);
+        offset.put("splitKey", List.of(splitKey));
+        offset.put("splitStart", new Object[] {1});
+        offset.put("splitEnd", new Object[] {10});
+        return offset;
+    }
+
+    private static TableChanges.TableChange tableChange(TableId tableId, String splitKey) {
+        TableEditor editor = Table.editor().tableId(tableId);
+        editor.addColumns(
+                Column.editor()
+                        .name(splitKey)
+                        .type("INT")
+                        .jdbcType(Types.INTEGER)
+                        .optional(false)
+                        .create());
+        editor.setPrimaryKeyNames(splitKey);
+        return new TableChanges.TableChange(TableChanges.TableChangeType.CREATE, editor.create());
     }
 }

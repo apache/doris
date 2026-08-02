@@ -45,7 +45,7 @@ be/src/load/group_commit                                     @liaoxin01 @gavinch
 be/src/load/memtable                                         @liaoxin01 @gavinchou
 be/src/load/routine_load                                     @liaoxin01 @gavinchou
 be/src/load/stream_load                                      @liaoxin01 @gavinchou
-be/src/storage                                               @gavinchou
+be/src/storage                                               @gavinchou @yiguolei
 be/src/storage/olap_common.h                                 @gavinchou @yiguolei
 be/src/storage/cache                                         @liaoxin01 @gavinchou
 be/src/storage/compaction                                    @luwei16 @gavinchou
@@ -53,11 +53,11 @@ be/src/storage/delete                                        @luwei16 @gavinchou
 be/src/storage/index                                         @airborne12 @eldenmoon @csun5285
 be/src/storage/iterator                                      @yiguolei @gavinchou
 be/src/storage/predicate                                     @yiguolei @gavinchou
-be/src/storage/rowset                                        @gavinchou
+be/src/storage/rowset                                        @gavinchou @yiguolei
 be/src/storage/schema_change                                 @luwei16 @gavinchou
 be/src/storage/segment                                       @yiguolei @liaoxin01 @gavinchou @eldenmoon @csun5285 @airborne12
 be/src/storage/snapshot                                      @deardeng @luwei16 @gavinchou
-be/src/storage/tablet                                        @gavinchou
+be/src/storage/tablet                                        @gavinchou @yiguolei
 be/src/storage/task                                          @deardeng @gavinchou
 be/src/storage/txn                                           @liaoxin01 @gavinchou
 be/test/cloud                                                @luwei16 @liaoxin01 @gavinchou
@@ -70,19 +70,19 @@ be/test/load/channel                                         @liaoxin01 @gavinch
 be/test/load/delta_writer                                    @liaoxin01 @gavinchou
 be/test/load/memtable                                        @liaoxin01 @gavinchou
 be/test/olap                                                 @gavinchou
-be/test/olap/rowset                                          @gavinchou
-be/test/storage                                              @gavinchou
+be/test/olap/rowset                                          @gavinchou @yiguolei
+be/test/storage                                              @gavinchou @yiguolei
 be/test/storage/cache                                        @liaoxin01 @gavinchou
 be/test/storage/compaction                                   @luwei16 @gavinchou
 be/test/storage/delete                                       @gavinchou
 be/test/storage/index                                        @airborne12 @eldenmoon @csun5285
 be/test/storage/iterator                                     @yiguolei @gavinchou
 be/test/storage/predicate                                    @yiguolei @gavinchou
-be/test/storage/rowset                                       @gavinchou
+be/test/storage/rowset                                       @gavinchou @yiguolei
 be/test/storage/schema_change                                @luwei16 @gavinchou
 be/test/storage/segment                                      @yiguolei @gavinchou @eldenmoon @csun5285 @airborne12
 be/test/storage/snapshot                                     @deardeng @luwei16 @gavinchou
-be/test/storage/tablet                                       @gavinchou
+be/test/storage/tablet                                       @gavinchou @yiguolei
 be/test/storage/txn                                          @liaoxin01 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/alter              @luwei16 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/backup             @luwei16 @gavinchou

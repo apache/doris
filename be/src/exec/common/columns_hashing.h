@@ -128,18 +128,17 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
                                            size_t hash_value, Func&& f,
                                            CreatorForNull&& null_creator) {
         if (key_column->is_null_at(row)) {
-            bool has_null_key = data.has_null_key_data();
-            data.has_null_key_data() = true;
-
             if constexpr (std::is_same_v<Mapped, void>) {
-                if (!has_null_key) {
+                if (!data.has_null_key_data()) {
                     std::forward<CreatorForNull>(null_creator)();
+                    data.has_null_key_data() = true;
                 }
                 return nullptr;
             } else {
-                if (!has_null_key) {
+                if (!data.has_null_key_data()) {
                     std::forward<CreatorForNull>(null_creator)(
                             data.template get_null_key_data<Mapped>());
+                    data.has_null_key_data() = true;
                 }
                 return &data.template get_null_key_data<Mapped>();
             }

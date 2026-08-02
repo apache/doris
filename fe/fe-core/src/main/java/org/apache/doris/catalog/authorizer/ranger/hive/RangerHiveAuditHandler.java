@@ -19,7 +19,6 @@ package org.apache.doris.catalog.authorizer.ranger.hive;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hive.ql.security.authorization.plugin.HiveOperationType;
 import org.apache.ranger.audit.model.AuthzAuditEvent;
 import org.apache.ranger.plugin.audit.RangerDefaultAuditHandler;
 import org.apache.ranger.plugin.model.RangerPolicy;
@@ -33,14 +32,27 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * ATTN: the {@code org.apache.hadoop.conf.Configuration} import below is a SANCTIONED EXCEPTION to the
+ * fe-core hadoop-decoupling effort — do not "clean" it away.
+ *
+ * <p>The type is imposed by the Ranger library, not chosen by Doris: {@link RangerDefaultAuditHandler}
+ * declares the constructor as {@code RangerDefaultAuditHandler(org.apache.hadoop.conf.Configuration)}, and
+ * the only argument ever passed is {@code RangerBasePlugin.getConfig()}, whose type chain is
+ * {@code RangerPluginConfig -> RangerConfiguration -> org.apache.hadoop.conf.Configuration}. Narrowing the
+ * parameter to {@code RangerPluginConfig} would make a grep look clean while removing no dependency at all:
+ * ranger-plugins-common itself pulls hadoop-client-api/hadoop-client-runtime onto the fe-core classpath.
+ *
+ * <p>Removing hadoop from here therefore requires moving the whole Ranger authorizer out of fe-core, which
+ * contradicts the standing decision that this package is a generic external-catalog authorizer kept in
+ * fe-core unchanged.
+ */
 public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
 
     public static final String ACCESS_TYPE_ROWFILTER = "ROW_FILTER";
@@ -52,15 +64,6 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
     public static final String CONF_AUDIT_QUERY_REQUEST_SIZE = "xasecure.audit.solr.limit.query.req.size";
     public static final int DEFAULT_CONF_AUDIT_QUERY_REQUEST_SIZE = Integer.MAX_VALUE;
     private static final Logger LOG = LoggerFactory.getLogger(RangerDefaultAuditHandler.class);
-    private static final Set<String> ROLE_OPS = new HashSet<>();
-
-    static {
-        for (HiveOperationType e : EnumSet.of(HiveOperationType.CREATEROLE, HiveOperationType.DROPROLE,
-                HiveOperationType.SHOW_ROLES, HiveOperationType.SHOW_ROLE_GRANT, HiveOperationType.SHOW_ROLE_PRINCIPALS,
-                HiveOperationType.GRANT_ROLE, HiveOperationType.REVOKE_ROLE)) {
-            ROLE_OPS.add(e.name());
-        }
-    }
 
     private final int requestQuerySize;
     private final Collection<AuthzAuditEvent> auditEvents = new ArrayList<>();

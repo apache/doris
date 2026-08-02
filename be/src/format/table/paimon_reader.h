@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -34,6 +35,9 @@ namespace doris {
 class ShardedKVCache;
 
 std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
+
+Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc& deletion_file,
+                                                  size_t& bytes_read);
 
 Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                             DeletionVector* deletion_vector);

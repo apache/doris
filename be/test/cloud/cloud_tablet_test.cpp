@@ -24,7 +24,6 @@
 
 #include <chrono>
 #include <cstdint>
-#include <ranges>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"

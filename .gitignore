@@ -151,3 +151,5 @@ compile_commands.json
 
 .worktrees/
 .worktree_initialized
+
+plan-doc/
