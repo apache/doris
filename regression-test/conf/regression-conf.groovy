@@ -161,6 +161,12 @@ hive3PgPort=5732
 enableKafkaTest=false
 kafka_port=19193
 
+// fluss catalog test config
+// to enable fluss test, you need firstly to start fluss containers
+// See `docker/thirdparties/run-thirdparties-docker.sh -c fluss`
+enableFlussTest=false
+fluss_coordinator_port=19123
+
 // elasticsearch catalog test config
 // See `docker/thirdparties/run-thirdparties-docker.sh`
 enableEsTest=false
