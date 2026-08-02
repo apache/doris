@@ -25,6 +25,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -91,6 +92,8 @@ public class ExecuteCommand extends Command {
             relationRoots.add(((UpdateCommand) logicalPlan).getLogicalQuery());
         } else if (logicalPlan instanceof DeleteFromUsingCommand) {
             relationRoots.add(((DeleteFromUsingCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof DeleteFromCommand) {
+            relationRoots.add(((DeleteFromCommand) logicalPlan).logicalQuery);
         } else if (logicalPlan instanceof MergeIntoCommand) {
             relationRoots.addAll(((MergeIntoCommand) logicalPlan).getRelationRoots());
         } else if (!(logicalPlan instanceof Command)) {
@@ -98,12 +101,23 @@ public class ExecuteCommand extends Command {
         }
         // Commands hide their retained query trees from normal plan traversal. Reset every exposed
         // root so a later EXECUTE cannot reuse a relation-local snapshot from an earlier execution.
-        for (LogicalPlan relationRoot : relationRoots) {
+        for (int rootIndex = 0; rootIndex < relationRoots.size(); rootIndex++) {
+            LogicalPlan relationRoot = relationRoots.get(rootIndex);
             for (UnboundRelation relation : relationRoot.<UnboundRelation>collectToList(
                     UnboundRelation.class::isInstance)) {
                 TableScanParams scanParams = relation.getScanParams();
                 if (scanParams != null) {
                     scanParams.resetResolvedMapParams();
+                }
+            }
+            for (LogicalPlan plan : relationRoot.<LogicalPlan>collectToList(node -> true)) {
+                for (Expression expression : plan.getExpressions()) {
+                    for (SubqueryExpr subquery : expression.<SubqueryExpr>collectToList(
+                            SubqueryExpr.class::isInstance)) {
+                        // SubqueryExpr owns its query plan outside Plan.children(), so retained prepared
+                        // commands need this explicit edge to clear nested relation-local snapshot state.
+                        relationRoots.add(subquery.getQueryPlan());
+                    }
                 }
             }
         }
