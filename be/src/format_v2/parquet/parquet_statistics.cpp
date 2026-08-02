@@ -452,11 +452,9 @@ std::optional<format::LocalColumnId> file_column_id_by_block_position(
     return std::nullopt;
 }
 
-bool has_expr_zonemap_filter(const format::FileScanRequest& request,
-                             const RuntimeState* runtime_state) {
-    if (!expr_zonemap::is_expr_zonemap_filter_enabled(runtime_state)) {
-        return false;
-    }
+bool has_expr_zonemap_filter(const format::FileScanRequest& request, const RuntimeState*) {
+    // FileScannerV2 metadata pruning is a fixed part of its scan pipeline and must not inherit
+    // the legacy scanner's expression ZoneMap session gate.
     for (const auto& conjunct : request.conjuncts) {
         if (conjunct != nullptr && conjunct->root() != nullptr &&
             conjunct->root()->can_evaluate_zonemap_filter()) {

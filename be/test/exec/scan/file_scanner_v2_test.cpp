@@ -141,6 +141,18 @@ private:
     std::shared_ptr<RetryableCloseState> _state;
 };
 
+class CapturingSplitTableReader final : public format::TableReader {
+public:
+    Status prepare_split(const format::SplitReadOptions& options) override {
+        conjunct_count = options.conjuncts.has_value() ? options.conjuncts->size() : 0;
+        partition_prune_conjunct_count = options.partition_prune_conjuncts.size();
+        return Status::OK();
+    }
+
+    size_t conjunct_count = 0;
+    size_t partition_prune_conjunct_count = 0;
+};
+
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
@@ -443,6 +455,48 @@ TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
     EXPECT_EQ(close_state->close_calls, 2);
     EXPECT_TRUE(scanner.close(&state).ok());
     EXPECT_EQ(close_state->close_calls, 2);
+}
+
+TEST(FileScannerV2Test, PartitionPruningRemainsEnabledWhenSessionSwitchIsFalse) {
+    TQueryOptions query_options;
+    query_options.__set_enable_runtime_filter_partition_prune(false);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple_descriptor;
+    tuple_descriptor.id = 0;
+    tuple_descriptor.byteSize = 0;
+    tuple_descriptor.numNullBytes = 0;
+    thrift_descriptors.tupleDescriptors.push_back(tuple_descriptor);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan_node;
+    plan_node.node_id = 0;
+    plan_node.node_type = TPlanNodeType::FILE_SCAN_NODE;
+    plan_node.num_children = 0;
+    plan_node.limit = -1;
+    plan_node.row_tuples.push_back(0);
+    plan_node.file_scan_node.tuple_id = 0;
+    plan_node.__isset.file_scan_node = true;
+    FileScanOperatorX parent(&pool, plan_node, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
+    RuntimeProfile profile("file_scanner_v2_partition_prune");
+    auto table_reader = std::make_unique<CapturingSplitTableReader>();
+    auto* captured = table_reader.get();
+    FileScannerV2 scanner(&state, &profile, std::move(table_reader));
+    scanner._local_state = &local_state;
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scanner._params = &params;
+    scanner._slot_id_to_global_index.emplace(7, format::GlobalIndex(0));
+    scanner._conjuncts = {VExprContext::create_shared(
+            slot_ref(7, 7, std::make_shared<DataTypeInt32>(), "partition_col"))};
+
+    const auto range = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(scanner._prepare_table_reader_split(range, {}).ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 1);
 }
 
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back
