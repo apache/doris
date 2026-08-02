@@ -1157,6 +1157,8 @@ build_arrow() {
 #   libadbc_driver_manager.a  -- statically linked into doris_be
 #   libadbc_driver_jni.so     -- loaded by the FE adbc connector
 #   libadbc_driver_sqlite.so  -- BE unit tests only, not shipped
+# and installs a fourth that is not built here:
+#   libadbc_driver_flightsql.so -- prebuilt, adbc tests only, not shipped
 build_arrow_adbc() {
     check_if_source_exist "${ARROW_ADBC_SOURCE}"
 
@@ -1221,6 +1223,16 @@ build_arrow_adbc() {
         "${adbc_src}/java/driver/jni/src/main/cpp/jni_wrapper.cc" \
         -o "${TP_INSTALL_DIR}/lib64/libadbc_driver_jni.so" \
         "${TP_INSTALL_DIR}/lib64/libadbc_driver_manager.a"
+
+    # (3) Flight SQL driver. Not built: upstream implements it in Go, so it comes
+    #     prebuilt out of the release wheel that download-thirdparty.sh unpacked
+    #     (see vars.sh). Nothing links against it; the FE and BE dlopen it at run
+    #     time, and only the adbc tests ask for it.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+        check_if_source_exist "${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+        cp -f "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}/libadbc_driver_flightsql.so" \
+            "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so"
+    fi
 
     rm -rf "${sqlite_host}"
 }
@@ -2393,7 +2405,15 @@ cleanup_package_source() {
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
-        arrow_adbc)      src_var="ARROW_ADBC_SOURCE" ;;
+        arrow_adbc)
+            # arrow_adbc also unpacks the prebuilt flightsql driver, clean both
+            if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" && -d "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+                echo "Cleaning up source: ${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+                rm -rf "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" \
+                    "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"-*.dist-info
+            fi
+            src_var="ARROW_ADBC_SOURCE"
+            ;;
         brotli)          src_var="BROTLI_SOURCE" ;;
         cares)           src_var="CARES_SOURCE" ;;
         grpc)            src_var="GRPC_SOURCE" ;;
