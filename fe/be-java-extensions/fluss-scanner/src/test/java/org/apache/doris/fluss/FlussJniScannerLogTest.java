@@ -442,15 +442,18 @@ public class FlussJniScannerLogTest {
         Assertions.assertTrue(e.getMessage().contains("fluss.bucket_id"), e.getMessage());
     }
 
-    /** Primary-key and union ranges are planned by FE but not readable here yet. */
+    /**
+     * Union ranges are planned by FE but not readable here yet. Refusing beats reading their fluss
+     * half and returning it as if it were the whole table.
+     */
     @Test
-    public void anUnsupportedRangeTypeIsRefused() {
+    public void unsupportedRangeTypeIsRefused() {
         Map<String, String> params = params(TablePath.of(db, "x"), columns("id", "int"), 0, 1);
-        params.put("fluss.range_type", "PK_FULL");
+        params.put("fluss.range_type", "UNION_PK");
 
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new FlussJniScanner(1024, params));
-        Assertions.assertTrue(e.getMessage().contains("PK_FULL"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("UNION_PK"), e.getMessage());
     }
 
     /** A column dropped between planning and reading must say so, not read a neighbouring column. */

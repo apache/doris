@@ -23,47 +23,40 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
 import org.apache.fluss.client.table.Table;
-import org.apache.fluss.client.table.scanner.ScanRecord;
-import org.apache.fluss.client.table.scanner.log.LogScanner;
-import org.apache.fluss.client.table.scanner.log.ScanRecords;
+import org.apache.fluss.client.table.scanner.batch.BatchScanner;
+import org.apache.fluss.client.table.scanner.batch.KvSnapshotAndLogBatchScanner;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TablePath;
+import org.apache.fluss.row.InternalRow;
 import org.apache.fluss.types.DataType;
 import org.apache.fluss.types.RowType;
+import org.apache.fluss.utils.CloseableIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 
 /**
- * Reads one fluss scan range — one bucket of one partition, over a bounded log offset range.
+ * Reads one fluss scan range — one bucket of one partition, bounded by log offsets.
  *
  * <p>The parameters are the two maps FE built, merged by BE: the scan-level one (connection, table)
  * and the per-range one (which bucket, which offsets). Nothing between FE and here type-checks them,
  * so every one this class needs is read through {@link #required}, which names the missing key rather
  * than letting a null reach fluss.
  *
- * <p><b>Where the read stops.</b> A fluss log scanner is a streaming reader with no end; the range's
- * stopping offset is what bounds it, and reaching it has to be detected three ways, all of which come
- * from fluss's own bounded reader ({@code KvSnapshotAndLogBatchScanner#pollLogRecords}):
- * <ul>
- *   <li>a record at or past the stopping offset is not ours — drop it and stop;</li>
- *   <li>after the record at {@code stopping - 1}, stop immediately. The record AT the stopping offset
- *       may never exist (it is where the log had got to, not a row), so polling on would block
- *       forever;</li>
- *   <li>if the fetch consumed up to the stopping offset without yielding a record there, stop too.
- *       That is the case the first two miss: the tail of the range can be control records, which
- *       occupy offsets but are never handed to a scanner.</li>
- * </ul>
+ * <p><b>Two ways to read, one loop.</b> A log table's range is its bucket's records over
+ * {@code [start, stop)}, in log order. A primary-key table's range cannot be read that way — its log
+ * is a change log, so replaying it verbatim returns superseded and deleted rows — and is read instead
+ * as a kv snapshot merged with the change log that followed it, by fluss's own
+ * {@code KvSnapshotAndLogBatchScanner}. Both are fluss {@code BatchScanner}s, so the row loop below
+ * does not know which one it is draining.
  *
  * <p>Partition columns are not read here. FE declares them to the engine, which leaves them out of
  * {@code required_fields} and fills them from the range itself, so the projection this builds covers
@@ -83,12 +76,14 @@ public class FlussJniScanner extends JniScanner {
     private static final String BUCKET_ID = "fluss.bucket_id";
     private static final String LOG_START_OFFSET = "fluss.log_start_offset";
     private static final String LOG_STOP_OFFSET = "fluss.log_stop_offset";
+    private static final String KV_SNAPSHOT_ID = "fluss.kv_snapshot_id";
 
     private static final String RANGE_TYPE_LOG = "LOG";
+    private static final String RANGE_TYPE_PK_FULL = "PK_FULL";
 
     /**
      * How long one poll waits for data. Only affects how often the loop spins, never correctness: the
-     * loop keeps polling until one of the three stop conditions above fires.
+     * loop keeps polling until the scanner reports it has reached the end of the range.
      */
     private static final Duration POLL_TIMEOUT = Duration.ofSeconds(1);
 
@@ -96,21 +91,23 @@ public class FlussJniScanner extends JniScanner {
     private final ClassLoader classLoader;
     private final FlussColumnValue columnValue;
 
+    private final boolean primaryKeyRange;
     private final long logStopOffset;
     private final long logStartOffset;
+    /** Kv snapshot to start a primary-key read from; {@code -1} when the bucket has never had one. */
+    private final long kvSnapshotId;
     private final int bucketId;
     /** {@code null} on an unpartitioned table, which fluss subscribes to by bucket alone. */
     private final Long partitionId;
 
     private Connection connection;
     private Table table;
-    private LogScanner logScanner;
-    private TableBucket tableBucket;
+    private BatchScanner scanner;
 
     /** Fluss types of the projected columns, positionally aligned with {@link #fields}. */
     private List<DataType> projectedTypes;
 
-    private Iterator<ScanRecord> pending = Collections.emptyIterator();
+    private CloseableIterator<InternalRow> currentBatch;
     private boolean finished;
     private long rowsRead;
 
@@ -119,17 +116,19 @@ public class FlussJniScanner extends JniScanner {
         this.classLoader = this.getClass().getClassLoader();
 
         String rangeType = required(RANGE_TYPE);
-        if (!RANGE_TYPE_LOG.equals(rangeType)) {
-            // Primary-key and union ranges are planned but not read yet; failing here beats reading
-            // a primary-key table as a raw changelog and returning superseded rows.
+        this.primaryKeyRange = RANGE_TYPE_PK_FULL.equals(rangeType);
+        if (!primaryKeyRange && !RANGE_TYPE_LOG.equals(rangeType)) {
+            // Union ranges are planned but not read yet; failing here beats returning the fluss half
+            // of a union read as if it were the whole table.
             throw new IllegalArgumentException(
                     "fluss scan range type '" + rangeType + "' is not supported yet; expected "
-                            + RANGE_TYPE_LOG);
+                            + RANGE_TYPE_LOG + " or " + RANGE_TYPE_PK_FULL);
         }
         // Every range field is parsed here, before open() creates a connection: a range that cannot be
         // read should say so without having contacted the cluster first.
         this.logStopOffset = Long.parseLong(required(LOG_STOP_OFFSET));
         this.logStartOffset = Long.parseLong(required(LOG_START_OFFSET));
+        this.kvSnapshotId = primaryKeyRange ? Long.parseLong(required(KV_SNAPSHOT_ID)) : -1L;
         this.bucketId = Integer.parseInt(required(BUCKET_ID));
         String partition = params.get(PARTITION_ID);
         this.partitionId = partition == null ? null : Long.parseLong(partition);
@@ -167,8 +166,14 @@ public class FlussJniScanner extends JniScanner {
                 projectedTypes.add(rowType.getTypeAt(index));
             }
 
-            logScanner = table.newScan().project(scanProjection(projection)).createLogScanner();
-            subscribe();
+            long tableId = table.getTableInfo().getTableId();
+            TableBucket tableBucket = partitionId == null
+                    ? new TableBucket(tableId, bucketId)
+                    : new TableBucket(tableId, partitionId, bucketId);
+            scanner = primaryKeyRange
+                    ? primaryKeyScanner(tableBucket, projection)
+                    : new BoundedLogBatchScanner(table, tableBucket, scanProjection(projection),
+                            logStartOffset, logStopOffset);
         } catch (Throwable e) {
             try {
                 close();
@@ -183,15 +188,23 @@ public class FlussJniScanner extends JniScanner {
         }
     }
 
-    private void subscribe() {
-        long tableId = table.getTableInfo().getTableId();
-        if (partitionId == null) {
-            tableBucket = new TableBucket(tableId, bucketId);
-            logScanner.subscribe(bucketId, logStartOffset);
-        } else {
-            tableBucket = new TableBucket(tableId, partitionId, bucketId);
-            logScanner.subscribe(partitionId, bucketId, logStartOffset);
-        }
+    /**
+     * The kv snapshot of this bucket merged with the change log that followed it, by fluss's own
+     * bounded primary-key reader. That class is {@code @Internal} — this connector is pinned to the
+     * fluss version it ships with, and an upgrade has to re-run these tests.
+     *
+     * <p>The projection goes in as-is, including when it is empty, unlike the log path: this reader
+     * appends the primary-key columns to what it asks fluss for (it needs them to merge on) and
+     * projects the merged row back down to exactly what was requested, so it never asks fluss for the
+     * empty projection fluss rejects.
+     *
+     * <p>It buffers the whole bounded change-log range in memory before merging, which is fluss's own
+     * design for a batch read; the log tail after a snapshot is what bounds that, so a bucket whose
+     * snapshot is far behind costs the most.
+     */
+    private BatchScanner primaryKeyScanner(TableBucket tableBucket, int[] projection) {
+        return new KvSnapshotAndLogBatchScanner(
+                table, tableBucket, kvSnapshotId, logStartOffset, logStopOffset, projection);
     }
 
     /**
@@ -240,33 +253,22 @@ public class FlussJniScanner extends JniScanner {
     protected int getNext() throws IOException {
         int rows = 0;
         while (rows < getBatchSize()) {
-            if (!pending.hasNext()) {
+            if (currentBatch == null || !currentBatch.hasNext()) {
                 if (finished) {
                     break;
                 }
-                pending = poll();
+                // A batch scanner returns null only at the end of the range; an empty batch means it
+                // has more to do first (the primary-key reader drains the change log that way).
+                currentBatch = scanner.pollBatch(POLL_TIMEOUT);
+                finished = currentBatch == null;
                 continue;
             }
-            ScanRecord record = pending.next();
-            if (record.logOffset() >= logStopOffset) {
-                // Past the end of this range: another query's rows, not ours.
-                finished = true;
-                pending = Collections.emptyIterator();
-                break;
-            }
-            columnValue.setRow(record.getRow());
+            columnValue.setRow(currentBatch.next());
             for (int i = 0; i < fields.length; i++) {
                 columnValue.setIdx(i, types[i], projectedTypes.get(i));
                 appendData(i, columnValue);
             }
             rows++;
-            if (record.logOffset() >= logStopOffset - 1) {
-                // The last record of the range. Do not poll again: the record AT the stopping offset
-                // may not exist, and waiting for it never returns.
-                finished = true;
-                pending = Collections.emptyIterator();
-                break;
-            }
         }
         if (fields.length == 0 && rows > 0) {
             // A count-shaped read projects nothing; the vector table still needs the row count.
@@ -276,30 +278,18 @@ public class FlussJniScanner extends JniScanner {
         return rows;
     }
 
-    private Iterator<ScanRecord> poll() {
-        ScanRecords scanRecords = logScanner.poll(POLL_TIMEOUT);
-        Long consumedUpToOffset = scanRecords.consumedUpToOffset(tableBucket);
-        if (consumedUpToOffset != null && consumedUpToOffset >= logStopOffset) {
-            // The fetch reached the end of the range without necessarily yielding a record there — the
-            // tail can be control records, which take offsets but are never scanned. Without this the
-            // loop would poll for a row that is never coming.
-            finished = true;
-        }
-        return scanRecords.records(tableBucket).iterator();
-    }
-
     @Override
     public void close() throws IOException {
         IOException failure = null;
         // Close everything even if an earlier close throws: a leaked fluss connection keeps its netty
         // and metadata-updater threads alive for the life of the BE process.
-        failure = closeQuietly(logScanner, "log scanner", failure);
-        logScanner = null;
+        failure = closeQuietly(scanner, "scanner", failure);
+        scanner = null;
         failure = closeQuietly(table, "table", failure);
         table = null;
         failure = closeQuietly(connection, "connection", failure);
         connection = null;
-        pending = Collections.emptyIterator();
+        currentBatch = null;
         if (failure != null) {
             throw failure;
         }
