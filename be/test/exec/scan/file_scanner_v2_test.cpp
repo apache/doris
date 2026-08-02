@@ -476,6 +476,8 @@ TEST(FileScannerV2Test, PartitionPruningRemainsEnabledWhenSessionSwitchIsFalse) 
     plan_node.num_children = 0;
     plan_node.limit = -1;
     plan_node.row_tuples.push_back(0);
+    // RowDescriptor requires one nullability entry for every row tuple on branch-4.1.
+    plan_node.nullable_tuples.push_back(false);
     plan_node.file_scan_node.tuple_id = 0;
     plan_node.__isset.file_scan_node = true;
     FileScanOperatorX parent(&pool, plan_node, 0, *descriptors, 1);
