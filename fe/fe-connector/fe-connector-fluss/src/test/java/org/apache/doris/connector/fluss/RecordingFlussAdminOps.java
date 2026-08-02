@@ -20,6 +20,7 @@ package org.apache.doris.connector.fluss;
 import org.apache.fluss.client.admin.OffsetSpec;
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
+import org.apache.fluss.exception.TableNotExistException;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.PartitionSpec;
 import org.apache.fluss.metadata.TableInfo;
@@ -52,6 +53,11 @@ class RecordingFlussAdminOps implements FlussAdminOps {
 
     List<String> databases = Collections.emptyList();
     final Map<String, List<String>> tablesByDatabase = new HashMap<>();
+    final Map<TablePath, TableInfo> tableInfos = new HashMap<>();
+    final Map<TablePath, List<PartitionInfo>> partitionsByTable = new HashMap<>();
+    final Map<TablePath, TableStats> statsByTable = new HashMap<>();
+    /** When set, every call throws this instead of answering — the "cluster is unreachable" case. */
+    RuntimeException failure;
 
     @Override
     public List<String> listDatabases() {
@@ -82,12 +88,26 @@ class RecordingFlussAdminOps implements FlussAdminOps {
 
     @Override
     public TableInfo getTableInfo(TablePath tablePath) {
-        throw notProgrammed("getTableInfo");
+        calls.add("getTableInfo(" + tablePath + ")");
+        if (failure != null) {
+            throw failure;
+        }
+        TableInfo tableInfo = tableInfos.get(tablePath);
+        if (tableInfo == null) {
+            // What a real fluss cluster answers for an unknown table; the connector discriminates on it.
+            throw new TableNotExistException("Table '" + tablePath + "' does not exist.");
+        }
+        return tableInfo;
     }
 
     @Override
     public List<PartitionInfo> listPartitionInfos(TablePath tablePath) {
-        throw notProgrammed("listPartitionInfos");
+        calls.add("listPartitionInfos(" + tablePath + ")");
+        List<PartitionInfo> partitions = partitionsByTable.get(tablePath);
+        if (partitions == null) {
+            throw new IllegalStateException("no partitions programmed for table '" + tablePath + "'");
+        }
+        return partitions;
     }
 
     @Override
@@ -97,7 +117,15 @@ class RecordingFlussAdminOps implements FlussAdminOps {
 
     @Override
     public TableStats getTableStats(TablePath tablePath) {
-        throw notProgrammed("getTableStats");
+        calls.add("getTableStats(" + tablePath + ")");
+        if (failure != null) {
+            throw failure;
+        }
+        TableStats stats = statsByTable.get(tablePath);
+        if (stats == null) {
+            throw new IllegalStateException("no stats programmed for table '" + tablePath + "'");
+        }
+        return stats;
     }
 
     @Override

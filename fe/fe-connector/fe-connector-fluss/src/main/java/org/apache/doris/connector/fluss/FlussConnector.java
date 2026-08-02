@@ -57,7 +57,8 @@ public class FlussConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new FlussConnectorMetadata(adminOps());
+        return new FlussConnectorMetadata(adminOps(),
+                FlussConnectorProperties.typeMappingOptions(properties));
     }
 
     @Override
