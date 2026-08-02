@@ -169,6 +169,17 @@ INSERT INTO log_part VALUES
     (4, 'p3a', '20260103');
 
 -- ---------------------------------------------------------------------------
+-- log_empty: never written to. Every bucket's latest offset is 0, so planning
+-- must emit no scan range at all rather than ranges that read nothing.
+-- ---------------------------------------------------------------------------
+CREATE TABLE log_empty (
+    id INT,
+    name STRING
+) WITH (
+    'bucket.num' = '2'
+);
+
+-- ---------------------------------------------------------------------------
 -- pk_basic: primary-key table. Row 2 is updated and row 3 deleted, so a
 -- correct read returns the merged view, not the raw change log.
 -- ---------------------------------------------------------------------------
