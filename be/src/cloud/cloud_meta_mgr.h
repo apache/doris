@@ -64,7 +64,8 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
 Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concurrency,
                          std::future<Status>* fut);
 
-// Returns the exact actual_code when recognized, otherwise the legacy-compatible code.
+// Returns the exact actual_code when recognized. An unknown actual_code uses an explicit non-OK
+// legacy fallback and otherwise fails closed. Responses from a legacy Meta Service use code.
 // Exposed for unit tests.
 MetaServiceCode get_response_code(const MetaServiceResponseStatus& status);
 

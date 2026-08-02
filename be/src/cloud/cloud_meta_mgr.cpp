@@ -153,11 +153,56 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
     return Status::OK();
 }
 
+// Resolve the status code returned by Meta Service (MS) for BE/FE clients of different version.
+// Assuming MS is always the latest version, it sends both the meta-service error code and a code that
+// older clients can decode:
+//
+//                              latest MS
+//                 +---------------------------------------+
+//                 | actual_code = meta-service error code |
+//                 | code        = compatible code         |
+//                 +----------------+----------------------+
+//                                  |
+//                    +-------------+-------------+
+//                    |                           |
+//           old BE/FE without              old BE/FE with
+//          the actual_code field         the actual_code field
+//                    |                           |
+//          ignores actual_code            local enum recognizes
+//          and reads code                 actual_code value?
+//                                           /                  \
+//                                         yes                  no
+//                                         |                     |
+//                                  use actual code      use code only when it
+//                                                       is explicit and non-OK
+//                                                                 |
+//                                                          otherwise return
+//                                                           UNDEFINED_ERR
+//
+// After MS adds an error code, an older actual_code-aware client may not have that enum value;
+// MetaServiceCode_IsValid detects this case. The non-OK fallback check is essential:
+// if MS ignore or incorrectly converts the compatible code to OK, an unknown error
+// must remain an error instead of becoming a false success.
 MetaServiceCode get_response_code(const MetaServiceResponseStatus& status) {
-    if (status.has_actual_code() && MetaServiceCode_IsValid(status.actual_code())) {
-        return static_cast<MetaServiceCode>(status.actual_code());
+    if (status.has_actual_code()) {
+        // Check whether this client build contains the code in its MetaServiceCode enum.
+        if (MetaServiceCode_IsValid(status.actual_code())) {
+            return static_cast<MetaServiceCode>(status.actual_code());
+        }
+        // An older client may use the compatible code, but unsupported cases must return an explicit error.
+        // Return the non-OK compatible code prepared by MS for older clients.
+        if (status.has_code() && status.code() != MetaServiceCode::OK) {
+            return status.code();
+        }
+        // Never return OK when the compatible code is absent or invalid.
+        return MetaServiceCode::UNDEFINED_ERR;
     }
-    return status.code();
+    // A legacy response has only code, so return its explicit value, including a real OK.
+    if (status.has_code()) {
+        return status.code();
+    }
+    // A response missing both fields is invalid and must be rejected.
+    return MetaServiceCode::UNDEFINED_ERR;
 }
 
 namespace {

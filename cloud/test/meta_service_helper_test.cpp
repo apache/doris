@@ -228,7 +228,9 @@ TEST_F(MetaServiceWireCompatibilityTest, LegacyClientReadsFallbackAndIgnoresActu
     ASSERT_TRUE(reflection->HasField(*legacy_status, legacy_code_field_));
     EXPECT_EQ(reflection->GetEnumValue(*legacy_status, legacy_code_field_),
               MetaServiceCode::KV_TXN_CONFLICT);
-    EXPECT_EQ(reflection->GetString(*legacy_status, legacy_msg_field_), "busy");
+    EXPECT_EQ(reflection->GetString(*legacy_status, legacy_msg_field_),
+              "busy, [MS_TOO_BUSY will be converted to code=KV_TXN_CONFLICT for old version "
+              "clients]");
     EXPECT_EQ(legacy_status_descriptor_->FindFieldByName("actual_code"), nullptr);
 
     const auto& unknown_fields = reflection->GetUnknownFields(*legacy_status);
@@ -287,12 +289,18 @@ TEST(MetaServiceHelperTest, ResponseStatusUsesExactAndLegacyCodes) {
     set_response_code(&status, MetaServiceCode::MS_TOO_BUSY, "busy");
     EXPECT_EQ(status.code(), MetaServiceCode::KV_TXN_CONFLICT);
     EXPECT_EQ(status.actual_code(), MetaServiceCode::MS_TOO_BUSY);
-    EXPECT_EQ(status.msg(), "busy");
+    EXPECT_EQ(status.msg(),
+              "busy, [MS_TOO_BUSY will be converted to code=KV_TXN_CONFLICT for old version "
+              "clients]");
 
     set_response_code(&status, MetaServiceCode::KV_TXN_CONFLICT, "conflict");
     EXPECT_EQ(status.code(), MetaServiceCode::KV_TXN_CONFLICT);
     EXPECT_EQ(status.actual_code(), MetaServiceCode::KV_TXN_CONFLICT);
     EXPECT_EQ(status.msg(), "conflict");
+
+    set_response_code(&status, MetaServiceCode::MS_TOO_BUSY, "");
+    EXPECT_EQ(status.msg(),
+              "[MS_TOO_BUSY will be converted to code=KV_TXN_CONFLICT for old version clients]");
 }
 
 TEST(MetaServiceHelperTest, ResponseStatusCoversEveryMetaServiceCode) {
@@ -395,7 +403,9 @@ TEST(MetaServiceHelperTest, ResponseStatusCoversEveryMetaServiceCode) {
     expect_response_status(MetaServiceCode::UNDEFINED_ERR, MetaServiceCode::UNDEFINED_ERR);
 
     EXPECT_EQ(covered_codes.size(),
-              static_cast<size_t>(MetaServiceCode_descriptor()->value_count()));
+              static_cast<size_t>(MetaServiceCode_descriptor()->value_count()))
+            << "A new MetaServiceCode was added. Add it to this test and handle it in "
+               "resolve_response_code_and_msg().";
 }
 
 } // namespace doris::cloud
