@@ -615,7 +615,7 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
-    public void resolveSystemScanTableAppliesRuntimeCapToReturnedWrapper() {
+    public void resolveSystemScanTableDoesNotRecapReturnedWrapper() {
         int localCapacity = Runtime.getRuntime().availableProcessors();
         org.junit.jupiter.api.Assumptions.assumeTrue(
                 localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
@@ -635,11 +635,7 @@ public class PaimonScanPlanProviderTest {
         FakePaimonTable relationSystemTable = new FakePaimonTable(
                 "partitions@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
         relationSystemTable.setOptions(Collections.singletonMap("read.batch-size", "4096"));
-        FakePaimonTable cappedSystemTable = new FakePaimonTable(
-                "partitions@runtime", rowType("id"), Collections.emptyList(), Collections.emptyList());
-        cappedSystemTable.setOptions(Collections.singletonMap("read.batch-size", "4096"));
         systemTable.copyResult = relationSystemTable;
-        relationSystemTable.copyResult = cappedSystemTable;
         ops.table = dataTable;
         ops.sysTable = systemTable;
         PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
@@ -652,11 +648,10 @@ public class PaimonScanPlanProviderTest {
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
         Table resolved = provider.resolveScanTable(optionsHandle);
 
-        // The system wrapper owns the hidden FileStoreTable used at planning time. Capping only a
-        // discarded validation copy would still let that wrapper resize Paimon's global executor.
-        Assertions.assertSame(cappedSystemTable, resolved);
-        Assertions.assertEquals(String.valueOf(localCapacity),
-                relationSystemTable.lastCopyOptions.get("scan.manifest.parallelism"));
+        // The hidden source is normalized independently. Re-copying the outer wrapper with one cap
+        // would broadcast it through a fallback tree and erase a smaller sibling preference.
+        Assertions.assertSame(relationSystemTable, resolved);
+        Assertions.assertNull(relationSystemTable.lastCopyOptions);
         Assertions.assertEquals(localCapacity,
                 provider.backendManifestParallelism(optionsHandle, resolved).getAsInt());
     }

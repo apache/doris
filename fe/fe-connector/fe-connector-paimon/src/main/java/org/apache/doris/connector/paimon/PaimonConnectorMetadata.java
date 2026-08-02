@@ -1351,11 +1351,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                             CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId));
             // Partition projection never opens a data reader, so reader-only settings must not
             // invalidate metadata that a later relation-scoped override can make safe.
-            Map<String, String> runtimeOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
-                    partitionTable, Collections.emptyMap());
             // Metadata planning can also touch Paimon's global manifest executor, so apply the
             // CPU-local cap to a disposable projection rather than the cached catalog handle.
-            table = runtimeOptions.isEmpty() ? partitionTable : partitionTable.copy(runtimeOptions);
+            table = PaimonReaderOptions.runtimeSafeTable(partitionTable);
             PaimonReaderOptions.validateEffectivePlanningTable(table);
         }
         Identifier identifier = Identifier.create(

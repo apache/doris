@@ -20,12 +20,21 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.AppendOnlyFileStoreTable;
+import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -55,6 +64,19 @@ public class PaimonConnectorMetadataStatisticsTest {
             builder.field(name, DataTypes.INT());
         }
         return builder.build();
+    }
+
+    private static FileStoreTable fileStoreTable(String name, Map<String, String> options) {
+        TableSchema schema = new TableSchema(
+                0,
+                Collections.singletonList(new DataField(0, "id", new IntType())),
+                0,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                options,
+                null);
+        return new AppendOnlyFileStoreTable(
+                LocalFileIO.create(), new Path("memory://" + name), schema, CatalogEnvironment.empty());
     }
 
     @Test
@@ -144,15 +166,8 @@ public class PaimonConnectorMetadataStatisticsTest {
         int localCapacity = Runtime.getRuntime().availableProcessors();
         org.junit.jupiter.api.Assumptions.assumeTrue(
                 localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
-        FakePaimonTable table = new FakePaimonTable(
-                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
-        table.setOptions(Collections.singletonMap(
+        FileStoreTable table = fileStoreTable("t1", Collections.singletonMap(
                 "scan.manifest.parallelism", String.valueOf(localCapacity + 1)));
-        FakePaimonTable runtimeTable = new FakePaimonTable(
-                "t1@runtime", rowType("id"), Collections.emptyList(), Collections.emptyList());
-        runtimeTable.setOptions(Collections.singletonMap(
-                "scan.manifest.parallelism", String.valueOf(localCapacity)));
-        table.copyResult = runtimeTable;
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = table;
         ops.rowCount = 9;
@@ -165,7 +180,8 @@ public class PaimonConnectorMetadataStatisticsTest {
         // Catalog validation is hardware-neutral, but row-count planning executes locally and must
         // observe the same CPU cap as scan planning before touching Paimon's global manifest pool.
         Assertions.assertTrue(stats.isPresent());
-        Assertions.assertSame(runtimeTable, ops.lastRowCountTable);
+        Assertions.assertEquals(String.valueOf(localCapacity),
+                ops.lastRowCountTable.options().get("scan.manifest.parallelism"));
     }
 
     @Test
@@ -173,20 +189,8 @@ public class PaimonConnectorMetadataStatisticsTest {
         int localCapacity = Runtime.getRuntime().availableProcessors();
         org.junit.jupiter.api.Assumptions.assumeTrue(
                 localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
-        FakePaimonTable table = new FakePaimonTable(
-                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
-        table.setOptions(Collections.singletonMap(
+        FileStoreTable table = fileStoreTable("t1_snapshot", Collections.singletonMap(
                 "scan.manifest.parallelism", String.valueOf(localCapacity + 1)));
-        FakePaimonTable pinnedTable = new FakePaimonTable(
-                "t1@snapshot", rowType("id"), Collections.emptyList(), Collections.emptyList());
-        pinnedTable.setOptions(Collections.singletonMap(
-                "scan.manifest.parallelism", String.valueOf(localCapacity + 1)));
-        FakePaimonTable runtimeTable = new FakePaimonTable(
-                "t1@snapshot-runtime", rowType("id"), Collections.emptyList(), Collections.emptyList());
-        runtimeTable.setOptions(Collections.singletonMap(
-                "scan.manifest.parallelism", String.valueOf(localCapacity)));
-        table.copyResult = pinnedTable;
-        pinnedTable.copyResult = runtimeTable;
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = table;
         ops.rowCount = 11;
@@ -204,7 +208,8 @@ public class PaimonConnectorMetadataStatisticsTest {
         // Non-OPTIONS pins copy the snapshot selector first, so the runtime cap must run again on
         // that resulting table rather than assuming relation option validation already handled it.
         Assertions.assertTrue(stats.isPresent());
-        Assertions.assertSame(runtimeTable, ops.lastRowCountTable);
+        Assertions.assertEquals(String.valueOf(localCapacity),
+                ops.lastRowCountTable.options().get("scan.manifest.parallelism"));
     }
 
     @Test

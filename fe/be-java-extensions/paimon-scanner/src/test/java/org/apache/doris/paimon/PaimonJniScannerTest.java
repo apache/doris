@@ -27,14 +27,18 @@ import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Configurator;
 import org.apache.logging.log4j.core.config.Property;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.privilege.PrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -262,6 +266,78 @@ public class PaimonJniScannerTest {
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
         Assert.assertEquals("64", capped.fallback().options()
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testBackendCapTraversesPrivilegeDelegate() {
+        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
+        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
+                PrivilegeChecker.class.getClassLoader(),
+                new Class<?>[] {PrivilegeChecker.class},
+                (proxy, method, args) -> null);
+        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
+                new FallbackReadFileStoreTable(main, fallback), checker,
+                Identifier.create("db", "table"));
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                privileged, null, 64);
+        FileStoreTable planningTable = safe instanceof DelegatedFileStoreTable
+                && !(safe instanceof FallbackReadFileStoreTable)
+                ? ((DelegatedFileStoreTable) safe).wrapped() : (FileStoreTable) safe;
+
+        Assert.assertTrue(planningTable instanceof FallbackReadFileStoreTable);
+        FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) planningTable;
+        Assert.assertEquals("1", pair.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("64", pair.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testOldFeSystemWrapperPreservesIndependentFallbackLimits() throws Exception {
+        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
+        Table wrapper = SystemTableLoader.load(
+                "partitions", new FallbackReadFileStoreTable(main, fallback));
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                wrapper, null, 64);
+        Field storeTable = safe.getClass().getDeclaredField("storeTable");
+        storeTable.setAccessible(true);
+        FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) storeTable.get(safe);
+
+        Assert.assertEquals("1", pair.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("64", pair.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testSystemWrapperExposesSafeFallbackBehindPrivilegeDelegate() throws Exception {
+        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "2"));
+        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
+                PrivilegeChecker.class.getClassLoader(),
+                new Class<?>[] {PrivilegeChecker.class},
+                (proxy, method, args) -> null);
+        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
+                new FallbackReadFileStoreTable(main, fallback), checker,
+                Identifier.create("db", "table"));
+        Table wrapper = SystemTableLoader.load("partitions", privileged);
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                wrapper, null, 64);
+        Field storeTable = safe.getClass().getDeclaredField("storeTable");
+        storeTable.setAccessible(true);
+
+        Assert.assertTrue(storeTable.get(safe) instanceof FallbackReadFileStoreTable);
     }
 
     @Test
