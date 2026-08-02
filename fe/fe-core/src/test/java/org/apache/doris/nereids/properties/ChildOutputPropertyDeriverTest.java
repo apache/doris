@@ -853,12 +853,38 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
-    void testAggregateDropsMappingsForDistinctAndRepeat() {
+    void testDistinctAggregatePropagatesMappingFromNaturalChild() {
         SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
         SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
         SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        SlotReference extra = new SlotReference("extra", IntegerType.INSTANCE);
         DistributionSpecHash childHash = naturalHashWithMapping(k1, k2, d1);
-        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
+        for (AggPhase phase : AggPhase.values()) {
+            AggregateParam aggregateParam = new AggregateParam(phase, AggMode.INPUT_TO_RESULT);
+            PhysicalHashAggregate<GroupPlan> distinctAggregate = new PhysicalHashAggregate<>(
+                    ImmutableList.of(k1, k2, d1),
+                    ImmutableList.of(k1, k2, d1, new Alias(
+                            new AggregateExpression(new MultiDistinctCount(extra), aggregateParam), "distinct_count")),
+                    aggregateParam,
+                    true,
+                    logicalProperties,
+                    false,
+                    groupPlan);
+
+            PhysicalProperties output = deriveAggregateProperties(distinctAggregate, childHash);
+
+            Assertions.assertTrue(output.getNaturalDistributionMappingSpec().isPresent(), phase.toString());
+            Assertions.assertFalse(output.getNaturalDistributionMappingSpec()
+                    .get().getDistributionMappings().isEmpty(), phase.toString());
+        }
+    }
+
+    @Test
+    void testDistinctAggregateDoesNotRestoreMappingAfterRedistribution() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT);
         PhysicalHashAggregate<GroupPlan> distinctAggregate = new PhysicalHashAggregate<>(
                 ImmutableList.of(k1, k2, d1),
                 ImmutableList.of(k1, k2, d1, new Alias(
@@ -868,6 +894,20 @@ class ChildOutputPropertyDeriverTest {
                 logicalProperties,
                 false,
                 groupPlan);
+        PhysicalProperties redistributedChild = new PhysicalProperties(
+                new DistributionSpecHash(ImmutableList.of(d1.getExprId()), ShuffleType.REQUIRE));
+
+        PhysicalProperties output = deriveAggregateProperties(distinctAggregate, redistributedChild);
+
+        Assertions.assertFalse(output.getNaturalDistributionMappingSpec().isPresent());
+    }
+
+    @Test
+    void testAggregateDropsMappingsForRepeat() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        DistributionSpecHash childHash = naturalHashWithMapping(k1, k2, d1);
         PhysicalHashAggregate<GroupPlan> repeatAggregate = new PhysicalHashAggregate<>(
                 ImmutableList.of(k1, k2, d1),
                 ImmutableList.of(k1, k2, d1),
@@ -877,8 +917,6 @@ class ChildOutputPropertyDeriverTest {
                 true,
                 groupPlan);
 
-        Assertions.assertTrue(deriveAggregateHash(
-                distinctAggregate, childHash).getDistributionMappings().isEmpty());
         Assertions.assertTrue(deriveAggregateHash(
                 repeatAggregate, childHash).getDistributionMappings().isEmpty());
     }
@@ -899,10 +937,15 @@ class ChildOutputPropertyDeriverTest {
 
     private PhysicalProperties deriveAggregateProperties(
             PhysicalHashAggregate<GroupPlan> aggregate, DistributionSpecHash childHash) {
+        return deriveAggregateProperties(aggregate, new PhysicalProperties(childHash));
+    }
+
+    private PhysicalProperties deriveAggregateProperties(
+            PhysicalHashAggregate<GroupPlan> aggregate, PhysicalProperties childProperties) {
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(
-                ImmutableList.of(new PhysicalProperties(childHash)));
+                ImmutableList.of(childProperties));
         return deriver.getOutputProperties(null, groupExpression);
     }
 

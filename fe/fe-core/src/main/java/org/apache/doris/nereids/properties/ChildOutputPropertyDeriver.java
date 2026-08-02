@@ -30,9 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -251,10 +249,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             PhysicalHashAggregate<? extends Plan> agg, PhysicalProperties childOutputProperty) {
         NaturalDistributionMappingSpec naturalMappingSpec =
                 childOutputProperty.getNaturalDistributionMappingSpec().get();
-        if ((agg.getAggPhase() != AggPhase.LOCAL && agg.getAggPhase() != AggPhase.GLOBAL)
-                || agg.hasSourceRepeat()
-                || agg.getAggregateFunctions().stream()
-                        .anyMatch(function -> function.isDistinct() || function instanceof MultiDistinction)) {
+        if (agg.hasSourceRepeat()) {
             return withoutNaturalDistributionMapping(childOutputProperty);
         }
 

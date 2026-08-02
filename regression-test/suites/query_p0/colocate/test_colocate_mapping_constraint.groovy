@@ -294,6 +294,21 @@ suite("test_colocate_mapping_constraint") {
     explain {
         sql """ SELECT *
                 FROM (
+                    SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY k1, k2, d1
+                ) l
+                JOIN (
+                    SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
+                    FROM test_colocate_mapping_constraint_right
+                    GROUP BY k1, k2, d1
+                ) r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM (
                     SELECT k1, k2, d1, SUM(extra_col) AS sum_extra
                     FROM test_colocate_mapping_constraint_left
                     GROUP BY GROUPING SETS ((k1, k2, d1), (k1, k2))
@@ -442,11 +457,37 @@ suite("test_colocate_mapping_constraint") {
                   ON l.aggregate_d1 = r.d1 AND l.aggregate_d2 = r.d2 """
         contains "COLOCATE"
     }
-    // Unsupported Aggregate shapes must discard mapping locality.
+    // Distinct Aggregate can preserve locality when the selected physical path does not redistribute data.
     explain {
         sql """ SELECT *
                 FROM (
-                    SELECT k2, d1, SUM(extra_col) AS sum_extra
+                    SELECT k1, k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY k1, k2, d1
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        contains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY k1, k2, d1
+                ) l
+                JOIN (
+                    SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
+                    FROM test_colocate_mapping_constraint_right
+                    GROUP BY k1, k2, d1
+                ) r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        contains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
                     FROM test_colocate_mapping_constraint_left
                     GROUP BY k2, d1
                 ) l
@@ -454,12 +495,13 @@ suite("test_colocate_mapping_constraint") {
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
         notContains "COLOCATE"
     }
+    // Unsupported Aggregate shapes must discard mapping locality.
     explain {
         sql """ SELECT *
                 FROM (
-                    SELECT k1, k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
+                    SELECT k2, d1, SUM(extra_col) AS sum_extra
                     FROM test_colocate_mapping_constraint_left
-                    GROUP BY k1, k2, d1
+                    GROUP BY k2, d1
                 ) l
                 JOIN test_colocate_mapping_constraint_right r
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
