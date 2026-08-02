@@ -75,9 +75,65 @@ under the License.
             <version>${fluss.version}</version>
         </dependency>
 
+        <!-- Thrift types for the table descriptor; supplied by the parent classloader at runtime -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          TEST ONLY: a real fluss cluster in the test JVM (coordinator + tablet servers + an embedded
+          ZooKeeper), which is how the metadata mapping is tested against the actual server rather than
+          against our own idea of what it returns. FlussClusterExtension lives in fluss-server's
+          test-jar; fluss-server itself is the code that jar drives. Mirrors the test dependencies of
+          fluss's own fluss-flink-common module.
+        -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-server</artifactId>
+            <version>${fluss.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-server</artifactId>
+            <version>${fluss.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- fluss's own test helpers (retry/await utilities the cluster extension calls into) -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-test-utils</artifactId>
+            <version>${fluss.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          The embedded ZooKeeper the fluss cluster stores its metadata in. It is a test-scope dependency
+          of fluss-server, so it does NOT arrive with the test-jar and has to be named here or the
+          cluster fails to start with NoClassDefFoundError: TestingServer. Version tracks the one fluss
+          builds against (its curator.version).
+        -->
+        <dependency>
+            <groupId>org.apache.curator</groupId>
+            <artifactId>curator-test</artifactId>
+            <version>5.4.0</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
