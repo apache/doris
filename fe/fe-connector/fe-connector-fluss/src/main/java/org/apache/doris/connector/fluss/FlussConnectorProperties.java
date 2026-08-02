@@ -57,6 +57,22 @@ public final class FlussConnectorProperties {
      */
     public static final String UNION_READ_MODE = "fluss.union_read.mode";
 
+    /**
+     * Optional. Whether a fluss BINARY/BYTES column reads as Doris VARBINARY instead of STRING.
+     *
+     * <p>Unprefixed on purpose: this is the engine-wide catalog property
+     * ({@code CatalogProperty.ENABLE_MAPPING_VARBINARY}) that the hive, paimon and iceberg catalogs
+     * already answer to, and a user should not have to learn a fluss-specific spelling for it. Being
+     * unprefixed also keeps it out of {@link #toFlussClientConfig} for free.
+     */
+    public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
+
+    /**
+     * Optional. Whether a fluss TIMESTAMP_LTZ column reads as Doris TIMESTAMPTZ instead of DATETIMEV2.
+     * Engine-wide catalog property, same reasoning as {@link #ENABLE_MAPPING_VARBINARY}.
+     */
+    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
+
     /** Value set of {@link #UNION_READ_MODE}. */
     public enum UnionReadMode {
         /** Union read when the lake has a readable snapshot, fluss-only when it does not. */
@@ -105,6 +121,17 @@ public final class FlussConnectorProperties {
     public static UnionReadMode unionReadMode(Map<String, String> properties) {
         String value = properties.get(UNION_READ_MODE);
         return value == null ? UnionReadMode.AUTO : UnionReadMode.parse(value);
+    }
+
+    /** The type-mapping switches this catalog declares; both default to off. */
+    public static FlussTypeMapping.Options typeMappingOptions(Map<String, String> properties) {
+        return new FlussTypeMapping.Options(
+                booleanValue(properties, ENABLE_MAPPING_VARBINARY),
+                booleanValue(properties, ENABLE_MAPPING_TIMESTAMP_TZ));
+    }
+
+    private static boolean booleanValue(Map<String, String> properties, String key) {
+        return Boolean.parseBoolean(properties.getOrDefault(key, "false"));
     }
 
     /**
