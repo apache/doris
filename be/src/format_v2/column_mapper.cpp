@@ -1752,8 +1752,6 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     return Status::OK();
 }
 
-using FilterProjectionMap = std::map<LocalColumnId, LocalColumnIndex>;
-
 // Update the mapping's file type according to the projection, and determine whether the projection
 // is trivial (i.e. the projected file type is the same as the table type, so no need to
 // rematerialize the complex value back to table layout after reading from file).
@@ -1776,31 +1774,6 @@ static Status apply_projection_to_mapping_file_type(const LocalColumnIndex& proj
     mapping->projected_file_children = std::move(projected_field.children);
     mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
     return Status::OK();
-}
-
-static Status merge_filter_projection(const FilterProjectionMap* filter_projections,
-                                      LocalColumnIndex* projection) {
-    DORIS_CHECK(projection != nullptr);
-    if (filter_projections == nullptr) {
-        return Status::OK();
-    }
-    const auto filter_projection_it = filter_projections->find(projection->column_id());
-    if (filter_projection_it == filter_projections->end()) {
-        return Status::OK();
-    }
-    // Merge predicate-only nested paths into the root projection that is about to be scanned.
-    // Example: `SELECT s.a WHERE s.b > 1` first builds the output projection `s -> a` from
-    // ColumnMapping, while build_nested_struct_filter_projection_map() records `s -> b`. This merge
-    // produces one file scan projection `s -> a,b`.
-    RETURN_IF_ERROR(merge_local_column_index(projection, filter_projection_it->second));
-    return Status::OK();
-}
-
-static bool table_root_is_map(const ColumnMapping& mapping) {
-    if (mapping.table_type == nullptr) {
-        return false;
-    }
-    return remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_MAP;
 }
 
 static const ColumnDefinition* find_file_child_by_name(
@@ -1843,8 +1816,8 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         }
         const size_t digits_begin = value.front() == '+' || value.front() == '-' ? 1 : 0;
         return digits_begin < value.size() &&
-               std::ranges::all_of(
-                       value.substr(digits_begin), [](unsigned char c) { return std::isdigit(c); });
+               std::ranges::all_of(value.substr(digits_begin),
+                                   [](unsigned char c) { return std::isdigit(c); });
     };
     if (path.size() != 1 || path[0].empty() || path[0] == "NULL" ||
         path[0].find('.') != std::string::npos || is_numeric_selector(path[0]) ||
@@ -1918,10 +1891,8 @@ static bool build_variant_projection(const ColumnMapping& mapping, LocalColumnIn
     return true;
 }
 
-static Status build_scan_projection(ColumnMapping* mapping, bool is_predicate_column,
-                                    bool force_full_complex_scan_projection,
+static Status build_scan_projection(ColumnMapping* mapping, bool force_full_complex_scan_projection,
                                     bool enable_variant_leaf_projection,
-                                    const FilterProjectionMap* filter_projections,
                                     LocalColumnIndex* projection) {
     DORIS_CHECK(projection != nullptr);
     const auto file_column_id = LocalColumnId(mapping->file_local_id.value());
@@ -1938,24 +1909,15 @@ static Status build_scan_projection(ColumnMapping* mapping, bool is_predicate_co
         RETURN_IF_ERROR(
                 build_complex_projection(*mapping, projection, enable_variant_leaf_projection));
     }
-    if (is_predicate_column && !force_full_complex_scan_projection) {
-        // If a projected complex root is also used by a predicate, rebuild the predicate scan
-        // projection from the output mapping before merging predicate-only children. For
-        // `SELECT s.a WHERE s.b > 1`, build_complex_projection() produces `s -> a` and
-        // merge_filter_projection() adds `s -> b`, so the predicate column reads both children.
-        RETURN_IF_ERROR(merge_filter_projection(filter_projections, projection));
-    }
     return Status::OK();
 }
 
 static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapping,
                               bool is_predicate_column, bool force_full_complex_scan_projection,
-                              bool enable_variant_leaf_projection,
-                              const FilterProjectionMap* filter_projections = nullptr) {
+                              bool enable_variant_leaf_projection) {
     LocalColumnIndex projection;
-    RETURN_IF_ERROR(
-            build_scan_projection(mapping, is_predicate_column, force_full_complex_scan_projection,
-                                  enable_variant_leaf_projection, filter_projections, &projection));
+    RETURN_IF_ERROR(build_scan_projection(mapping, force_full_complex_scan_projection,
+                                          enable_variant_leaf_projection, &projection));
     FileScanRequestBuilder builder(file_request);
     if (is_predicate_column) {
         return builder.add_predicate_column(std::move(projection));
@@ -1976,10 +1938,8 @@ static const LocalColumnIndex* find_scan_projection(
 // mapping.file_type/projected_file_children from the original file schema to the exact shape that
 // FileReader will return.
 //
-// Example: for `SELECT s.a WHERE s.b > 1`, add_scan_column() keeps only one predicate scan
-// projection `s -> a,b`. Applying that projection changes the mapping's file type from the full
-// file struct `s<a,b,c>` to the projected file struct `s<a,b>`, so later filter rewrite and
-// TableReader final materialization use the same column shape as the file-local block.
+// Applying the selected projection changes a mapping's file type to the exact nested shape exposed
+// by FileReader, so later filter rewrite and TableReader materialization agree with the file block.
 static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& file_request,
                                                          ColumnMapping* mapping,
                                                          bool predicate_mapping = false) {
@@ -1998,82 +1958,6 @@ static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& 
     }
     DORIS_CHECK(projection != nullptr);
     return apply_projection_to_mapping_file_type(*projection, mapping);
-}
-
-// Build extra scan projections required only by row-level filters on nested struct children.
-//
-// Example: for `SELECT s.a FROM t WHERE s.b.c > 1`, the output projection may only contain `s.a`,
-// but the file reader must also read `s.b.c` to evaluate the predicate. This function collects the
-// table-side filter path, resolves it through ColumnMapping first, and records the corresponding
-// file-side projection in filter_projections. This keeps renamed fields consistent between the scan
-// projection and row-level conjunct rewrite. Example:
-//   table filter path: s -> renamed_b -> c
-//   old file path:     s -> b -> c
-//   recorded path:     s -> b -> c
-// When add_scan_column() adds the same root as a predicate column, it rebuilds that root from the
-// output mapping, merges this filter-only projection into it, and removes the duplicate
-// non-predicate root entry.
-static Status build_nested_struct_filter_projection_map(
-        const std::vector<TableFilter>& table_filters, const std::vector<ColumnMapping>& mappings,
-        FilterProjectionMap* filter_projections) {
-    DORIS_CHECK(filter_projections != nullptr);
-    filter_projections->clear();
-    for (const auto& table_filter : table_filters) {
-        if (table_filter.conjunct == nullptr) {
-            continue;
-        }
-        // Collect all nested struct paths in the table filter. For example, for
-        // `s.id > 5 AND element_at(s, 'renamed_name') = 'abc'`, collect the table paths
-        // `s -> id` and `s -> renamed_name`, then resolve each one to its file-side projection.
-        std::vector<NestedStructPath> paths;
-        collect_nested_struct_paths(table_filter.conjunct->root(), &paths);
-        for (const auto& path : paths) {
-            if (nested_struct_path_ends_at_projected_variant(path, mappings)) {
-                // The mapping-owned Variant projection already contains its typed leaves. Adding
-                // the enclosing STRUCT terminal as a full child would dominate those leaves when
-                // projections merge and silently restore full Variant reconstruction.
-                continue;
-            }
-            auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
-                return mapping.global_index == path.root_global_index;
-            });
-            if (mapping_it == mappings.end() || !mapping_it->file_local_id.has_value() ||
-                path.selectors.empty()) {
-                continue;
-            }
-
-            ResolvedNestedStructPath resolved;
-            LocalColumnIndex root_projection;
-            if (!resolve_nested_struct_path_for_file(path, mappings, &resolved)) {
-                if (!table_root_is_map(*mapping_it)) {
-                    continue;
-                }
-                // Direct map value filters such as `m.value.a > 1` need the value leaf for row
-                // evaluation even when the query only projects another value child. This is only a
-                // scan projection fallback; complex map/array expressions are still not rewritten
-                // into file-local conjuncts.
-                LocalColumnIndex child_projection;
-                RETURN_IF_ERROR(build_file_child_projection_from_schema(
-                        mapping_it->original_file_children, path.selectors, &child_projection));
-                if (child_projection.local_id() < 0) {
-                    continue;
-                }
-                root_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
-                root_projection.children.push_back(std::move(child_projection));
-            } else {
-                root_projection = std::move(resolved.file_projection);
-            }
-            auto filter_projection_it = filter_projections->find(root_projection.column_id());
-            if (filter_projection_it == filter_projections->end()) {
-                filter_projections->emplace(root_projection.column_id(),
-                                            std::move(root_projection));
-                continue;
-            }
-            RETURN_IF_ERROR(
-                    merge_local_column_index(&filter_projection_it->second, root_projection));
-        }
-    }
-    return Status::OK();
 }
 
 static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position) {
@@ -2469,10 +2353,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                                            FileScanRequest* file_request,
                                            RuntimeState* runtime_state) {
     std::set<LocalColumnId> localized_predicate_columns;
-    FilterProjectionMap filter_projections;
     auto filter_mappings = _filter_visible_mappings();
-    RETURN_IF_ERROR(build_nested_struct_filter_projection_map(table_filters, filter_mappings,
-                                                              &filter_projections));
     for (const auto& table_filter : table_filters) {
         for (const auto& global_index : table_filter.global_indices) {
             auto* mapping = _find_filter_mapping(global_index);
@@ -2480,23 +2361,21 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                 !filter_conversion_has_local_source(mapping->filter_conversion)) {
                 continue;
             }
-            const auto* derived_filter_projections =
-                    _find_predicate_mapping(global_index) == mapping ? nullptr
-                                                                     : &filter_projections;
+            // Nested eager projection is an FE contract. Without predicate_access_paths the
+            // all-access-path mapping is read as one unit instead of inferring another subtree
+            // from VExpr and risking a shape that disagrees with final materialization.
             RETURN_IF_ERROR(add_scan_column(file_request, mapping, enable_lazy_materialization(),
                                             force_full_complex_scan_projection(),
-                                            enable_variant_leaf_projection(),
-                                            derived_filter_projections));
+                                            enable_variant_leaf_projection()));
             auto* output_mapping = _find_mapping(global_index);
             if (!enable_independent_predicate_projection() || output_mapping == nullptr ||
                 mapping == output_mapping || !output_mapping->file_local_id.has_value()) {
                 continue;
             }
             LocalColumnIndex output_projection;
-            RETURN_IF_ERROR(build_scan_projection(output_mapping, /*is_predicate_column=*/false,
-                                                  force_full_complex_scan_projection(),
-                                                  enable_variant_leaf_projection(), nullptr,
-                                                  &output_projection));
+            RETURN_IF_ERROR(
+                    build_scan_projection(output_mapping, force_full_complex_scan_projection(),
+                                          enable_variant_leaf_projection(), &output_projection));
             const auto* predicate_projection = find_scan_projection(file_request->predicate_columns,
                                                                     output_projection.column_id());
             DORIS_CHECK(predicate_projection != nullptr);
@@ -2604,8 +2483,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
 
     // Candidate columns are added before expression rewriting because their file-block positions
     // are needed to localize slot refs. If rewriting rejects every filter that references a visible
-    // column, move its already-merged output/filter projection to the lazy non-predicate set
-    // instead of forcing it through the eager predicate path.
+    // column, move its all-access-path projection to the lazy non-predicate set instead of forcing
+    // it through the eager predicate path.
     for (auto& mapping : _mappings) {
         if (!mapping.file_local_id.has_value()) {
             continue;
