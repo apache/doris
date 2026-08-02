@@ -101,6 +101,8 @@ public class FlussConnectorPropertiesTest {
                 FlussConnectorProperties.BOOTSTRAP_SERVERS, "localhost:9123",
                 "fluss.client.security.protocol", "sasl",
                 FlussConnectorProperties.UNION_READ_MODE, "required",
+                FlussConnectorProperties.ENABLE_MAPPING_VARBINARY, "true",
+                FlussConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true",
                 "type", "fluss",
                 "warehouse", "s3://ignored");
 
@@ -110,9 +112,32 @@ public class FlussConnectorPropertiesTest {
         // switch and every non-fluss catalog property stay behind. The engine's own keys ("type") and
         // other connectors' keys ("warehouse") are not fluss options and must not be handed over as if
         // they were — the fluss config is not a place to dump whatever the catalog happened to carry.
+        // The two type-mapping switches are in the input for the same reason: they steer Doris's own
+        // schema rendering and fluss has no idea what they mean.
         Map<String, String> expected = new HashMap<>();
         expected.put("bootstrap.servers", "localhost:9123");
         expected.put("client.security.protocol", "sasl");
         Assertions.assertEquals(expected, config);
+    }
+
+    @Test
+    public void typeMappingSwitchesDefaultToOffAndUseTheEngineWideNames() {
+        // The names are deliberately the unprefixed, engine-wide ones the hive/paimon/iceberg catalogs
+        // already answer to: a user who knows enable.mapping.varbinary must not have to discover a
+        // fluss-specific spelling, and a misspelling here degrades silently to "switch is off".
+        FlussTypeMapping.Options off = FlussConnectorProperties.typeMappingOptions(props());
+        Assertions.assertFalse(off.isMapBinaryToVarbinary());
+        Assertions.assertFalse(off.isMapTimestampTz());
+
+        FlussTypeMapping.Options on = FlussConnectorProperties.typeMappingOptions(props(
+                "enable.mapping.varbinary", "true",
+                "enable.mapping.timestamp_tz", "TRUE"));
+        Assertions.assertTrue(on.isMapBinaryToVarbinary());
+        Assertions.assertTrue(on.isMapTimestampTz());
+
+        // Anything that is not "true" is off, matching how every other catalog reads these.
+        FlussTypeMapping.Options garbage = FlussConnectorProperties.typeMappingOptions(props(
+                FlussConnectorProperties.ENABLE_MAPPING_VARBINARY, "yes"));
+        Assertions.assertFalse(garbage.isMapBinaryToVarbinary());
     }
 }
