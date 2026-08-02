@@ -1023,7 +1023,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         source, handle.getScanOptions());
             }
         }
-        return PaimonReaderOptions.runtimeSafeManifestParallelism(planningTable);
+        return PaimonReaderOptions.backendManifestParallelismCap(planningTable);
     }
 
     /**
@@ -1075,16 +1075,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (PAIMON_FILES_SYSTEM_TABLE.equalsIgnoreCase(sysTableType)) {
             authorizeDeferredScan(dataTable);
         }
-        FileStoreTable baseForBackend = dropCatalogLoader(dataTable);
+        FileStoreTable preparedDataTable = dataTable;
         if (resolvesOnBackend) {
-            baseForBackend = pinCatalogSnapshot(baseForBackend, dataTable);
+            preparedDataTable = pinCatalogSnapshot(preparedDataTable, dataTable);
         }
+        Map<String, String> scanOptions = handle.getScanOptions();
+        boolean optionsAppliedToSource = PaimonScanParams.isOptionsPin(scanOptions);
+        if (optionsAppliedToSource) {
+            // Fallback snapshot translation consults each branch catalog, so options must be
+            // resolved while both loaders are still present and only then made BE-safe.
+            preparedDataTable = (FileStoreTable) PaimonScanParams.applyOptions(
+                    preparedDataTable, scanOptions);
+        }
+        FileStoreTable baseForBackend = dropCatalogLoader(preparedDataTable);
         Table catalogLessSysTable = SystemTableLoader.load(sysTableType, baseForBackend);
         if (catalogLessSysTable == null) {
             return scanTable;
         }
         return reapplyScanParams(catalogLessSysTable, dataTable, resolvesOnBackend,
-                handle.getScanOptions());
+                optionsAppliedToSource ? Collections.emptyMap() : scanOptions);
     }
 
     /**
@@ -1102,14 +1111,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * {@link #pinCatalogSnapshot} the same way but cannot inherit its bound, so it is bound to the
      * catalog's snapshot separately by {@link PaimonIncrementalScanParams#bindRangeToCatalog}.
      *
-     * <p>Known gap: the {@code @options} branch reaches tables outside
-     * {@link PaimonScanParams#resolvesSnapshotOnBackend}, {@code $ro} among them, and on a
-     * {@code scan.fallback-branch} table the {@code copy(...)} here is what triggers
-     * {@code rewriteFallbackOptions} - on the already catalog-less pair, so the fallback branch's
-     * {@code scan.snapshot-id} is derived from its snapshot directory rather than from the catalog
-     * pointer, the same gap {@link #pinCatalogSnapshot} documents. It lands harder here: unlike the
-     * pin this is {@code copy(...)}, not {@code copyWithoutTimeTravel(...)}, so it also time-travels
-     * the fallback branch's schema, and {@code $ro} is a data table rather than read-only metadata.
+     * <p>The {@code @options} family is applied to the catalog-backed source before this method is
+     * reached. That ordering is required for fallback tables because Paimon's snapshot translation
+     * must consult each branch's catalog-visible pointer before the loaders are removed.
      */
     private Table reapplyScanParams(Table rebuiltSysTable, FileStoreTable dataTable,
             boolean resolvesOnBackend, Map<String, String> scanOptions) {
@@ -1203,30 +1207,38 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * latest snapshot at read time, i.e. across a strictly wider window, so this only moves which
      * side of the window the mismatch falls on.
      *
-     * <p>Known gap: on a table with {@code scan.fallback-branch} this bounds the main branch only.
-     * The pin itself is carried across correctly - {@code copyWithoutTimeTravel} is pair-aware and
-     * {@code rewriteFallbackOptions} converts the main id to the fallback branch's own through
-     * {@code SnapshotManager#earlierOrEqualTimeMills}. What is lost is the pointer that conversion
-     * searches against: the rebuilt pair has no catalog loader on either branch, so the fallback
-     * bound is capped by the newest file in that branch's snapshot directory instead of by the
-     * catalog. Of the pinned tables only {@code $partitions} and {@code $files} read the fallback
-     * branch at all ({@code $manifests} / {@code $statistics} / {@code $table_indexes} reach it
-     * through {@code store()} / {@code statistics()}, which describe the main branch), so the
-     * effect is confined to their rows. Note this outlasts a publication window when it is caused
-     * by a rollback: the abandoned snapshot file stays on the filesystem until it expires, and for
-     * as long as it does the fallback branch can be bound to it.
+     * <p>A fallback pair is pinned branch by branch. Its branches may expose different committed
+     * pointers, and pinning the pair through its delegated main catalog would otherwise translate
+     * the fallback id against uncommitted snapshot files after that branch loader is removed.
      */
     // Package-private for direct unit testing (PaimonBackendBoundTableTest).
     static FileStoreTable pinCatalogSnapshot(FileStoreTable catalogLessTable, FileStoreTable dataTable) {
-        if (!dataTable.catalogEnvironment().supportsVersionManagement()) {
-            return catalogLessTable;
+        FileStoreTable source = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
+        FileStoreTable target = PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable);
+        if (source instanceof FallbackReadFileStoreTable) {
+            if (!(target instanceof FallbackReadFileStoreTable)) {
+                throw new IllegalStateException("Catalog-less Paimon table lost its fallback branch");
+            }
+            FallbackReadFileStoreTable sourcePair = (FallbackReadFileStoreTable) source;
+            FallbackReadFileStoreTable targetPair = (FallbackReadFileStoreTable) target;
+            return new FallbackReadFileStoreTable(
+                    pinCatalogSnapshotBranch(targetPair.wrapped(), sourcePair.wrapped()),
+                    pinCatalogSnapshotBranch(targetPair.fallback(), sourcePair.fallback()));
         }
-        Long snapshotId = dataTable.snapshotManager().latestSnapshotId();
+        return pinCatalogSnapshotBranch(target, source);
+    }
+
+    private static FileStoreTable pinCatalogSnapshotBranch(
+            FileStoreTable target, FileStoreTable source) {
+        if (!source.catalogEnvironment().supportsVersionManagement()) {
+            return target;
+        }
+        Long snapshotId = source.snapshotManager().latestSnapshotId();
         if (snapshotId == null) {
-            return catalogLessTable;
+            return target;
         }
         // Without time travel: pin which snapshot the BE plans on, leave schema resolution alone.
-        return catalogLessTable.copyWithoutTimeTravel(
+        return target.copyWithoutTimeTravel(
                 Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId)));
     }
 

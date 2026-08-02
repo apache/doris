@@ -201,6 +201,20 @@ public class PaimonReaderOptionsTest {
     }
 
     @Test
+    void testBackendManifestCapUsesExecutionCeilingNotSmallestBranch() {
+        FileStoreTable main = newFileStoreTable("main_cap", ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        FileStoreTable fallback = newFileStoreTable("fallback_cap", ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
+
+        Assertions.assertEquals(
+                Math.min(Runtime.getRuntime().availableProcessors(),
+                        PaimonReaderOptions.MAX_MANIFEST_PARALLELISM),
+                PaimonReaderOptions.backendManifestParallelismCap(
+                        new FallbackReadFileStoreTable(main, fallback)).getAsInt());
+    }
+
+    @Test
     void testRejectUnsafeFallbackHiddenByPrivilegeDelegate() {
         FileStoreTable main = newFileStoreTable("privileged_main", Collections.emptyMap());
         FileStoreTable fallback = newFileStoreTable(

@@ -48,6 +48,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -318,6 +319,37 @@ public class PaimonBackendBoundTableTest {
     }
 
     @Test
+    public void pinsEachFallbackBranchToItsOwnCatalogVisibleSnapshot(@TempDir Path warehouse)
+            throws Exception {
+        FileStoreTable onDisk = commit(newRealTable(warehouse, "fallback_pin"), 2);
+        VersionManagedCatalog mainCatalog = new VersionManagedCatalog(warehouse, true);
+        VersionManagedCatalog fallbackCatalog = new VersionManagedCatalog(warehouse, true);
+        mainCatalog.pointAt(onDisk, 2L);
+        fallbackCatalog.pointAt(onDisk, 1L);
+
+        Map<String, String> mainOptions = new HashMap<>();
+        mainOptions.put("scan.fallback-branch", "fb");
+        Map<String, String> fallbackOptions = new HashMap<>();
+        fallbackOptions.put("branch", "fb");
+        FileStoreTable main = withCatalogEnvironment(
+                onDisk.copyWithoutTimeTravel(mainOptions), catalogEnvironment(mainCatalog));
+        FileStoreTable fallback = withCatalogEnvironment(
+                onDisk.copyWithoutTimeTravel(fallbackOptions), catalogEnvironment(fallbackCatalog));
+        FileStoreTable catalogPair = new FallbackReadFileStoreTable(main, fallback);
+
+        FileStoreTable pinned = PaimonScanPlanProvider.pinCatalogSnapshot(
+                PaimonScanPlanProvider.dropCatalogLoader(catalogPair), catalogPair);
+
+        Assertions.assertTrue(pinned instanceof FallbackReadFileStoreTable);
+        FallbackReadFileStoreTable pinnedPair = (FallbackReadFileStoreTable) pinned;
+        Assertions.assertEquals("2", pinnedPair.wrapped().options().get("scan.snapshot-id"));
+        Assertions.assertEquals("1", pinnedPair.fallback().options().get("scan.snapshot-id"),
+                "the fallback branch must use its own catalog pointer, not its newest snapshot file");
+        Assertions.assertTrue(mainCatalog.loadSnapshotCalls > 0);
+        Assertions.assertTrue(fallbackCatalog.loadSnapshotCalls > 0);
+    }
+
+    @Test
     public void leavesTheSnapshotUnpinnedForAFilesystemCatalog(@TempDir Path warehouse) throws Exception {
         // A catalog that does not manage versions keeps filesystem semantics on both sides, so there
         // is nothing to pin and the BE must stay on "latest".
@@ -490,6 +522,40 @@ public class PaimonBackendBoundTableTest {
         // $ro delegates options() to the data table it wraps, so this reads the rebuilt base.
         Assertions.assertEquals("4", forBackend.options()
                 .get(org.apache.paimon.CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void relationOptionsResolveFallbackSnapshotBeforeDroppingLoaders(@TempDir Path warehouse)
+            throws Exception {
+        FileStoreTable onDisk = commit(newRealTable(warehouse, "fallback_options_pin"), 2);
+        VersionManagedCatalog mainCatalog = new VersionManagedCatalog(warehouse, true);
+        VersionManagedCatalog fallbackCatalog = new VersionManagedCatalog(warehouse, true);
+        mainCatalog.pointAt(onDisk, 2L);
+        fallbackCatalog.pointAt(onDisk, 1L);
+        Map<String, String> mainOptions = new HashMap<>();
+        mainOptions.put("scan.fallback-branch", "fb");
+        Map<String, String> fallbackOptions = new HashMap<>();
+        fallbackOptions.put("branch", "fb");
+        FileStoreTable pair = new FallbackReadFileStoreTable(
+                withCatalogEnvironment(onDisk.copyWithoutTimeTravel(mainOptions),
+                        catalogEnvironment(mainCatalog)),
+                withCatalogEnvironment(onDisk.copyWithoutTimeTravel(fallbackOptions),
+                        catalogEnvironment(fallbackCatalog)));
+        Map<String, String> pinned = PaimonScanParams.markAsOptions(
+                Collections.singletonMap("scan.snapshot-id", "2"));
+        PaimonTableHandle handle = sysHandle("ro", pair).withScanOptions(pinned);
+
+        Table forBackend = provider().tableForBackend(handle,
+                PaimonScanParams.applyOptions(SystemTableLoader.load("ro", pair), pinned));
+
+        Field wrapped = ReadOptimizedTable.class.getDeclaredField("wrapped");
+        wrapped.setAccessible(true);
+        FallbackReadFileStoreTable backendPair =
+                (FallbackReadFileStoreTable) wrapped.get(forBackend);
+        Assertions.assertEquals("2", backendPair.wrapped().options().get("scan.snapshot-id"));
+        Assertions.assertEquals("1", backendPair.fallback().options().get("scan.snapshot-id"));
+        Assertions.assertTrue(fallbackCatalog.loadSnapshotCalls > 0,
+                "fallback translation must consult its catalog before the loader is removed");
     }
 
     @Test

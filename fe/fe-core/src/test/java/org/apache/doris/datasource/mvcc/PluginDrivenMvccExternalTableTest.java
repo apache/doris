@@ -528,6 +528,23 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testInitialLatestPartitionAccountingUsesPinnedHandle() {
+        Fixture f = Fixture.partitioned();
+        Mockito.when(f.metadata.listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any()))
+                .thenReturn(Collections.singletonList(
+                        cpi("dt=2024-02-02", TS_2024_02_02)));
+
+        PluginDrivenMvccSnapshot projection = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Assertions.assertEquals(2, projection.getNameToPartitionItem().size(),
+                "partition accounting must describe the snapshot captured at query begin");
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+    }
+
+    @Test
     public void testLatestFenceDefersPartitionMaterializationUntilPinnedHydration() {
         Fixture f = Fixture.partitioned();
         Mockito.when(f.metadata.applySnapshot(
@@ -1425,7 +1442,13 @@ public class PluginDrivenMvccExternalTableTest {
             Mockito.when(metadata.beginQuerySnapshot(session, handle))
                     .thenReturn(Optional.of(
                             ConnectorMvccSnapshot.builder().snapshotId(PINNED_SNAPSHOT_ID).build()));
+            Mockito.when(metadata.applySnapshot(
+                    Mockito.eq(session), Mockito.eq(handle), Mockito.any()))
+                    .thenReturn(pinnedHandle);
             Mockito.when(metadata.listPartitions(Mockito.eq(session), Mockito.eq(handle), Mockito.any()))
+                    .thenReturn(partitions);
+            Mockito.when(metadata.listPartitions(
+                    Mockito.eq(session), Mockito.eq(pinnedHandle), Mockito.any()))
                     .thenReturn(partitions);
             // A Mockito mock does NOT run interface default methods (returns null for these), so mimic the SPI
             // default here: a snapshot-id connector (paimon/iceberg) surfaces no last-modified freshness. The

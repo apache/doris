@@ -171,9 +171,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // legacy listPartitions/LIST/timestamp path below (byte-unchanged; the no-op applySnapshot for the
         // latest pin is side-effect-free for both paimon and iceberg).
         ConnectorTableHandle pinnedHandle = metadata.applySnapshot(session, handle, connectorSnapshot);
-        // Fence hydration must list the pinned version; the ordinary latest path keeps its legacy
-        // base-handle partition semantics for connectors whose applySnapshot is scan-only.
-        ConnectorTableHandle partitionHandle = existingFence.isPresent() ? pinnedHandle : handle;
+        // Partition counts feed COUNT(*) pushdown and SQL block rules, so even the initial latest
+        // materialization must enumerate the same pinned generation that the data scan reads.
+        ConnectorTableHandle partitionHandle = pinnedHandle;
         Optional<ConnectorMvccPartitionView> viewOpt =
                 metadata.getMvccPartitionView(session, pinnedHandle);
         if (viewOpt.isPresent()) {

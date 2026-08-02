@@ -198,6 +198,15 @@ public final class PaimonReaderOptions {
                 localCapacity));
     }
 
+    public static OptionalInt backendManifestParallelismCap(Table table) {
+        List<Integer> configuredValues = new ArrayList<>();
+        collectManifestParallelism(table, configuredValues);
+        // The transport value is the execution ceiling, not the smallest branch preference;
+        // the BE preserves each branch's lower value while independently capping larger siblings.
+        return OptionalInt.of(Math.min(
+                Runtime.getRuntime().availableProcessors(), MAX_MANIFEST_PARALLELISM));
+    }
+
     public static Table runtimeSafeTable(Table table) {
         Map<String, String> runtimeOptions = runtimeSafeCopyOptions(table, Collections.emptyMap());
         // Catalog handles stay hardware-neutral; every local planning consumer receives its own
