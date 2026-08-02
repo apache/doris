@@ -163,11 +163,9 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     /**
      * Lists the table's partitions in the Hive-style {@code k1=v1/k2=v2} naming every Doris catalog
      * uses, which is not fluss's own {@code v1$v2} spelling — fe-core parses the segments back out of
-     * the name for {@code SHOW PARTITIONS} and the {@code partition_values} function. No escaping is
-     * needed on the way: fluss rejects a partition value that is not ASCII alphanumerics, {@code _} or
-     * {@code -} (TablePath#detectInvalidName, applied by PartitionUtils#validatePartitionValues), so a
-     * value can contain neither the {@code =} nor the {@code /} that would make two partitions render
-     * to one name. That same rule is why no value can be SQL NULL and the null-flag list stays empty.
+     * the name for {@code SHOW PARTITIONS} and the {@code partition_values} function. The rendering is
+     * {@link FlussPartitions}', shared with split planning: the pruned names the engine derives from
+     * this listing are what planning matches its partitions against, so one renderer or none.
      *
      * <p>{@code filter} is ignored: server-side partition pruning exists in fluss (a partial
      * {@code PartitionSpec}) but it takes a spec, not a predicate, and the predicate-to-spec reduction
@@ -188,24 +186,12 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         List<PartitionInfo> flussPartitions = adminOps.listPartitionInfos(flussHandle.toTablePath());
         List<ConnectorPartitionInfo> result = new ArrayList<>(flussPartitions.size());
         for (PartitionInfo partition : flussPartitions) {
-            Map<String, String> spec = partition.getPartitionSpec().getSpecMap();
-            // Both lists follow the partition-COLUMN order, not the spec's iteration order, because
-            // fe-core zips them positionally against the partition columns.
-            Map<String, String> values = new LinkedHashMap<>();
-            List<String> orderedValues = new ArrayList<>(partitionKeys.size());
-            StringBuilder name = new StringBuilder();
-            for (String partitionKey : partitionKeys) {
-                String value = spec.get(partitionKey);
-                values.put(partitionKey, value);
-                orderedValues.add(value);
-                if (name.length() > 0) {
-                    name.append('/');
-                }
-                name.append(partitionKey).append('=').append(value);
-            }
+            FlussScanRange.Partition resolved = FlussPartitions.toScanPartition(partition, partitionKeys);
+            // The values already follow partition-COLUMN order (fe-core zips them positionally against
+            // the partition columns); the null-flag list stays empty because fluss allows no null value.
             result.add(new ConnectorPartitionInfo(
-                    name.toString(), values, Collections.emptyMap(),
-                    orderedValues, Collections.emptyList()));
+                    resolved.getName(), resolved.getValues(), Collections.emptyMap(),
+                    new ArrayList<>(resolved.getValues().values()), Collections.emptyList()));
         }
         return result;
     }

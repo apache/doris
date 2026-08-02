@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.apache.fluss.client.Connection;
@@ -59,6 +60,15 @@ public class FlussConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new FlussConnectorMetadata(adminOps(),
                 FlussConnectorProperties.typeMappingOptions(properties));
+    }
+
+    /**
+     * A fresh provider per call, which is what the engine wants: it memoizes one instance per scan node
+     * and that instance keeps the just-planned range counts for the node's EXPLAIN line.
+     */
+    @Override
+    public ConnectorScanPlanProvider getScanPlanProvider() {
+        return new FlussScanPlanProvider(adminOps(), properties);
     }
 
     @Override
