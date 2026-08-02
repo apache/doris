@@ -85,6 +85,7 @@ under the License.
         <module>fe-connector-paimon</module>
         <module>fe-connector-hudi</module>
         <module>fe-connector-iceberg</module>
+        <module>fe-connector-fluss</module>
     </modules>
 
     <build>
