@@ -452,10 +452,28 @@ std::optional<format::LocalColumnId> file_column_id_by_block_position(
     return std::nullopt;
 }
 
-bool has_expr_zonemap_filter(const format::FileScanRequest& request, const RuntimeState*) {
-    // FileScannerV2 metadata pruning is a fixed part of its scan pipeline and must not inherit
-    // the legacy scanner's expression ZoneMap session gate.
-    for (const auto& conjunct : request.conjuncts) {
+VExprContextSPtrs metadata_pruning_safe_conjunct_prefix(const VExprContextSPtrs& conjuncts) {
+    VExprContextSPtrs safe_prefix;
+    safe_prefix.reserve(conjuncts.size());
+    for (const auto& conjunct : conjuncts) {
+        if (conjunct == nullptr || conjunct->root() == nullptr) {
+            break;
+        }
+        const auto root = conjunct->root();
+        const auto impl = root->get_impl();
+        const auto predicate = impl != nullptr ? impl : root;
+        // Metadata pruning must not skip an earlier error-preserving predicate and discard rows
+        // with a later predicate before the earlier one reaches row-level evaluation.
+        if (!predicate->is_safe_to_execute_on_selected_rows()) {
+            break;
+        }
+        safe_prefix.push_back(conjunct);
+    }
+    return safe_prefix;
+}
+
+bool has_expr_zonemap_filter(const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
         if (conjunct != nullptr && conjunct->root() != nullptr &&
             conjunct->root()->can_evaluate_zonemap_filter()) {
             return true;
@@ -531,9 +549,11 @@ void accumulate_zonemap_stats(const ZoneMapEvalContext& ctx, ParquetPruningStats
 
 } // namespace
 
-bool can_use_parquet_page_index(const format::FileScanRequest& request,
-                                const RuntimeState* runtime_state) {
-    return config::enable_parquet_page_index && has_expr_zonemap_filter(request, runtime_state);
+bool can_use_parquet_page_index(const format::FileScanRequest& request, const RuntimeState*) {
+    // FileScannerV2 metadata pruning is a fixed part of its scan pipeline and must not inherit
+    // the legacy scanner's expression ZoneMap session gate.
+    return config::enable_parquet_page_index &&
+           has_expr_zonemap_filter(metadata_pruning_safe_conjunct_prefix(request.conjuncts));
 }
 
 std::shared_ptr<segment_v2::ZoneMap> ParquetStatisticsUtils::MakeZoneMap(
@@ -632,8 +652,9 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
                              const tparquet::RowGroup& row_group,
                              const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                              const format::FileScanRequest& request,
-                             ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone) {
-    const auto slot_indexes = collect_expr_zonemap_slot_indexes(request.conjuncts);
+                             const VExprContextSPtrs& conjuncts, ParquetPruningStats* pruning_stats,
+                             const cctz::time_zone* timezone) {
+    const auto slot_indexes = collect_expr_zonemap_slot_indexes(conjuncts);
     if (slot_indexes.empty()) {
         return false;
     }
@@ -668,7 +689,7 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
         }
         add_slot_zonemap(&ctx, slot_index, column_schema->type, std::move(zone_map));
     }
-    const auto result = VExprContext::evaluate_zonemap_filter(request.conjuncts, ctx);
+    const auto result = VExprContext::evaluate_zonemap_filter(conjuncts, ctx);
     accumulate_zonemap_stats(ctx, pruning_stats);
     return result == ZoneMapFilterResult::kNoMatch;
 }
@@ -881,9 +902,8 @@ Status select_row_groups_by_metadata(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, const std::vector<int>* candidate_row_groups,
         std::vector<int>* selected_row_groups, bool enable_bloom_filter,
-        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
-        const RuntimeState* runtime_state, ParquetFileContext* file_context,
-        const ParquetColumnReaderProfile& column_reader_profile,
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone, const RuntimeState*,
+        ParquetFileContext* file_context, const ParquetColumnReaderProfile& column_reader_profile,
         ParquetMetadataProbeMode probe_mode) {
     int64_t timer_sink = 0;
     SCOPED_RAW_TIMER(pruning_stats == nullptr ? &timer_sink
@@ -897,6 +917,7 @@ Status select_row_groups_by_metadata(
     if (pruning_stats != nullptr) {
         pruning_stats->total_row_groups = cast_set<int64_t>(candidate_size);
     }
+    const auto zonemap_conjuncts = metadata_pruning_safe_conjunct_prefix(request.conjuncts);
     selected_row_groups->reserve(candidate_size);
     for (size_t candidate_idx = 0; candidate_idx < candidate_size; ++candidate_idx) {
         const int row_group_idx = candidate_row_groups == nullptr
@@ -920,9 +941,9 @@ Status select_row_groups_by_metadata(
         }
         ParquetRowGroupPruneReason prune_reason = ParquetRowGroupPruneReason::NONE;
         if (probe_mode != ParquetMetadataProbeMode::EXPENSIVE_ONLY &&
-            has_expr_zonemap_filter(request, runtime_state) &&
-            check_native_statistics(metadata, row_group, file_schema, request, pruning_stats,
-                                    timezone)) {
+            has_expr_zonemap_filter(zonemap_conjuncts) &&
+            check_native_statistics(metadata, row_group, file_schema, request, zonemap_conjuncts,
+                                    pruning_stats, timezone)) {
             prune_reason = ParquetRowGroupPruneReason::STATISTICS;
         }
         if (probe_mode != ParquetMetadataProbeMode::FOOTER_ONLY &&
@@ -1241,8 +1262,7 @@ Status select_row_group_ranges_by_native_page_index(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int64_t row_group_rows,
         std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
-        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
-        const RuntimeState* runtime_state) {
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone, const RuntimeState*) {
     int64_t filter_time_sink = 0;
     SCOPED_RAW_TIMER(pruning_stats == nullptr ? &filter_time_sink
                                               : &pruning_stats->page_index_filter_time);
@@ -1252,8 +1272,9 @@ Status select_row_group_ranges_by_native_page_index(
     if (page_skip_plans != nullptr) {
         page_skip_plans->clear();
     }
+    const auto zonemap_conjuncts = metadata_pruning_safe_conjunct_prefix(request.conjuncts);
     if (row_group_rows <= 0 || !config::enable_parquet_page_index ||
-        !has_expr_zonemap_filter(request, runtime_state) || page_indexes.empty()) {
+        !has_expr_zonemap_filter(zonemap_conjuncts) || page_indexes.empty()) {
         return Status::OK();
     }
     if (pruning_stats != nullptr) {
@@ -1261,7 +1282,7 @@ Status select_row_group_ranges_by_native_page_index(
     }
 
     std::map<int, VExprContextSPtrs> conjuncts_by_slot;
-    for (const auto& conjunct : request.conjuncts) {
+    for (const auto& conjunct : zonemap_conjuncts) {
         const auto slot_index = expr_zonemap::single_slot_zonemap_index(conjunct);
         if (slot_index >= 0) {
             conjuncts_by_slot[slot_index].push_back(conjunct);

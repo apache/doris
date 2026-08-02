@@ -496,6 +496,12 @@ TEST(FileScannerV2Test, PartitionPruningRemainsEnabledWhenSessionSwitchIsFalse) 
     const auto range = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
     ASSERT_TRUE(scanner._prepare_table_reader_split(range, {}).ok());
     EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 0);
+
+    ASSERT_TRUE(scanner._prepare_table_reader_split(
+                               range, {{"partition_col", Field::create_field<TYPE_INT>(1)}})
+                        .ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
     EXPECT_EQ(captured->partition_prune_conjunct_count, 1);
 }
 
