@@ -51,7 +51,8 @@ suite("test_fluss_catalog", "p0,external") {
 
     def tableRows = sql """show tables"""
     def tables = tableRows.collect { it[0] }
-    for (String expected : ["log_basic", "log_types", "log_part", "log_empty", "pk_basic", "pk_types"]) {
+    for (String expected : ["log_basic", "log_types", "log_part", "log_empty", "pk_basic", "pk_types",
+                            "pk_part"]) {
         assertTrue(tables.contains(expected), "table ${expected} missing: ${tables}")
     }
 
