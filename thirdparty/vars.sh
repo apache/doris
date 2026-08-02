@@ -268,6 +268,16 @@ ARROW_NAME="apache-arrow-17.0.0.tar.gz"
 ARROW_SOURCE="arrow-apache-arrow-17.0.0"
 ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
 
+# arrow-adbc
+# One source tree, three artifacts: the driver manager (statically linked into
+# doris_be), the JNI bridge (loaded by the FE adbc connector) and the SQLite
+# driver (BE unit tests only, not shipped).
+# Release "N" ships C/Go 1.12.0 and Java 0.24.0; the tag carries neither number.
+ARROW_ADBC_DOWNLOAD="https://github.com/apache/arrow-adbc/archive/refs/tags/apache-arrow-adbc-24.tar.gz"
+ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
+ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
+ARROW_ADBC_MD5SUM="2b2a18e95c33bdfd2bfa33a8b57c78d6"
+
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
 ABSEIL_NAME="abseil-cpp-20250512.1.tar.gz"
@@ -610,6 +620,7 @@ export TP_ARCHIVES=(
     'LIBRDKAFKA'
     'FLATBUFFERS'
     'ARROW'
+    'ARROW_ADBC'
     'BROTLI'
     'ZSTD'
     'ABSEIL'
