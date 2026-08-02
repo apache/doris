@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TLocalExchangeNode;
@@ -39,6 +40,9 @@ public class LocalExchangeNode extends PlanNode {
     public static final String EXCHANGE_NODE = "LOCAL-EXCHANGE";
 
     private LocalExchangeType exchangeType;
+    // storage bucketing hash for BUCKET_HASH_SHUFFLE; inherited from the upstream ExchangeNode's
+    // bucket-shuffle distribution. Defaults to CRC32 (legacy behavior).
+    private HashDistributionInfo.HashType distributionHashType = HashDistributionInfo.HashType.CRC32;
 
     /**
      * use for Nereids only.
@@ -56,6 +60,11 @@ public class LocalExchangeNode extends PlanNode {
         this.children.add(inputNode);
         this.exchangeType = exchangeType;
         this.fragment = inputNode.getFragment();
+        // For bucket-shuffle, the local exchange must reshuffle with the same storage hash as the
+        // upstream ExchangeNode's bucket-shuffle distribution.
+        if (inputNode instanceof ExchangeNode) {
+            this.distributionHashType = ((ExchangeNode) inputNode).getDistributionHashType();
+        }
 
         List<Expr> hashExprs = distributeExprs;
         boolean isHashShuffle = (exchangeType == LocalExchangeType.BUCKET_HASH_SHUFFLE
@@ -96,6 +105,9 @@ public class LocalExchangeNode extends PlanNode {
                 thriftDistributeExprLists.add(ExprToThriftVisitor.treeToThrift(expr));
             }
             msg.local_exchange_node.setDistributeExprLists(thriftDistributeExprLists);
+        }
+        if (exchangeType == LocalExchangeType.BUCKET_HASH_SHUFFLE) {
+            msg.local_exchange_node.setDistributionHashType(DataPartition.toTHashType(distributionHashType));
         }
     }
 

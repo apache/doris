@@ -2921,12 +2921,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
                     throw new AnalysisException("Random distribution for colocate table is unsupported");
                 }
-                // FIXME: read optimization
-                if (defaultDistributionInfo instanceof HashDistributionInfo
-                        && ((HashDistributionInfo) defaultDistributionInfo)
-                                .getHashType() != HashDistributionInfo.HashType.CRC32) {
-                    throw new AnalysisException("Hash distribution with non-crc32 for colocate table is unsupported");
-                }
                 if (isAutoBucket) {
                     throw new AnalysisException("Auto buckets for colocate table is unsupported");
                 }

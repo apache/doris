@@ -86,13 +86,12 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         boolean isBelongStableCG = Utils.isBelongStableCG(olapTable);
         boolean isSelectUnpartition = Utils.isSelectUnpartition(olapTable, olapScan.getSelectedPartitionIds());
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
-        // FIXME: read optimization
-        // Distribution optimization (colocate / bucket-shuffle via NATURAL spec) is only sound for the
-        // CRC32 bucketing hash. Non-crc32 (e.g. identity) tables fall through to StorageAny so they do
-        // not advertise a hash distribution to the optimizer.
-        boolean isCrc32Bucketed = distributionInfo instanceof HashDistributionInfo
-                && ((HashDistributionInfo) distributionInfo).getHashType() == HashDistributionInfo.HashType.CRC32;
-        if (isCrc32Bucketed && (isBelongStableCG || isSelectUnpartition)) {
+        // Any HASH-bucketed table advertises a NATURAL distribution carrying its bucketing hashType.
+        // Colocate / bucket-shuffle compatibility is then gated by comparing both sides' hashType,
+        // so hash types can participate as long as both sides agree.
+        boolean isHashBucketed = distributionInfo instanceof HashDistributionInfo;
+        if (isHashBucketed && (isBelongStableCG || isSelectUnpartition)) {
+            HashDistributionInfo.HashType hashType = ((HashDistributionInfo) distributionInfo).getHashType();
             if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
@@ -121,7 +120,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()),
+                        hashType);
             } else {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
@@ -139,7 +139,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()),
+                        hashType);
             }
         } else {
             // RandomDistributionInfo
