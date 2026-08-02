@@ -26,6 +26,7 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -73,6 +74,26 @@ public class ExecuteCommandTest {
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
         Assertions.assertEquals("3", resolveNextSnapshot(scanParams, snapshotId));
         Mockito.verify(executor, Mockito.times(2)).execute();
+    }
+
+    @Test
+    public void testResolvedScanOptionsAreResetForPreparedDeleteUsing() throws Exception {
+        String sql = "delete from target using source@options('scan.mode'='latest') "
+                + "where target.id = source.id";
+        LogicalPlan command = new NereidsParser().parseSingle(sql);
+        LogicalPlan relationRoot = ((DeleteFromUsingCommand) command).getLogicalQuery();
+
+        assertPreparedCommandResetsScanOptions(sql, command, relationRoot);
+    }
+
+    @Test
+    public void testResolvedScanOptionsAreResetForPreparedMerge() throws Exception {
+        String sql = "merge into target using source@options('scan.mode'='latest') "
+                + "on target.id = source.id when matched then delete";
+        MergeIntoCommand command = (MergeIntoCommand) new NereidsParser().parseSingle(sql);
+
+        assertPreparedCommandResetsScanOptions(
+                sql, command, command.getRelationRoots().get(0));
     }
 
     @Test
@@ -142,5 +163,32 @@ public class ExecuteCommandTest {
         return scanParams.getOrResolveMapParams(ignored -> ImmutableMap.of(
                 "scan.snapshot-id", String.valueOf(snapshotId.incrementAndGet())))
                 .get("scan.snapshot-id");
+    }
+
+    private void assertPreparedCommandResetsScanOptions(
+            String sql, LogicalPlan command, LogicalPlan relationRoot) throws Exception {
+        UnboundRelation relation = relationRoot.<UnboundRelation>collectToList(
+                UnboundRelation.class::isInstance).stream()
+                .filter(candidate -> candidate.getScanParams() != null)
+                .findFirst().orElseThrow(AssertionError::new);
+        TableScanParams scanParams = relation.getScanParams();
+        AtomicInteger snapshotId = new AtomicInteger();
+        Assertions.assertEquals("1", resolveNextSnapshot(scanParams, snapshotId));
+
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", command, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+
+        Assertions.assertEquals("2", resolveNextSnapshot(scanParams, snapshotId));
     }
 }
