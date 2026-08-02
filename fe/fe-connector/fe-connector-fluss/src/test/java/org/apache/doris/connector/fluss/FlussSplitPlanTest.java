@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
+import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.ResolvedPartitionSpec;
@@ -53,6 +54,10 @@ import java.util.Optional;
 public class FlussSplitPlanTest {
 
     private static final TablePath LOG_TABLE = TablePath.of("db", "log_tbl");
+    private static final TablePath PK_TABLE = TablePath.of("db", "pk_tbl");
+
+    /** Fixture shorthand: this bucket has never been snapshotted. */
+    private static final long NO_SNAPSHOT = -1L;
 
     private RecordingFlussAdminOps adminOps;
     private ConnectorSession session;
@@ -202,21 +207,157 @@ public class FlussSplitPlanTest {
         Assertions.assertFalse(props.containsKey(ScanNodePropertyKeys.PATH_PARTITION_KEYS));
     }
 
-    // ---------------------------------------------------------------- what is refused, and why
+    // ---------------------------------------------------------------- primary-key table
+
+    /**
+     * A primary-key bucket is read as "the kv snapshot, then the change log that followed it". The
+     * starting offset therefore has to be the one the snapshot ended at: starting anywhere earlier
+     * replays changes the snapshot already contains, and anywhere later drops changes it does not.
+     */
+    @Test
+    public void primaryKeyBucketsAreReadFromTheirSnapshotForward() {
+        registerPkTable(PK_TABLE, 3);
+        kvSnapshots(null, new long[] {4L, 9L, 2L}, new long[] {40L, 90L, 20L});
+        latestOffsets(null, 55L, 90L, 31L);
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(3, ranges.size());
+        assertPkRange(ranges.get(0), 0, 4L, 40L, 55L);
+        // Nothing new since the snapshot: still planned, and the scanner reads the snapshot alone.
+        assertPkRange(ranges.get(1), 1, 9L, 90L, 90L);
+        assertPkRange(ranges.get(2), 2, 2L, 20L, 31L);
+    }
+
+    /**
+     * With no snapshot the whole state is rebuilt by replaying the change log from the beginning,
+     * which is correct because a primary-key table's log carries every change. The two facts that say
+     * so — {@code -1} and the earliest sentinel — travel separately, and a bucket that got one without
+     * the other would read a snapshot that does not exist or start from the wrong place.
+     */
+    @Test
+    public void bucketsWithoutSnapshotsReplayTheirWholeChangeLog() {
+        registerPkTable(PK_TABLE, 2);
+        kvSnapshots(null, new long[] {NO_SNAPSHOT, 3L}, new long[] {0L, 30L});
+        latestOffsets(null, 12L, 44L);
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        assertPkRange(ranges.get(0), 0, -1L, -2L, 12L);
+        assertPkRange(ranges.get(1), 1, 3L, 30L, 44L);
+    }
+
+    /** Neither snapshotted nor written to: nothing to read, so nothing for BE to open a scanner for. */
+    @Test
+    public void neverWrittenPrimaryKeyBucketsAreSkipped() {
+        registerPkTable(PK_TABLE, 3);
+        kvSnapshots(null, new long[] {NO_SNAPSHOT, 7L, NO_SNAPSHOT}, new long[] {0L, 70L, 0L});
+        latestOffsets(null, 0L, 88L, 5L);
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        assertPkRange(ranges.get(0), 1, 7L, 70L, 88L);
+        assertPkRange(ranges.get(1), 2, -1L, -2L, 5L);
+    }
+
+    /**
+     * A bucket the offsets answer says nothing about still has to be read when it has a snapshot: the
+     * snapshot holds rows regardless of what the log is doing. Skipping on "no stopping offset" alone
+     * would drop them, and the query would succeed with a bucket's worth of rows missing.
+     */
+    @Test
+    public void snapshottedBucketMissingFromTheOffsetsAnswerIsStillRead() {
+        registerPkTable(PK_TABLE, 2);
+        kvSnapshots(null, new long[] {6L, NO_SNAPSHOT}, new long[] {60L, 0L});
+        Map<Integer, Long> partialOffsets = new LinkedHashMap<>();
+        partialOffsets.put(1, 9L);
+        adminOps.latestOffsetsByPartition.put(null, partialOffsets);
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        // No log to read, so the range covers the snapshot alone.
+        assertPkRange(ranges.get(0), 0, 6L, 60L, 0L);
+        assertPkRange(ranges.get(1), 1, -1L, -2L, 9L);
+    }
+
+    /**
+     * Snapshots are asked for BEFORE offsets, and the order is the whole point. A snapshot committed
+     * between the two calls ends past the offset planning stopped at; that bucket would then be read
+     * from its snapshot — which already contains rows written after the query started — while every
+     * other bucket stopped where planning saw them. Log offsets only move forward, so asking in this
+     * order keeps every snapshot at or behind the stopping offset.
+     */
+    @Test
+    public void snapshotsAreAskedForBeforeTheOffsetsThatBoundThem() {
+        registerPkTable(PK_TABLE, 1);
+        kvSnapshots(null, new long[] {1L}, new long[] {10L});
+        latestOffsets(null, 20L);
+
+        plan(PK_TABLE, catalog());
+
+        int snapshotCall = indexOfCall("getLatestKvSnapshots(");
+        int offsetCall = indexOfCall("listOffsets(");
+        Assertions.assertTrue(snapshotCall >= 0 && snapshotCall < offsetCall, adminOps.calls.toString());
+    }
 
     @Test
-    public void primaryKeyTableIsRefusedRatherThanReadAsALog() {
-        TablePath pkTable = TablePath.of("db", "pk_tbl");
-        adminOps.tableInfos.put(pkTable, FlussTestTables.builder(pkTable)
+    public void partitionedPrimaryKeyTablesTakeSnapshotsAndOffsetsPerPartition() {
+        registerPartitionedPkTable(1, "20260101", "20260102");
+        kvSnapshots("20260101", new long[] {5L}, new long[] {50L});
+        latestOffsets("20260101", 60L);
+        kvSnapshots("20260102", new long[] {NO_SNAPSHOT}, new long[] {0L});
+        latestOffsets("20260102", 8L);
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        Assertions.assertEquals("dt=20260101", ranges.get(0).getProperties().get("fluss.partition_name"));
+        assertPkRange(ranges.get(0), 0, 5L, 50L, 60L);
+        Assertions.assertEquals("dt=20260102", ranges.get(1).getProperties().get("fluss.partition_name"));
+        assertPkRange(ranges.get(1), 0, -1L, -2L, 8L);
+    }
+
+    /** Pruning applies to a primary-key table exactly as it does to a log table. */
+    @Test
+    public void prunedPartitionsOfPrimaryKeyTablesAreNotEvenAskedAbout() {
+        registerPartitionedPkTable(1, "20260101", "20260102");
+        kvSnapshots("20260102", new long[] {2L}, new long[] {20L});
+        latestOffsets("20260102", 25L);
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog(),
+                Collections.singletonList("dt=20260102"));
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(1,
+                adminOps.calls.stream().filter(c -> c.startsWith("getLatestKvSnapshots(")).count(),
+                adminOps.calls.toString());
+    }
+
+    // ---------------------------------------------------------------- what is refused, and why
+
+    /**
+     * A tiered primary-key table is refused for the same reason a tiered log table is: the fluss-only
+     * read returns whatever has not been tiered away yet, which is a successful query with missing rows.
+     * The primary-key read being implemented does not change that.
+     */
+    @Test
+    public void tieredPrimaryKeyTableIsRefusedUntilTheUnionReadExists() {
+        adminOps.tableInfos.put(PK_TABLE, FlussTestTables.builder(PK_TABLE)
                 .column("id", DataTypes.INT().copy(false))
                 .column("v", DataTypes.STRING())
                 .primaryKey("id")
                 .buckets(2, "id")
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
                 .build());
+        adminOps.readableLakeSnapshot = new LakeSnapshot(7L, Collections.emptyMap());
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(pkTable, catalog()));
-        Assertions.assertTrue(e.getMessage().contains("primary-key"), e.getMessage());
+                () -> plan(PK_TABLE, catalog()));
+        Assertions.assertTrue(e.getMessage().contains("not supported yet"), e.getMessage());
     }
 
     /**
@@ -321,7 +462,29 @@ public class FlussSplitPlanTest {
         provider.appendExplainInfo(output, "  ", Collections.emptyMap());
 
         Assertions.assertEquals(
-                "  flussScan: unionRead=no, lakeSplits=0, logRanges=2, mode=auto\n", output.toString());
+                "  flussScan: unionRead=no, lakeSplits=0, logRanges=2, pkRanges=0, mode=auto\n",
+                output.toString());
+    }
+
+    /**
+     * Counted apart from log ranges rather than lumped together: the two are read by different code
+     * paths, and a test that only sees a total cannot tell a primary-key table that was planned the
+     * wrong way from one that was planned the right way.
+     */
+    @Test
+    public void explainCountsPrimaryKeyRangesApartFromLogRanges() {
+        registerPkTable(PK_TABLE, 3);
+        kvSnapshots(null, new long[] {1L, NO_SNAPSHOT, NO_SNAPSHOT}, new long[] {10L, 0L, 0L});
+        latestOffsets(null, 12L, 4L, 0L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog());
+        provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+
+        Assertions.assertEquals(
+                "flussScan: unionRead=no, lakeSplits=0, logRanges=0, pkRanges=2, mode=auto\n",
+                output.toString());
     }
 
     @Test
@@ -414,6 +577,49 @@ public class FlussSplitPlanTest {
                 .build());
     }
 
+    private void registerPkTable(TablePath tablePath, int buckets) {
+        adminOps.tableInfos.put(tablePath, FlussTestTables.builder(tablePath)
+                .column("id", DataTypes.INT().copy(false))
+                .column("v", DataTypes.STRING())
+                .primaryKey("id")
+                .buckets(buckets, "id")
+                .build());
+    }
+
+    /** A primary-key table partitioned by {@code dt}, with partition ids 100, 101, ... in order. */
+    private void registerPartitionedPkTable(int buckets, String... partitionValues) {
+        adminOps.tableInfos.put(PK_TABLE, FlussTestTables.builder(PK_TABLE)
+                .column("id", DataTypes.INT().copy(false))
+                .column("dt", DataTypes.STRING().copy(false))
+                .primaryKey("id", "dt")
+                .partitionedBy("dt")
+                .buckets(buckets, "id")
+                .build());
+        List<PartitionInfo> partitions = new ArrayList<>();
+        for (int i = 0; i < partitionValues.length; i++) {
+            partitions.add(new PartitionInfo(100L + i,
+                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null));
+        }
+        adminOps.partitionsByTable.put(PK_TABLE, partitions);
+    }
+
+    /**
+     * Latest kv snapshot per bucket 0..n-1 of {@code partitionName} ({@code null} = unpartitioned);
+     * {@link #NO_SNAPSHOT} for a bucket that has never been snapshotted. Such a bucket gets a null
+     * snapshot id AND a null log offset, which is the only shape a cluster produces — the client
+     * asserts the two are both set or both absent when it decodes the response.
+     */
+    private void kvSnapshots(String partitionName, long[] snapshotIds, long[] logOffsets) {
+        Map<Integer, Long> ids = new LinkedHashMap<>();
+        Map<Integer, Long> offsets = new LinkedHashMap<>();
+        for (int bucket = 0; bucket < snapshotIds.length; bucket++) {
+            boolean snapshotted = snapshotIds[bucket] != NO_SNAPSHOT;
+            ids.put(bucket, snapshotted ? snapshotIds[bucket] : null);
+            offsets.put(bucket, snapshotted ? logOffsets[bucket] : null);
+        }
+        adminOps.kvSnapshotsByPartition.put(partitionName, new KvSnapshots(1L, null, ids, offsets));
+    }
+
     /** Latest offsets for buckets 0..n-1 of {@code partitionName} ({@code null} = unpartitioned). */
     private void latestOffsets(String partitionName, long... offsets) {
         Map<Integer, Long> byBucket = new LinkedHashMap<>();
@@ -429,6 +635,26 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(String.valueOf(bucket), props.get("fluss.bucket_id"));
         Assertions.assertEquals(String.valueOf(start), props.get("fluss.log_start_offset"));
         Assertions.assertEquals(String.valueOf(stop), props.get("fluss.log_stop_offset"));
+    }
+
+    private static void assertPkRange(ConnectorScanRange range, int bucket, long snapshotId,
+            long start, long stop) {
+        Map<String, String> props = range.getProperties();
+        Assertions.assertEquals("PK_FULL", props.get("fluss.range_type"));
+        Assertions.assertEquals(String.valueOf(bucket), props.get("fluss.bucket_id"));
+        Assertions.assertEquals(String.valueOf(snapshotId), props.get("fluss.kv_snapshot_id"));
+        Assertions.assertEquals(String.valueOf(start), props.get("fluss.log_start_offset"));
+        Assertions.assertEquals(String.valueOf(stop), props.get("fluss.log_stop_offset"));
+    }
+
+    /** Position of the first recorded call starting with {@code prefix}, or -1. */
+    private int indexOfCall(String prefix) {
+        for (int i = 0; i < adminOps.calls.size(); i++) {
+            if (adminOps.calls.get(i).startsWith(prefix)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static void assertPartition(ConnectorScanRange range, String partitionName,
