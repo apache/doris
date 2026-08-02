@@ -716,7 +716,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TSortInfo here (the connector's planWrite has no bound exprs). Empty for connectors with no
         // write sort (jdbc/maxcompute) -> null, byte-identical unsorted sink.
         TSortInfo writeSortInfo = buildConnectorWriteSortInfo(
-                writePlanProvider.getWriteSortColumns(connSession, providerTableHandle),
+                // Resolve against the actual bound output subset. A full-schema ordinal can be out of range
+                // for a partial INSERT even when the table schema itself has not changed.
+                writePlanProvider.getWriteSortColumns(connSession, providerTableHandle, connectorColumns),
                 connectorTableSink, context);
 
         // A distributed rewrite_data_files INSERT-SELECT threads WriteOperation.REWRITE so the connector's
@@ -735,21 +737,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private static ConnectorColumn toWriteConnectorColumn(Column column) {
-        ConnectorColumn result = new ConnectorColumn(column.getName(),
-                ConnectorColumnConverter.toConnectorType(column.getType()),
-                null, column.isAllowNull(), null);
-        if (!column.isVisible()) {
-            result = result.invisible();
-        }
-        if (column.getUniqueId() >= 0) {
-            result = result.withUniqueId(column.getUniqueId());
-        }
-        if (column.isReservedPassthrough()) {
-            // Preserve the neutral marker so Iceberg schema validation excludes engine-generated
-            // row-lineage columns without teaching the generic translator their source-specific names.
-            result = result.reservedPassthrough();
-        }
-        return result;
+        // Use the shared recursive conversion so write validation receives nested field identities as well
+        // as the root id; rebuilding only the root silently accepted drop-and-recreate nested fields.
+        return ConnectorColumnConverter.toConnectorColumn(column);
     }
 
     private TSortInfo buildConnectorWriteSortInfo(List<ConnectorWriteSortColumn> sortColumns,

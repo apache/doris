@@ -41,6 +41,10 @@ class ConnectorColumnConverterTest {
     void testScalarTypeRoundtrip() {
         // INT → ConnectorType → Doris Type should roundtrip
         ConnectorType ct = ConnectorColumnConverter.toConnectorType(ScalarType.INT);
+        // Parameterless scalars must use the connector's canonical -1/-1 representation. Iceberg publishes
+        // INT this way; emitting Doris' internal 0/0 defaults makes an unchanged write look like schema drift.
+        Assertions.assertEquals(-1, ct.getPrecision());
+        Assertions.assertEquals(-1, ct.getScale());
         Type back = ConnectorColumnConverter.convertType(ct);
         Assertions.assertEquals(ScalarType.INT, back);
     }
@@ -382,7 +386,7 @@ class ConnectorColumnConverterTest {
         // them recursively). The connector carries the top-level id on ConnectorColumn.withUniqueId and the
         // per-child ids on ConnectorType.withChildrenFieldIds; convertColumn must stamp the whole child tree so
         // SlotTypeReplacer can rewrite the nested access path to ids and BE matches the pruned leaf by id (a -1
-        // leaf is skipped -> NULL). MUTATION: dropping the applyNestedFieldIds call leaves children at -1 -> red.
+        // leaf is skipped -> NULL). MUTATION: dropping applyNestedFieldMetadata leaves children at -1 -> red.
         // struct<a:int (field-id 4), b:string (field-id 5)>, top-level field-id 3
         ConnectorType structType = ConnectorType.structOf(
                 Arrays.asList("a", "b"),
@@ -425,9 +429,29 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void toConnectorColumnPreservesDeeplyNestedFieldIds() {
+        ConnectorType inner = ConnectorType.structOf(
+                Arrays.asList("leaf"), Arrays.asList(ConnectorType.of("INT")))
+                .withChildrenFieldIds(Arrays.asList(12));
+        ConnectorType array = ConnectorType.arrayOf(inner, false).withChildrenFieldIds(Arrays.asList(11));
+        Column column = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("payload", array, "", true, null).withUniqueId(10));
+        Assertions.assertFalse(column.getChildren().get(0).isAllowNull(),
+                "the Doris child column must retain the connector element requiredness");
+
+        ConnectorColumn rebound = ConnectorColumnConverter.toConnectorColumn(column);
+
+        // Write conflict detection needs the full identity path, not only the top-level column id.
+        Assertions.assertEquals(10, rebound.getUniqueId());
+        Assertions.assertEquals(11, rebound.getType().getChildFieldId(0));
+        Assertions.assertEquals(12, rebound.getType().getChildren().get(0).getChildFieldId(0));
+        Assertions.assertFalse(rebound.getType().isChildNullable(0));
+    }
+
+    @Test
     void convertColumnLeavesNestedUniqueIdsUnsetWithoutFieldIds() {
         // Regression guard: a connector that does NOT carry nested field ids (no withChildrenFieldIds, e.g.
-        // paimon) must leave every child uniqueId at the default -1 — applyNestedFieldIds must be inert, so a
+        // paimon) must leave every child uniqueId at the default -1 — field-id propagation must be inert, so a
         // non-iceberg connector's nested columns are never accidentally stamped.
         ConnectorType structType = ConnectorType.structOf(
                 Arrays.asList("a", "b"),

@@ -105,6 +105,8 @@ public class ExternalRowLevelMergePlanBuilderTest {
         Assertions.assertTrue(plan instanceof LogicalExternalRowLevelMergeSink);
         Assertions.assertTrue(((LogicalExternalRowLevelMergeSink<?>) plan).isRequireMergeCardinalityCheck(),
                 "SQL MERGE INTO must request the cardinality validation");
+        // The branch projections and sink columns must come from the exact same target schema generation.
+        Mockito.verify(table, Mockito.times(1)).getBaseSchema(true);
     }
 
     @Test

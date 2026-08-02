@@ -124,6 +124,9 @@ public class ExternalRowLevelUpdatePlanBuilderTest {
         Assertions.assertTrue(plan instanceof LogicalExternalRowLevelMergeSink);
         Assertions.assertFalse(((LogicalExternalRowLevelMergeSink<?>) plan).isRequireMergeCardinalityCheck(),
                 "UPDATE must not request the SQL MERGE cardinality validation");
+        // Projection and sink metadata must share one schema generation. A second read can observe a
+        // concurrent reorder and silently pair S0 expressions with S1 columns.
+        Mockito.verify(table, Mockito.times(1)).getBaseSchema(true);
     }
 
     @Test

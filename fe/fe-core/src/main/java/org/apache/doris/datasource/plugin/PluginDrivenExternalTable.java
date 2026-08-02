@@ -735,6 +735,39 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return result;
     }
 
+    /** Immutable write-facing views captured from one schema-cache generation. */
+    public static final class WriteSchemaSnapshot {
+        private final List<Column> fullSchema;
+        private final List<Column> partitionColumns;
+
+        private WriteSchemaSnapshot(List<Column> fullSchema, List<Column> partitionColumns) {
+            this.fullSchema = Collections.unmodifiableList(new ArrayList<>(fullSchema));
+            this.partitionColumns = Collections.unmodifiableList(new ArrayList<>(partitionColumns));
+        }
+
+        public List<Column> getFullSchema() {
+            return fullSchema;
+        }
+
+        public List<Column> getPartitionColumns() {
+            return partitionColumns;
+        }
+    }
+
+    /**
+     * Captures schema and partition identities from one cache value for write binding. Reading them through
+     * separate table APIs can straddle a concurrent refresh and make the planner hash an older output by a
+     * newer column ordinal.
+     */
+    public WriteSchemaSnapshot getWriteSchemaSnapshot() {
+        makeSureInitialized();
+        PluginDrivenSchemaCacheValue value = getSchemaCacheValue(Optional.empty())
+                .map(PluginDrivenSchemaCacheValue.class::cast)
+                .orElseGet(() -> new PluginDrivenSchemaCacheValue(
+                        Collections.emptyList(), Collections.emptyList(), Collections.emptyList()));
+        return new WriteSchemaSnapshot(appendSyntheticWriteColumns(value.getSchema()), value.getPartitionColumns());
+    }
+
     /**
      * Fetches the connector's declared synthetic write columns for this table, in engine-neutral form.
      * Degrades to an empty list on any miss (non-plugin catalog, a read-only connector with no write-plan

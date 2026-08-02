@@ -47,11 +47,13 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /**
  * Physical Iceberg Merge Sink for UPDATE operations.
@@ -197,18 +199,20 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
         List<ExprId> insertPartitionExprIds = new ArrayList<>();
         List<DistributionSpecMerge.MergePartitionField> insertPartitionFields = new ArrayList<>();
         Integer partitionSpecId = null;
-        List<Column> partitionColumns = targetTable.getPartitionColumns(Optional.empty());
         Map<String, ExprId> columnExprIdMap = buildColumnExprIdMap(outputSlots, nameToExprId);
+        Map<Integer, ExprId> columnIdToExprId = buildColumnIdExprIdMap(outputSlots);
         boolean insertExprsOk = false;
-        if (!partitionColumns.isEmpty()) {
-            insertExprsOk = buildInsertPartitionExprIds(insertPartitionExprIds, partitionColumns, columnExprIdMap);
-        }
         InsertPartitionFieldResult fieldResult = getIcebergPartitioning(
-                insertPartitionFields, targetTable, columnExprIdMap);
+                insertPartitionFields, targetTable, columnExprIdMap, columnIdToExprId);
         boolean insertFieldsOk = fieldResult.success;
         boolean hasNonIdentity = fieldResult.hasNonIdentity;
         if (insertFieldsOk) {
             partitionSpecId = fieldResult.partitionSpecId;
+            insertPartitionFields.stream()
+                    .filter(field -> "identity".equals(field.getTransform()))
+                    .map(DistributionSpecMerge.MergePartitionField::getSourceExprId)
+                    .forEach(insertPartitionExprIds::add);
+            insertExprsOk = !insertPartitionExprIds.isEmpty();
         }
 
         boolean insertRandom = !(insertExprsOk || insertFieldsOk);
@@ -230,20 +234,6 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                 partitionSpecId));
     }
 
-    private boolean buildInsertPartitionExprIds(List<ExprId> insertPartitionExprIds,
-                                                List<Column> partitionColumns,
-                                                Map<String, ExprId> columnExprIdMap) {
-        for (Column column : partitionColumns) {
-            ExprId exprId = columnExprIdMap.get(column.getName());
-            if (exprId == null) {
-                insertPartitionExprIds.clear();
-                return false;
-            }
-            insertPartitionExprIds.add(exprId);
-        }
-        return insertPartitionExprIds.size() == partitionColumns.size();
-    }
-
     private Map<String, ExprId> buildColumnExprIdMap(List<Slot> outputSlots,
                                                      Map<String, ExprId> nameToExprId) {
         List<Column> visibleColumns = new ArrayList<>();
@@ -261,6 +251,23 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
             return columnExprIdMap;
         }
         return nameToExprId;
+    }
+
+    private Map<Integer, ExprId> buildColumnIdExprIdMap(List<Slot> outputSlots) {
+        Map<Integer, ExprId> result = new HashMap<>();
+        List<Column> visibleColumns = cols.stream()
+                .filter(Column::isVisible)
+                .collect(Collectors.toList());
+        List<Slot> dataSlots = getDataSlots(outputSlots);
+        if (visibleColumns.size() != dataSlots.size()) {
+            return result;
+        }
+        for (int i = 0; i < visibleColumns.size(); i++) {
+            if (visibleColumns.get(i).getUniqueId() >= 0) {
+                result.put(visibleColumns.get(i).getUniqueId(), dataSlots.get(i).getExprId());
+            }
+        }
+        return result;
     }
 
     private List<Slot> getDataSlots(List<Slot> outputSlots) {
@@ -288,9 +295,10 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
     private InsertPartitionFieldResult getIcebergPartitioning(
             List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
             ExternalTable table,
-            Map<String, ExprId> columnExprIdMap) {
+            Map<String, ExprId> columnExprIdMap,
+            Map<Integer, ExprId> columnIdToExprId) {
         return buildInsertPartitionFieldsFromConnector(
-                insertPartitionFields, (PluginDrivenExternalTable) table, columnExprIdMap);
+                insertPartitionFields, (PluginDrivenExternalTable) table, columnExprIdMap, columnIdToExprId);
     }
 
     /**
@@ -304,7 +312,8 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
     private InsertPartitionFieldResult buildInsertPartitionFieldsFromConnector(
             List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
             PluginDrivenExternalTable table,
-            Map<String, ExprId> columnExprIdMap) {
+            Map<String, ExprId> columnExprIdMap,
+            Map<Integer, ExprId> columnIdToExprId) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
         Connector connector = catalog.getConnector();
         ConnectorSession session = catalog.buildConnectorSession();
@@ -322,7 +331,7 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
             return new InsertPartitionFieldResult(false, false, null);
         }
         ConnectorWritePartitionSpec spec = writePlanProvider.getWritePartitioning(session, handle);
-        return reconstructPartitionFields(insertPartitionFields, spec, columnExprIdMap);
+        return reconstructPartitionFields(insertPartitionFields, spec, columnExprIdMap, columnIdToExprId);
     }
 
     /**
@@ -349,6 +358,15 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
             List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
             ConnectorWritePartitionSpec spec,
             Map<String, ExprId> columnExprIdMap) {
+        return reconstructPartitionFields(insertPartitionFields, spec, columnExprIdMap,
+                java.util.Collections.emptyMap());
+    }
+
+    static InsertPartitionFieldResult reconstructPartitionFields(
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
+            ConnectorWritePartitionSpec spec,
+            Map<String, ExprId> columnExprIdMap,
+            Map<Integer, ExprId> columnIdToExprId) {
         if (spec == null) {
             return new InsertPartitionFieldResult(false, false, null);
         }
@@ -366,7 +384,11 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                 insertPartitionFields.clear();
                 return new InsertPartitionFieldResult(false, hasNonIdentity, spec.getSpecId());
             }
-            ExprId exprId = columnExprIdMap.get(sourceColumnName);
+            // Prefer the stable source field id carried by the bind-time schema. A same-name replacement
+            // must not inherit the old output expression after concurrent Iceberg schema evolution.
+            ExprId exprId = columnIdToExprId.isEmpty()
+                    ? columnExprIdMap.get(sourceColumnName)
+                    : columnIdToExprId.get(field.getSourceId());
             if (exprId == null) {
                 insertPartitionFields.clear();
                 return new InsertPartitionFieldResult(false, hasNonIdentity, spec.getSpecId());

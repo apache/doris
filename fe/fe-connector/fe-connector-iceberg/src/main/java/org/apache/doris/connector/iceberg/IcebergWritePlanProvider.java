@@ -71,6 +71,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -260,7 +261,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             ConnectorType currentType = IcebergTypeMapping.fromIcebergType(
                     current.type(), enableVarbinary, enableTimestampTz);
             if (!current.name().equalsIgnoreCase(bound.getName())
-                    || !currentType.equals(bound.getType())
+                    || !sameBoundType(currentType, bound.getType())
+                    || current.isOptional() != bound.isNullable()
                     || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())) {
                 // BE maps write expressions to schema-json by ordinal, so accepting a reordered live
                 // schema here could silently place values under the wrong Iceberg field names.
@@ -268,6 +270,52 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                         + "the statement with the latest schema");
             }
         }
+    }
+
+    private static boolean sameBoundType(ConnectorType current, ConnectorType bound) {
+        String currentName = canonicalTypeName(current.getTypeName());
+        String boundName = canonicalTypeName(bound.getTypeName());
+        if (!currentName.equals(boundName)
+                || current.getChildren().size() != bound.getChildren().size()
+                || current.getFieldNames().size() != bound.getFieldNames().size()) {
+            return false;
+        }
+        if (hasMeaningfulTypeParameters(currentName)
+                && (current.getPrecision() != bound.getPrecision() || current.getScale() != bound.getScale())) {
+            return false;
+        }
+        for (int i = 0; i < current.getChildren().size(); i++) {
+            if (!current.getFieldNames().isEmpty()
+                    && !current.getFieldNames().get(i).equalsIgnoreCase(bound.getFieldNames().get(i))) {
+                return false;
+            }
+            int boundFieldId = bound.getChildFieldId(i);
+            if ((boundFieldId >= 0 && current.getChildFieldId(i) != boundFieldId)
+                    || current.isChildNullable(i) != bound.isChildNullable(i)
+                    || !sameBoundType(current.getChildren().get(i), bound.getChildren().get(i))) {
+                // Nested field identity and requiredness are part of the write contract even though the SPI
+                // type's general equals() deliberately excludes them for non-write consumers.
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String canonicalTypeName(String typeName) {
+        String normalized = typeName.toUpperCase(Locale.ROOT);
+        // Doris chooses a physical DECIMAL width after conversion, while Iceberg exposes one logical decimal.
+        // Width aliases with the same precision/scale are one schema, not concurrent evolution.
+        return normalized.startsWith("DECIMAL") && !"DECIMALV2".equals(normalized)
+                ? "DECIMALV3" : normalized;
+    }
+
+    private static boolean hasMeaningfulTypeParameters(String typeName) {
+        return typeName.startsWith("DECIMAL")
+                || "CHAR".equals(typeName)
+                || "VARCHAR".equals(typeName)
+                || "VARBINARY".equals(typeName)
+                || "DATETIMEV2".equals(typeName)
+                || "TIMESTAMPTZ".equals(typeName);
     }
 
     @Override
@@ -304,6 +352,12 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     @Override
     public List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
+        return getWriteSortColumns(session, tableHandle, Collections.emptyList());
+    }
+
+    @Override
+    public List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> boundTargetColumns) {
         IcebergTableHandle handle = (IcebergTableHandle) tableHandle;
         Optional<IcebergWriteSchemaContext> active =
                 IcebergStatementScope.activeWriteSchema(
@@ -317,20 +371,30 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             // unconditional setSortInfo inside the isSorted() branch even when no identity column resolves.
             return null;
         }
-        List<NestedField> columns = active.isPresent()
-                ? active.get().getSchema().columns() : table.schema().columns();
+        Map<Integer, Integer> positionsByFieldId = new HashMap<>();
+        if (boundTargetColumns.isEmpty()) {
+            List<NestedField> currentColumns = active.isPresent()
+                    ? active.get().getSchema().columns() : table.schema().columns();
+            for (int i = 0; i < currentColumns.size(); i++) {
+                positionsByFieldId.put(currentColumns.get(i).fieldId(), i);
+            }
+        } else {
+            for (int i = 0; i < boundTargetColumns.size(); i++) {
+                positionsByFieldId.put(boundTargetColumns.get(i).getUniqueId(), i);
+            }
+        }
         List<ConnectorWriteSortColumn> result = new ArrayList<>();
         for (SortField sortField : sortOrder.fields()) {
             if (!sortField.transform().isIdentity()) {
                 continue;
             }
-            for (int i = 0; i < columns.size(); i++) {
-                if (columns.get(i).fieldId() == sortField.sourceId()) {
-                    result.add(new ConnectorWriteSortColumn(i,
-                            sortField.direction() == SortDirection.ASC,
-                            sortField.nullOrder() == NullOrder.NULLS_FIRST));
-                    break;
-                }
+            Integer position = positionsByFieldId.get(sortField.sourceId());
+            if (position != null) {
+                // Resolve against the bound field id, never a newly refreshed live ordinal; otherwise
+                // schema reorder can sort one output expression using another column's ordering contract.
+                result.add(new ConnectorWriteSortColumn(position,
+                        sortField.direction() == SortDirection.ASC,
+                        sortField.nullOrder() == NullOrder.NULLS_FIRST));
             }
         }
         return result;

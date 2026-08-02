@@ -119,6 +119,15 @@ public interface ConnectorWritePlanProvider {
     }
 
     /**
+     * Resolves write-sort positions against the bind-time target schema. Connectors with stable field
+     * identities should override this form; the default preserves existing name/ordinal behavior.
+     */
+    default List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> boundTargetColumns) {
+        return getWriteSortColumns(session, tableHandle);
+    }
+
+    /**
      * Declares the target's write-time partitioning, in an engine-neutral form, so the engine can reproduce
      * the connector's write distribution (the iceberg merge-write {@code DistributionSpecMerge}) without
      * importing the connector's native partition-spec types. The engine resolves each

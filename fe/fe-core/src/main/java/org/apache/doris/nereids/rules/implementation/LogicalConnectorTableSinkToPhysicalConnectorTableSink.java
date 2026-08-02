@@ -37,6 +37,7 @@ public class LogicalConnectorTableSinkToPhysicalConnectorTableSink extends OneIm
                     sink.getDatabase(),
                     sink.getTargetTable(),
                     sink.getBoundTargetSchema(),
+                    sink.getBoundPartitionColumns(),
                     sink.getCols(),
                     sink.getOutputExprs(),
                     Optional.empty(),

@@ -228,7 +228,15 @@ public class IcebergWritePlanProviderTest {
 
     private static TIcebergTableSink planSink(Table table, RecordingConnectorContext ctx,
             ConnectorWriteHandle handle) {
-        ConnectorSinkPlan plan = providerFor(table, ctx).planWrite(sessionFor(table, ctx), handle);
+        return planSink(table, ctx, handle, NON_REST_PROPS);
+    }
+
+    private static TIcebergTableSink planSink(Table table, RecordingConnectorContext ctx,
+            ConnectorWriteHandle handle, Map<String, String> properties) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        ConnectorSinkPlan plan = new IcebergWritePlanProvider(properties, ops, ctx)
+                .planWrite(sessionFor(table, ctx), handle);
         Assertions.assertEquals(TDataSinkType.ICEBERG_TABLE_SINK, plan.getDataSink().getType());
         return plan.getDataSink().getIcebergTableSink();
     }
@@ -412,6 +420,71 @@ public class IcebergWritePlanProviderTest {
         TIcebergTableSink sink = planSink(table, contextWithStorage(), handle);
 
         Assertions.assertEquals(SchemaParser.toJson(table.schema()), sink.getSchemaJson());
+    }
+
+    @Test
+    public void planWriteAcceptsCanonicalEquivalentScalarDefaults() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        List<ConnectorColumn> boundSchema = Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT", 0, 0), "", false, null)
+                        .withUniqueId(table.schema().findField("id").fieldId()),
+                new ConnectorColumn("name", ConnectorType.of("STRING", 0, 0), "", true, null)
+                        .withUniqueId(table.schema().findField("name").fieldId()));
+
+        // Doris scalar defaults are an encoding detail, not an Iceberg schema change. Rejecting this exact
+        // production conversion shape broke every ordinary Iceberg INSERT in external regression.
+        Assertions.assertDoesNotThrow(() -> planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t2")).boundTargetColumns(boundSchema)));
+    }
+
+    @Test
+    public void planWriteAcceptsDorisPhysicalScalarAliases() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "amount", Types.DecimalType.of(12, 2)),
+                Types.NestedField.optional(2, "event_time", Types.TimestampType.withoutZone()),
+                Types.NestedField.optional(3, "payload", Types.BinaryType.get()));
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "scalars"), schema,
+                PartitionSpec.unpartitioned());
+        List<ConnectorColumn> boundSchema = Arrays.asList(
+                new ConnectorColumn("amount", ConnectorType.of("DECIMAL64", 12, 2), "", false, null)
+                        .withUniqueId(1),
+                new ConnectorColumn("event_time", ConnectorType.of("DATETIMEV2", 6, 0), "", true, null)
+                        .withUniqueId(2),
+                new ConnectorColumn("payload", ConnectorType.of("VARBINARY"), "", true, null)
+                        .withUniqueId(3));
+
+        // Doris physical decimal widths and unbounded binary encoding must not look like schema evolution.
+        Map<String, String> properties = new HashMap<>(NON_REST_PROPS);
+        properties.put(IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "true");
+        Assertions.assertDoesNotThrow(() -> planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "scalars")).boundTargetColumns(boundSchema),
+                properties));
+    }
+
+    @Test
+    public void planWriteRejectsRecreatedNestedFieldWithSameShape() {
+        Schema nestedSchema = new Schema(Types.NestedField.optional(1, "payload",
+                Types.StructType.of(Types.NestedField.optional(2, "value", Types.FixedType.ofLength(4)))));
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "nested"), nestedSchema,
+                PartitionSpec.unpartitioned());
+        ConnectorType boundType = ConnectorType.structOf(
+                Collections.singletonList("value"),
+                Collections.singletonList(ConnectorType.of("CHAR", 4, 0)),
+                Collections.singletonList(true), Collections.singletonList(null))
+                .withChildrenFieldIds(Collections.singletonList(2));
+        ConnectorColumn bound = new ConnectorColumn("payload", boundType, "", true, null)
+                .withUniqueId(1);
+
+        table.updateSchema().deleteColumn("payload.value").commit();
+        table.updateSchema().addColumn("payload", "value", Types.FixedType.ofLength(4)).commit();
+
+        // The replacement has the same name/type/ordinal but a new nested field id. Accepting it would write
+        // the old bound payload under a different Iceberg identity.
+        Assertions.assertThrows(DorisConnectorException.class, () -> planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "nested"))
+                        .boundTargetColumns(Collections.singletonList(bound))));
     }
 
     @Test
@@ -811,6 +884,23 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals(0, cols.get(0).getColumnIndex(), "id is full-schema column 0");
         Assertions.assertTrue(cols.get(0).isAsc());
         Assertions.assertTrue(cols.get(0).isNullsFirst());
+    }
+
+    @Test
+    public void getWriteSortColumnsUsesBoundFieldIdentityInsteadOfLiveOrdinal() {
+        Table table = partitionedSortedTable(freshCatalog());
+        List<ConnectorColumn> reversedBoundSchema = Arrays.asList(
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
+                        .withUniqueId(table.schema().findField("name").fieldId()),
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, null)
+                        .withUniqueId(table.schema().findField("id").fieldId()));
+
+        List<ConnectorWriteSortColumn> cols = providerFor(table, contextWithStorage())
+                .getWriteSortColumns(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "t1"), reversedBoundSchema);
+
+        // Sort positions index the already-bound output. A live ordinal would incorrectly select name here.
+        Assertions.assertEquals(1, cols.get(0).getColumnIndex());
     }
 
     @Test

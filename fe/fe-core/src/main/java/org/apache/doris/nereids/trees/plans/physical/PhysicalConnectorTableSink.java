@@ -49,6 +49,7 @@ import java.util.stream.Collectors;
 public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
 
     private final List<Column> boundTargetSchema;
+    private final List<Column> boundPartitionColumns;
 
     // Rewrite (compaction) marker, threaded from LogicalConnectorTableSink.isRewrite. When set,
     // getRequirePhysicalProperties() short-circuits to GATHER (single writer) so a rewrite_data_files
@@ -69,7 +70,22 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                       LogicalProperties logicalProperties,
                                       boolean isRewrite,
                                       CHILD_TYPE child) {
-        this(database, targetTable, boundTargetSchema, cols, outputExprs, groupExpression, logicalProperties,
+        this(database, targetTable, boundTargetSchema, ImmutableList.of(), cols, outputExprs,
+                groupExpression, logicalProperties, isRewrite, child);
+    }
+
+    public PhysicalConnectorTableSink(ExternalDatabase database,
+                                      ExternalTable targetTable,
+                                      List<Column> boundTargetSchema,
+                                      List<Column> boundPartitionColumns,
+                                      List<Column> cols,
+                                      List<NamedExpression> outputExprs,
+                                      Optional<GroupExpression> groupExpression,
+                                      LogicalProperties logicalProperties,
+                                      boolean isRewrite,
+                                      CHILD_TYPE child) {
+        this(database, targetTable, boundTargetSchema, boundPartitionColumns, cols, outputExprs,
+                groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, isRewrite, child);
     }
 
@@ -87,16 +103,34 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                       Statistics statistics,
                                       boolean isRewrite,
                                       CHILD_TYPE child) {
+        this(database, targetTable, boundTargetSchema, ImmutableList.of(), cols, outputExprs,
+                groupExpression, logicalProperties, physicalProperties, statistics, isRewrite, child);
+    }
+
+    public PhysicalConnectorTableSink(ExternalDatabase database,
+                                      ExternalTable targetTable,
+                                      List<Column> boundTargetSchema,
+                                      List<Column> boundPartitionColumns,
+                                      List<Column> cols,
+                                      List<NamedExpression> outputExprs,
+                                      Optional<GroupExpression> groupExpression,
+                                      LogicalProperties logicalProperties,
+                                      PhysicalProperties physicalProperties,
+                                      Statistics statistics,
+                                      boolean isRewrite,
+                                      CHILD_TYPE child) {
         super(PlanType.PHYSICAL_CONNECTOR_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
         this.boundTargetSchema = ImmutableList.copyOf(boundTargetSchema);
+        this.boundPartitionColumns = ImmutableList.copyOf(boundPartitionColumns);
         this.isRewrite = isRewrite;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
-                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, cols,
+                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema,
+                boundPartitionColumns, cols,
                 outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
                 isRewrite, children.get(0)));
     }
@@ -109,7 +143,8 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
-                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, cols,
+                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, boundPartitionColumns,
+                cols,
                 outputExprs, groupExpression, getLogicalProperties(), isRewrite, child()));
     }
 
@@ -117,20 +152,26 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
-                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, cols,
+                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, boundPartitionColumns,
+                cols,
                 outputExprs, groupExpression, logicalProperties.get(), isRewrite, children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
-                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, cols,
+                (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, boundPartitionColumns,
+                cols,
                 outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
                 isRewrite, child()));
     }
 
     public List<Column> getBoundTargetSchema() {
         return boundTargetSchema;
+    }
+
+    public List<Column> getBoundPartitionColumns() {
+        return boundPartitionColumns;
     }
 
     /**
@@ -165,7 +206,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
      * {@code BindSink.bindConnectorTableSink} projects the child to <em>full-schema</em> order (any
      * unmentioned / static-partition columns filled in), exactly like legacy {@code bindMaxComputeTableSink},
      * because the BE writer strips the trailing partition columns by position. So {@code child().getOutput()}
-     * is aligned 1:1 with {@code targetTable.getFullSchema()}, while {@code cols} excludes the static
+     * is aligned 1:1 with {@code boundTargetSchema}, while {@code cols} excludes the static
      * partition columns and may be in a different (user-specified) order. Partition columns are therefore
      * located by their position in the full schema. (An earlier revision indexed by {@code cols}, which
      * mislocated the dynamic column whenever {@code cols} order diverged from the full schema — the
@@ -185,7 +226,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
         PluginDrivenExternalTable table = (PluginDrivenExternalTable) targetTable;
 
         if (table.requirePartitionLocalSortOnWrite()) {
-            Set<String> partitionNames = table.getPartitionColumns().stream()
+            Set<String> partitionNames = boundPartitionColumns.stream()
                     .map(Column::getName)
                     .collect(Collectors.toSet());
             if (!partitionNames.isEmpty()) {
@@ -205,7 +246,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                     // by the correct (dynamic) column in the partial-static case. Mirrors legacy
                     // PhysicalMaxComputeTableSink.
                     List<Integer> columnIdx = new ArrayList<>();
-                    List<Column> fullSchema = targetTable.getFullSchema();
+                    List<Column> fullSchema = boundTargetSchema;
                     for (int i = 0; i < fullSchema.size(); i++) {
                         if (partitionNames.contains(fullSchema.get(i).getName())) {
                             columnIdx.add(i);
@@ -232,7 +273,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
         }
 
         if (table.requirePartitionHashOnWrite()) {
-            Set<String> partitionNames = table.getPartitionColumns().stream()
+            Set<String> partitionNames = boundPartitionColumns.stream()
                     .map(Column::getName)
                     .collect(Collectors.toSet());
             if (!partitionNames.isEmpty()) {
@@ -243,7 +284,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                 // Index by full-schema position, which is aligned 1:1 with child output because a connector
                 // declaring requiresPartitionHashWrite also declares requiresFullSchemaWriteOrder.
                 List<Integer> columnIdx = new ArrayList<>();
-                List<Column> fullSchema = targetTable.getFullSchema();
+                List<Column> fullSchema = boundTargetSchema;
                 for (int i = 0; i < fullSchema.size(); i++) {
                     if (partitionNames.contains(fullSchema.get(i).getName())) {
                         columnIdx.add(i);
