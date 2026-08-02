@@ -20,6 +20,7 @@ package org.apache.doris.connector.fluss;
 import org.apache.fluss.client.admin.OffsetSpec;
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
+import org.apache.fluss.exception.LakeTableSnapshotNotExistException;
 import org.apache.fluss.exception.TableNotExistException;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.PartitionSpec;
@@ -56,6 +57,13 @@ class RecordingFlussAdminOps implements FlussAdminOps {
     final Map<TablePath, TableInfo> tableInfos = new HashMap<>();
     final Map<TablePath, List<PartitionInfo>> partitionsByTable = new HashMap<>();
     final Map<TablePath, TableStats> statsByTable = new HashMap<>();
+    /**
+     * Latest log offset per bucket, keyed by fluss's own partition name ({@code null} for an
+     * unpartitioned table) — what split planning stops each bucket at.
+     */
+    final Map<String, Map<Integer, Long>> latestOffsetsByPartition = new HashMap<>();
+    /** The readable lake snapshot, or {@code null} to answer as a table nothing has been tiered from. */
+    LakeSnapshot readableLakeSnapshot;
     /** When set, every call throws this instead of answering — the "cluster is unreachable" case. */
     RuntimeException failure;
 
@@ -140,18 +148,36 @@ class RecordingFlussAdminOps implements FlussAdminOps {
 
     @Override
     public LakeSnapshot getReadableLakeSnapshot(TablePath tablePath) {
-        throw notProgrammed("getReadableLakeSnapshot");
+        calls.add("getReadableLakeSnapshot(" + tablePath + ")");
+        if (readableLakeSnapshot == null) {
+            // What a real cluster answers for a table tiering has never committed for; the connector
+            // discriminates on this exact type to decide whether a union read is possible at all.
+            throw new LakeTableSnapshotNotExistException(
+                    "Lake snapshot for table '" + tablePath + "' does not exist.");
+        }
+        return readableLakeSnapshot;
     }
 
     @Override
     public Map<Integer, Long> listOffsets(TablePath tablePath, Collection<Integer> buckets, OffsetSpec offsetSpec) {
-        throw notProgrammed("listOffsets");
+        return recordedOffsets(tablePath, null, buckets, offsetSpec);
     }
 
     @Override
     public Map<Integer, Long> listOffsets(TablePath tablePath, String partitionName,
             Collection<Integer> buckets, OffsetSpec offsetSpec) {
-        throw notProgrammed("listOffsets");
+        return recordedOffsets(tablePath, partitionName, buckets, offsetSpec);
+    }
+
+    private Map<Integer, Long> recordedOffsets(TablePath tablePath, String partitionName,
+            Collection<Integer> buckets, OffsetSpec offsetSpec) {
+        calls.add("listOffsets(" + tablePath + (partitionName == null ? "" : ", " + partitionName)
+                + ", " + buckets + ", " + offsetSpec.getClass().getSimpleName() + ")");
+        Map<Integer, Long> offsets = latestOffsetsByPartition.get(partitionName);
+        if (offsets == null) {
+            throw new IllegalStateException("no offsets programmed for partition '" + partitionName + "'");
+        }
+        return offsets;
     }
 
     private static UnsupportedOperationException notProgrammed(String method) {

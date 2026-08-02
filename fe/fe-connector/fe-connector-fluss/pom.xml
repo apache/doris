@@ -142,6 +142,21 @@ under the License.
         <finalName>doris-fe-connector-fluss</finalName>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      Arrow's off-heap MemoryUtil reflects into java.nio.Buffer and refuses to initialize
+                      without this on JDK 9+. Needed by the cluster tests that WRITE to a log table: fluss's
+                      default log format is arrow, so the client encodes records through it. The metadata
+                      tests never touch it, which is why this was not needed before.
+                      Not a deployment concern: bin/start_be.sh already passes the same flag to the BE JVM
+                      that will host the fluss scanner (add_java_opt_if_missing, java.nio).
+                    -->
+                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>
                     <appendAssemblyId>false</appendAssemblyId>
