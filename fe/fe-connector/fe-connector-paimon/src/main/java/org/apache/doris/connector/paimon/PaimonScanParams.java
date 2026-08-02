@@ -61,6 +61,8 @@ public final class PaimonScanParams {
     private static final String PINNED_FILE_CREATION_TIME =
             "doris.internal.paimon.file-creation-time-millis";
     private static final String PINNED_EMPTY_SCAN = "doris.internal.paimon.empty-scan";
+    private static final String PRESERVE_BOUND_SCHEMA =
+            "doris.internal.paimon.preserve-bound-schema";
     /**
      * Marks a pin as originating from {@code @options} rather than from a time-travel / {@code @incr}
      * selector. The three families share one carrier (the handle's scan-option map), but only this one
@@ -375,9 +377,17 @@ public final class PaimonScanParams {
         // Statement-fence pinning removes inherited selectors, so validate the raw map first;
         // otherwise an unsupported inherited key can disappear before the common validation path.
         validateOptions(options);
-        return snapshotId < 0
+        Map<String, String> pinned = snapshotId < 0
                 ? resolvedEmptyOptions(options)
                 : resolvedSnapshotOptions(options, String.valueOf(snapshotId));
+        // This snapshot selector comes from the statement fence, whose table already owns the
+        // bound schema generation. Explicit user selectors must not carry this provenance marker.
+        pinned.put(PRESERVE_BOUND_SCHEMA, Boolean.TRUE.toString());
+        return pinned;
+    }
+
+    public static boolean preservesBoundSchema(Map<String, String> options) {
+        return options != null && Boolean.parseBoolean(options.get(PRESERVE_BOUND_SCHEMA));
     }
 
     private static Map<String, String> resolvedTagOptions(Map<String, String> options, String tagName) {

@@ -186,10 +186,11 @@ public class PaimonBackendBoundTableTest {
                 .commitChanges(SchemaChange.addColumn("c2", DataTypes.INT()));
         FileStoreTable latestGeneration = FileStoreTableFactory.create(
                 firstGeneration.fileIO(), firstGeneration.location());
-        Map<String, String> inheritedOptions = new HashMap<>();
-        inheritedOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), "1");
-        inheritedOptions.put(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1");
-        FileStoreTable statementSource = latestGeneration.copyWithoutTimeTravel(inheritedOptions);
+        Map<String, String> rawOptions = Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1");
+        Map<String, String> inheritedOptions = PaimonScanParams.pinOptionsToSnapshot(rawOptions, 1);
+        FileStoreTable statementSource = PaimonScanParams.applyOptionsWithoutTimeTravel(
+                latestGeneration, inheritedOptions);
         Table systemTable = SystemTableLoader.load("audit_log", statementSource);
 
         Table safe = PaimonReaderOptions.runtimeSafeSystemTable(
@@ -198,6 +199,25 @@ public class PaimonBackendBoundTableTest {
 
         Assertions.assertTrue(safe.rowType().getFieldNames().contains("c2"),
                 "relation options must retain the schema generation captured by the statement fence");
+    }
+
+    @Test
+    public void explicitTagSelectsSystemTableSchema(@TempDir Path warehouse) throws Exception {
+        FileStoreTable firstGeneration = commit(newRealTable(warehouse, "system_options_tag_schema"), 1);
+        firstGeneration.createTag("old_schema", 1L);
+        new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                .commitChanges(SchemaChange.addColumn("c2", DataTypes.INT()));
+        FileStoreTable latestGeneration = FileStoreTableFactory.create(
+                firstGeneration.fileIO(), firstGeneration.location());
+        Table latestSystemTable = SystemTableLoader.load("audit_log", latestGeneration);
+        Map<String, String> tagOptions = PaimonScanParams.markAsOptions(
+                Collections.singletonMap(CoreOptions.SCAN_TAG_NAME.key(), "old_schema"));
+
+        Table safe = PaimonReaderOptions.runtimeSafeSystemTable(
+                "audit_log", latestSystemTable, latestGeneration, tagOptions);
+
+        Assertions.assertFalse(safe.rowType().getFieldNames().contains("c2"),
+                "an explicit tag must select the system table's historical schema");
     }
 
     @Test

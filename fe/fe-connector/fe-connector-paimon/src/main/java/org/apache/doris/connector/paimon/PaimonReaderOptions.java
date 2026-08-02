@@ -193,7 +193,10 @@ public final class PaimonReaderOptions {
 
     public static Table runtimeSafeSystemSource(Table sourceTable, Map<String, String> scanOptions) {
         if (PaimonScanParams.isOptionsPin(scanOptions)) {
-            if (sourceTable instanceof FileStoreTable) {
+            if (sourceTable instanceof FileStoreTable
+                    && PaimonScanParams.preservesBoundSchema(scanOptions)) {
+                // Only an internal statement fence already owns its schema generation. A user tag
+                // or snapshot must still time-travel here so the rebuilt wrapper matches binding.
                 return PaimonScanParams.applyOptionsWithoutTimeTravel(
                         (FileStoreTable) sourceTable, scanOptions);
             }
