@@ -42,7 +42,9 @@ import org.apache.iceberg.util.PropertyUtil;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -95,13 +97,7 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
             // A GC-disabled table may share files with another table, so no destructive scan is safe.
             throw new DorisConnectorException("Cannot remove orphan files: Iceberg GC is disabled");
         }
-        String tableLocation = normalizeLocation(table.location());
-        String scanLocation = namedArguments.getString(LOCATION);
-        scanLocation = scanLocation == null ? tableLocation : normalizeLocation(scanLocation);
-        // Normalize dot segments before the containment check so local FileIO paths cannot escape the table root.
-        if (!scanLocation.equals(tableLocation) && !scanLocation.startsWith(tableLocation + "/")) {
-            throw new DorisConnectorException("location must be within the Iceberg table location");
-        }
+        List<String> scanLocations = resolveScanLocations(table);
 
         try {
             ReachableIndex reachable = new ReachableIndex(collectReachableFiles(table));
@@ -114,15 +110,18 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
                         "older_than must retain at least 24 hours of files");
             }
             boolean dryRun = namedArguments.getBoolean(DRY_RUN);
-            // Object stores use raw prefix matching, so the separator prevents "table_backup" siblings
-            // from being treated as children of "table".
-            String listingPrefix = scanLocation.endsWith("/") ? scanLocation : scanLocation + "/";
-            for (FileInfo file : ((SupportsPrefixOperations) table.io()).listPrefix(listingPrefix)) {
-                if (file.createdAtMillis() < olderThan && !isReachable(file.location(), reachable)) {
-                    orphanCount++;
-                    if (!dryRun) {
-                        table.io().deleteFile(file.location());
-                        deletedCount++;
+            Set<String> visitedFiles = new HashSet<>();
+            for (String scanLocation : scanLocations) {
+                // Object stores use raw prefix matching, so the separator excludes sibling prefixes.
+                String listingPrefix = scanLocation.endsWith("/") ? scanLocation : scanLocation + "/";
+                for (FileInfo file : ((SupportsPrefixOperations) table.io()).listPrefix(listingPrefix)) {
+                    if (visitedFiles.add(file.location()) && file.createdAtMillis() < olderThan
+                            && !isReachable(file.location(), reachable)) {
+                        orphanCount++;
+                        if (!dryRun) {
+                            table.io().deleteFile(file.location());
+                            deletedCount++;
+                        }
                     }
                 }
             }
@@ -130,6 +129,58 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to remove orphan files: " + e.getMessage(), e);
         }
+    }
+
+    private List<String> resolveScanLocations(Table table) {
+        String tableRoot = normalizeLocation(table.location());
+        String dataRoot = normalizeLocation(resolveDataLocation(table, tableRoot));
+        Set<String> ownedRoots = new LinkedHashSet<>();
+        ownedRoots.add(tableRoot);
+        ownedRoots.add(dataRoot);
+
+        String requested = namedArguments.getString(LOCATION);
+        if (requested != null) {
+            String normalized = normalizeLocation(requested);
+            boolean owned = ownedRoots.stream().anyMatch(root -> isWithin(normalized, root));
+            if (!owned) {
+                throw new DorisConnectorException(
+                        "location must be within an Iceberg table-owned metadata or data location");
+            }
+            return Lists.newArrayList(normalized);
+        }
+
+        List<String> roots = new ArrayList<>();
+        for (String candidate : ownedRoots) {
+            // Avoid listing a nested default data directory twice when the table root already covers it.
+            if (ownedRoots.stream().noneMatch(other -> !other.equals(candidate) && isWithin(candidate, other))) {
+                roots.add(candidate);
+            }
+        }
+        return roots;
+    }
+
+    private String resolveDataLocation(Table table, String tableRoot) {
+        Map<String, String> properties = table.properties();
+        String dataLocation = nonEmpty(properties.get(TableProperties.WRITE_DATA_LOCATION));
+        if (dataLocation == null && Boolean.parseBoolean(properties.get(TableProperties.OBJECT_STORE_ENABLED))) {
+            dataLocation = nonEmpty(properties.get(TableProperties.OBJECT_STORE_PATH));
+        }
+        if (dataLocation == null) {
+            dataLocation = nonEmpty(properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION));
+        }
+        return dataLocation == null ? tableRoot + "/data" : dataLocation;
+    }
+
+    private String nonEmpty(String location) {
+        return location == null || location.isEmpty() ? null : location;
+    }
+
+    private boolean isWithin(String location, String root) {
+        FileIdentity child = FileIdentity.of(location);
+        FileIdentity parent = FileIdentity.of(root);
+        String pathPrefix = parent.path.endsWith("/") ? parent.path : parent.path + "/";
+        return child.scheme.equals(parent.scheme) && child.authority.equals(parent.authority)
+                && (child.path.equals(parent.path) || child.path.startsWith(pathPrefix));
     }
 
     private Set<String> collectReachableFiles(Table table) throws IOException {

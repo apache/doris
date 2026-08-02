@@ -15,16 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/operator/spill_iceberg_table_sink_operator.h"
-
 #include <gtest/gtest.h>
+
+#include "exec/operator/iceberg_sorter_reserve_memory.h"
 
 namespace doris {
 
 TEST(SpillIcebergTableSinkOperatorTest, BoundsManyPartitionReservationToOneInputBlock) {
-    std::vector<size_t> per_partition_reservations(128, 8 * 1024 * 1024);
+    std::vector<IcebergSorterReserveMemory> per_partition_reservations(
+            128, {.retained_growth = 0, .transient_workspace = 8 * 1024 * 1024});
 
     EXPECT_EQ(8 * 1024 * 1024, bounded_iceberg_reserve_size(per_partition_reservations));
+}
+
+TEST(SpillIcebergTableSinkOperatorTest, AccumulatesRetainedGrowthAcrossTouchedPartitions) {
+    std::vector<IcebergSorterReserveMemory> per_partition_reservations {
+            {.retained_growth = 3 * 1024 * 1024, .transient_workspace = 7 * 1024 * 1024},
+            {.retained_growth = 4 * 1024 * 1024, .transient_workspace = 5 * 1024 * 1024}};
+
+    EXPECT_EQ(14 * 1024 * 1024, bounded_iceberg_reserve_size(per_partition_reservations));
 }
 
 } // namespace doris

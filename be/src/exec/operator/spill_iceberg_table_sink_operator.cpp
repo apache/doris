@@ -17,21 +17,12 @@
 
 #include "exec/operator/spill_iceberg_table_sink_operator.h"
 
-#include <algorithm>
-
 #include "common/status.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
 namespace doris {
-
-size_t bounded_iceberg_reserve_size(const std::vector<size_t>& per_partition_reservations) {
-    return per_partition_reservations.empty()
-                   ? 0
-                   : *std::max_element(per_partition_reservations.begin(),
-                                       per_partition_reservations.end());
-}
 
 SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperatorXBase* parent,
                                                                  RuntimeState* state)
@@ -64,15 +55,18 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
     if (!_writer) {
         return 0;
     }
-    std::vector<size_t> per_partition_reservations;
+    std::vector<IcebergSorterReserveMemory> per_partition_reservations;
     auto active_writers = _writer->active_writers();
     per_partition_reservations.reserve(active_writers->size());
     for (const auto& writer : *active_writers) {
         if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
-            per_partition_reservations.push_back(sort_writer->get_reserve_mem_size(state, eos));
+            auto reservation = sort_writer->get_reserve_mem_size_components(state, eos);
+            per_partition_reservations.push_back(
+                    {.retained_growth = reservation.retained_growth,
+                     .transient_workspace = reservation.transient_workspace});
         }
     }
-    // One input block is partitioned among writers and consumed serially, so their full-batch estimates overlap.
+    // Column growth remains in every touched sorter, while sorting workspace is reused by serial dispatch.
     return bounded_iceberg_reserve_size(per_partition_reservations);
 }
 

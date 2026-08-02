@@ -138,6 +138,11 @@ public class IcebergConnectorTransactionTest {
                 WriteOperation.OVERWRITE, true, Collections.emptyMap(), Optional.of(branch));
     }
 
+    private static IcebergWriteContext overwriteCtxPinned(long readSnapshotId) {
+        return new IcebergWriteContext(WriteOperation.OVERWRITE, true, Collections.emptyMap(), Optional.empty(),
+                readSnapshotId);
+    }
+
     private static IcebergWriteContext overwriteStaticCtx(Table table, Map<String, String> staticValues) {
         IcebergWriteSchemaContext schemaContext =
                 IcebergWriteSchemaContext.create(table, table.name(), Optional.empty(), false, false);
@@ -615,6 +620,84 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void overwriteDynamicRejectsDataCommittedBetweenScanAndBegin() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+        long readSnapshotId = table.currentSnapshot().snapshotId();
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/between-scan-and-begin.parquet", 1L, "region=us")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteCtxPinned(readSnapshotId));
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=us/replacement.parquet", 2L, 1024L,
+                        Collections.singletonList("us"))));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+    }
+
+    @Test
+    public void overwriteRejectsFirstSnapshotCommittedAfterEmptyRead() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db1/t1/between-scan-and-begin.parquet", 1L)).commit();
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> txn.beginWrite(SESSION, "db1", "t1", overwriteCtxPinned(-1L)));
+    }
+
+    @Test
+    public void overwriteRejectsFirstSnapshotCommittedAfterBeginFromEmptyRead() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteCtxPinned(-1L));
+
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db1/t1/after-begin.parquet", 1L)).commit();
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+    }
+
+    @Test
+    public void overwriteBranchUsesTheSnapshotReadFromThatBranch() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+        long readSnapshotId = table.currentSnapshot().snapshotId();
+        table.manageSnapshots().createBranch("b1", readSnapshotId).commit();
+        table.newAppend().toBranch("b1").appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/between-scan-and-begin.parquet", 1L, "region=us")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                new IcebergWriteContext(WriteOperation.OVERWRITE, true, Collections.emptyMap(),
+                        Optional.of("b1"), readSnapshotId));
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=us/replacement.parquet", 2L, 1024L,
+                        Collections.singletonList("us"))));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+    }
+
+    @Test
     public void overwriteEmptyUnpartitionedClearsTable() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -662,6 +745,24 @@ public class IcebergConnectorTransactionTest {
         } catch (IOException e) {
             throw new AssertionError(e);
         }
+    }
+
+    @Test
+    public void overwriteEmptyUnpartitionedRejectsDataCommittedBetweenScanAndBegin() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 1L)).commit();
+        long readSnapshotId = table.currentSnapshot().snapshotId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db1/t1/between-scan-and-begin.parquet", 1L)).commit();
+
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteCtxPinned(readSnapshotId));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit);
     }
 
     @Test
@@ -725,6 +826,30 @@ public class IcebergConnectorTransactionTest {
 
         Assertions.assertThrows(DorisConnectorException.class, txn::commit,
                 "static overwrite must reject concurrent data matching its target partition filter");
+    }
+
+    @Test
+    public void overwriteStaticRejectsDataCommittedBetweenScanAndBegin() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+        long readSnapshotId = table.currentSnapshot().snapshotId();
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/between-scan-and-begin.parquet", 1L, "region=us")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                new IcebergWriteContext(WriteOperation.OVERWRITE, true,
+                        Collections.singletonMap("region", "us"), Optional.empty(), readSnapshotId));
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=us/replacement.parquet", 2L, 1024L,
+                        Collections.singletonList("us"))));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit);
     }
 
     @Test

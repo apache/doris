@@ -142,10 +142,85 @@ public class IcebergRemoveOrphanFilesActionTest {
                 recordingFileIO.openCounts.getOrDefault(path, 0), path));
     }
 
+    @Test
+    public void scansConfiguredDataRootOutsideTableLocationByDefault(@TempDir Path temp) throws Exception {
+        Path dataRoot = temp.resolve("owned-data");
+        Table table = createTable(temp.resolve("metadata"),
+                Collections.singletonMap(TableProperties.WRITE_DATA_LOCATION,
+                        dataRoot.toUri().toString()));
+        Path orphan = createOldFile(dataRoot.resolve("orphan.parquet"));
+        IcebergRemoveOrphanFilesAction action = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false);
+        action.validate();
+
+        ConnectorProcedureResult result = action.execute(table, ActionTestTables.session("UTC"));
+
+        Assertions.assertEquals("1", result.getRows().get(0).get(0));
+        Assertions.assertEquals("1", result.getRows().get(0).get(1));
+        Assertions.assertFalse(Files.exists(orphan));
+    }
+
+    @Test
+    public void allowsExplicitConfiguredDataRootButRejectsArbitraryRoot(@TempDir Path temp) throws Exception {
+        Path dataRoot = temp.resolve("owned-data");
+        Table table = createTable(temp.resolve("metadata"),
+                Collections.singletonMap(TableProperties.WRITE_DATA_LOCATION,
+                        dataRoot.toUri().toString()));
+        Path orphan = createOldFile(dataRoot.resolve("orphan.parquet"));
+
+        IcebergRemoveOrphanFilesAction configured = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false, dataRoot.toUri().toString());
+        configured.validate();
+        configured.execute(table, ActionTestTables.session("UTC"));
+        Assertions.assertFalse(Files.exists(orphan));
+
+        IcebergRemoveOrphanFilesAction arbitrary = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false,
+                temp.resolve("unowned").toUri().toString());
+        arbitrary.validate();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> arbitrary.execute(table, ActionTestTables.session("UTC")));
+    }
+
+    @Test
+    public void scansObjectStoreAndFolderStorageFallbackRoots(@TempDir Path temp) throws Exception {
+        Path objectRoot = temp.resolve("object-data");
+        Map<String, String> objectProperties = new HashMap<>();
+        objectProperties.put(TableProperties.OBJECT_STORE_ENABLED, "true");
+        objectProperties.put(TableProperties.OBJECT_STORE_PATH, objectRoot.toUri().toString());
+        Table objectTable = createTable(temp.resolve("object-metadata"), objectProperties);
+        Path objectOrphan = createOldFile(objectRoot.resolve("orphan.parquet"));
+
+        Path folderRoot = temp.resolve("folder-data");
+        Table folderTable = createTable(temp.resolve("folder-metadata"),
+                Collections.singletonMap(TableProperties.WRITE_FOLDER_STORAGE_LOCATION,
+                        folderRoot.toUri().toString()));
+        Path folderOrphan = createOldFile(folderRoot.resolve("orphan.parquet"));
+
+        IcebergRemoveOrphanFilesAction objectAction = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false);
+        objectAction.validate();
+        objectAction.execute(objectTable, ActionTestTables.session("UTC"));
+        IcebergRemoveOrphanFilesAction folderAction = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false);
+        folderAction.validate();
+        folderAction.execute(folderTable, ActionTestTables.session("UTC"));
+
+        Assertions.assertFalse(Files.exists(objectOrphan));
+        Assertions.assertFalse(Files.exists(folderOrphan));
+    }
+
     private static IcebergRemoveOrphanFilesAction action(long olderThan, boolean dryRun) {
+        return action(olderThan, dryRun, null);
+    }
+
+    private static IcebergRemoveOrphanFilesAction action(long olderThan, boolean dryRun, String location) {
         Map<String, String> properties = new HashMap<>();
         properties.put(IcebergRemoveOrphanFilesAction.OLDER_THAN, String.valueOf(olderThan));
         properties.put(IcebergRemoveOrphanFilesAction.DRY_RUN, String.valueOf(dryRun));
+        if (location != null) {
+            properties.put(IcebergRemoveOrphanFilesAction.LOCATION, location);
+        }
         return new IcebergRemoveOrphanFilesAction(properties, Collections.emptyList(), null);
     }
 

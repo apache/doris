@@ -936,7 +936,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table metadataTable, List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
         BatchScan scan = metadataTable.newBatchScan();
-        if (handle.hasSnapshotPin()) {
+        if (handle.hasSnapshotSelection()) {
             if (handle.getRef() != null) {
                 scan = scan.useRef(handle.getRef());
             } else {
@@ -1157,6 +1157,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /** Whether this table type's scan can actually honor Iceberg's snapshot/ref selection APIs. */
     private static boolean supportsSnapshotSelection(IcebergTableHandle handle) {
+        if (!handle.hasSnapshotSelection()) {
+            return false;
+        }
         if (!handle.isSystemTable()) {
             return true;
         }

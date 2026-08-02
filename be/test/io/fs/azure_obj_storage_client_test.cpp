@@ -177,6 +177,8 @@ TEST_F(AzureObjStorageClientTest, abort_multipart_upload_discards_staged_blocks)
     auto upload_response =
             AzureObjStorageClientTest::obj_storage_client->upload_part(opts, "staged", 1);
     ASSERT_EQ(upload_response.resp.status.code, ErrorCode::OK);
+    ASSERT_TRUE(upload_response.etag.has_value());
+    EXPECT_FALSE(upload_response.etag->empty());
     auto abort_response =
             AzureObjStorageClientTest::obj_storage_client->abort_multipart_upload(opts);
     ASSERT_EQ(abort_response.status.code, ErrorCode::OK);

@@ -84,6 +84,13 @@ size_t VIcebergSortWriter::get_reserve_mem_size(RuntimeState* state, bool eos) c
     return _sorter == nullptr ? 0 : _sorter->get_reserve_mem_size(state, eos);
 }
 
+SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(RuntimeState* state,
+                                                                        bool eos) const {
+    std::lock_guard<std::mutex> lock(_sorter_mutex);
+    return _sorter == nullptr ? SorterReserveMemory {}
+                              : _sorter->get_reserve_mem_size_components(state, eos);
+}
+
 Status VIcebergSortWriter::trigger_spill() {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
     if (_closed || _sorter == nullptr) {

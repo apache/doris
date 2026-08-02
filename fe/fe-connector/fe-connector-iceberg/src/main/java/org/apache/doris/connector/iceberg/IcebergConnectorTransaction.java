@@ -439,12 +439,49 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     throw new IllegalArgumentException(branchName
                             + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                 }
-                this.baseSnapshotId = op == WriteOperation.OVERWRITE ? branchRef.snapshotId() : null;
+                this.baseSnapshotId = op == WriteOperation.OVERWRITE
+                        ? resolveOverwriteBaseSnapshot(ctx, branchRef.snapshotId(), tableName) : null;
             } else {
                 this.branchName = null;
-                this.baseSnapshotId = op == WriteOperation.OVERWRITE ? getSnapshotIdIfPresent(table) : null;
+                this.baseSnapshotId = op == WriteOperation.OVERWRITE
+                        ? resolveOverwriteBaseSnapshot(ctx, getSnapshotIdIfPresent(table), tableName) : null;
             }
         }
+    }
+
+    private Long resolveOverwriteBaseSnapshot(IcebergWriteContext ctx, Long targetHead, String tableName) {
+        if (!ctx.isReadSnapshotResolved()) {
+            return targetHead;
+        }
+        long readSnapshotId = ctx.getReadSnapshotId();
+        if (readSnapshotId < 0) {
+            // An explicit empty read must conflict with any snapshot created before beginWrite.
+            if (targetHead != null) {
+                throw new DorisConnectorException("Iceberg table " + tableName
+                        + " changed after the statement read an empty snapshot");
+            }
+            return null;
+        }
+        if (targetHead == null || !isAncestorOfTarget(readSnapshotId, targetHead)) {
+            throw new DorisConnectorException("Read snapshot " + readSnapshotId
+                    + " is not an ancestor of the target branch for Iceberg table " + tableName);
+        }
+        return readSnapshotId;
+    }
+
+    private boolean isAncestorOfTarget(long ancestorId, long targetHeadId) {
+        Long snapshotId = targetHeadId;
+        while (snapshotId != null) {
+            if (snapshotId == ancestorId) {
+                return true;
+            }
+            Snapshot snapshot = table.snapshot(snapshotId);
+            if (snapshot == null) {
+                return false;
+            }
+            snapshotId = snapshot.parentId();
+        }
+        return false;
     }
 
     @Override

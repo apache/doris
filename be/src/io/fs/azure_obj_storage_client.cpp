@@ -223,17 +223,20 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
                                                                std::string_view stream,
                                                                int part_num) {
     auto client = _client->GetBlockBlobClient(opts.key);
+    std::string block_id = azure_block_id(opts, part_num);
     auto resp = do_azure_client_call(
             [&]() {
                 Azure::Core::IO::MemoryBodyStream memory_body(
                         reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
                 // The blockId must be base64 encoded
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                client.StageBlock(azure_block_id(opts, part_num), memory_body);
+                client.StageBlock(block_id, memory_body);
             },
             opts, _tls_debug_context);
     return ObjectStorageUploadResponse {
             .resp = resp,
+            // Hive defers completion to FE, so the exact staged ID must cross that boundary.
+            .etag = block_id,
     };
 }
 

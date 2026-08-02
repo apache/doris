@@ -250,7 +250,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             List<UploadPartResult> sorted = new ArrayList<>(parts);
             sorted.sort((a, b) -> Integer.compare(a.partNumber(), b.partNumber()));
             for (UploadPartResult part : sorted) {
-                blockIds.add(toBlockId(part.partNumber()));
+                // New BEs carry their exact UUID-prefixed ID; the fallback completes uploads from older BEs.
+                blockIds.add(part.etag() == null || part.etag().isEmpty()
+                        ? toBlockId(part.partNumber()) : part.etag());
             }
             blockBlobClient.commitBlockList(blockIds);
         } catch (BlobStorageException e) {

@@ -202,7 +202,12 @@ bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) 
 }
 
 size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
-    size_t size_to_reserve = 0;
+    return get_reserve_mem_size_components(state, eos).total();
+}
+
+SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* state,
+                                                                bool eos) const {
+    SorterReserveMemory reserve;
     const auto rows = _state->unsorted_block()->rows();
     if (rows != 0) {
         const auto bytes = _state->unsorted_block()->bytes();
@@ -213,24 +218,24 @@ size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
         auto new_rows = rows + state->batch_size();
         // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
         if ((new_block_bytes * 100 / allocated_bytes) >= 85) {
-            size_to_reserve += (size_t)(allocated_bytes * 1.15);
+            reserve.retained_growth += (size_t)(allocated_bytes * 1.15);
         }
         auto sort = new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes;
         if (sort) {
             // new column is created when doing sort, reserve average size of one column
             // for estimation
-            size_to_reserve += new_block_bytes / _state->unsorted_block()->columns();
+            reserve.transient_workspace += new_block_bytes / _state->unsorted_block()->columns();
 
             // helping data structures used during sorting
-            size_to_reserve += new_rows * sizeof(IColumn::Permutation::value_type);
+            reserve.transient_workspace += new_rows * sizeof(IColumn::Permutation::value_type);
 
             auto sort_columns_count = _ordering_expr_ctxs.size();
             if (1 != sort_columns_count) {
-                size_to_reserve += new_rows * sizeof(EqualRangeIterator);
+                reserve.transient_workspace += new_rows * sizeof(EqualRangeIterator);
             }
         }
     }
-    return size_to_reserve;
+    return reserve;
 }
 
 Status FullSorter::append_block(Block* block) {

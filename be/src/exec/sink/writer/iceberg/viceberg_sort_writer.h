@@ -105,6 +105,8 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
 
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos) const;
+
     // Called by the memory management system to trigger spilling data to disk
     Status trigger_spill();
 
