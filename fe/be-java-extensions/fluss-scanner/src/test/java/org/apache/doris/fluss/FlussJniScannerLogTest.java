@@ -292,6 +292,25 @@ public class FlussJniScannerLogTest {
         Assertions.assertArrayEquals(new Object[] {3, 1}, rows[0]);
     }
 
+    /**
+     * A query can ask for no column of this scanner at all: {@code select dt, count(*) ... group by dt}
+     * over a partitioned table needs only the partition column, and BE materializes that one from the
+     * range. Fluss refuses an empty projection, so the scanner has to stand something in for it and
+     * still report how many rows the range held — answering 0 rows would turn a populated partition
+     * into an empty one.
+     */
+    @Test
+    public void projectingNoColumnStillCountsTheRows() throws Exception {
+        TablePath tablePath = TablePath.of(db, "no_projection");
+        createIntTable(tablePath);
+        appendInts(tablePath, 0, 7);
+
+        Object[][] rows = scanAll(tablePath, columns(), 0, 7, 1024);
+
+        Assertions.assertEquals(7, rows.length);
+        Assertions.assertEquals(0, rows[0].length, "a column was returned for an empty projection");
+    }
+
     /** The range is half-open: rows at or past the stopping offset belong to nobody's scan yet. */
     @Test
     public void theStoppingOffsetBoundsTheRead() throws Exception {
