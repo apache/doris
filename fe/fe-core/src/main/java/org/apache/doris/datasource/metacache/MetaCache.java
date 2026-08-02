@@ -94,20 +94,23 @@ public class MetaCache<T> {
 
     public Optional<T> getMetaObj(String name, long id) {
         Optional<T> val = metaObjCache.getIfPresent(name);
-        if (val == null || !val.isPresent()) {
-            synchronized (metaObjCache) {
-                val = metaObjCache.getIfPresent(name);
-                if (val != null && val.isPresent()) {
-                    return val;
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
-                            this.name, name, id, new Exception());
-                }
-                metaObjCache.invalidate(name);
-                val = metaObjCache.get(name);
+        if (val != null && val.isPresent()) {
+            idToName.put(id, name);
+            return val;
+        }
+        synchronized (metaObjCache) {
+            val = metaObjCache.getIfPresent(name);
+            if (val != null && val.isPresent()) {
                 idToName.put(id, name);
+                return val;
             }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
+                        this.name, name, id, new Exception());
+            }
+            metaObjCache.invalidate(name);
+            val = metaObjCache.get(name);
+            idToName.put(id, name);
         }
         return val;
     }
@@ -160,8 +163,11 @@ public class MetaCache<T> {
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalidate all in metacache {}", name, new Exception());
         }
-        metaObjCache.invalidateAll();
         idToName.clear();
+        // Clear idToName before invalidating metaObjCache. While metaObjCache is being invalidated,
+        // a concurrent getMetaObj(name, id) may reload the object and repopulate idToName.
+        // Do not clear idToName afterward, or the reloaded object can no longer be found by ID.
+        metaObjCache.invalidateAll();
     }
 
     @VisibleForTesting
