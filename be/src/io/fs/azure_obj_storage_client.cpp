@@ -29,6 +29,7 @@
 #include <azure/storage/blobs/blob_batch.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
+#include <azure/storage/blobs/blob_lease_client.hpp>
 #include <azure/storage/blobs/blob_sas_builder.hpp>
 #include <azure/storage/blobs/rest_client.hpp>
 #include <azure/storage/common/account_sas_builder.hpp>
@@ -39,7 +40,6 @@
 #include <exception>
 #include <iterator>
 #include <ranges>
-#include <sstream>
 #include <string_view>
 
 #include "common/exception.h"
@@ -49,7 +49,6 @@
 #include "io/fs/obj_storage_client.h"
 #include "util/bvar_helper.h"
 #include "util/s3_util.h"
-#include "util/uuid_generator.h"
 
 using namespace Azure::Storage::Blobs;
 
@@ -72,14 +71,25 @@ std::string encode_azure_block_id(std::string_view upload_id, int part_num) {
         upload_namespace = (upload_namespace ^ byte) * 0x01000193U;
     }
     uint32_t namespaced_part = upload_namespace + static_cast<uint32_t>(part_num);
-    // Four decoded bytes remain compatible with legacy residual blocks while retaining an
-    // upload-specific namespace for part IDs.
+    // Four decoded bytes remain compatible with legacy residual blocks. Writer isolation is
+    // enforced by the target blob lease because no 32-bit namespace can identify every upload.
     std::array<unsigned char, sizeof(namespaced_part)> raw_id {};
     for (size_t i = 0; i < raw_id.size(); ++i) {
         raw_id[i] = static_cast<unsigned char>(namespaced_part >> (i * 8));
     }
     Aws::Utils::ByteBuffer bytes(raw_id.data(), raw_id.size());
     return Aws::Utils::HashingUtils::Base64Encode(bytes);
+}
+
+constexpr std::string_view MULTIPART_LEASE_PREFIX = "doris-azure-lease-v1:";
+constexpr std::chrono::seconds MULTIPART_LEASE_DURATION {60};
+
+std::optional<std::string_view> azure_multipart_lease_id(std::string_view upload_id) {
+    if (upload_id.starts_with(MULTIPART_LEASE_PREFIX) &&
+        upload_id.size() > MULTIPART_LEASE_PREFIX.size()) {
+        return upload_id.substr(MULTIPART_LEASE_PREFIX.size());
+    }
+    return std::nullopt;
 }
 
 // Rate limiting is applied by RateLimitedObjStorageClient, the decorator that
@@ -212,11 +222,27 @@ private:
 
 ObjectStorageUploadResponse AzureObjStorageClient::create_multipart_upload(
         const ObjectStoragePathOptions& opts) {
-    std::stringstream upload_id;
-    upload_id << UUIDGenerator::instance()->next_uuid();
+    auto target_blob = _client->GetBlobClient(opts.key);
+    auto target_client = target_blob.AsBlockBlobClient();
+    std::string lease_id = BlobLeaseClient::CreateUniqueLeaseId();
+    std::string upload_id = fmt::format("{}{}", MULTIPART_LEASE_PREFIX, lease_id);
+    auto resp = do_azure_client_call(
+            [&]() {
+                uint8_t empty = 0;
+                Azure::Core::IO::MemoryBodyStream empty_body(&empty, 0);
+                // The reservation makes an absent blob leaseable but remains uncommitted and
+                // invisible to normal listings until Put Block List publishes the real data.
+                target_client.StageBlock(azure_multipart_block_id(upload_id, 0), empty_body);
+                auto lease =
+                        BlobLeaseClient(target_blob, lease_id).Acquire(MULTIPART_LEASE_DURATION);
+                upload_id = fmt::format("{}{}", MULTIPART_LEASE_PREFIX, lease.Value.LeaseId);
+            },
+            opts, _tls_debug_context);
     return ObjectStorageUploadResponse {
-            .resp = ObjectStorageResponse::OK(),
-            .upload_id = upload_id.str(),
+            .resp = resp,
+            .upload_id = resp.status.code == ErrorCode::OK
+                                 ? std::make_optional(std::move(upload_id))
+                                 : std::nullopt,
     };
 }
 
@@ -235,7 +261,8 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
                                                                std::string_view stream,
                                                                int part_num) {
     DCHECK(opts.upload_id.has_value());
-    auto client = _client->GetBlockBlobClient(opts.key);
+    auto target_blob = _client->GetBlobClient(opts.key);
+    auto client = target_blob.AsBlockBlobClient();
     std::string block_id = azure_multipart_block_id(*opts.upload_id, part_num);
     auto resp = do_azure_client_call(
             [&]() {
@@ -243,8 +270,15 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
                         reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
                 // The blockId must be base64 encoded
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                // Upload-scoped IDs make a conflicting writer fail closed instead of selecting its blocks.
-                client.StageBlock(block_id, memory_body);
+                auto lease_id = azure_multipart_lease_id(*opts.upload_id);
+                if (lease_id.has_value()) {
+                    BlobLeaseClient(target_blob, std::string(*lease_id)).Renew();
+                    StageBlockOptions stage_opts;
+                    stage_opts.AccessConditions.LeaseId = std::string(*lease_id);
+                    client.StageBlock(block_id, memory_body, stage_opts);
+                } else {
+                    client.StageBlock(block_id, memory_body);
+                }
             },
             opts, _tls_debug_context);
     return ObjectStorageUploadResponse {
@@ -258,24 +292,51 @@ ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
         const ObjectStoragePathOptions& opts,
         const std::vector<ObjectCompleteMultiPart>& completed_parts) {
     DCHECK(opts.upload_id.has_value());
-    auto target_client = _client->GetBlockBlobClient(opts.key);
+    auto target_blob = _client->GetBlobClient(opts.key);
+    auto target_client = target_blob.AsBlockBlobClient();
     std::vector<std::string> string_block_ids;
     std::ranges::transform(completed_parts, std::back_inserter(string_block_ids),
                            [&opts](const ObjectCompleteMultiPart& i) {
                                return azure_multipart_block_id(*opts.upload_id, i.part_num);
                            });
-    return do_azure_client_call(
+    auto resp = do_azure_client_call(
             [&]() {
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
                 // Put Block List atomically replaces the committed blob; no scan-visible staging blob exists.
-                target_client.CommitBlockList(string_block_ids);
+                auto lease_id = azure_multipart_lease_id(*opts.upload_id);
+                if (lease_id.has_value()) {
+                    BlobLeaseClient(target_blob, std::string(*lease_id)).Renew();
+                    CommitBlockListOptions commit_opts;
+                    commit_opts.AccessConditions.LeaseId = std::string(*lease_id);
+                    target_client.CommitBlockList(string_block_ids, commit_opts);
+                } else {
+                    target_client.CommitBlockList(string_block_ids);
+                }
             },
             opts, _tls_debug_context);
+    if (resp.status.code == ErrorCode::OK) {
+        if (auto lease_id = azure_multipart_lease_id(*opts.upload_id); lease_id.has_value()) {
+            auto release_resp = do_azure_client_call(
+                    [&]() { BlobLeaseClient(target_blob, std::string(*lease_id)).Release(); }, opts,
+                    _tls_debug_context);
+            if (release_resp.status.code != ErrorCode::OK) {
+                LOG(WARNING) << "Azure multipart commit succeeded but its finite lease could not "
+                                "be released; it will expire automatically";
+            }
+        }
+    }
+    return resp;
 }
 
 ObjectStorageResponse AzureObjStorageClient::abort_multipart_upload(
         const ObjectStoragePathOptions& opts) {
     DCHECK(opts.upload_id.has_value());
+    if (auto lease_id = azure_multipart_lease_id(*opts.upload_id); lease_id.has_value()) {
+        auto target_blob = _client->GetBlobClient(opts.key);
+        return do_azure_client_call(
+                [&]() { BlobLeaseClient(target_blob, std::string(*lease_id)).Release(); }, opts,
+                _tls_debug_context);
+    }
     // Azure cannot delete one upload's uncommitted blocks without changing the committed blob.
     // Leaving them to service GC preserves the last successfully published value.
     return ObjectStorageResponse::OK();

@@ -25,6 +25,8 @@ import org.apache.doris.filesystem.spi.RequestBody;
 
 import com.azure.core.http.rest.PagedIterable;
 import com.azure.core.http.rest.PagedResponse;
+import com.azure.core.util.BinaryData;
+import com.azure.core.util.Context;
 import com.azure.identity.ClientSecretCredentialBuilder;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
@@ -33,10 +35,14 @@ import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobProperties;
+import com.azure.storage.blob.models.BlobRequestConditions;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.blob.options.BlockBlobCommitBlockListOptions;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
+import com.azure.storage.blob.specialized.BlobLeaseClient;
+import com.azure.storage.blob.specialized.BlobLeaseClientBuilder;
 import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.azure.storage.common.StorageSharedKeyCredential;
 import com.azure.storage.common.sas.SasProtocol;
@@ -71,6 +77,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
 
     private static final int HTTP_NOT_FOUND = 404;
+    private static final int MULTIPART_LEASE_SECONDS = 60;
+    private static final String MULTIPART_LEASE_PREFIX = "doris-azure-lease-v1:";
     /** Validity period for presigned (SAS) URLs, in seconds. */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
@@ -220,8 +228,23 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
-        // Azure block blobs don't have an explicit "initiate" API.
-        return UUID.randomUUID().toString();
+        try {
+            AzureUri uri = AzureUri.parse(remotePath);
+            BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
+                    .getBlobClient(uri.key());
+            BlockBlobClient blockBlobClient = blobClient.getBlockBlobClient();
+            String leaseId = UUID.randomUUID().toString();
+            String uploadId = MULTIPART_LEASE_PREFIX + leaseId;
+            // A zero-byte uncommitted block materializes an absent target without exposing it to
+            // normal listings, so Azure can fence every later block operation with a blob lease.
+            blockBlobClient.stageBlock(multipartBlockId(uploadId, 0), BinaryData.fromBytes(new byte[0]));
+            String acquiredLeaseId = createLeaseClient(blobClient, leaseId)
+                    .acquireLease(MULTIPART_LEASE_SECONDS);
+            return MULTIPART_LEASE_PREFIX + acquiredLeaseId;
+        } catch (BlobStorageException e) {
+            throw new IOException("initiateMultipartUpload failed for " + remotePath
+                    + ": " + e.getMessage(), e);
+        }
     }
 
     @Override
@@ -229,10 +252,18 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             RequestBody body) throws IOException {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
-            BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
-                    .getBlobClient(uri.key()).getBlockBlobClient();
+            BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
+                    .getBlobClient(uri.key());
+            BlockBlobClient blockBlobClient = blobClient.getBlockBlobClient();
             String blockId = multipartBlockId(uploadId, partNum);
-            blockBlobClient.stageBlock(blockId, body.content(), body.contentLength());
+            String leaseId = multipartLeaseId(uploadId);
+            if (leaseId == null) {
+                blockBlobClient.stageBlock(blockId, body.content(), body.contentLength());
+            } else {
+                createLeaseClient(blobClient, leaseId).renewLease();
+                blockBlobClient.stageBlockWithResponse(blockId, body.content(), body.contentLength(),
+                        null, leaseId, null, Context.NONE);
+            }
             return new UploadPartResult(partNum, blockId);
         } catch (BlobStorageException e) {
             throw new IOException("uploadPart failed for " + remotePath + " part " + partNum
@@ -256,7 +287,26 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                 blockIds.add(exactBlockIds ? part.etag() : toBlockId(part.partNumber()));
             }
             // Put Block List is the atomic publication point and does not expose a staging blob to scans.
-            containerClient.getBlobClient(uri.key()).getBlockBlobClient().commitBlockList(blockIds);
+            BlobClient blobClient = containerClient.getBlobClient(uri.key());
+            BlockBlobClient blockBlobClient = blobClient.getBlockBlobClient();
+            String leaseId = multipartLeaseId(uploadId);
+            if (leaseId == null) {
+                blockBlobClient.commitBlockList(blockIds);
+            } else {
+                BlobLeaseClient leaseClient = createLeaseClient(blobClient, leaseId);
+                leaseClient.renewLease();
+                BlobRequestConditions conditions = new BlobRequestConditions().setLeaseId(leaseId);
+                blockBlobClient.commitBlockListWithResponse(
+                        new BlockBlobCommitBlockListOptions(blockIds).setRequestConditions(conditions),
+                        null, Context.NONE);
+                try {
+                    leaseClient.releaseLease();
+                } catch (BlobStorageException e) {
+                    // Publication is already durable; the finite lease will expire without
+                    // turning a successful commit into a retry that could overwrite new data.
+                    LOG.warn("Failed to release Azure multipart lease after commit for {}", remotePath, e);
+                }
+            }
         } catch (BlobStorageException e) {
             throw new IOException("completeMultipartUpload failed for " + remotePath
                     + ": " + e.getMessage(), e);
@@ -265,8 +315,32 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        // Azure has no per-upload abort for blocks staged on a shared blob. A no-op is the only
-        // choice that cannot delete or recommit the last successfully published value.
+        String leaseId = multipartLeaseId(uploadId);
+        if (leaseId == null) {
+            // Azure cannot selectively remove legacy uncommitted blocks without rewriting the blob.
+            return;
+        }
+        try {
+            AzureUri uri = AzureUri.parse(remotePath);
+            BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
+                    .getBlobClient(uri.key());
+            createLeaseClient(blobClient, leaseId).releaseLease();
+        } catch (BlobStorageException e) {
+            throw new IOException("abortMultipartUpload failed for " + remotePath
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    protected BlobLeaseClient createLeaseClient(BlobClient blobClient, String leaseId) {
+        return new BlobLeaseClientBuilder().blobClient(blobClient).leaseId(leaseId).buildClient();
+    }
+
+    private static String multipartLeaseId(String uploadId) {
+        if (uploadId != null && uploadId.startsWith(MULTIPART_LEASE_PREFIX)
+                && uploadId.length() > MULTIPART_LEASE_PREFIX.length()) {
+            return uploadId.substring(MULTIPART_LEASE_PREFIX.length());
+        }
+        return null;
     }
 
     /**

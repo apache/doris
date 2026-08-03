@@ -38,10 +38,12 @@ namespace doris {
 
 #ifdef USE_AZURE
 
-TEST(AzureObjStorageClientMultipartHelperTest, isolates_uploads_with_fixed_length_block_ids) {
+TEST(AzureObjStorageClientMultipartHelperTest, fixed_length_namespace_requires_target_lease) {
     EXPECT_EQ("p3w3DA==", io::azure_multipart_block_id("upload-a", 1));
-    EXPECT_NE(io::azure_multipart_block_id("upload-a", 1),
-              io::azure_multipart_block_id("upload-b", 1));
+    EXPECT_EQ("Sc7grw==", io::azure_multipart_block_id(
+                                  "doris-azure-lease-v1:09492e3d-e231-4ed9-bf84-b6fc772cda54", 1));
+    EXPECT_EQ("Sc7grw==", io::azure_multipart_block_id(
+                                  "doris-azure-lease-v1:06996d15-1c2e-4ddd-8853-43816ea84a07", 1));
     EXPECT_EQ(io::azure_multipart_block_id("upload-a", 1).size(),
               io::azure_multipart_block_id("upload-a", 999).size());
     EXPECT_EQ(4, Aws::Utils::HashingUtils::Base64Decode(io::azure_multipart_block_id("upload-a", 1))
@@ -172,12 +174,11 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
 }
 
 TEST_F(AzureObjStorageClientTest, abort_multipart_upload_leaves_no_visible_blob) {
-    io::ObjectStoragePathOptions opts;
+    io::ObjectStoragePathOptions opts {.key = "AzureObjStorageClientTest/abort_multipart_upload"};
     auto create_response =
             AzureObjStorageClientTest::obj_storage_client->create_multipart_upload(opts);
     ASSERT_EQ(create_response.resp.status.code, ErrorCode::OK);
     ASSERT_TRUE(create_response.upload_id.has_value());
-    opts.key = "AzureObjStorageClientTest/abort_multipart_upload_" + *create_response.upload_id;
     opts.upload_id = create_response.upload_id;
 
     auto upload_response =
@@ -194,16 +195,15 @@ TEST_F(AzureObjStorageClientTest, abort_multipart_upload_leaves_no_visible_blob)
 }
 
 TEST_F(AzureObjStorageClientTest, abort_multipart_upload_preserves_existing_put_blob) {
-    io::ObjectStoragePathOptions opts;
+    io::ObjectStoragePathOptions opts {.key = "AzureObjStorageClientTest/abort_preserves_put_blob"};
+    auto put_response = AzureObjStorageClientTest::obj_storage_client->put_object(opts, "original");
+    ASSERT_EQ(put_response.status.code, ErrorCode::OK);
     auto create_response =
             AzureObjStorageClientTest::obj_storage_client->create_multipart_upload(opts);
     ASSERT_EQ(create_response.resp.status.code, ErrorCode::OK);
     ASSERT_TRUE(create_response.upload_id.has_value());
-    opts.key = "AzureObjStorageClientTest/abort_preserves_put_blob_" + *create_response.upload_id;
     opts.upload_id = create_response.upload_id;
 
-    auto put_response = AzureObjStorageClientTest::obj_storage_client->put_object(opts, "original");
-    ASSERT_EQ(put_response.status.code, ErrorCode::OK);
     auto upload_response =
             AzureObjStorageClientTest::obj_storage_client->upload_part(opts, "replacement", 1);
     ASSERT_EQ(upload_response.resp.status.code, ErrorCode::OK);
@@ -228,18 +228,21 @@ TEST_F(AzureObjStorageClientTest, concurrent_multipart_uploads_do_not_share_stag
     io::ObjectStoragePathOptions second = first;
     auto first_create = obj_storage_client->create_multipart_upload(first);
     auto second_create = obj_storage_client->create_multipart_upload(second);
+    ASSERT_EQ(first_create.resp.status.code, ErrorCode::OK);
+    ASSERT_NE(second_create.resp.status.code, ErrorCode::OK);
     ASSERT_TRUE(first_create.upload_id.has_value());
-    ASSERT_TRUE(second_create.upload_id.has_value());
     first.upload_id = first_create.upload_id;
-    second.upload_id = second_create.upload_id;
 
     ASSERT_EQ(obj_storage_client->upload_part(first, "first", 1).resp.status.code, ErrorCode::OK);
-    ASSERT_EQ(obj_storage_client->upload_part(second, "second", 1).resp.status.code, ErrorCode::OK);
     ASSERT_EQ(obj_storage_client->complete_multipart_upload(first, {{.part_num = 1}}).status.code,
               ErrorCode::OK);
-    // Committing one writer discards all other uncommitted blocks on the blob. The loser must fail
-    // instead of publishing a mixture of blocks from two uploads.
-    EXPECT_NE(obj_storage_client->complete_multipart_upload(second, {{.part_num = 1}}).status.code,
+
+    second_create = obj_storage_client->create_multipart_upload(second);
+    ASSERT_EQ(second_create.resp.status.code, ErrorCode::OK);
+    ASSERT_TRUE(second_create.upload_id.has_value());
+    second.upload_id = second_create.upload_id;
+    ASSERT_EQ(obj_storage_client->upload_part(second, "second", 1).resp.status.code, ErrorCode::OK);
+    ASSERT_EQ(obj_storage_client->complete_multipart_upload(second, {{.part_num = 1}}).status.code,
               ErrorCode::OK);
 
     std::array<char, 6> contents {};
@@ -248,7 +251,7 @@ TEST_F(AzureObjStorageClientTest, concurrent_multipart_uploads_do_not_share_stag
                       ->get_object(second, contents.data(), 0, contents.size(), &size_return)
                       .status.code,
               ErrorCode::OK);
-    EXPECT_EQ(std::string_view(contents.data(), size_return), "first");
+    EXPECT_EQ(std::string_view(contents.data(), size_return), "second");
     EXPECT_EQ(obj_storage_client->delete_object(second).status.code, ErrorCode::OK);
 }
 #else
