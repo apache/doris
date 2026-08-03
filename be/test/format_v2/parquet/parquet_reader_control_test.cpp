@@ -31,6 +31,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/reader/global_rowid_column_reader.h"
+#include "format_v2/parquet/reader/native/common.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
 #include "storage/utils.h"
@@ -175,6 +176,87 @@ TEST(SelectionVectorTest, MaterializedFilterIsReusedUntilSelectionChanges) {
     EXPECT_EQ(updated_filter, first_filter);
     EXPECT_EQ(std::vector<uint8_t>(updated_filter, updated_filter + 4),
               std::vector<uint8_t>({0, 1, 1, 0}));
+}
+
+TEST(SelectionVectorTest, IdentitySelectionDoesNotMaterializeFilter) {
+    SelectionVector selection(4);
+    const uint8_t* filter = reinterpret_cast<const uint8_t*>(1);
+    ASSERT_TRUE(selection.materialize_filter(4, 4, &filter).ok());
+    EXPECT_EQ(filter, nullptr);
+}
+
+TEST(NativeNestedSelectionTest, BuildsSelectionAndCompactsSurvivingParentLevels) {
+    using native::ColumnSelectVector;
+    using native::FilterMap;
+    using native::level_t;
+
+    std::vector<level_t> repetition_levels {0, 1, 1, 0, 0, 1};
+    std::vector<level_t> definition_levels {3, 2, 1, 3, 0, 3};
+    std::vector<uint8_t> parent_filter_data {1, 0, 1};
+    FilterMap parent_filter;
+    ASSERT_TRUE(
+            parent_filter.init(parent_filter_data.data(), parent_filter_data.size(), false).ok());
+
+    ColumnSelectVector selection;
+    NullMap selected_nulls;
+    size_t ancestor_null_count = 0;
+    ASSERT_TRUE(selection
+                        .init_nested(&repetition_levels, &definition_levels, 0,
+                                     /*repeated_parent_def_level=*/2,
+                                     /*definition_level=*/3, &selected_nulls, &parent_filter, 0,
+                                     &ancestor_null_count)
+                        .ok());
+
+    EXPECT_EQ(ancestor_null_count, 2);
+    EXPECT_EQ(selection.num_values(), 4);
+    EXPECT_EQ(selection.num_nulls(), 1);
+    EXPECT_EQ(selection.num_filtered(), 1);
+    EXPECT_EQ(selected_nulls, NullMap({0, 1, 0}));
+    EXPECT_EQ(repetition_levels, (std::vector<level_t> {0, 1, 1, 0, 1}));
+    EXPECT_EQ(definition_levels, (std::vector<level_t> {3, 2, 1, 0, 3}));
+
+    ColumnSelectVector::DataReadType type;
+    EXPECT_EQ(selection.get_next_run<true>(&type), 1);
+    EXPECT_EQ(type, ColumnSelectVector::CONTENT);
+    EXPECT_EQ(selection.get_next_run<true>(&type), 1);
+    EXPECT_EQ(type, ColumnSelectVector::NULL_DATA);
+    EXPECT_EQ(selection.get_next_run<true>(&type), 1);
+    EXPECT_EQ(type, ColumnSelectVector::FILTERED_CONTENT);
+    EXPECT_EQ(selection.get_next_run<true>(&type), 1);
+    EXPECT_EQ(type, ColumnSelectVector::CONTENT);
+    EXPECT_EQ(selection.get_next_run<true>(&type), 0);
+}
+
+TEST(NativeNestedSelectionTest, PreservesPriorLevelsAcrossPageContinuation) {
+    using native::ColumnSelectVector;
+    using native::FilterMap;
+    using native::level_t;
+
+    std::vector<level_t> repetition_levels {0, 1, 1, 0, 1};
+    std::vector<level_t> definition_levels {3, 3, 2, 3, 1};
+    std::vector<uint8_t> parent_filter_data {1, 0};
+    FilterMap parent_filter;
+    ASSERT_TRUE(
+            parent_filter.init(parent_filter_data.data(), parent_filter_data.size(), false).ok());
+
+    ColumnSelectVector selection;
+    NullMap selected_nulls;
+    size_t ancestor_null_count = 0;
+    ASSERT_TRUE(selection
+                        .init_nested(&repetition_levels, &definition_levels,
+                                     /*level_start_index=*/2,
+                                     /*repeated_parent_def_level=*/2,
+                                     /*definition_level=*/3, &selected_nulls, &parent_filter, 0,
+                                     &ancestor_null_count)
+                        .ok());
+
+    EXPECT_EQ(ancestor_null_count, 1);
+    EXPECT_EQ(selection.num_values(), 2);
+    EXPECT_EQ(selection.num_nulls(), 1);
+    EXPECT_EQ(selection.num_filtered(), 1);
+    EXPECT_EQ(selected_nulls, NullMap({1}));
+    EXPECT_EQ(repetition_levels, (std::vector<level_t> {0, 1, 1}));
+    EXPECT_EQ(definition_levels, (std::vector<level_t> {3, 3, 2}));
 }
 
 TEST(ParquetColumnReaderControlTest, BaseSelectUsesSkipReadRanges) {

@@ -28,27 +28,22 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -58,31 +53,22 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
-public class CatalogRecycleBinTest {
+public class CatalogRecycleBinTest extends TestWithFeService {
 
-    private static String runningDir;
-    private static Env env;
+    private Env env;
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.runningUnitTest = true;
-        runningDir = "fe/mocked/CatalogRecycleBinTest/" + UUID.randomUUID() + "/";
-        UtFrameUtils.createDorisCluster(runningDir);
     }
 
-    @Before
-    public void setUp() throws Exception {
+    @Override
+    protected void runBeforeEach() throws Exception {
         env = CatalogTestUtil.createTestCatalog();
         Env.getCurrentRecycleBin().clearAll();
     }
 
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-    }
-
-    @Test(expected = IllegalStateException.class)
+    @Test
     public void testRecycleNotEmptyDatabase() {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
@@ -98,8 +84,9 @@ public class CatalogRecycleBinTest {
         Set<String> tableNames = Sets.newHashSet(CatalogTestUtil.testTable1);
         Set<Long> tableIds = Sets.newHashSet(CatalogTestUtil.testTableId1);
 
-        recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, 0);
-        Assert.fail("recycle no empty database should fail");
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, 0),
+                "recycle no empty database should fail");
     }
 
     @Test
@@ -111,8 +98,8 @@ public class CatalogRecycleBinTest {
         Set<String> emptyTableNames = Sets.newHashSet();
         Set<Long> emptyTableIds = Sets.newHashSet();
 
-        Assert.assertTrue(recycleBin.recycleDatabase(emptyDb1, emptyTableNames, emptyTableIds, false, false, 0));
-        Assert.assertTrue(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
+        Assertions.assertTrue(recycleBin.recycleDatabase(emptyDb1, emptyTableNames, emptyTableIds, false, false, 0));
+        Assertions.assertTrue(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
     }
 
     @Test
@@ -129,10 +116,10 @@ public class CatalogRecycleBinTest {
         Set<String> emptyTableNames = Sets.newHashSet();
         Set<Long> emptyTableIds = Sets.newHashSet();
 
-        Assert.assertTrue(recycleBin.recycleDatabase(emptyDb1, emptyTableNames, emptyTableIds, false, false, 0));
-        Assert.assertTrue(recycleBin.recycleDatabase(emptyDb2, emptyTableNames, emptyTableIds, false, false, 0));
-        Assert.assertTrue(recycleBin.isRecycleDatabase(1001));
-        Assert.assertTrue(recycleBin.isRecycleDatabase(1002));
+        Assertions.assertTrue(recycleBin.recycleDatabase(emptyDb1, emptyTableNames, emptyTableIds, false, false, 0));
+        Assertions.assertTrue(recycleBin.recycleDatabase(emptyDb2, emptyTableNames, emptyTableIds, false, false, 0));
+        Assertions.assertTrue(recycleBin.isRecycleDatabase(1001));
+        Assertions.assertTrue(recycleBin.isRecycleDatabase(1002));
 
         // sleep 0.1 second to make sure the recycle time is different
         try {
@@ -140,15 +127,15 @@ public class CatalogRecycleBinTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        Assert.assertTrue(recycleBin.recycleDatabase(emptyDb3, emptyTableNames, emptyTableIds, false, false, 0));
-        Assert.assertTrue(recycleBin.isRecycleDatabase(1003));
+        Assertions.assertTrue(recycleBin.recycleDatabase(emptyDb3, emptyTableNames, emptyTableIds, false, false, 0));
+        Assertions.assertTrue(recycleBin.isRecycleDatabase(1003));
 
         recycleBin.runAfterCatalogReady();
 
         // verify that only newest one is left in recycle bin
-        Assert.assertFalse(recycleBin.isRecycleDatabase(1001));
-        Assert.assertFalse(recycleBin.isRecycleDatabase(1002));
-        Assert.assertTrue(recycleBin.isRecycleDatabase(1003));
+        Assertions.assertFalse(recycleBin.isRecycleDatabase(1001));
+        Assertions.assertFalse(recycleBin.isRecycleDatabase(1002));
+        Assertions.assertTrue(recycleBin.isRecycleDatabase(1003));
     }
 
     @Test
@@ -160,18 +147,18 @@ public class CatalogRecycleBinTest {
         Set<String> tableNames = Sets.newHashSet();
         Set<Long> tableIds = Sets.newHashSet();
 
-        Assert.assertTrue(recycleBin.recycleDatabase(emptyDb, tableNames, tableIds, false, true, 0));
-        Assert.assertTrue(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
+        Assertions.assertTrue(recycleBin.recycleDatabase(emptyDb, tableNames, tableIds, false, true, 0));
+        Assertions.assertTrue(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
 
         Long recycleTime = recycleBin.getRecycleTimeById(CatalogTestUtil.testDbId1);
-        Assert.assertNotNull(recycleTime);
-        Assert.assertEquals(0L, recycleTime.longValue());
+        Assertions.assertNotNull(recycleTime);
+        Assertions.assertEquals(0L, recycleTime.longValue());
 
         recycleBin.runAfterCatalogReady();
         // verify that the db has been immediately dropped from recycle bin
-        Assert.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
+        Assertions.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
         // verify recycle time is no longer present
-        Assert.assertNull(recycleBin.getRecycleTimeById(CatalogTestUtil.testDbId1));
+        Assertions.assertNull(recycleBin.getRecycleTimeById(CatalogTestUtil.testDbId1));
     }
 
     @Test
@@ -195,17 +182,17 @@ public class CatalogRecycleBinTest {
         function.setNullableMode(NullableMode.ALWAYS_NULLABLE);
         function.setId(10002);
         db.replayAddFunction(function);
-        Assert.assertTrue(hasUdfBuilder(dbName, functionName));
+        Assertions.assertTrue(hasUdfBuilder(dbName, functionName));
 
-        Assert.assertTrue(recycleBin.recycleDatabase(db, Sets.newHashSet(), Sets.newHashSet(), false, false, 0));
+        Assertions.assertTrue(recycleBin.recycleDatabase(db, Sets.newHashSet(), Sets.newHashSet(), false, false, 0));
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         recycleBin.write(new DataOutputStream(outputStream));
 
         Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(dbName);
-        Assert.assertFalse(hasUdfBuilder(dbName, functionName));
+        Assertions.assertFalse(hasUdfBuilder(dbName, functionName));
 
         CatalogRecycleBin.read(new DataInputStream(new ByteArrayInputStream(outputStream.toByteArray())));
-        Assert.assertFalse(hasUdfBuilder(dbName, functionName));
+        Assertions.assertFalse(hasUdfBuilder(dbName, functionName));
     }
 
     private boolean hasUdfBuilder(String dbName, String functionName) {
@@ -228,15 +215,15 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
-        Assert.assertTrue(recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0));
-        Assert.assertTrue(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
+        Assertions.assertTrue(recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0));
+        Assertions.assertTrue(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
 
         // test recycling same table again should fail
-        Assert.assertFalse(recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0));
+        Assertions.assertFalse(recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0));
     }
 
     @Test
@@ -253,22 +240,22 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
-        Assert.assertTrue(recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, true, 0));
+        Assertions.assertTrue(recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, true, 0));
 
         Long recycleTime = recycleBin.getRecycleTimeById(CatalogTestUtil.testTableId1);
-        Assert.assertNotNull(recycleTime);
-        Assert.assertEquals(0L, recycleTime.longValue());
-        Assert.assertTrue(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
+        Assertions.assertNotNull(recycleTime);
+        Assertions.assertEquals(0L, recycleTime.longValue());
+        Assertions.assertTrue(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
 
         recycleBin.runAfterCatalogReady();
         // verify that the table has been immediately dropped from recycle bin
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
+        Assertions.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
         // verify recycle time is no longer present
-        Assert.assertNull(recycleBin.getRecycleTimeById(CatalogTestUtil.testTableId1));
+        Assertions.assertNull(recycleBin.getRecycleTimeById(CatalogTestUtil.testTableId1));
     }
 
     @Test
@@ -285,8 +272,8 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
         Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
@@ -303,8 +290,8 @@ public class CatalogRecycleBinTest {
                 false,
                 false
             );
-        Assert.assertTrue(result);
-        Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
+        Assertions.assertTrue(result);
+        Assertions.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
 
         result = recycleBin.recyclePartition(
                 CatalogTestUtil.testDbId1,
@@ -319,7 +306,7 @@ public class CatalogRecycleBinTest {
                 false
             );
         // test recycling same partition again should fail
-        Assert.assertFalse(result);
+        Assertions.assertFalse(result);
     }
 
     @Test
@@ -346,8 +333,8 @@ public class CatalogRecycleBinTest {
                     false,
                     false
             );
-            Assert.assertTrue(result);
-            Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
+            Assertions.assertTrue(result);
+            Assertions.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
         } while (recyclePartitionNum++ < 100);
 
         // sleep 0.1 second to make sure the recycle time is different
@@ -371,8 +358,8 @@ public class CatalogRecycleBinTest {
                 false,
                 false
             );
-        Assert.assertTrue(result);
-        Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
+        Assertions.assertTrue(result);
+        Assertions.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
 
         recycleBin.runAfterCatalogReady();
 
@@ -382,10 +369,10 @@ public class CatalogRecycleBinTest {
         Set<Long> partitionIds = Sets.newHashSet();
         recycleBin.getRecycleIds(dbIds, tableIds, partitionIds);
 
-        Assert.assertEquals(0, dbIds.size());
-        Assert.assertEquals(0, tableIds.size());
-        Assert.assertEquals(1, partitionIds.size());
-        Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
+        Assertions.assertEquals(0, dbIds.size());
+        Assertions.assertEquals(0, tableIds.size());
+        Assertions.assertEquals(1, partitionIds.size());
+        Assertions.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
     }
 
     @Test
@@ -400,9 +387,9 @@ public class CatalogRecycleBinTest {
         recycleBin.recycleDatabase(emptyDb, tableNames, tableIds, false, false, 0);
 
         Database recoveredDb = recycleBin.recoverDatabase(CatalogTestUtil.testDb1, -1);
-        Assert.assertNotNull(recoveredDb);
-        Assert.assertEquals(CatalogTestUtil.testDbId1, recoveredDb.getId());
-        Assert.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
+        Assertions.assertNotNull(recoveredDb);
+        Assertions.assertEquals(CatalogTestUtil.testDbId1, recoveredDb.getId());
+        Assertions.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
     }
 
     @Test
@@ -426,13 +413,13 @@ public class CatalogRecycleBinTest {
 
         // test recovering database with table
         Database recoveredDb = recycleBin.recoverDatabase(CatalogTestUtil.testDb1, -1);
-        Assert.assertNotNull(recoveredDb);
-        Assert.assertEquals(CatalogTestUtil.testDbId1, recoveredDb.getId());
-        Assert.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
-        Assert.assertTrue(recoveredDb.getTable(CatalogTestUtil.testTableId1).isPresent());
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
-        Assert.assertTrue(recoveredDb.getTable(CatalogTestUtil.testTableId2).isPresent());
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId2));
+        Assertions.assertNotNull(recoveredDb);
+        Assertions.assertEquals(CatalogTestUtil.testDbId1, recoveredDb.getId());
+        Assertions.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
+        Assertions.assertTrue(recoveredDb.getTable(CatalogTestUtil.testTableId1).isPresent());
+        Assertions.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
+        Assertions.assertTrue(recoveredDb.getTable(CatalogTestUtil.testTableId2).isPresent());
+        Assertions.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId2));
 
     }
 
@@ -450,14 +437,14 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0);
-        Assert.assertTrue(recycleBin.recoverTable(db, CatalogTestUtil.testTable1, -1, null));
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
-        Assert.assertNotNull(db.getTable(CatalogTestUtil.testTableId1));
+        Assertions.assertTrue(recycleBin.recoverTable(db, CatalogTestUtil.testTable1, -1, null));
+        Assertions.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
+        Assertions.assertNotNull(db.getTable(CatalogTestUtil.testTableId1));
     }
 
     @Test
@@ -474,8 +461,8 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
         Partition partition = olapTable.getPartition(CatalogTestUtil.testPartition1);
@@ -494,8 +481,8 @@ public class CatalogRecycleBinTest {
         );
 
         recycleBin.recoverPartition(CatalogTestUtil.testDbId1, olapTable, CatalogTestUtil.testPartition1, -1, null);
-        Assert.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
-        Assert.assertNotNull(olapTable.getPartition(CatalogTestUtil.testPartition1));
+        Assertions.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
+        Assertions.assertNotNull(olapTable.getPartition(CatalogTestUtil.testPartition1));
     }
 
     @Test
@@ -512,8 +499,8 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
         Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
@@ -539,9 +526,9 @@ public class CatalogRecycleBinTest {
 
         recycleBin.getRecycleIds(dbIds, tableIdsResult, partitionIds);
 
-        Assert.assertEquals(0, dbIds.size());
-        Assert.assertTrue(tableIdsResult.contains(CatalogTestUtil.testTableId1));
-        Assert.assertTrue(partitionIds.contains(CatalogTestUtil.testPartitionId1));
+        Assertions.assertEquals(0, dbIds.size());
+        Assertions.assertTrue(tableIdsResult.contains(CatalogTestUtil.testTableId1));
+        Assertions.assertTrue(partitionIds.contains(CatalogTestUtil.testPartitionId1));
     }
 
     @Test
@@ -558,8 +545,8 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0);
@@ -575,8 +562,8 @@ public class CatalogRecycleBinTest {
         }
 
         List<Long> nonRecycledTabletIds = Lists.newArrayList(999L, 1000L);
-        Assert.assertTrue(recycleBin.allTabletsInRecycledStatus(recycleTabletIds));
-        Assert.assertFalse(recycleBin.allTabletsInRecycledStatus(nonRecycledTabletIds));
+        Assertions.assertTrue(recycleBin.allTabletsInRecycledStatus(recycleTabletIds));
+        Assertions.assertFalse(recycleBin.allTabletsInRecycledStatus(nonRecycledTabletIds));
     }
 
     @Test
@@ -590,7 +577,7 @@ public class CatalogRecycleBinTest {
 
         recycleBin.recycleDatabase(emptyDb, tableNames, tableIds, false, false, 0);
         recycleBin.eraseDatabaseInstantly(CatalogTestUtil.testDbId1);
-        Assert.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
+        Assertions.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
     }
 
     @Test
@@ -607,15 +594,15 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0);
         recycleBin.eraseTableInstantly(CatalogTestUtil.testTableId1);
 
         // verify table is no longer in recycle bin
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
+        Assertions.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
     }
 
     @Test
@@ -632,8 +619,8 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
         Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
@@ -654,7 +641,7 @@ public class CatalogRecycleBinTest {
         recycleBin.erasePartitionInstantly(CatalogTestUtil.testPartitionId1);
 
         // verify partition is no longer in recycle bin
-        Assert.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
+        Assertions.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
     }
 
     @Test
@@ -674,8 +661,8 @@ public class CatalogRecycleBinTest {
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
 
         Optional<Table> table1 = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table1.isPresent());
-        Assert.assertTrue(table1.get() instanceof OlapTable);
+        Assertions.assertTrue(table1.isPresent());
+        Assertions.assertTrue(table1.get() instanceof OlapTable);
         OlapTable olapTable1 = (OlapTable) table1.get();
 
         Partition partition = olapTable1.getPartition(CatalogTestUtil.testPartitionId1);
@@ -702,11 +689,11 @@ public class CatalogRecycleBinTest {
         recycleBin.replayErasePartition(CatalogTestUtil.testPartitionId1);
 
         // verify objects are no longer in recycle bin
-        Assert.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId2));
+        Assertions.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
+        Assertions.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
+        Assertions.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId2));
 
-        Assert.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
+        Assertions.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
     }
 
     @Test
@@ -726,8 +713,8 @@ public class CatalogRecycleBinTest {
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
 
         Optional<Table> table1 = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table1.isPresent());
-        Assert.assertTrue(table1.get() instanceof OlapTable);
+        Assertions.assertTrue(table1.isPresent());
+        Assertions.assertTrue(table1.get() instanceof OlapTable);
         OlapTable olapTable1 = (OlapTable) table1.get();
 
         Partition partition = olapTable1.getPartition(CatalogTestUtil.testPartitionId1);
@@ -748,14 +735,14 @@ public class CatalogRecycleBinTest {
         recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, 0);
 
         List<List<String>> info = recycleBin.getInfo();
-        Assert.assertNotNull(info);
-        Assert.assertFalse(info.isEmpty());
+        Assertions.assertNotNull(info);
+        Assertions.assertFalse(info.isEmpty());
 
         // verify info contains database information
         Set<String> itemTypes = info.stream().map(item -> item.get(0)).collect(Collectors.toSet());
-        Assert.assertTrue(itemTypes.contains("Database"));
-        Assert.assertTrue(itemTypes.contains("Table"));
-        Assert.assertTrue(itemTypes.contains("Partition"));
+        Assertions.assertTrue(itemTypes.contains("Database"));
+        Assertions.assertTrue(itemTypes.contains("Table"));
+        Assertions.assertTrue(itemTypes.contains("Partition"));
     }
 
     @Test
@@ -778,24 +765,24 @@ public class CatalogRecycleBinTest {
         recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, 0);
 
         Map<Long, Pair<Long, Long>> sizeMap = recycleBin.getDbToRecycleSize();
-        Assert.assertNotNull(sizeMap);
-        Assert.assertTrue(sizeMap.containsKey(CatalogTestUtil.testDbId1));
+        Assertions.assertNotNull(sizeMap);
+        Assertions.assertTrue(sizeMap.containsKey(CatalogTestUtil.testDbId1));
 
         Pair<Long, Long> sizes = sizeMap.get(CatalogTestUtil.testDbId1);
-        Assert.assertNotNull(sizes);
-        Assert.assertTrue(sizes.first >= 0);
-        Assert.assertTrue(sizes.second >= 0);
+        Assertions.assertNotNull(sizes);
+        Assertions.assertTrue(sizes.first >= 0);
+        Assertions.assertTrue(sizes.second >= 0);
     }
 
-    @Test(expected = DdlException.class)
-    public void testRecoverNonExistentDatabase() throws Exception {
+    @Test
+    public void testRecoverNonExistentDatabase() {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
         // try to recover a non-existent database
-        recycleBin.recoverDatabase("non_existent_db", -1);
+        Assertions.assertThrows(DdlException.class, () -> recycleBin.recoverDatabase("non_existent_db", -1));
     }
 
-    @Test(expected = DdlException.class)
-    public void testRecoverNonExistentTable() throws Exception {
+    @Test
+    public void testRecoverNonExistentTable() {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
@@ -807,11 +794,12 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testStartVersion
         );
         // try to recover a non-existent table
-        recycleBin.recoverTable(db, "non_existent_table", -1, null);
+        Assertions.assertThrows(DdlException.class,
+                () -> recycleBin.recoverTable(db, "non_existent_table", -1, null));
     }
 
-    @Test(expected = DdlException.class)
-    public void testRecoverNonExistentPartition() throws Exception {
+    @Test
+    public void testRecoverNonExistentPartition() {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
@@ -824,12 +812,13 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
         // try to recover a non-existent partition
-        recycleBin.recoverPartition(CatalogTestUtil.testDbId1, olapTable, "non_existent_partition", -1, null);
+        Assertions.assertThrows(DdlException.class, () -> recycleBin.recoverPartition(
+                CatalogTestUtil.testDbId1, olapTable, "non_existent_partition", -1, null));
     }
 
     @Test
@@ -846,8 +835,8 @@ public class CatalogRecycleBinTest {
             );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table.isPresent());
-        Assert.assertTrue(table.get() instanceof OlapTable);
+        Assertions.assertTrue(table.isPresent());
+        Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0);
@@ -855,24 +844,24 @@ public class CatalogRecycleBinTest {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         invertedIndex.clear();
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(CatalogTestUtil.testTabletId1);
-        Assert.assertNull(tabletMeta);
+        Assertions.assertNull(tabletMeta);
 
         recycleBin.addTabletToInvertedIndex();
 
         // verify tablets are added to inverted index
         tabletMeta = invertedIndex.getTabletMeta(CatalogTestUtil.testTabletId1);
-        Assert.assertNotNull(tabletMeta);
+        Assertions.assertNotNull(tabletMeta);
     }
 
     public void recycleAllTables(Database db, CatalogRecycleBin recycleBin) {
         Optional<Table> table1 = db.getTable(CatalogTestUtil.testTableId1);
-        Assert.assertTrue(table1.isPresent());
-        Assert.assertTrue(table1.get() instanceof OlapTable);
+        Assertions.assertTrue(table1.isPresent());
+        Assertions.assertTrue(table1.get() instanceof OlapTable);
         OlapTable olapTable1 = (OlapTable) table1.get();
 
         Optional<Table> table2 = db.getTable(CatalogTestUtil.testTableId2);
-        Assert.assertTrue(table2.isPresent());
-        Assert.assertTrue(table2.get() instanceof OlapTable);
+        Assertions.assertTrue(table2.isPresent());
+        Assertions.assertTrue(table2.get() instanceof OlapTable);
         OlapTable olapTable2 = (OlapTable) table2.get();
 
         db.unregisterTable(CatalogTestUtil.testTableId1);
@@ -922,9 +911,9 @@ public class CatalogRecycleBinTest {
         }
 
         executor.shutdown();
-        Assert.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+        Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
         for (Future<Boolean> f : futures) {
-            Assert.assertTrue(f.get());
+            Assertions.assertTrue(f.get());
         }
     }
 
@@ -988,10 +977,10 @@ public class CatalogRecycleBinTest {
             reader.join(30_000);
         }
 
-        Assert.assertFalse("Reader or writer thread encountered an error", readerError.get());
+        Assertions.assertFalse(readerError.get(), "Reader or writer thread encountered an error");
         // Verify all 100 partitions were recycled
         for (int i = 1; i <= 100; i++) {
-            Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
+            Assertions.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
                     CatalogTestUtil.testTableId1, 5000 + i));
         }
     }
@@ -1018,7 +1007,7 @@ public class CatalogRecycleBinTest {
         Set<Long> tableIds = Sets.newHashSet();
         Set<Long> partitionIds = Sets.newHashSet();
         recycleBin.getRecycleIds(dbIds, tableIds, partitionIds);
-        Assert.assertEquals(numPartitions, partitionIds.size());
+        Assertions.assertEquals(numPartitions, partitionIds.size());
 
         // Now run erase daemon which should process items one at a time
         // While erase is running, a concurrent recyclePartition should be able to
@@ -1048,13 +1037,12 @@ public class CatalogRecycleBinTest {
         }
 
         eraseThread.join(60_000);
-        Assert.assertFalse("Erase thread should have finished", eraseThread.isAlive());
+        Assertions.assertFalse(eraseThread.isAlive(), "Erase thread should have finished");
 
         // The new partition should have been recycled successfully
         if (eraseStarted.get()) {
-            Assert.assertTrue("recyclePartition should succeed during erase",
-                    recycleCompleted.get());
-            Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
+            Assertions.assertTrue(recycleCompleted.get(), "recyclePartition should succeed during erase");
+            Assertions.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
                     CatalogTestUtil.testTableId1, 9000));
         }
     }

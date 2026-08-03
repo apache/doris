@@ -267,7 +267,9 @@ struct StringRef {
 
     // ==
     bool eq(const StringRef& other) const {
-        return (size == other.size) && (memcmp(data, other.data, size) == 0);
+        // memcmp requires valid pointers even when size is 0, so short-circuit empty strings
+        // to avoid passing nullptr data of default-constructed StringRef to memcmp.
+        return (size == other.size) && (size == 0 || memcmp(data, other.data, size) == 0);
     }
 
     bool operator==(const StringRef& other) const { return eq(other); }

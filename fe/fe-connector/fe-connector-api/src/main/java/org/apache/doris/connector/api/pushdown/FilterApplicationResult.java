@@ -42,6 +42,25 @@ public final class FilterApplicationResult<T> {
         return handle;
     }
 
+    /**
+     * Returns the part of the filter the connector did NOT consume, or {@code null} to claim it consumed
+     * everything.
+     *
+     * <p><b>The engine only acts on {@code null}.</b> {@code PluginDrivenScanNode.convertPredicate} clears
+     * every conjunct when this is {@code null}, and removes NOTHING when it is non-null — matching residual
+     * sub-expressions back to individual conjuncts is not implemented, so returning "the half I could not
+     * push" earns no credit for the half that was pushed. The connector-side consequence is asymmetric:</p>
+     * <ul>
+     *   <li>non-{@code null} (what all shipped connectors return, usually the original expression): BE
+     *       re-evaluates the predicate, so a slightly WIDER pushdown is still correct.</li>
+     *   <li>{@code null}: nothing re-checks the rows. Claim it only when every conjunct was translated
+     *       EXACTLY — a wide pushdown now returns extra rows, a narrow one still loses them (see the package
+     *       javadoc, Rule 1 and Rule 5).</li>
+     * </ul>
+     *
+     * <p>Per-conjunct credit is available, but through the other protocol:
+     * {@code ConnectorScanPlanProvider.getScanNodePropertiesResult} reporting not-pushed conjunct indices.</p>
+     */
     public ConnectorExpression getRemainingFilter() {
         return remainingFilter;
     }

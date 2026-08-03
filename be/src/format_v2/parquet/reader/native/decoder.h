@@ -182,6 +182,12 @@ public:
                                               std::vector<uint32_t>* indices) override {
         DORIS_CHECK(indices != nullptr);
         const size_t num_dictionary_values = dictionary_size();
+        if (_is_fragmented_selection(selection)) {
+            RETURN_IF_ERROR(_decode_fragmented_selection(selection, num_dictionary_values));
+            indices->assign(_skip_indices.begin(),
+                            _skip_indices.begin() + selection.selected_values);
+            return Status::OK();
+        }
         indices->resize(selection.selected_values);
         size_t cursor = 0;
         size_t output = 0;
@@ -223,6 +229,10 @@ public:
     Status decode_selected_dictionary_values(const ParquetSelection& selection,
                                              ParquetDictionaryValueConsumer& consumer) override {
         const size_t num_dictionary_values = dictionary_size();
+        if (_is_fragmented_selection(selection)) {
+            RETURN_IF_ERROR(_decode_fragmented_selection(selection, num_dictionary_values));
+            return consumer.consume_indices(_skip_indices.data(), selection.selected_values);
+        }
         size_t cursor = 0;
         for (const auto& range : selection.ranges) {
             DORIS_CHECK(range.first >= cursor);
@@ -246,6 +256,57 @@ public:
     size_t active_scratch_bytes() const override { return _skip_indices.size() * sizeof(uint32_t); }
 
 protected:
+    static bool _is_fragmented_selection(const ParquetSelection& selection) {
+        constexpr size_t MIN_FRAGMENTED_RANGES = 8;
+        constexpr size_t MAX_AVERAGE_RANGE_VALUES = 4;
+        constexpr size_t MAX_DECODE_EXPANSION = 8;
+        return selection.ranges.size() >= MIN_FRAGMENTED_RANGES && selection.selected_values != 0 &&
+               selection.total_values / selection.selected_values <= MAX_DECODE_EXPANSION &&
+               selection.selected_values <= selection.ranges.size() * MAX_AVERAGE_RANGE_VALUES;
+    }
+
+    Status _decode_fragmented_selection(const ParquetSelection& selection,
+                                        size_t num_dictionary_values) {
+        // Decode and validate the page batch once when predicate survivors alternate in tiny runs.
+        // Walking each range separately turns one RLE batch into millions of decoder calls for
+        // low-cardinality predicates such as TPC-DS quantity buckets.
+        _skip_indices.resize(selection.total_values);
+        const auto decoded = _index_batch_decoder->GetBatch(
+                _skip_indices.data(), cast_set<uint32_t>(selection.total_values));
+        if (UNLIKELY(decoded != selection.total_values)) {
+            return Status::IOError("Can't read enough Parquet dictionary indices");
+        }
+        if (UNLIKELY(!dictionary_indices_in_bounds(_skip_indices.data(), selection.total_values,
+                                                   num_dictionary_values))) {
+            for (size_t row = 0; row < selection.total_values; ++row) {
+                if (_skip_indices[row] < num_dictionary_values) {
+                    continue;
+                }
+                return Status::Corruption(
+                        "Parquet dictionary index {} at row {} exceeds dictionary size {}",
+                        _skip_indices[row], row, num_dictionary_values);
+            }
+        }
+        size_t output = 0;
+        constexpr size_t MAX_INLINE_COPY_VALUES = 4;
+        for (const auto& range : selection.ranges) {
+            DORIS_CHECK(range.first + range.count <= selection.total_values);
+            // Alternating predicates mostly produce one-row spans; inline tiny forward copies so
+            // range compaction does not replace decoder calls with equally numerous libc calls.
+            if (range.count <= MAX_INLINE_COPY_VALUES) {
+                for (size_t row = 0; row < range.count; ++row) {
+                    _skip_indices[output + row] = _skip_indices[range.first + row];
+                }
+            } else {
+                memmove(_skip_indices.data() + output, _skip_indices.data() + range.first,
+                        range.count * sizeof(uint32_t));
+            }
+            output += range.count;
+        }
+        DORIS_CHECK_EQ(output, selection.selected_values);
+        return Status::OK();
+    }
+
     Status skip_values(size_t num_values) override {
         return _decode_and_validate_skipped(num_values, 0, dictionary_size());
     }

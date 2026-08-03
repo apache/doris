@@ -382,7 +382,6 @@ std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_pr
     // Collect per-column raw byte metadata from the segment footer for the columns
     // this iterator will actually output (defined by _schema, which is built from
     // _opts.return_columns).
-    std::vector<AdaptiveBlockSizePredictor::ColumnMetadata> col_metadata;
     uint32_t seg_rows = _segment->num_rows();
     uint64_t total_raw_bytes = 0;
     double metadata_hint_bytes_per_row = 0.0;
