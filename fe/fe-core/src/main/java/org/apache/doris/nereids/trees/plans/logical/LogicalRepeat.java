@@ -55,9 +55,9 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public static final int MAX_GROUPING_SETS_NUM = 64;
 
     private final List<List<Expression>> groupingSets;
+    private final Optional<List<Long>> groupingIdValues;
     private final List<NamedExpression> outputExpressions;
     private final Optional<SlotReference> groupingId;
-    private final Optional<List<Long>> groupingIdValues;
     private final boolean withInProjection;
     private final RepeatType type;
 
