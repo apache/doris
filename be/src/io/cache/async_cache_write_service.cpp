@@ -17,6 +17,7 @@
 
 #include "io/cache/async_cache_write_service.h"
 
+#include <algorithm>
 #include <exception>
 #include <limits>
 #include <optional>
@@ -85,6 +86,25 @@ private:
 };
 
 } // namespace
+
+Status resolve_async_file_cache_write_max_pending_bytes_per_disk(int64_t configured_bytes,
+                                                                 int64_t be_mem_limit,
+                                                                 size_t* resolved_bytes) {
+    DORIS_CHECK(resolved_bytes != nullptr);
+    if (configured_bytes > 0) {
+        *resolved_bytes = static_cast<size_t>(configured_bytes);
+        return Status::OK();
+    }
+    if (configured_bytes != -1) {
+        return Status::InvalidArgument(
+                "async file cache write pending byte limit must be positive or -1");
+    }
+
+    DORIS_CHECK(be_mem_limit > 0);
+    constexpr int64_t kMinimumAutoPendingBytes = 512LL * 1024 * 1024;
+    *resolved_bytes = static_cast<size_t>(std::max(kMinimumAutoPendingBytes, be_mem_limit / 100));
+    return Status::OK();
+}
 
 class AsyncCacheWriteService::Worker : public std::enable_shared_from_this<Worker> {
 public:

@@ -47,6 +47,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/mem_info.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -506,14 +507,13 @@ namespace doris::config {
 
 namespace {
 
-/// Capture all mutable async-write fields after a config update. Returning one complete value
-/// keeps every per-disk service on a coherent set of memory and worker settings.
-io::AsyncCacheWriteServiceOptions load_async_write_options_from_config() {
-    return io::AsyncCacheWriteServiceOptions {
-            .worker_count = static_cast<size_t>(async_file_cache_write_workers_per_disk),
-            .max_pending_bytes =
-                    static_cast<size_t>(async_file_cache_write_max_pending_bytes_per_disk),
-    };
+/// Capture all mutable async-write fields after a config update into one coherent snapshot.
+Status load_async_write_options_from_config(io::AsyncCacheWriteServiceOptions* options) {
+    DORIS_CHECK(options != nullptr);
+    options->worker_count = static_cast<size_t>(async_file_cache_write_workers_per_disk);
+    return io::resolve_async_file_cache_write_max_pending_bytes_per_disk(
+            async_file_cache_write_max_pending_bytes_per_disk, MemInfo::mem_limit(),
+            &options->max_pending_bytes);
 }
 
 /// Forward one changed config field through the explicit factory/service update interface.
@@ -529,7 +529,11 @@ void update_async_write_options(const char* config_name, T old_value, T new_valu
     if (factory == nullptr) {
         return;
     }
-    Status status = factory->update_async_write_options(load_async_write_options_from_config());
+    io::AsyncCacheWriteServiceOptions options;
+    Status status = load_async_write_options_from_config(&options);
+    if (status.ok()) {
+        status = factory->update_async_write_options(options);
+    }
     if (!status.ok()) {
         LOG(WARNING) << "Failed to apply async file cache write option " << config_name << " from "
                      << old_value << " to " << new_value << ": " << status.to_string();
