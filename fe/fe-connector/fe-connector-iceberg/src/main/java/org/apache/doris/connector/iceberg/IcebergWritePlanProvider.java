@@ -263,7 +263,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             return;
         }
         List<NestedField> currentColumns = table.schema().columns();
-        boolean hasSyntheticRowId = boundColumns.size() == currentColumns.size() + 1
+        boolean rowLevelWrite = writeOperation == WriteOperation.UPDATE || writeOperation == WriteOperation.MERGE;
+        boolean hasSyntheticRowId = rowLevelWrite && boundColumns.size() == currentColumns.size() + 1
                 && DORIS_ICEBERG_ROWID_COL.equals(boundColumns.get(boundColumns.size() - 1).getName());
         if (boundColumns.size() != currentColumns.size() && !hasSyntheticRowId) {
             throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry the "

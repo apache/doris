@@ -197,6 +197,29 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         Assertions.assertEquals(2, loadCount(ops), "a null (disabled) cache must re-enumerate every call");
     }
 
+    @Test
+    public void resolvedEmptyPartitionViewIgnoresConcurrentFirstAppend() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        PartitionSpec spec = PartitionSpec.builderFor(PARTITIONED_SCHEMA).day("ts").build();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), PARTITIONED_SCHEMA, spec);
+        IcebergTableHandle resolvedEmpty = handle().withSnapshot(-1L, null, table.schema().schemaId());
+
+        table.newAppend().appendFile(
+                dayFile(spec, "s3://b/db1/t1/concurrent.parquet", "ts_day=1970-04-11")).commit();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t1"));
+        IcebergConnectorMetadata md = metadataWithMvccCache(ops, null);
+
+        ConnectorMvccPartitionView view = md.getMvccPartitionView(null, resolvedEmpty).orElseThrow();
+
+        // Data rows and freshness must describe the same query-begin generation after the first append.
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.RANGE, view.getStyle());
+        Assertions.assertTrue(view.getPartitions().isEmpty());
+        Assertions.assertEquals(0L, view.getNewestUpdateMonotonicMarker());
+    }
+
     // ---------------------------------------------------------------------
     // listPartitions
     // ---------------------------------------------------------------------

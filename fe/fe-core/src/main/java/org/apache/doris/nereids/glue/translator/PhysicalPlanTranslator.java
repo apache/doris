@@ -680,12 +680,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<ConnectorColumn> boundTargetColumns = connectorTableSink.getBoundTargetSchema().stream()
                 .map(PhysicalPlanTranslator::toWriteConnectorColumn)
                 .collect(java.util.stream.Collectors.toList());
-        // Sort ordinals are consumed against the sink output. BindSink puts positional writes in
-        // bound-schema order (visible columns only for ordinary writes), while name-mapped writes keep
-        // user order. Preserve that coordinate space so partial/static INSERTs cannot sort another slot.
+        // Sort ordinals are consumed against the sink output. BindSink puts positional writes in physical
+        // bound-schema order, while name-mapped writes keep user order. Preserve that coordinate space so
+        // partial/static INSERTs cannot sort another slot.
         List<ConnectorColumn> boundOutputColumns = targetTable.requiresFullSchemaWriteOrder()
                 ? connectorTableSink.getBoundTargetSchema().stream()
-                        .filter(column -> connectorTableSink.isRewrite() || column.isVisible())
                         .map(PhysicalPlanTranslator::toWriteConnectorColumn)
                         .collect(java.util.stream.Collectors.toList())
                 : connectorColumns;

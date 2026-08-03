@@ -1850,7 +1850,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * remote PARTITIONS scan runs inside the FE-injected auth context.
      *
      * <p>The partition set + freshness are enumerated at the handle's pinned snapshot when present
-     * ({@code iceHandle.getSnapshotId() >= 0}), else the table's latest snapshot. The generic model (3/3) must
+     * ({@code iceHandle.getSnapshotId() >= 0}), remain empty for an explicitly resolved-empty handle, or else
+     * use the table's latest snapshot. The generic model (3/3) must
      * thread the query's pin onto the handle (via {@code applySnapshot} with {@code beginQuerySnapshot}'s
      * snapshot) before calling this, so the MTMV partition/freshness view stays consistent with the data-scan
      * pin — mirroring master, which routes enumeration, freshness and the scan through ONE snapshot cache value.</p>
@@ -1869,10 +1870,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // function of the pinned MVCC coordinate (a new snapshot/schema yields a new key, never a stale hit).
             // The lookup sits INSIDE executeAuthenticated so a miss runs the loader (resolveTableForRead + the
             // remote PARTITIONS build) under the FE-injected auth scope; a hit returns without any remote call. A
-            // null cache (session=user / no-cache catalog) computes directly every call. -1 (empty table / unpinned)
-            // enumerates the current snapshot and caches a trivially-empty view (harmless; REFRESH re-pins).
+            // null cache (session=user / no-cache catalog) computes directly every call. A resolved-empty -1
+            // bypasses cache A because its numeric key is otherwise indistinguishable from an unresolved latest
+            // read, even though only the former is a query-begin MVCC boundary.
             return context.executeAuthenticated(() -> {
-                if (mvccPartitionViewCache == null) {
+                if (mvccPartitionViewCache == null || iceHandle.isResolvedEmptySnapshot()) {
                     return Optional.of(buildMvccPartitionViewUncached(session, iceHandle));
                 }
                 ConnectorTableKey key = new ConnectorTableKey(iceHandle.getDbName(),
@@ -1895,6 +1897,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private ConnectorMvccPartitionView buildMvccPartitionViewUncached(
             ConnectorSession session, IcebergTableHandle iceHandle) {
         Table table = resolveTableForRead(session, iceHandle);
+        if (iceHandle.isResolvedEmptySnapshot()) {
+            // Data rows and partition freshness must describe the same query-begin generation; a concurrent
+            // first append may already be visible through this live Table object but not through the empty pin.
+            return IcebergPartitionUtils.buildResolvedEmptyMvccPartitionView(table);
+        }
         return IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId(),
                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }

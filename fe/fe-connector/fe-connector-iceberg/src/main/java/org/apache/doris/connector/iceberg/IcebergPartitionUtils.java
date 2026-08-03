@@ -534,6 +534,15 @@ final class IcebergPartitionUtils {
         return buildMvccPartitionView(table, pinnedSnapshotId, null, null);
     }
 
+    /** Builds the spec-derived style without consulting a snapshot committed after query begin. */
+    static ConnectorMvccPartitionView buildResolvedEmptyMvccPartitionView(Table table) {
+        if (!isValidRelatedTable(table)) {
+            return ConnectorMvccPartitionView.unpartitioned();
+        }
+        return new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
+                ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, Collections.emptyList(), 0L);
+    }
+
     /**
      * Cache-aware overload (PERF-02): {@code id} + {@code cache} route the PARTITIONS scan through the
      * per-catalog {@link IcebergPartitionCache} keyed by {@code (id, resolvedSnapshotId)}. {@code cache == null}

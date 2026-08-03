@@ -79,6 +79,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -597,6 +598,35 @@ public class IcebergWritePlanProviderTest {
                 "fv3 rewrite schema-json must include the row-lineage _row_id field (legacy appendRowLineageFieldsForV3)");
         Assertions.assertTrue(sink.getSchemaJson().contains("_last_updated_sequence_number"),
                 "fv3 rewrite schema-json must include the row-lineage _last_updated_sequence_number field");
+    }
+
+    @Test
+    public void planWriteRewriteRejectsRequestScopedRowLocatorForV2AndV3() {
+        assertRewriteRejectsRequestScopedRowLocator(unpartitionedUnsortedTable(freshCatalog()));
+        assertRewriteRejectsRequestScopedRowLocator(formatVersionThreeTable(freshCatalog()));
+    }
+
+    private static void assertRewriteRejectsRequestScopedRowLocator(Table table) {
+        RecordingConnectorContext context = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, context);
+        WriteSession session = sessionFor(table, context);
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1",
+                IcebergWriterHelper.getFormatVersion(table) >= 3 ? "tv3" : "t2");
+        List<ConnectorColumn> boundColumns = new ArrayList<>(boundDataColumns(table));
+        if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
+            boundColumns.add(new ConnectorColumn("_row_id", ConnectorType.of("BIGINT"), "", true, null)
+                    .invisible().reservedPassthrough());
+            boundColumns.add(new ConnectorColumn(
+                    "_last_updated_sequence_number", ConnectorType.of("BIGINT"), "", true, null)
+                    .invisible().reservedPassthrough());
+        }
+        boundColumns.add(provider.getSyntheticWriteColumns(session, tableHandle).get(0));
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planWrite(session, new WriteHandle(tableHandle)
+                        .boundTargetColumns(boundColumns)
+                        .writeOperation(WriteOperation.REWRITE)));
+        Assertions.assertTrue(exception.getMessage().contains("schema changed"));
     }
 
     @Test
