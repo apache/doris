@@ -222,6 +222,12 @@ private:
     std::condition_variable _queue_cv;
     // Learned from the first submission and protected by `_queue_mutex`.
     size_t _task_buffer_size {0};
+    // Pending covers all accepted tasks, while queued and active are its disjoint ownership states:
+    //   pending_count = queue.size() + active_task_count
+    //   pending_bytes = queued_bytes + active_bytes
+    // Byte state is maintained directly and is authoritative for memory admission. Production
+    // tasks currently have a fixed cache-block buffer capacity, including a partial EOF write, but
+    // byte accounting deliberately does not depend on deriving bytes from task counts.
     std::atomic<size_t> _pending_count {0};
     std::atomic<size_t> _pending_bytes {0};
     std::atomic<size_t> _queued_bytes {0};
