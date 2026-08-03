@@ -460,6 +460,23 @@ public class HiveConnectorTransactionTest {
     }
 
     @Test
+    public void testCommitRejectsBaseBeObjectStoreUpdateWithoutPendingUpload() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap());
+        HiveConnectorTransaction txn = newTxn(client);
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        // The base Azure BE reports the file but omits this field because initiation returned no upload ID.
+        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                Collections.singletonList("base-be-file"), 100, 4)));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+
+        Assertions.assertTrue(ex.getMessage().contains("multipart completion"), ex.getMessage());
+        Assertions.assertFalse(client.calls.stream().anyMatch(c -> c.startsWith("updateTableStatistics")),
+                "metadata must remain unchanged when the object is still uncommitted");
+    }
+
+    @Test
     public void testRollbackAbortsPendingMultipartUploads() throws TException {
         // rollback() is NOT a no-op for hive (D9): data files are staged before commit, so a rollback must
         // abort the in-flight object-store multipart uploads — otherwise they linger server-side (leaked /
@@ -503,15 +520,17 @@ public class HiveConnectorTransactionTest {
         // GAP-7: the 20-at-a-time batching moved INTO ThriftHmsClient.addPartitions, so the committer must
         // call addPartitions ONCE with the whole list (not re-batch it). GAP-4: the new partition's storage
         // descriptor (values/location/columns) is rebuilt from the table at commit time. A genuinely-new
-        // partition takes the ADD path; on FILE_S3 the write path == target path, so no rename/MPU runs and
-        // the object-store FileSystem is never resolved (hence newTxn, not newTxnWithFs).
+        // partition takes the ADD path; on FILE_S3 the write path == target path, so FE completes the deferred
+        // multipart upload before adding HMS metadata.
         RecordingHmsClient client = new RecordingHmsClient();
         client.table = table(true, Collections.emptyMap());
         client.partitionExistsResult = false;
-        HiveConnectorTransaction txn = newTxn(client);
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
         txn.beginWrite(null, DB, TBL, ctx(false));
-        txn.addCommitData(serialize(pu("dt=2024-01-01", TUpdateMode.NEW, "s3://bucket/db/t/dt=2024-01-01",
-                Collections.singletonList("f1"), 100, 4)));
+        txn.addCommitData(serialize(puWithMpu("dt=2024-01-01", TUpdateMode.NEW,
+                "s3://bucket/db/t/dt=2024-01-01", "bucket", "db/t/dt=2024-01-01/f1",
+                "upload-1", Collections.singletonMap(1, "etag-1"))));
 
         txn.commit();
         txn.close();

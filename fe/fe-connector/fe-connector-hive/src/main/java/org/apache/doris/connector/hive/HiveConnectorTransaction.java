@@ -288,6 +288,8 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
     }
 
     private void commitWhileTableLocked() {
+        // Object-store files remain unpublished until FE consumes one completion record per file.
+        validateObjectStoreCommitRecords();
         validateWriteMetadataBeforePublication();
         // The classification (finishInsertTable) ran from the executor in the legacy class; the unified SPI
         // exposes only commit(), so it runs here (before the committer) to populate the action maps. If it
@@ -434,6 +436,27 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
     private boolean isTargetTable(String dbName, String tableName) {
         return nameMapping.getRemoteDbName().equalsIgnoreCase(dbName)
                 && nameMapping.getRemoteTblName().equalsIgnoreCase(tableName);
+    }
+
+    private void validateObjectStoreCommitRecords() {
+        if (fileType != TFileType.FILE_S3) {
+            return;
+        }
+        for (THivePartitionUpdate update : hivePartitionUpdates) {
+            int fileCount = update.getFileNames() == null ? 0 : update.getFileNames().size();
+            List<TS3MPUPendingUpload> uploads = update.getS3MpuPendingUploads();
+            int uploadCount = uploads == null ? 0 : uploads.size();
+            boolean completeRecords = uploads != null && uploads.stream().allMatch(upload ->
+                    upload != null && upload.getUploadId() != null && !upload.getUploadId().isEmpty()
+                            && upload.getBucket() != null && !upload.getBucket().isEmpty()
+                            && upload.getKey() != null && !upload.getKey().isEmpty());
+            if (fileCount != uploadCount || (fileCount > 0 && !completeRecords)) {
+                throw new DorisConnectorException(String.format(
+                        "Object-store write reported %d file(s) but %d valid multipart completion record(s); "
+                                + "all backends must support deferred multipart completion before metadata commit",
+                        fileCount, completeRecords ? uploadCount : 0));
+            }
+        }
     }
 
     @Override

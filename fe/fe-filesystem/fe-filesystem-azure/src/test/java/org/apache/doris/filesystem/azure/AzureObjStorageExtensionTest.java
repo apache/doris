@@ -574,7 +574,7 @@ class AzureObjStorageExtensionTest {
     }
 
     @Test
-    void completeMultipartUpload_fallsBackForOlderBeWithoutBlockIds() throws Exception {
+    void completeMultipartUpload_rejectsOlderBeWithoutBlockIds() throws Exception {
         com.azure.storage.blob.specialized.BlockBlobClient blockClient =
                 Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
         BlobClient blobClient = Mockito.mock(BlobClient.class);
@@ -585,15 +585,15 @@ class AzureObjStorageExtensionTest {
         Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
         TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
 
-        storage.completeMultipartUpload(
+        Assertions.assertThrows(IOException.class, () -> storage.completeMultipartUpload(
                 "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
-                "legacy-upload-id", Collections.singletonList(new UploadPartResult(1, "")));
+                "legacy-upload-id", Collections.singletonList(new UploadPartResult(1, ""))));
 
-        Mockito.verify(blockClient).commitBlockList(Collections.singletonList("AQAAAA=="));
+        Mockito.verify(blockClient, Mockito.never()).commitBlockList(Mockito.anyList());
     }
 
     @Test
-    void completeMultipartUpload_usesLegacyNamespaceWhenAnyBlockIdIsMissing() throws Exception {
+    void completeMultipartUpload_rejectsMixedExactAndMissingBlockIds() throws Exception {
         com.azure.storage.blob.specialized.BlockBlobClient blockClient =
                 Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
         BlobClient blobClient = Mockito.mock(BlobClient.class);
@@ -604,14 +604,12 @@ class AzureObjStorageExtensionTest {
         Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
         TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
 
-        storage.completeMultipartUpload(
+        Assertions.assertThrows(IOException.class, () -> storage.completeMultipartUpload(
                 "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
                 "mixed-upload-id",
-                Arrays.asList(new UploadPartResult(1, "exact-id"), new UploadPartResult(2, "")));
+                Arrays.asList(new UploadPartResult(1, "exact-id"), new UploadPartResult(2, ""))));
 
-        Mockito.verify(blockClient).commitBlockList(Arrays.asList("AQAAAA==", "AgAAAA=="));
-        Mockito.verify(containerClient, Mockito.never()).getBlobClient(
-                "stage/blob.__doris_multipart/mixed-upload-id");
+        Mockito.verify(blockClient, Mockito.never()).commitBlockList(Mockito.anyList());
     }
 
     @Test

@@ -280,11 +280,13 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             List<String> blockIds = new ArrayList<>();
             List<UploadPartResult> sorted = new ArrayList<>(parts);
             sorted.sort((a, b) -> Integer.compare(a.partNumber(), b.partNumber()));
-            boolean exactBlockIds = !sorted.isEmpty() && sorted.stream()
-                    .allMatch(part -> part.etag() != null && !part.etag().isEmpty());
             for (UploadPartResult part : sorted) {
-                // Missing IDs identify an older BE upload, whose blocks use the legacy namespace.
-                blockIds.add(exactBlockIds ? part.etag() : toBlockId(part.partNumber()));
+                // Guessing a legacy ID cannot recover an old BE payload and can select another writer's block.
+                if (part.etag() == null || part.etag().isEmpty()) {
+                    throw new IOException("Azure multipart completion requires the exact staged block ID "
+                            + "for part " + part.partNumber());
+                }
+                blockIds.add(part.etag());
             }
             // Put Block List is the atomic publication point and does not expose a staging blob to scans.
             BlobClient blobClient = containerClient.getBlobClient(uri.key());

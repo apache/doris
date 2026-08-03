@@ -30,6 +30,8 @@ SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperato
 
 Status SpillIcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    // Admission samples async sorter state, so the next block must wait until the prior append publishes it.
+    _writer->wait_for_processing_before_next_sink();
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
 
