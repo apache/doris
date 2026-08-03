@@ -35,6 +35,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
+import org.apache.thrift.transport.TTransportException;
 
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -172,7 +173,7 @@ public class ResultReceiver {
                     try {
                         deserializer.deserialize(resultBatch, serialResult);
                     } catch (TException e) {
-                        if (e.getMessage().contains("MaxMessageSize reached")) {
+                        if (isMessageSizeExceeded(e)) {
                             throw new TException(
                                     "MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
                         } else {
@@ -207,6 +208,16 @@ public class ResultReceiver {
             status.updateStatus(runStatus.getErrorCode(), runStatus.getErrorMsg());
         }
         return rowBatch;
+    }
+
+    // Thrift 0.24 reports an exceeded max message size as MESSAGE_SIZE_LIMIT; older
+    // versions only carried the "MaxMessageSize reached" text on END_OF_FILE.
+    static boolean isMessageSizeExceeded(TException e) {
+        if (e instanceof TTransportException
+                && ((TTransportException) e).getType() == TTransportException.MESSAGE_SIZE_LIMIT) {
+            return true;
+        }
+        return e.getMessage() != null && e.getMessage().contains("MaxMessageSize reached");
     }
 
     public synchronized void cancel(Status reason) {
