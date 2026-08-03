@@ -55,10 +55,9 @@ permissions:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    # Every pre-finalization step has its own timeout. Their worst-case budget,
-    # including review/failure/status handling and best-effort cleanup, is 153
-    # minutes, leaving 12 minutes for runner setup and post-job cleanup.
-    timeout-minutes: 165
+    # Pre-finalization steps can use 153 minutes and auth sync can use 8 more,
+    # leaving 12 minutes for runner setup and post-job cleanup.
+    timeout-minutes: 173
     if: >-
       inputs.pr_number != '' ||
       (
@@ -215,6 +214,8 @@ jobs:
         id: auth
         timeout-minutes: 5
         run: |
+          set -o pipefail
+
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
@@ -953,6 +954,8 @@ jobs:
         if: ${{ always() && steps.auth.outcome == 'success' }}
         timeout-minutes: 8
         run: |
+          set -o pipefail
+
           if ! jq -e '
             .auth_mode == "chatgpt"
             and (.tokens.access_token | type == "string" and length > 0)
