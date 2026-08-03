@@ -237,9 +237,25 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
     private void validateBoundWriteColumns(Table table, ConnectorWriteHandle handle,
             WriteOperation writeOperation) {
+        List<ConnectorColumn> boundTargetColumns = handle.getBoundTargetColumns();
+        if (!boundTargetColumns.isEmpty()
+                && (writeOperation == WriteOperation.REWRITE
+                        || writeOperation == WriteOperation.UPDATE
+                        || writeOperation == WriteOperation.MERGE)) {
+            long boundLineageColumns = boundTargetColumns.stream()
+                    .filter(ConnectorColumn::isReservedPassthrough)
+                    .count();
+            long currentLineageColumns = IcebergWriterHelper.getFormatVersion(table) >= 3 ? 2 : 0;
+            // Format version changes the physical sink arity without changing table.schema(); the reserved
+            // columns are the bind-time witness that the output and v3 schema-json belong to one generation.
+            if (boundLineageColumns != currentLineageColumns) {
+                throw new DorisConnectorException(
+                        "Iceberg write metadata changed after the write was bound; retry the statement");
+            }
+        }
         // V3 row-lineage columns are engine-generated metadata, not fields in table.schema(). Excluding
         // their neutral marker keeps the comparison on the complete user schema for INSERT and MERGE.
-        List<ConnectorColumn> boundColumns = handle.getBoundTargetColumns().stream()
+        List<ConnectorColumn> boundColumns = boundTargetColumns.stream()
                 .filter(column -> !column.isReservedPassthrough())
                 .collect(Collectors.toList());
         if (writeOperation == WriteOperation.DELETE || boundColumns.isEmpty()) {
@@ -423,6 +439,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
     private static String writeMetadataIdentity(Table table) {
         StringBuilder identity = new StringBuilder();
+        appendMetadataToken(identity, "format");
+        appendMetadataToken(identity, IcebergWriterHelper.getFormatVersion(table));
         SortOrder sortOrder = table.sortOrder();
         appendMetadataToken(identity, "sort");
         appendMetadataToken(identity, sortOrder.orderId());

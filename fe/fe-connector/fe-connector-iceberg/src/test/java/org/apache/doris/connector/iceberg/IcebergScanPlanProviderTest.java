@@ -1442,6 +1442,26 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void streamSplitsResolvedEmptySnapshotIgnoresConcurrentFirstAppend() throws IOException {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergTableHandle emptyRead = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(-1L, null, table.schema().schemaId());
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+
+        Assertions.assertEquals(1, provider.streamingSplitEstimate(batchSession(1, true),
+                new IcebergTableHandle("db1", "t1"), Optional.empty(), false),
+                "the pre-pin batch decision must observe the concurrent first append");
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
+                emptyRead, Collections.emptyList(), Optional.empty(), -1L));
+        Assertions.assertTrue(ranges.isEmpty(),
+                "the post-pin streaming path must preserve the explicitly empty read boundary");
+    }
+
+    @Test
     public void planScanPinnedToTagReadsViaUseRefNotSnapshotId() {
         // The handle carries BOTH a ref (tag1 -> S1) AND the LATEST snapshot id (s2). The scan must pin by REF
         // (useRef), so it reads only f1. MUTATION: pinning by snapshotId (useSnapshot(s2)) -> reads both -> red.

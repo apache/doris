@@ -476,13 +476,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * a FIXED size ({@code file_split_size} if set, else {@code max_split_size} — NOT the per-table
      * {@link #determineTargetFileSplitSize} heuristic, which would force materializing every task), so
      * {@code planFiles()} streams without holding the full task list — the OOM protection. Bypasses the manifest
-     * cache (its planning materializes; legacy's lazy batch path only ran with the manifest cache off). Only
-     * called after {@link #streamingSplitEstimate} returned &ge; 0, so the snapshot/non-sys/v&lt;3 gates already hold.
+     * cache (its planning materializes; legacy's lazy batch path only ran with the manifest cache off). Usually
+     * called after {@link #streamingSplitEstimate} returned &ge; 0; because MVCC pinning happens afterward, this
+     * method must independently preserve an explicitly empty pinned snapshot.
      */
     @Override
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isResolvedEmptySnapshot()) {
+            // The batch decision is made before the engine pins MVCC; once pinned empty, streaming must
+            // preserve that boundary instead of interpreting Iceberg's sentinel as the latest snapshot.
+            return emptySplitSource();
+        }
         Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
         int formatVersion = getFormatVersion(table);
@@ -498,6 +504,24 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(scan, session, table, filter, sliceSize);
         return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
                 orderedPartitionKeys, zone, uriNormalizer, sliceSize, iceHandle.getRewriteFileScope());
+    }
+
+    private static ConnectorSplitSource emptySplitSource() {
+        return new ConnectorSplitSource() {
+            @Override
+            public boolean hasNext() {
+                return false;
+            }
+
+            @Override
+            public ConnectorScanRange next() {
+                throw new NoSuchElementException();
+            }
+
+            @Override
+            public void close() {
+            }
+        };
     }
 
     /**

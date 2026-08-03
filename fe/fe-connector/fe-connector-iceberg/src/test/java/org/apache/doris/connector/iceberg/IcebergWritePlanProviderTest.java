@@ -1001,6 +1001,73 @@ public class IcebergWritePlanProviderTest {
                 "a post-bind partition-field rename must fail before the stale static spec reaches commit");
     }
 
+    @Test
+    public void writeMetadataIdentityChangesWithFormatVersion() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        RecordingConnectorContext ctx = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, ctx);
+        WriteSession session = sessionFor(table, ctx);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t2");
+        String v2Identity = provider.getWriteMetadataIdentity(session, handle);
+
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "3").commit();
+
+        Assertions.assertNotEquals(v2Identity, provider.getWriteMetadataIdentity(session, handle),
+                "format version changes the physical write schema and must change the generation fence");
+    }
+
+    @Test
+    public void planRewriteRejectsV2BoundSchemaAtV3Planning() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        List<ConnectorColumn> v2BoundSchema = boundDataColumns(table);
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "3").commit();
+        RecordingConnectorContext ctx = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, ctx);
+        WriteSession session = sessionFor(table, ctx);
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planWrite(session, new WriteHandle(tableHandle)
+                        .boundTargetColumns(v2BoundSchema)
+                        .boundWriteMetadataIdentity(provider.getWriteMetadataIdentity(session, tableHandle))
+                        .writeOperation(WriteOperation.REWRITE)));
+        Assertions.assertTrue(ex.getMessage().contains("write metadata changed"),
+                "a v3 rewrite sink must not consume output bound without row-lineage columns");
+    }
+
+    @Test
+    public void planMergeRejectsV2BoundSchemaAtV3Planning() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        RecordingConnectorContext ctx = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, ctx);
+        WriteSession session = sessionFor(table, ctx);
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
+        List<ConnectorColumn> v2DataColumns = boundDataColumns(table);
+        List<ConnectorColumn> v2BoundSchemaWithRowId = Arrays.asList(
+                v2DataColumns.get(0), v2DataColumns.get(1),
+                provider.getSyntheticWriteColumns(session, tableHandle).get(0));
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "3").commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planWrite(session, new WriteHandle(tableHandle)
+                        .boundTargetColumns(v2BoundSchemaWithRowId)
+                        .boundWriteMetadataIdentity(provider.getWriteMetadataIdentity(session, tableHandle))
+                        .writeOperation(WriteOperation.MERGE)));
+        Assertions.assertTrue(ex.getMessage().contains("write metadata changed"),
+                "a v3 merge sink must not advertise lineage columns absent from the bound output");
+    }
+
+    private static List<ConnectorColumn> boundDataColumns(Table table) {
+        return Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, null)
+                        .withUniqueId(table.schema().findField("id").fieldId()),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
+                        .withUniqueId(table.schema().findField("name").fieldId()));
+    }
+
     // ───────────────────────────── getWritePartitioning (connector declares, ② C3b-core) ─────────────────────────────
     //
     // WHY: post-flip the iceberg merge-write distribution (DistributionSpecMerge) is built fe-core-side, but
