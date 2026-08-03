@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.fluss.types.DataType;
+import org.apache.fluss.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -39,9 +41,12 @@ public class FlussTableHandleTest {
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put("table.datalake.enabled", "true");
         properties.put("table.datalake.paimon.warehouse", "/tmp/lake");
+        Map<String, DataType> keyTypes = new LinkedHashMap<>();
+        keyTypes.put("dt", DataTypes.STRING());
+        keyTypes.put("id", DataTypes.INT());
         return new FlussTableHandle("db", tableName, tableId, schemaId, true,
                 Arrays.asList("dt", "id"), Collections.singletonList("id"), 4,
-                Collections.singletonList("dt"), true, "paimon", properties);
+                Collections.singletonList("dt"), true, "paimon", properties, keyTypes);
     }
 
     @Test
@@ -64,7 +69,22 @@ public class FlussTableHandleTest {
         Assertions.assertTrue(restored.isDataLakeEnabled());
         Assertions.assertEquals("paimon", restored.getDataLakeFormat());
         Assertions.assertEquals("/tmp/lake", restored.getProperties().get("table.datalake.paimon.warehouse"));
+        // The key column types decide whether the table can be read as its lake plus its log at all, and
+        // they are the one part of the schema the handle carries, so they have to survive the trip too.
+        Assertions.assertEquals(DataTypes.INT(), restored.getKeyColumnTypes().get("id"));
+        Assertions.assertEquals(DataTypes.STRING(), restored.getKeyColumnTypes().get("dt"));
         Assertions.assertEquals(handle("pk_table", 7L, 3), restored);
+    }
+
+    /**
+     * A bucket's rows are keyed by the primary key MINUS the partition columns: a bucket lives inside one
+     * partition, so the partition columns are the same for every row in it and carrying them would make
+     * the key wider than it is. Order follows the primary key's own.
+     */
+    @Test
+    public void physicalPrimaryKeyDropsThePartitionColumns() {
+        Assertions.assertEquals(Collections.singletonList("id"),
+                handle("t", 1L, 1).getPhysicalPrimaryKeys());
     }
 
     @Test

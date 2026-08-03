@@ -156,6 +156,37 @@ final class RecordingLakeSibling implements Connector {
     static final class LakeRange implements ConnectorScanRange {
         private static final long serialVersionUID = 1L;
 
+        /** What the paimon connector calls the bucket a split holds; the cross-connector contract. */
+        static final String BUCKET_PROPERTY = "paimon.bucket";
+
+        private final Map<String, String> properties;
+        private final Map<String, String> partitionValues;
+
+        LakeRange() {
+            this(Collections.emptyMap(), Collections.emptyMap());
+        }
+
+        private LakeRange(Map<String, String> properties, Map<String, String> partitionValues) {
+            this.properties = properties;
+            this.partitionValues = partitionValues;
+        }
+
+        /** A split of {@code bucket} of an unpartitioned table. */
+        static LakeRange inBucket(int bucket) {
+            return inBucket(bucket, Collections.emptyMap());
+        }
+
+        /** A split of {@code bucket} of the partition with these values. */
+        static LakeRange inBucket(int bucket, Map<String, String> partitionValues) {
+            return new LakeRange(
+                    Collections.singletonMap(BUCKET_PROPERTY, String.valueOf(bucket)), partitionValues);
+        }
+
+        /** A split that does not say which bucket it holds — what an older paimon plugin produces. */
+        static LakeRange withoutABucket() {
+            return new LakeRange();
+        }
+
         @Override
         public String getTableFormatType() {
             return "paimon";
@@ -163,7 +194,17 @@ final class RecordingLakeSibling implements Connector {
 
         @Override
         public Map<String, String> getProperties() {
-            return Collections.emptyMap();
+            return properties;
+        }
+
+        @Override
+        public Map<String, String> getPartitionValues() {
+            return partitionValues;
+        }
+
+        @Override
+        public String toString() {
+            return "LakeRange" + properties + partitionValues;
         }
     }
 

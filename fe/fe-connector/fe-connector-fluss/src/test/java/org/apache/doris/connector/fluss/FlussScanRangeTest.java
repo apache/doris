@@ -29,7 +29,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -104,56 +103,37 @@ public class FlussScanRangeTest {
         Assertions.assertEquals("-2", range.getProperties().get("fluss.log_start_offset"));
     }
 
+    /**
+     * A tail range is a log range in everything but name — same offsets, same keys — and that is the
+     * point: what differs is how the scanner treats what it reads (replay by key rather than row by row),
+     * which is exactly what the range type says. Carrying a kv snapshot id would be the bug: the rows
+     * before the tail come from the lake, not from a snapshot.
+     */
     @Test
-    public void unionPkRangeCarriesLakeSplitsButNoKvSnapshot() {
-        FlussScanRange range = FlussScanRange.unionPk(DT_20260101, 2, 41L,
-                Arrays.asList("c3BsaXQtMQ==", "c3BsaXQtMg=="), 300L, 305L);
+    public void tailRangeCarriesTheLogWindowAndNoKvSnapshot() {
+        FlussScanRange range = FlussScanRange.pkTail(DT_20260101, 2, 300L, 305L);
 
         Map<String, String> expected = new LinkedHashMap<>();
-        expected.put("fluss.range_type", "UNION_PK");
+        expected.put("fluss.range_type", "PK_TAIL");
         expected.put("fluss.partition_id", "77");
         expected.put("fluss.partition_name", "dt=20260101");
         expected.put("fluss.bucket_id", "2");
         expected.put("fluss.log_start_offset", "300");
         expected.put("fluss.log_stop_offset", "305");
-        expected.put("fluss.lake_snapshot_id", "41");
-        expected.put("fluss.lake_splits", "c3BsaXQtMQ==,c3BsaXQtMg==");
         Assertions.assertEquals(expected, range.getProperties());
     }
 
     /**
-     * The lake splits ride in one string, comma separated, which is only unambiguous because base64
-     * has no comma. This pins the premise rather than assuming it: every byte value, encoded, must
-     * stay comma-free.
+     * An empty tail must not become a range. The bucket it would describe is one the lake already holds
+     * entirely, and planning says so by not producing a range at all; one that got here would mean the
+     * lake half and the fluss half were bounded by different offsets, which is how rows get lost.
      */
     @Test
-    public void base64NeverContainsTheLakeSplitSeparator() {
-        byte[] allBytes = new byte[256];
-        for (int i = 0; i < 256; i++) {
-            allBytes[i] = (byte) i;
-        }
-        for (int start = 0; start < 256; start++) {
-            String encoded = Base64.getEncoder()
-                    .encodeToString(Arrays.copyOfRange(allBytes, start, 256));
-            Assertions.assertFalse(encoded.contains(","),
-                    "base64 of bytes " + start + ".. contains a comma: " + encoded);
-        }
-    }
-
-    /** A split that could be mis-split on the scanner side must fail here, not read half a split there. */
-    @Test
-    public void lakeSplitContainingTheSeparatorIsRejected() {
-        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> FlussScanRange.unionPk(DT_20260101, 0, 1L,
-                        Arrays.asList("ok", "not,base64"), 0L, 1L));
-        Assertions.assertTrue(e.getMessage().contains("not,base64"), e.getMessage());
-    }
-
-    /** A union range with nothing from the lake is a plain log read; producing one would double-read. */
-    @Test
-    public void unionPkWithoutLakeSplitsIsRejected() {
+    public void emptyTailRangeIsRejected() {
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> FlussScanRange.unionPk(DT_20260101, 0, 1L, Collections.emptyList(), 0L, 1L));
+                () -> FlussScanRange.pkTail(DT_20260101, 0, 5L, 5L));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> FlussScanRange.pkTail(DT_20260101, 0, 6L, 5L));
     }
 
     @Test
@@ -246,8 +226,7 @@ public class FlussScanRangeTest {
     public void rangeSurvivesJavaSerialization() throws Exception {
         for (FlussScanRange original : Arrays.asList(
                 FlussScanRange.log(FlussScanRange.Partition.NONE, 3, 10L, 42L),
-                FlussScanRange.unionPk(DT_20260101, 2, 41L,
-                        Collections.singletonList("c3BsaXQ="), 300L, 305L))) {
+                FlussScanRange.pkTail(DT_20260101, 2, 300L, 305L))) {
             FlussScanRange restored = roundTrip(original);
 
             Assertions.assertEquals(original.getProperties(), restored.getProperties());
@@ -316,8 +295,7 @@ public class FlussScanRangeTest {
         List<FlussScanRange> ranges = Arrays.asList(
                 FlussScanRange.log(FlussScanRange.Partition.NONE, 0, 0L, 1L),
                 FlussScanRange.pkFull(DT_20260101, 0, 1L, 0L, 1L),
-                FlussScanRange.unionPk(DT_20260101, 0, 1L,
-                        Collections.singletonList("c3BsaXQ="), 0L, 1L));
+                FlussScanRange.pkTail(DT_20260101, 0, 0L, 1L));
         for (FlussScanRange range : ranges) {
             Assertions.assertThrows(UnsupportedOperationException.class,
                     () -> range.getProperties().put("fluss.bucket_id", "999"));

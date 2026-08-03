@@ -483,11 +483,13 @@ struct TTableFormatFileDesc {
     //       adbc.<option> passthrough, and either query_sql or partition_b64.
     // The partition descriptor is opaque binary, so it travels base64-encoded.
     14: optional map<string, string> adbc_params
-    // Fluss per-split parameters (used when table_format_type == "fluss").
-    // Carries ONLY what varies per split: partition/bucket identity, range type, log offsets,
-    // kv/lake snapshot ids and lake splits. Everything constant for the whole scan (bootstrap
-    // servers, table identity, client/table options) lives in TFileScanRangeParams.fluss_properties
-    // so it is not re-serialized once per bucket.
+    // Fluss per-split parameters (used when table_format_type is "fluss" or "fluss_union").
+    // Carries ONLY what varies per split: partition/bucket identity, range type, log offsets and
+    // the kv snapshot id; a "fluss_union" split is a lake split of another connector wrapped in a
+    // description of the log tail that suppresses its rows, so it carries that tail here and keeps
+    // the wrapped connector's own params untouched. Everything constant for the whole scan
+    // (bootstrap servers, table identity, client/table options) lives in
+    // TFileScanRangeParams.fluss_properties so it is not re-serialized once per bucket.
     // Untyped on purpose: BE C++ holds no fluss logic, it hands this map straight to the Java
     // scanner, so a typed struct would only add a transcription step (see es_params, jdbc_params).
     15: optional map<string, string> fluss_params
