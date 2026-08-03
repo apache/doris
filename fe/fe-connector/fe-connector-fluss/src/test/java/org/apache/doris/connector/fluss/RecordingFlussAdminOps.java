@@ -63,6 +63,13 @@ class RecordingFlussAdminOps implements FlussAdminOps {
      */
     final Map<String, Map<Integer, Long>> latestOffsetsByPartition = new HashMap<>();
     /**
+     * Earliest log offset per bucket, keyed the same way — how far back fluss can still serve. Kept apart
+     * from the latest offsets rather than sharing one map: a union read of a primary-key table asks for
+     * both, and a fixture that answered the same numbers to both questions would make the guard that
+     * compares them ("is the tail still there?") pass no matter what it was given.
+     */
+    final Map<String, Map<Integer, Long>> earliestOffsetsByPartition = new HashMap<>();
+    /**
      * Latest kv snapshot per bucket, keyed by fluss's own partition name ({@code null} for an
      * unpartitioned table) — where primary-key planning starts each bucket's change log.
      */
@@ -189,9 +196,13 @@ class RecordingFlussAdminOps implements FlussAdminOps {
             Collection<Integer> buckets, OffsetSpec offsetSpec) {
         calls.add("listOffsets(" + tablePath + (partitionName == null ? "" : ", " + partitionName)
                 + ", " + buckets + ", " + offsetSpec.getClass().getSimpleName() + ")");
-        Map<Integer, Long> offsets = latestOffsetsByPartition.get(partitionName);
+        boolean earliest = offsetSpec instanceof OffsetSpec.EarliestSpec;
+        Map<Integer, Long> offsets = earliest
+                ? earliestOffsetsByPartition.get(partitionName)
+                : latestOffsetsByPartition.get(partitionName);
         if (offsets == null) {
-            throw new IllegalStateException("no offsets programmed for partition '" + partitionName + "'");
+            throw new IllegalStateException("no " + (earliest ? "earliest" : "latest")
+                    + " offsets programmed for partition '" + partitionName + "'");
         }
         return offsets;
     }

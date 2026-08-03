@@ -53,14 +53,24 @@ public class FlussScanRange implements ConnectorScanRange {
 
     private static final long serialVersionUID = 1L;
 
-    /** How the scanner reads this range; the wire value is the enum name. */
+    /**
+     * How the scanner reads this range; the wire value is the enum name.
+     *
+     * <p>These are the kinds the java scanner reads. A union read of a primary-key table puts one more
+     * value on the wire — the suppression descriptor that rides along with a LAKE split, see
+     * {@link FlussSuppressedLakeRange} — which never reaches the scanner: BE's C++ side reads it to
+     * build the key set that hides superseded lake rows.
+     */
     public enum RangeType {
         /** Log-only read of one bucket over {@code [logStart, logStop)}. */
         LOG,
         /** Full read of one bucket of a primary-key table: kv snapshot plus the log after it. */
         PK_FULL,
-        /** Primary-key read merging the lake's splits for one bucket with the log tail after them. */
-        UNION_PK
+        /**
+         * The log tail of one bucket of a primary-key table, replayed by key into the state it ended in.
+         * The rows before it are the lake's; this range contributes only what the lake does not hold yet.
+         */
+        PK_TAIL
     }
 
     public static final String PROP_RANGE_TYPE = "fluss.range_type";
@@ -70,18 +80,9 @@ public class FlussScanRange implements ConnectorScanRange {
     public static final String PROP_LOG_START_OFFSET = "fluss.log_start_offset";
     public static final String PROP_LOG_STOP_OFFSET = "fluss.log_stop_offset";
     public static final String PROP_KV_SNAPSHOT_ID = "fluss.kv_snapshot_id";
-    public static final String PROP_LAKE_SNAPSHOT_ID = "fluss.lake_snapshot_id";
-    public static final String PROP_LAKE_SPLITS = "fluss.lake_splits";
 
     /** {@code kv_snapshot_id} for a bucket that has never been snapshotted. */
     public static final long NO_KV_SNAPSHOT = -1L;
-
-    /**
-     * Separator for {@link #PROP_LAKE_SPLITS}. Each element is base64, whose alphabet
-     * ({@code A-Za-z0-9+/=}) has no comma, so joining is unambiguous. The factory rejects any element
-     * that contains one rather than trusting the caller.
-     */
-    private static final String LAKE_SPLIT_SEPARATOR = ",";
 
     private final RangeType rangeType;
     private final Partition partition;
@@ -123,30 +124,24 @@ public class FlussScanRange implements ConnectorScanRange {
     }
 
     /**
-     * A union primary-key range: this bucket's splits of lake snapshot {@code lakeSnapshotId}, merged
-     * with the log from {@code logStartOffset} (where that lake snapshot ended, exclusive) up to
-     * {@code logStopOffset}. Each element of {@code lakeSplits} is a base64-encoded serialized lake
-     * split.
+     * The log tail of one bucket of a primary-key table: the change log over
+     * {@code [logStartOffset, logStopOffset)}, which the scanner replays by key and returns as the state
+     * that range ended in. {@code logStartOffset} is where the lake snapshot this tail follows left off,
+     * so the lake half holds everything before it.
+     *
+     * <p>An empty range is refused rather than planned: a bucket whose lake has caught up with its log
+     * contributes nothing, and the caller decides that by not planning a range at all. Reaching here
+     * with one would mean the two halves were bounded by different offsets.
      */
-    public static FlussScanRange unionPk(Partition partition, int bucketId, long lakeSnapshotId,
-            List<String> lakeSplits, long logStartOffset, long logStopOffset) {
-        Objects.requireNonNull(lakeSplits, "lakeSplits");
-        if (lakeSplits.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "a UNION_PK range needs at least one lake split; a bucket with none is a plain log read");
+    public static FlussScanRange pkTail(Partition partition, int bucketId,
+            long logStartOffset, long logStopOffset) {
+        if (logStartOffset >= logStopOffset) {
+            throw new IllegalArgumentException("a PK_TAIL range must read something, but bucket " + bucketId
+                    + " was given [" + logStartOffset + ", " + logStopOffset + ")");
         }
-        for (String split : lakeSplits) {
-            if (split == null || split.contains(LAKE_SPLIT_SEPARATOR)) {
-                // Would silently split one entry into two on the scanner side.
-                throw new IllegalArgumentException(
-                        "lake split is not base64 (null or contains '" + LAKE_SPLIT_SEPARATOR + "'): " + split);
-            }
-        }
-        Map<String, String> props = baseProps(RangeType.UNION_PK, partition, bucketId,
+        Map<String, String> props = baseProps(RangeType.PK_TAIL, partition, bucketId,
                 logStartOffset, logStopOffset);
-        props.put(PROP_LAKE_SNAPSHOT_ID, String.valueOf(lakeSnapshotId));
-        props.put(PROP_LAKE_SPLITS, String.join(LAKE_SPLIT_SEPARATOR, lakeSplits));
-        return new FlussScanRange(RangeType.UNION_PK, partition, bucketId, props);
+        return new FlussScanRange(RangeType.PK_TAIL, partition, bucketId, props);
     }
 
     private static Map<String, String> baseProps(RangeType rangeType, Partition partition,
