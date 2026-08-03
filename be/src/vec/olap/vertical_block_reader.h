@@ -45,11 +45,13 @@ struct RowsetId;
 namespace vectorized {
 class RowSourcesBuffer;
 struct RowBatch;
+struct VerticalCompactionContextStats;
 
 class VerticalBlockReader final : public TabletReader {
 public:
-    VerticalBlockReader(RowSourcesBuffer* row_sources_buffer)
-            : _row_sources_buffer(row_sources_buffer) {
+    VerticalBlockReader(RowSourcesBuffer* row_sources_buffer,
+                        VerticalCompactionContextStats* context_stats = nullptr)
+            : _row_sources_buffer(row_sources_buffer), _context_stats(context_stats) {
         _id = nextId++;
     }
 
@@ -114,6 +116,7 @@ private:
     Status (VerticalBlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
 
     RowSourcesBuffer* _row_sources_buffer;
+    VerticalCompactionContextStats* _context_stats;
     ColumnPtr _delete_filter_column;
 
     // for agg mode
