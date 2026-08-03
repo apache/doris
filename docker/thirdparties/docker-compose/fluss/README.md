@@ -103,7 +103,7 @@ The fixtures recreate database `fluss_test` from scratch on every start:
 | `lake_cold` | lake table read entirely from the lake — no log tail at all |
 | `lake_types` | lake table with the full type coverage; non-NULL rows tiered, the all-NULL row in the log |
 | `lake_part` | lake table partitioned by `dt`; only `20260101` has a log tail |
-| `lake_pk` | primary-key lake table — union read is not implemented for it, so it pins the refusal |
+| `lake_pk` | primary-key lake table; its tail updates one tiered row, deletes another and adds a key the lake never saw |
 
 ### Lake tables are frozen half in, half out
 
