@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
@@ -24,6 +25,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -47,6 +49,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * Fluss metadata for one statement: a thin mapping from the connector SPI onto {@link FlussAdminOps}.
@@ -57,6 +60,24 @@ import java.util.Optional;
  * <p>Every method that needs the table's schema goes through {@link #tableInfo}, which memoizes the
  * fetch for the statement — the handle, the schema, the column handles and (later) split planning
  * therefore see one coherent version of the table for one round trip.
+ *
+ * <p>It is also the <b>gateway</b> for lake tables: a datalake-enabled table exposes a {@code lake} system
+ * table, so {@code tbl$lake} resolves to a handle made by the embedded paimon sibling and every later
+ * per-handle call is forwarded to that sibling's metadata. Those forwards are the guarded methods below;
+ * each one first asks {@link #siblingOwner} whether the handle is foreign, and only then falls through to
+ * fluss's own implementation. A guard that is missing would not degrade gracefully — fluss's body casts to
+ * {@link FlussTableHandle} and would throw {@link ClassCastException} on a paimon handle. <b>Every method
+ * that performs that cast is guarded; a new one must be too.</b>
+ *
+ * <p>The methods this connector does NOT implement are deliberately left unguarded: they inherit the SPI's
+ * neutral defaults, so a lake handle reaching them is answered "not supported" rather than crashing. That
+ * costs the lake table paimon's MVCC pin and time travel, and the reason is structural rather than an
+ * oversight: fe-core picks a table's MVCC-capable class from the FRONT DOOR connector's capabilities
+ * ({@code SUPPORTS_MVCC_SNAPSHOT}), which fluss does not declare, so the engine never asks for a pin on a
+ * fluss catalog's table — forwarding those calls today would be unreachable code. Schema and data stay
+ * consistent (both read latest). Should fluss ever declare that capability, add forwards for
+ * {@code beginQuerySnapshot} / {@code resolveTimeTravel} / {@code applySnapshot} and the snapshot overloads
+ * of {@code getTableSchema} / {@code getTableStatistics} in the same breath.
  */
 public class FlussConnectorMetadata implements ConnectorMetadata {
 
@@ -65,12 +86,41 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     /** What {@code getTableSchema} reports as the table's format; surfaces in DESCRIBE / EXPLAIN. */
     private static final String TABLE_FORMAT_TYPE = "FLUSS";
 
+    /**
+     * The system-table name that reads a datalake table's lake side, i.e. {@code tbl$lake}. Matches the
+     * suffix fluss's own Flink catalog uses ({@code FlinkCatalog.LAKE_TABLE_SPLITTER = "$lake"}); the
+     * engine supplies the {@code $}.
+     */
+    private static final String LAKE_SYS_TABLE = "lake";
+
+    /** The only lake format that can be delegated today; fluss also defines iceberg / lance / hudi. */
+    private static final String PAIMON_LAKE_FORMAT = "paimon";
+
     private final FlussAdminOps adminOps;
     private final FlussTypeMapping.Options typeMappingOptions;
+    private final Function<Map<String, String>, Connector> lakeSiblingFactory;
+    private final Function<ConnectorTableHandle, Connector> siblingOwner;
 
-    public FlussConnectorMetadata(FlussAdminOps adminOps, FlussTypeMapping.Options typeMappingOptions) {
+    public FlussConnectorMetadata(FlussAdminOps adminOps, FlussTypeMapping.Options typeMappingOptions,
+            Function<Map<String, String>, Connector> lakeSiblingFactory,
+            Function<ConnectorTableHandle, Connector> siblingOwner) {
         this.adminOps = adminOps;
         this.typeMappingOptions = typeMappingOptions;
+        this.lakeSiblingFactory = lakeSiblingFactory;
+        this.siblingOwner = siblingOwner;
+    }
+
+    /**
+     * Obtains the lake sibling's metadata through the per-statement funnel: the first forward in a statement
+     * builds it and every later one reuses that instance, mirroring what fe-core's own metadata funnel does
+     * for a plain connector. The key carries the catalog id and the owner role because a fluss catalog runs
+     * two connectors (itself and the paimon sibling) under ONE catalog id — keying on the id alone would
+     * collapse them onto one metadata and misroute every call. Only SPI types are touched here, and neither
+     * the returned metadata nor any handle it produces may be cast (cross-loader {@code CCE}).
+     */
+    private ConnectorMetadata siblingMetadata(ConnectorSession session, Connector sibling) {
+        String key = "metadata:" + session.getCatalogId() + ":" + LAKE_SYS_TABLE;
+        return session.getStatementScope().getOrCreateMetadata(key, () -> sibling.getMetadata(session));
     }
 
     @Override
@@ -107,8 +157,99 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         }
     }
 
+    /**
+     * Reports the {@code lake} system table for a table that has a lake side, so {@code tbl$lake} resolves.
+     *
+     * <p>Gated on {@code table.datalake.enabled} alone, not on the lake FORMAT: a table with an unsupported
+     * lake format still advertises {@code $lake} so that reading it produces
+     * {@link #getSysTableHandle}'s precise "this format is not supported" error rather than fe-core's
+     * generic "no such table". A table with no lake at all advertises nothing — announcing a sub-table that
+     * can only fail would be worse than not offering it.
+     */
+    @Override
+    public List<String> listSupportedSysTables(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle) {
+        Connector owner = siblingOwner.apply(baseTableHandle);
+        if (owner != null) {
+            return siblingMetadata(session, owner).listSupportedSysTables(session, baseTableHandle);
+        }
+        FlussTableHandle flussHandle = (FlussTableHandle) baseTableHandle;
+        return flussHandle.isDataLakeEnabled()
+                ? Collections.singletonList(LAKE_SYS_TABLE)
+                : Collections.emptyList();
+    }
+
+    /**
+     * Resolves {@code tbl$lake} to the paimon sibling's handle for the same {@code db.table} name — which is
+     * the name fluss's tiering service writes the lake table under. From here on the table IS a paimon
+     * table: the engine routes its scan by handle to the sibling's plan provider, and this metadata's
+     * guarded methods forward the rest.
+     *
+     * <p>The sibling is configured from THIS table's properties, where the fluss coordinator puts the
+     * cluster's lake settings; see {@link PaimonSiblingProperties}.
+     */
+    @Override
+    public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        Connector owner = siblingOwner.apply(baseTableHandle);
+        if (owner != null) {
+            return siblingMetadata(session, owner).getSysTableHandle(session, baseTableHandle, sysName);
+        }
+        if (!LAKE_SYS_TABLE.equals(sysName)) {
+            return Optional.empty();
+        }
+
+        FlussTableHandle flussHandle = (FlussTableHandle) baseTableHandle;
+        // Re-checked rather than assumed from listSupportedSysTables: discovery and resolution are two
+        // round trips, and the table could have had its lake turned off in between.
+        if (!flussHandle.isDataLakeEnabled()) {
+            throw new DorisConnectorException("Table '" + flussHandle.getDatabaseName() + "."
+                    + flussHandle.getTableName() + "' has no lake table: it is not created with"
+                    + " table.datalake.enabled = true");
+        }
+        String lakeFormat = flussHandle.getDataLakeFormat();
+        if (lakeFormat == null || !PAIMON_LAKE_FORMAT.equalsIgnoreCase(lakeFormat)) {
+            throw new DorisConnectorException("Cannot read the lake table of '"
+                    + flussHandle.getDatabaseName() + "." + flussHandle.getTableName()
+                    + "': its table.datalake.format is '" + lakeFormat
+                    + "', and the fluss connector currently supports only '" + PAIMON_LAKE_FORMAT + "'");
+        }
+
+        Connector sibling = lakeSiblingFactory.apply(
+                PaimonSiblingProperties.synthesize(flussHandle.getProperties()));
+        Optional<ConnectorTableHandle> lakeHandle = siblingMetadata(session, sibling).getTableHandle(
+                session, flussHandle.getDatabaseName(), flussHandle.getTableName());
+        if (!lakeHandle.isPresent()) {
+            // The lake table is created by the tiering service on its first commit, so "not there" means
+            // nothing has been tiered yet — a state that resolves itself and is worth saying out loud.
+            // Returning empty here would instead surface as fe-core's generic "no such table", pointing the
+            // user at a name that IS correct.
+            throw new DorisConnectorException("The lake table of '" + flussHandle.getDatabaseName() + "."
+                    + flussHandle.getTableName() + "' does not exist yet: nothing has been tiered to the"
+                    + " lake. Start (or wait for) the fluss tiering service for this table");
+        }
+        return lakeHandle;
+    }
+
+    @Override
+    public boolean isPartitionValuesSysTable(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        Connector owner = siblingOwner.apply(baseTableHandle);
+        if (owner != null) {
+            return siblingMetadata(session, owner)
+                    .isPartitionValuesSysTable(session, baseTableHandle, sysName);
+        }
+        // The lake table is a real data table served by the paimon sibling, not the generic
+        // partition_values function.
+        return false;
+    }
+
     @Override
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
+        Connector owner = siblingOwner.apply(handle);
+        if (owner != null) {
+            return siblingMetadata(session, owner).getTableSchema(session, handle);
+        }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         TableInfo info = tableInfo(session, flussHandle.toTablePath());
 
@@ -135,6 +276,10 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     @Override
     public Map<String, ConnectorColumnHandle> getColumnHandles(
             ConnectorSession session, ConnectorTableHandle handle) {
+        Connector owner = siblingOwner.apply(handle);
+        if (owner != null) {
+            return siblingMetadata(session, owner).getColumnHandles(session, handle);
+        }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         List<Schema.Column> columns = tableInfo(session, flussHandle.toTablePath()).getSchema().getColumns();
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>();
@@ -152,6 +297,10 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
+        Connector owner = siblingOwner.apply(handle);
+        if (owner != null) {
+            return siblingMetadata(session, owner).listPartitionNames(session, handle);
+        }
         List<ConnectorPartitionInfo> partitions = listPartitions(session, handle, Optional.empty());
         List<String> names = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
@@ -175,6 +324,10 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
+        Connector owner = siblingOwner.apply(handle);
+        if (owner != null) {
+            return siblingMetadata(session, owner).listPartitions(session, handle, filter);
+        }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         List<String> partitionKeys = flussHandle.getPartitionKeys();
         if (partitionKeys.isEmpty()) {
@@ -208,6 +361,10 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableStatistics> getTableStatistics(
             ConnectorSession session, ConnectorTableHandle handle) {
+        Connector owner = siblingOwner.apply(handle);
+        if (owner != null) {
+            return siblingMetadata(session, owner).getTableStatistics(session, handle);
+        }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         long rowCount;
         try {
@@ -228,6 +385,11 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
      * scan node the lake connectors use (the fluss ranges ride in its format-specific descriptor), so
      * the table descriptor is the generic hive-shaped one those connectors send, exactly as paimon and
      * hudi do; a fluss-specific Thrift table type would buy nothing the scan path reads.
+     *
+     * <p>Not guarded for a lake handle, and it could not be: the signature carries names, not a handle. It
+     * needs no guard because the paimon connector builds the byte-identical descriptor
+     * ({@code PaimonConnectorMetadata.buildTableDescriptor}) — verified, not assumed. If either side's
+     * descriptor ever diverges, this becomes a real gap that a handle-less signature cannot close here.
      */
     @Override
     public TTableDescriptor buildTableDescriptor(ConnectorSession session,

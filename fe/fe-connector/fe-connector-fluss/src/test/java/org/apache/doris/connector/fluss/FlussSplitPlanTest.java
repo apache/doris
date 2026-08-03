@@ -516,7 +516,11 @@ public class FlussSplitPlanTest {
     }
 
     private FlussConnectorMetadata metadata() {
-        return new FlussConnectorMetadata(adminOps, new FlussTypeMapping.Options(false, false));
+        return new FlussConnectorMetadata(adminOps, new FlussTypeMapping.Options(false, false),
+                properties -> {
+                    throw new AssertionError("no lake sibling is expected in this test");
+                },
+                handle -> null);
     }
 
     private ConnectorTableHandle handle(TablePath tablePath) {

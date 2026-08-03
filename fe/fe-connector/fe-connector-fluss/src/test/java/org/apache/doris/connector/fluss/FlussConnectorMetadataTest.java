@@ -60,7 +60,21 @@ public class FlussConnectorMetadataTest {
     private static final TablePath PK_TABLE = TablePath.of("db", "pk_table");
 
     private static FlussConnectorMetadata metadata(RecordingFlussAdminOps adminOps) {
-        return new FlussConnectorMetadata(adminOps, FlussTypeMapping.Options.DEFAULT);
+        return metadata(adminOps, FlussTypeMapping.Options.DEFAULT);
+    }
+
+    /**
+     * A metadata with the lake seams wired to "there is no lake": the sibling owner never claims a handle
+     * and the factory refuses to build one. A test in this class that unexpectedly took the lake path
+     * therefore fails loudly instead of quietly exercising a half-built sibling.
+     */
+    private static FlussConnectorMetadata metadata(
+            RecordingFlussAdminOps adminOps, FlussTypeMapping.Options options) {
+        return new FlussConnectorMetadata(adminOps, options,
+                properties -> {
+                    throw new AssertionError("no lake sibling is expected in this test");
+                },
+                handle -> null);
     }
 
     /** A non-partitioned log table: two columns, one of them commented, three buckets. */
@@ -242,7 +256,7 @@ public class FlussConnectorMetadataTest {
                 .build());
 
         for (boolean mapTimestampTz : new boolean[] {false, true}) {
-            FlussConnectorMetadata metadata = new FlussConnectorMetadata(
+            FlussConnectorMetadata metadata = metadata(
                     adminOps, new FlussTypeMapping.Options(false, mapTimestampTz));
             ConnectorTableHandle handle = metadata.getTableHandle(null, "db", "log_table")
                     .orElseThrow(AssertionError::new);
