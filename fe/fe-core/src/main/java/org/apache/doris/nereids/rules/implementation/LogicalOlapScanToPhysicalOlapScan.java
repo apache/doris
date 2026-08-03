@@ -23,8 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
-import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.properties.DistributionMapping;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -46,6 +44,7 @@ import com.google.common.collect.Sets;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -161,27 +160,33 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         if (context == null || !context.getSessionVariable().isEnableColocateMappingConstraint()) {
             return ImmutableList.of();
         }
+        return buildDistributionMappings(
+                hashDistributionInfo,
+                output,
+                Env.getCurrentEnv().getConstraintManager().getDistributionMappingConstraints(table));
+    }
 
+    static List<DistributionMapping> buildDistributionMappings(HashDistributionInfo hashDistributionInfo,
+            List<Slot> output, List<DistributionMappingConstraint> constraints) {
         Map<String, ExprId> columnExprIds = new HashMap<>();
         for (Slot slot : output) {
             SlotReference slotReference = (SlotReference) slot;
             slotReference.getOriginalColumn().ifPresent(
-                    column -> columnExprIds.put(column.getName().toLowerCase(), slot.getExprId()));
+                    column -> columnExprIds.put(
+                            column.tryGetBaseColumnName().toLowerCase(Locale.ROOT), slot.getExprId()));
         }
         Map<String, Integer> distributionIndices = new HashMap<>();
         List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
         for (int i = 0; i < distributionColumns.size(); i++) {
-            distributionIndices.put(distributionColumns.get(i).getName().toLowerCase(), i);
+            distributionIndices.put(distributionColumns.get(i).getName().toLowerCase(Locale.ROOT), i);
         }
 
-        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
         ImmutableList.Builder<DistributionMapping> mappings = ImmutableList.builder();
-        for (DistributionMappingConstraint constraint : Env.getCurrentEnv().getConstraintManager()
-                .getDistributionMappingConstraints(tableNameInfo)) {
+        for (DistributionMappingConstraint constraint : constraints) {
             ImmutableList.Builder<ExprId> determinants = ImmutableList.builder();
             boolean allDeterminantsAvailable = true;
             for (String column : constraint.getDeterminantColumnNames()) {
-                ExprId exprId = columnExprIds.get(column.toLowerCase());
+                ExprId exprId = columnExprIds.get(column.toLowerCase(Locale.ROOT));
                 if (exprId == null) {
                     allDeterminantsAvailable = false;
                     break;
@@ -191,11 +196,21 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
             if (!allDeterminantsAvailable) {
                 continue;
             }
-            ImmutableList<Integer> targetIndices = constraint.getDistributionColumnNames().stream()
-                    .map(column -> distributionIndices.get(column.toLowerCase()))
-                    .collect(ImmutableList.toImmutableList());
+            ImmutableList.Builder<Integer> targetIndices = ImmutableList.builder();
+            boolean allTargetsAvailable = true;
+            for (String column : constraint.getDistributionColumnNames()) {
+                Integer targetIndex = distributionIndices.get(column.toLowerCase(Locale.ROOT));
+                if (targetIndex == null) {
+                    allTargetsAvailable = false;
+                    break;
+                }
+                targetIndices.add(targetIndex);
+            }
+            if (!allTargetsAvailable) {
+                continue;
+            }
             mappings.add(new DistributionMapping(
-                    constraint.getMappingId(), determinants.build(), targetIndices));
+                    constraint.getMappingId(), determinants.build(), targetIndices.build()));
         }
         return mappings.build();
     }

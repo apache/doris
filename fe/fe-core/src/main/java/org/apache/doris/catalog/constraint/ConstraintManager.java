@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
@@ -45,6 +46,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeSet;
@@ -109,8 +111,11 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         String key = toKey(tableNameInfo);
         writeLock();
         try {
+            TableIf table = null;
             if (!replay) {
-                validateTableAndColumns(tableNameInfo, constraint);
+                table = validateTableAndColumns(tableNameInfo, constraint);
+            } else if (constraint instanceof DistributionMappingConstraint) {
+                table = resolveTableIfPresent(tableNameInfo);
             }
             Map<String, Constraint> tableConstraints = constraintsMap.computeIfAbsent(
                     key, k -> new HashMap<>());
@@ -120,6 +125,9 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                         tableNameInfo, (ForeignKeyConstraint) constraint);
             }
             tableConstraints.put(constraintName, constraint);
+            if (constraint instanceof DistributionMappingConstraint) {
+                putTableLocalConstraint(table, constraintName, constraint);
+            }
             if (!replay) {
                 logAddConstraint(tableNameInfo, constraint);
             }
@@ -151,6 +159,10 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                         constraintName, key));
             }
             Constraint constraint = tableConstraints.remove(constraintName);
+            if (constraint instanceof DistributionMappingConstraint) {
+                removeTableLocalConstraint(
+                        resolveTableIfPresent(tableNameInfo), constraintName);
+            }
             cleanupConstraintReferences(tableNameInfo, constraint);
             if (tableConstraints.isEmpty()) {
                 constraintsMap.remove(key);
@@ -223,6 +235,95 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     public ImmutableList<DistributionMappingConstraint> getDistributionMappingConstraints(
             TableNameInfo tableNameInfo) {
         return getConstraintsByType(toKey(tableNameInfo), DistributionMappingConstraint.class);
+    }
+
+    /**
+     * Returns mappings owned by the concrete table object.
+     *
+     * <p>The table-local copy follows the table through recycle, backup, restore, and rename lifecycles.
+     * Optimizer code must use this overload so a stale qualified-name entry can never bind to another table.</p>
+     */
+    @SuppressWarnings("deprecation")
+    public ImmutableList<DistributionMappingConstraint> getDistributionMappingConstraints(TableIf table) {
+        if (!(table instanceof Table)) {
+            return ImmutableList.of();
+        }
+        return ((Table) table).getTableAttributes().getConstraintsMap().values().stream()
+                .filter(DistributionMappingConstraint.class::isInstance)
+                .map(DistributionMappingConstraint.class::cast)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    /** Return the table-owned mapping that uses the given column, if any. */
+    @SuppressWarnings("deprecation")
+    public String findDistributionMappingConstraintWithColumn(TableIf table, String columnName) {
+        if (!(table instanceof Table)) {
+            return null;
+        }
+        return ((Table) table).getTableAttributes().getConstraintsMap().entrySet().stream()
+                .filter(entry -> entry.getValue() instanceof DistributionMappingConstraint)
+                .filter(entry -> {
+                    DistributionMappingConstraint mapping =
+                            (DistributionMappingConstraint) entry.getValue();
+                    return containsIgnoreCase(mapping.getDeterminantColumnNames(), columnName)
+                            || containsIgnoreCase(mapping.getDistributionColumnNames(), columnName);
+                })
+                .map(Entry::getKey)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** Rebuild the qualified-name index from constraints persisted with a recovered or restored table. */
+    @SuppressWarnings("deprecation")
+    public void restoreTableConstraints(TableNameInfo tableNameInfo, TableIf table) {
+        if (!(table instanceof Table)) {
+            return;
+        }
+        Map<String, Constraint> tableLocalConstraints =
+                ((Table) table).getTableAttributes().getConstraintsMap();
+        if (tableLocalConstraints.isEmpty()) {
+            return;
+        }
+        String key = toKey(tableNameInfo);
+        writeLock();
+        try {
+            Map<String, Constraint> indexedConstraints =
+                    constraintsMap.computeIfAbsent(key, ignored -> new HashMap<>());
+            indexedConstraints.entrySet().removeIf(
+                    entry -> entry.getValue() instanceof DistributionMappingConstraint);
+            tableLocalConstraints.forEach((name, constraint) -> {
+                if (constraint instanceof DistributionMappingConstraint) {
+                    indexedConstraints.put(name, constraint);
+                }
+            });
+            if (indexedConstraints.isEmpty()) {
+                constraintsMap.remove(key);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /** Populate table-local mapping metadata after loading an image created before table-local ownership. */
+    public void syncDistributionMappingsToTables() {
+        Map<String, Map<String, Constraint>> snapshot;
+        readLock();
+        try {
+            snapshot = constraintsMap.entrySet().stream()
+                    .collect(Collectors.toMap(
+                            Entry::getKey,
+                            entry -> ImmutableMap.copyOf(entry.getValue())));
+        } finally {
+            readUnlock();
+        }
+        snapshot.forEach((tableKey, constraints) -> {
+            TableIf table = resolveTableIfPresent(new TableNameInfo(tableKey));
+            constraints.forEach((name, constraint) -> {
+                if (constraint instanceof DistributionMappingConstraint) {
+                    putTableLocalConstraint(table, name, constraint);
+                }
+            });
+        });
     }
 
     /**
@@ -352,40 +453,56 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      */
     public void renameTable(TableNameInfo oldTableInfo,
             TableNameInfo newTableInfo) {
-        String oldKey = toKey(oldTableInfo);
-        String newKey = toKey(newTableInfo);
         writeLock();
         try {
-            // Move this table's own constraints
-            Map<String, Constraint> tableConstraints
-                    = constraintsMap.remove(oldKey);
-            if (tableConstraints != null) {
-                constraintsMap.put(newKey, tableConstraints);
-            }
-            // Update FK/PK references in OTHER tables
-            for (Map.Entry<String, Map<String, Constraint>> entry
-                    : constraintsMap.entrySet()) {
-                if (entry.getKey().equals(newKey)) {
-                    continue;
-                }
-                for (Constraint c : entry.getValue().values()) {
-                    if (c instanceof ForeignKeyConstraint) {
-                        ForeignKeyConstraint fk = (ForeignKeyConstraint) c;
-                        TableNameInfo refInfo = fk.getReferencedTableName();
-                        if (refInfo != null && oldTableInfo.equals(refInfo)) {
-                            fk.setReferencedTableInfo(newTableInfo);
-                        }
-                    } else if (c instanceof PrimaryKeyConstraint) {
-                        ((PrimaryKeyConstraint) c).renameForeignTable(
-                                oldTableInfo, newTableInfo);
-                    }
-                }
-            }
-            LOG.info("Renamed table constraints from {} to {}",
-                    oldKey, newKey);
+            renameTableWithoutLock(oldTableInfo, newTableInfo);
         } finally {
             writeUnlock();
         }
+    }
+
+    /** Move every qualified table key when a database is renamed. */
+    public void renameDatabase(String catalogName, String oldDbName, String newDbName) {
+        String oldPrefix = catalogName + "." + oldDbName + ".";
+        writeLock();
+        try {
+            List<TableNameInfo> oldTableInfos = constraintsMap.keySet().stream()
+                    .filter(key -> key.startsWith(oldPrefix))
+                    .map(TableNameInfo::new)
+                    .collect(Collectors.toList());
+            for (TableNameInfo oldTableInfo : oldTableInfos) {
+                renameTableWithoutLock(oldTableInfo, new TableNameInfo(
+                        catalogName, newDbName, oldTableInfo.getTbl()));
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void renameTableWithoutLock(TableNameInfo oldTableInfo, TableNameInfo newTableInfo) {
+        String oldKey = toKey(oldTableInfo);
+        String newKey = toKey(newTableInfo);
+        Map<String, Constraint> tableConstraints = constraintsMap.remove(oldKey);
+        if (tableConstraints != null) {
+            constraintsMap.put(newKey, tableConstraints);
+        }
+        for (Map.Entry<String, Map<String, Constraint>> entry : constraintsMap.entrySet()) {
+            if (entry.getKey().equals(newKey)) {
+                continue;
+            }
+            for (Constraint constraint : entry.getValue().values()) {
+                if (constraint instanceof ForeignKeyConstraint) {
+                    ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
+                    TableNameInfo referencedTable = foreignKey.getReferencedTableName();
+                    if (referencedTable != null && oldTableInfo.equals(referencedTable)) {
+                        foreignKey.setReferencedTableInfo(newTableInfo);
+                    }
+                } else if (constraint instanceof PrimaryKeyConstraint) {
+                    ((PrimaryKeyConstraint) constraint).renameForeignTable(oldTableInfo, newTableInfo);
+                }
+            }
+        }
+        LOG.info("Renamed table constraints from {} to {}", oldKey, newKey);
     }
 
     /**
@@ -550,8 +667,8 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                     }
                 } else if (c instanceof DistributionMappingConstraint) {
                     DistributionMappingConstraint mapping = (DistributionMappingConstraint) c;
-                    if (mapping.getDeterminantColumnNames().contains(columnName)
-                            || mapping.getDistributionColumnNames().contains(columnName)) {
+                    if (containsIgnoreCase(mapping.getDeterminantColumnNames(), columnName)
+                            || containsIgnoreCase(mapping.getDistributionColumnNames(), columnName)) {
                         return entry.getKey();
                     }
                 }
@@ -560,6 +677,10 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         } finally {
             readUnlock();
         }
+    }
+
+    private boolean containsIgnoreCase(Collection<String> columnNames, String columnName) {
+        return columnNames.stream().anyMatch(name -> name.equalsIgnoreCase(columnName));
     }
 
     /**
@@ -864,7 +985,7 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * Validate that the table and columns referenced by the constraint
      * actually exist. Only called for non-replay operations.
      */
-    private void validateTableAndColumns(TableNameInfo tableNameInfo,
+    private TableIf validateTableAndColumns(TableNameInfo tableNameInfo,
             Constraint constraint) {
         TableIf table = resolveTableForValidation(tableNameInfo);
         if (constraint instanceof PrimaryKeyConstraint) {
@@ -894,6 +1015,31 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             validateDistributionMappingConstraint(
                     tableNameInfo, table, (DistributionMappingConstraint) constraint);
         }
+        return table;
+    }
+
+    private TableIf resolveTableIfPresent(TableNameInfo tableNameInfo) {
+        try {
+            return resolveTableForValidation(tableNameInfo);
+        } catch (AnalysisException e) {
+            LOG.debug("Table {} is unavailable while synchronizing table-local constraints",
+                    tableNameInfo, e);
+            return null;
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void putTableLocalConstraint(TableIf table, String constraintName, Constraint constraint) {
+        if (table instanceof Table) {
+            ((Table) table).getTableAttributes().getConstraintsMap().put(constraintName, constraint);
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void removeTableLocalConstraint(TableIf table, String constraintName) {
+        if (table instanceof Table) {
+            ((Table) table).getTableAttributes().getConstraintsMap().remove(constraintName);
+        }
     }
 
     private void validateDistributionMappingConstraint(TableNameInfo tableNameInfo, TableIf table,
@@ -919,10 +1065,12 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             throw new AnalysisException("Distribution mapping constraint requires hash distribution");
         }
         List<String> tableDistributionColumns = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo())
-                .getDistributionColumns().stream().map(column -> column.getName().toLowerCase())
+                .getDistributionColumns().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
                 .collect(Collectors.toList());
         List<String> constraintDistributionColumns = constraint.getDistributionColumnNames().stream()
-                .map(String::toLowerCase).collect(Collectors.toList());
+                .map(column -> column.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toList());
         int previousIndex = -1;
         for (String column : constraintDistributionColumns) {
             int index = tableDistributionColumns.indexOf(column);

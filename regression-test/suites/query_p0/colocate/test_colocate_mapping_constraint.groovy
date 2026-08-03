@@ -72,6 +72,20 @@ suite("test_colocate_mapping_constraint") {
         ADD CONSTRAINT right_mapping_2
         COLOCATE MAPPING mapping_2 (d2) DETERMINES DISTRIBUTION KEY (k2) NOT ENFORCED
     """
+    test {
+        sql """
+            ALTER TABLE test_colocate_mapping_constraint_left
+            DROP COLUMN D1
+        """
+        exception "left_mapping_1"
+    }
+    test {
+        sql """
+            ALTER TABLE test_colocate_mapping_constraint_left
+            RENAME COLUMN D1 renamed_d1
+        """
+        exception "left_mapping_1"
+    }
     sql """
         CREATE TABLE test_colocate_mapping_composite_left (
             k1 INT,
@@ -124,12 +138,47 @@ suite("test_colocate_mapping_constraint") {
     sql """ INSERT INTO test_colocate_mapping_composite_right VALUES
             (1, 10, 100, 1000, 7), (2, 20, 200, 2000, 9) """
     sql """ SYNC """
-
+    createMV("""
+        CREATE MATERIALIZED VIEW mapping_alias_rollup AS
+        SELECT k1 AS alias_k1, k2 AS alias_k2, d1 AS alias_d1
+        FROM test_colocate_mapping_constraint_left
+    """)
+    createMV("""
+        CREATE MATERIALIZED VIEW mapping_without_determinant_rollup AS
+        SELECT k1 AS no_determinant_k1, k2 AS no_determinant_k2,
+               extra_col AS no_determinant_extra
+        FROM test_colocate_mapping_constraint_left
+    """)
     waitForColocateGroupStable("test_colocate_mapping_constraint_group")
     waitForColocateGroupStable("test_colocate_mapping_composite_group")
 
     sql """ SET auto_broadcast_join_threshold = -1 """
     sql """ SET broadcast_row_count_limit = 0 """
+    // A selected rollup Slot alias is recognized, then conservatively falls back under the
+    // current selected-rollup boundary. The base-provenance binding is asserted by FE UT.
+    explain {
+        sql """
+            SELECT /*+ use_mv(test_colocate_mapping_constraint_left.mapping_alias_rollup) */
+                   l.d1, r.d1
+            FROM test_colocate_mapping_constraint_left l
+            JOIN test_colocate_mapping_constraint_left r
+              ON l.d1 = r.d1 AND l.k2 = r.k2
+        """
+        contains "test_colocate_mapping_constraint_left(mapping_alias_rollup)"
+        notContains "COLOCATE"
+    }
+    // A selected rollup without the determinant cannot propagate the mapping proof.
+    explain {
+        sql """
+            SELECT /*+ use_mv(test_colocate_mapping_constraint_left.mapping_without_determinant_rollup) */
+                   l.extra_col, r.extra_col
+            FROM test_colocate_mapping_constraint_left l
+            JOIN test_colocate_mapping_constraint_left r
+              ON l.extra_col = r.extra_col AND l.k2 = r.k2
+        """
+        contains "test_colocate_mapping_constraint_left(mapping_without_determinant_rollup)"
+        notContains "COLOCATE"
+    }
     def nestedSubqueryJoinQueries = [
         // Parallel Project subqueries on both sides.
         """
@@ -747,4 +796,17 @@ suite("test_colocate_mapping_constraint") {
           ON l.aggregate_d1 = r.d1 AND l.aggregate_k2 = r.k2
         ORDER BY l.aggregate_k2, l.aggregate_d1
     """
+
+    sql """ DROP TABLE test_colocate_mapping_constraint_left """
+    sql """ RECOVER TABLE test_colocate_mapping_constraint_left """
+    waitForColocateGroupStable("test_colocate_mapping_constraint_group")
+    explain {
+        sql """
+            SELECT *
+            FROM test_colocate_mapping_constraint_left l
+            JOIN test_colocate_mapping_constraint_right r
+              ON l.d1 = r.d1 AND l.k2 = r.k2
+        """
+        contains "COLOCATE"
+    }
 }

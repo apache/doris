@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ConstraintManager;
@@ -27,6 +29,7 @@ import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
@@ -87,6 +90,16 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 + "distributed by hash(k1) buckets 4\n"
                 + "properties(\n"
                 + "    \"replication_num\"=\"1\"\n"
+                + ")");
+        createTable("create table t4 (\n"
+                + "    k1 int,\n"
+                + "    k2 int\n"
+                + ")\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 4\n"
+                + "properties(\n"
+                + "    \"replication_num\"=\"1\",\n"
+                + "    \"light_schema_change\"=\"true\"\n"
                 + ")");
     }
 
@@ -151,15 +164,60 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
             DistributionMappingConstraint mapping = (DistributionMappingConstraint) constraint;
             return mapping.getMappingId().equals("tenant_by_user")
                     && mapping.getDeterminantColumnNames().equals(java.util.List.of("k2"))
-                    && mapping.getDistributionColumnNames().equals(java.util.List.of("k1"));
+                    && mapping.getDistributionColumnNames().equals(java.util.List.of("k1"))
+                    && getConstraintMgr().getDistributionMappingConstraints(o.getTable()).size() == 1;
         }));
+        TableIf table = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("t1");
+        TableNameInfo tableNameInfo = tableNameInfoOf(table);
+        getConstraintMgr().dropTableConstraints(tableNameInfo);
+        Assertions.assertNull(getConstraintMgr().getConstraint(tableNameInfo, "mapping_constraint"));
+        Assertions.assertEquals(1, getConstraintMgr().getDistributionMappingConstraints(table).size());
+        getConstraintMgr().restoreTableConstraints(tableNameInfo, table);
+        Assertions.assertNotNull(getConstraintMgr().getConstraint(tableNameInfo, "mapping_constraint"));
 
         DropConstraintCommand dropCommand = (DropConstraintCommand) new NereidsParser().parseSingle(
                 "alter table t1 drop constraint mapping_constraint");
         dropCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
-                logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
+                logicalOlapScan().when(o ->
+                        getConstraintMgr().getConstraints(tableNameInfoOf(o.getTable())).isEmpty()
+                                && getConstraintMgr().getDistributionMappingConstraints(o.getTable()).isEmpty()));
+    }
+
+    @Test
+    void distributionMappingConstraintFencesColumnAndSchemaChanges() throws Exception {
+        AddConstraintCommand command = (AddConstraintCommand) new NereidsParser().parseSingle(
+                "alter table t4 add constraint mapping_fence "
+                        + "colocate mapping mapping_fence (k2) determines distribution key (k1) not enforced");
+        command.run(connectContext, null);
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("t4");
+
+        Exception drop = Assertions.assertThrows(Exception.class,
+                () -> executeNereidsSql("alter table t4 drop column K2"));
+        Assertions.assertTrue(Util.getRootCauseMessage(drop).contains("mapping_fence"));
+        Assertions.assertNotNull(table.getColumn("k2"));
+
+        Exception rename = Assertions.assertThrows(Exception.class,
+                () -> executeNereidsSql("alter table t4 rename column K2 K3"));
+        Assertions.assertTrue(Util.getRootCauseMessage(rename).contains("mapping_fence"));
+        Assertions.assertNotNull(table.getColumn("k2"));
+
+        ((DropConstraintCommand) new NereidsParser().parseSingle(
+                "alter table t4 drop constraint mapping_fence")).run(connectContext, null);
+        table.setState(OlapTableState.SCHEMA_CHANGE);
+        try {
+            Exception add = Assertions.assertThrows(Exception.class, () ->
+                    ((AddConstraintCommand) new NereidsParser().parseSingle(
+                            "alter table t4 add constraint mapping_during_schema_change "
+                                    + "colocate mapping mapping_fence (k2) "
+                                    + "determines distribution key (k1) not enforced"))
+                            .run(connectContext, null));
+            Assertions.assertTrue(add.getMessage().contains("SCHEMA_CHANGE"));
+        } finally {
+            table.setState(OlapTableState.NORMAL);
+        }
     }
 
     @Test

@@ -79,6 +79,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -187,14 +188,15 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         List<Column> distributionColumns = distributionInfo.getDistributionColumns();
         Map<String, Integer> distributionIndices = Maps.newHashMapWithExpectedSize(distributionColumns.size());
         for (int i = 0; i < distributionColumns.size(); i++) {
-            distributionIndices.put(distributionColumns.get(i).getName().toLowerCase(), i);
+            distributionIndices.put(distributionColumns.get(i).getName().toLowerCase(Locale.ROOT), i);
         }
 
         Map<ExprId, Integer> visibleDistributionExprs = Maps.newHashMap();
         for (Slot slot : olapScan.getOutput()) {
             SlotReference slotReference = (SlotReference) slot;
             if (slotReference.getOriginalColumn().isPresent()) {
-                String columnName = slotReference.getOriginalColumn().get().tryGetBaseColumnName().toLowerCase();
+                String columnName = slotReference.getOriginalColumn().get()
+                        .tryGetBaseColumnName().toLowerCase(Locale.ROOT);
                 Integer index = distributionIndices.get(columnName);
                 if (index != null) {
                     visibleDistributionExprs.put(slot.getExprId(), index);

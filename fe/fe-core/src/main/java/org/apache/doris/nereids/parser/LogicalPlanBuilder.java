@@ -2050,7 +2050,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .map(ident -> new UnboundSlot(ident.getText()))
                     .collect(ImmutableList.toImmutableList());
             constraint = Constraint.newDistributionMappingConstraint(
-                    curTable, ctx.constraint().mappingId.getText().toLowerCase(), slots, distributionSlots);
+                    curTable, ctx.constraint().mappingId.getText().toLowerCase(Locale.ROOT), slots, distributionSlots);
         } else {
             throw new AnalysisException("Unsupported constraint " + ctx.getText());
         }

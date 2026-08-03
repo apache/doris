@@ -19,7 +19,9 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.thrift.TUniqueId;
@@ -32,6 +34,13 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 public class SqlCacheTest extends TestWithFeService {
+    @Override
+    public void runBeforeAll() throws Exception {
+        createDatabase("sql_cache_constraint_test");
+        createTable("create table sql_cache_constraint_test.t (k int) "
+                + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
+    }
+
     @Test
     public void testCacheKey() {
         TUniqueId queryId = new TUniqueId();
@@ -74,5 +83,19 @@ public class SqlCacheTest extends TestWithFeService {
 
         executeNereidsSql("admin set frontend config ('sql_cache_manage_num'='1')");
         Assertions.assertEquals(1, sqlCacheManager.getSqlCaches().asMap().size());
+    }
+
+    @Test
+    public void testInvalidateSqlCacheByPersistedTableName() throws Exception {
+        TableIf table = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t");
+        SqlCacheContext cacheContext = new SqlCacheContext(new UserIdentity("admin", "127.0.0.1"));
+        cacheContext.addUsedTable(table);
+        NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+        sqlCacheManager.getSqlCaches().put("mapping_constraint_cache", cacheContext);
+
+        sqlCacheManager.invalidateAboutTable(TableNameInfoUtils.fromTableOrNull(table));
+
+        Assertions.assertNull(sqlCacheManager.getSqlCaches().getIfPresent("mapping_constraint_cache"));
     }
 }

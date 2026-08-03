@@ -226,6 +226,24 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     }
 
     @Test
+    void distributionMappingConstraintLifecycleIndexTest() {
+        ConstraintManager manager = new ConstraintManager();
+        TableNameInfo oldTableName = new TableNameInfo("internal.old_db.mapping_table");
+        TableNameInfo newTableName = new TableNameInfo("internal.new_db.mapping_table");
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_constraint", "tenant_by_user", List.of("user_id"), List.of("tenant_id"));
+        manager.addConstraint(oldTableName, mapping.getName(), mapping, true);
+
+        manager.renameDatabase("internal", "old_db", "new_db");
+
+        Assertions.assertNull(manager.getConstraint(oldTableName, mapping.getName()));
+        Assertions.assertEquals(mapping, manager.getConstraint(newTableName, mapping.getName()));
+        Assertions.assertEquals(
+                mapping.getName(),
+                manager.findConstraintWithColumn(newTableName, "USER_ID"));
+    }
+
+    @Test
     void addConstraintLogPersistForExternalTableTest() throws Exception {
         Config.edit_log_type = "local";
         FeConstants.runningUnitTest = true;

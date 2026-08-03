@@ -645,6 +645,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
+            for (Table table : tableList) {
+                Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
+                        TableNameInfoUtils.fromDb(db, table.getName()), table);
+            }
             // log
             RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
             Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
@@ -674,6 +678,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, tableId, newTableName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
+            Table recoveredTable = db.getTableOrDdlException(
+                    Strings.isNullOrEmpty(newTableName) ? tableName : newTableName);
+            Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
+                    TableNameInfoUtils.fromDb(db, recoveredTable.getName()), recoveredTable);
         } finally {
             db.writeUnlock();
         }
@@ -731,6 +739,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // add db to catalog
         replayCreateDb(db, newDbName);
+        for (Table table : db.getTables()) {
+            Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
+                    TableNameInfoUtils.fromDb(db, table.getName()), table);
+        }
         db.unmarkDropped();
         registerDbFunctionsToNereids(db);
         LOG.info("replay recover db[{}]", dbId);
@@ -837,6 +849,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // 2. add to meta. check again
                 fullNameToDb.remove(dbName);
                 fullNameToDb.put(newDbName, db);
+                Env.getCurrentEnv().getConstraintManager().renameDatabase(
+                        InternalCatalog.INTERNAL_CATALOG_NAME, dbName, newDbName);
 
                 DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L, QuotaType.NONE);
                 Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
@@ -859,6 +873,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.setName(newDbName);
             fullNameToDb.remove(dbName);
             fullNameToDb.put(newDbName, db);
+            Env.getCurrentEnv().getConstraintManager().renameDatabase(
+                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, newDbName);
         } finally {
             unlock();
         }
@@ -1089,6 +1105,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         db.writeLockOrDdlException();
         try {
             Env.getCurrentRecycleBin().replayRecoverTable(db, info.getTableId(), info.getNewTableName());
+            Table recoveredTable = db.getTableOrMetaException(info.getTableId());
+            Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
+                    TableNameInfoUtils.fromDb(db, recoveredTable.getName()), recoveredTable);
         } finally {
             db.writeUnlock();
         }

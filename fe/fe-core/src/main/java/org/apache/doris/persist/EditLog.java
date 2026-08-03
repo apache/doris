@@ -1223,6 +1223,7 @@ public class EditLog {
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
                     env.getConstraintManager().addConstraint(
                             tni, constraint.getName(), constraint, true);
+                    env.getSqlCacheManager().invalidateAboutTable(tni);
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying add constraint %s on table %s",
                                     constraint.getName(), tni));
@@ -1240,6 +1241,7 @@ public class EditLog {
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
                     env.getConstraintManager().dropConstraint(
                             tni, constraint.getName(), true);
+                    env.getSqlCacheManager().invalidateAboutTable(tni);
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying drop constraint %s on table %s",
                                     constraint.getName(), tni));

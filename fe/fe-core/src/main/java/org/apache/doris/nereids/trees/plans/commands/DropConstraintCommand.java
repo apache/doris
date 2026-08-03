@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -64,8 +66,9 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableNameInfo tableNameInfo;
+        TableIf table = null;
         try {
-            TableIf table = extractTable(ctx, plan);
+            table = extractTable(ctx, plan);
             tableNameInfo = TableNameInfoUtils.fromCatalogDb(
                     table.getDatabase().getCatalog(), table.getDatabase(), table);
         } catch (Exception e) {
@@ -81,7 +84,18 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
                     String.format("Unknown constraint %s on table %s.", name, tableNameInfo));
         }
         List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-        Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+        if (constraint instanceof DistributionMappingConstraint && table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.writeLockOrDdlException();
+            try {
+                Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+                Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
+            } finally {
+                olapTable.writeUnlock();
+            }
+        } else {
+            Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+        }
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
     }

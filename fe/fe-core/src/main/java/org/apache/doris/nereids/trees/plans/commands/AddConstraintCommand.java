@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
@@ -98,8 +99,17 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
                     extractColumnsAndTable(ctx, constraint.toDistributionProject());
             Preconditions.checkState(table.getId() == distributionColumnsAndTable.second.getId(),
                     "determinant and distribution columns must belong to the same table");
-            addConstraintAndInvalidate(tableNameInfo, new DistributionMappingConstraint(
-                    name, constraint.getMappingId(), columns, distributionColumnsAndTable.first));
+            Preconditions.checkState(table instanceof OlapTable,
+                    "distribution mapping constraint requires an OLAP table");
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.writeLockOrDdlException();
+            try {
+                olapTable.checkNormalStateForAlter();
+                addConstraintAndInvalidate(tableNameInfo, table, new DistributionMappingConstraint(
+                        name, constraint.getMappingId(), columns, distributionColumnsAndTable.first));
+            } finally {
+                olapTable.writeUnlock();
+            }
         } else {
             throw new AnalysisException("Unsupported constraint type: " + constraint);
         }
@@ -108,8 +118,16 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
     private void addConstraintAndInvalidate(
             TableNameInfo tableNameInfo, org.apache.doris.catalog.constraint.Constraint constraint)
             throws Exception {
+        addConstraintAndInvalidate(tableNameInfo, null, constraint);
+    }
+
+    private void addConstraintAndInvalidate(TableNameInfo tableNameInfo, TableIf table,
+            org.apache.doris.catalog.constraint.Constraint constraint) throws Exception {
         List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
         Env.getCurrentEnv().getConstraintManager().addConstraint(tableNameInfo, name, constraint, false);
+        if (table != null) {
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
+        }
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after add constraint %s on table %s", constraint.getName(), tableNameInfo));
     }

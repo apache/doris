@@ -53,6 +53,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -66,6 +67,7 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -1197,6 +1199,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             + " already exist in db: " + db.getFullName());
                     return;
                 }
+                Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
+                        TableNameInfoUtils.fromDb(db, tbl.getName()), tbl);
             } finally {
                 tbl.writeUnlock();
                 db.writeUnlock();
@@ -1755,6 +1759,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             restoreTbl.writeLock();
             try {
                 db.registerTable(restoreTbl);
+                Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
+                        TableNameInfoUtils.fromDb(db, restoreTbl.getName()), restoreTbl);
             } finally {
                 restoreTbl.writeUnlock();
                 db.writeUnlock();
@@ -2532,6 +2538,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         }
                                     }
                                 }
+                                Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
+                                        TableNameInfoUtils.fromDb(db, restoreTbl.getName()));
                                 db.unregisterTable(restoreTbl.getName());
                             } finally {
                                 restoreTbl.writeUnlock();
@@ -2637,6 +2645,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     newOlapTbl.checkAndSetName(originName, false);
                     db.unregisterTable(originName);
                     db.registerTable(newOlapTbl);
+                    Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
+                            new TableNameInfo(
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), aliasName));
+                    TableNameInfo originTableInfo = new TableNameInfo(
+                            InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), originName);
+                    Env.getCurrentEnv().getConstraintManager().dropTableConstraints(originTableInfo);
+                    Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
+                            originTableInfo, newOlapTbl);
+                    Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(originTableInfo);
 
                     // set the olap table state to normal immediately for querying
                     newOlapTbl.setState(OlapTableState.NORMAL);

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
 import org.apache.doris.common.Pair;
@@ -112,7 +113,6 @@ public class NereidsSqlCacheManager {
     }
 
     public void invalidateAboutTable(TableIf tableIf) {
-        Set<String> invalidateKeys = new LinkedHashSet<>();
         FullTableName invalidateTableName = null;
         DatabaseIf database = tableIf.getDatabase();
         if (database != null) {
@@ -123,6 +123,17 @@ public class NereidsSqlCacheManager {
                 );
             }
         }
+        invalidateAboutTable(tableIf.getId(), invalidateTableName);
+    }
+
+    /** Invalidate table caches during replay when only the persisted qualified name is available. */
+    public void invalidateAboutTable(TableNameInfo tableNameInfo) {
+        invalidateAboutTable(-1L, new FullTableName(
+                tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl()));
+    }
+
+    private void invalidateAboutTable(long tableId, FullTableName invalidateTableName) {
+        Set<String> invalidateKeys = new LinkedHashSet<>();
 
         for (Entry<String, SqlCacheContext> kv : sqlCaches.asMap().entrySet()) {
             String key = kv.getKey();
@@ -130,7 +141,7 @@ public class NereidsSqlCacheManager {
             for (Entry<FullTableName, TableVersion> nameToVersion : context.getUsedTables().entrySet()) {
                 FullTableName tableName = nameToVersion.getKey();
                 TableVersion tableVersion = nameToVersion.getValue();
-                if (tableVersion.id == tableIf.getId()) {
+                if (tableId >= 0 && tableVersion.id == tableId) {
                     invalidateKeys.add(key);
                     break;
                 }

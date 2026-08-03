@@ -3087,6 +3087,7 @@ public class Env {
     @SuppressWarnings("unchecked")
     public void migrateConstraintsFromTables() {
         if (!constraintManager.isEmpty()) {
+            constraintManager.syncDistributionMappingsToTables();
             return;
         }
         int migratedCount = 0;
@@ -3126,6 +3127,7 @@ public class Env {
             LOG.info("Migrated {} constraints from old table-based storage "
                     + "to ConstraintManager", migratedCount);
             constraintManager.rebuildForeignKeyReferences();
+            constraintManager.syncDistributionMappingsToTables();
         }
     }
 
@@ -6050,6 +6052,18 @@ public class Env {
         PartitionInfo partitionInfo = table.getPartitionInfo();
         if (partitionInfo.getPartitionColumns().stream().anyMatch(c -> c.getName().equalsIgnoreCase(colName))) {
             throw new DdlException("Renaming partition columns has problems, forbidden in current Doris version");
+        }
+        String mappingConstraint =
+                constraintManager.findDistributionMappingConstraintWithColumn(table, colName);
+        if (mappingConstraint == null) {
+            mappingConstraint = constraintManager.findConstraintWithColumn(
+                    TableNameInfoUtils.fromDb(db, table.getName()), colName);
+        }
+        if (mappingConstraint != null) {
+            throw new DdlException(String.format(
+                    "Cannot rename column '%s' because it is used by constraint '%s'. "
+                            + "Drop the constraint first.",
+                    colName, mappingConstraint));
         }
 
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
