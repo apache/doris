@@ -96,9 +96,15 @@ The fixtures recreate database `fluss_test` from scratch on every start:
 | `log_types` | log table, one column per mapped fluss type, plus an all-NULL row |
 | `log_part` | log table partitioned by `dt`, partitions `20260101`, `20260102`, `20260103` |
 | `log_empty` | log table with no rows at all (planning must emit zero scan ranges) |
+| `log_nested` | log table whose complex types are nested inside complex types, plus rows with NULLs at every level |
+| `log_time` | log table carrying a fluss TIME column, the one type Doris cannot represent |
+| `part_types` | log table partitioned by one column of every type that survives fluss's partition naming (STRING, CHAR, BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, DATE, BINARY) |
+| `part_ts` | log table partitioned by a TIMESTAMP, whose value fluss rewrites into the partition name and nothing can read back |
 | `pk_basic` | primary-key table, one updated row and one deleted row |
 | `pk_types` | primary-key table with the same type coverage as `log_types` |
 | `pk_part` | primary-key table partitioned by `dt`, with an update and a delete inside a partition |
+| `pk_nested` | primary-key table with the same nesting as `log_nested`, in the kv row format |
+| `pk_empty` | primary-key table with no rows and therefore no kv snapshot |
 | `lake_log` | lake table, 4 rows tiered + 2 in the log, 3 buckets (some bucket has no tail) |
 | `lake_cold` | lake table read entirely from the lake — no log tail at all |
 | `lake_types` | lake table with the full type coverage; non-NULL rows tiered, the all-NULL row in the log |
@@ -107,6 +113,12 @@ The fixtures recreate database `fluss_test` from scratch on every start:
 | `lake_pk_multi` | primary-key lake table over 3 buckets; the tail reaches some buckets and not others, which is what makes per-bucket binding observable |
 | `lake_pk_part` | primary-key lake table partitioned by `dt`: `20260101` is lake + tail, `20260102` is lake only, `20260103` was written after tiering stopped so the lake has never seen it |
 | `lake_pk_cold` | primary-key lake table read entirely from the lake — no tail, so nothing to merge |
+| `lake_nested` | lake table with nested complex types; the populated row is tiered, the all-NULL row stays in the log |
+| `lake_empty` | lake table nothing was ever written to, so tiering has never committed and there is no snapshot to read |
+| `lake_part_int` | lake table partitioned by an INT; one partition has a tail, the other does not |
+| `lake_pk_part_int` | primary-key lake table partitioned by an INT — the halves cannot be matched by a non-STRING partition value, so it falls back to the fluss-only read |
+| `big_log` | lake table, 100000 rows tiered + 1000 in the log (ids 1..101000) |
+| `big_pk` | primary-key lake table, 100000 keys tiered; the tail updates 500, adds 500 and deletes 5 |
 
 There is deliberately no deletion-vector fixture. Fluss does forward a
 `paimon.deletion-vectors.enabled` table property into the paimon table it
