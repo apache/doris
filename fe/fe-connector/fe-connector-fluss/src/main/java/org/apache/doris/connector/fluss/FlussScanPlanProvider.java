@@ -303,6 +303,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                         + handle.getDatabaseName() + "." + handle.getTableName() + "' but its lake table"
                         + " does not exist. The lake warehouse and the fluss cluster disagree; check the"
                         + " table's table.datalake.* settings"));
+        // The lake half's ranges are planned by the sibling and mixed into this node's range list, where
+        // they are told apart from fluss's by which connector owns them. Checked at birth; see requireOwned.
+        LakeSibling.requireOwned(sibling, lakeHandle);
         // The pin is expressed in the SPI's own terms — a snapshot id and no connector options — so the
         // sibling translates it into whatever its SDK calls a snapshot. Nothing paimon-specific is named
         // here. The id needs no mapping either: what fluss records as the lake snapshot IS the id the lake
