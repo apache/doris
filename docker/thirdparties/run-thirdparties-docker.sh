@@ -1482,9 +1482,10 @@ start_mariadb() {
 start_fluss() {
     local fluss_dir="${ROOT}/docker-compose/fluss"
 
-    # The compose file bind mounts remote.data.dir at the same absolute path it
-    # uses inside the containers, so Doris BE (running on the host) can read the
-    # kv snapshots and remote log segments the servers write there.
+    # The compose file bind mounts remote.data.dir and the paimon warehouse at
+    # the same absolute paths it uses inside the containers, so Doris (running on
+    # the host) can read the kv snapshots and remote log segments the servers
+    # write, and the lake files the tiering service writes.
     export FLUSS_COMPOSE_DIR="${fluss_dir}"
     envsubst <"${fluss_dir}/fluss.env.tpl" >"${fluss_dir}/fluss.env"
     set -a
@@ -1504,9 +1505,10 @@ start_fluss() {
     FLUSS_DOCKER_REUSE_IMAGES="${FLUSS_DOCKER_REUSE_IMAGES:-1}" \
         bash "${fluss_dir}/build-images.sh"
 
-    reset_data_dirs "${FLUSS_REMOTE_DATA_DIR}"
-    # The fluss image runs as uid 9999, the host directory is created by root.
-    sudo chmod 777 "${FLUSS_REMOTE_DATA_DIR}"
+    reset_data_dirs "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
+    # The fluss and flink images run as uid 9999, the host directories are
+    # created by root.
+    sudo chmod 777 "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
     sudo chmod +x "${fluss_dir}/scripts/run-init-sql.sh"
 
     compose_up_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" -d --wait

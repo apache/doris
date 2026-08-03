@@ -45,6 +45,12 @@ services:
     container_name: doris--fluss-coordinator
     hostname: doris--fluss-coordinator
     command: coordinatorServer
+    # The image chowns all of /opt/fluss to uid 9999 but never declares USER, so
+    # it runs as root unless told otherwise -- and then the paimon table
+    # directories it creates in the shared warehouse belong to root, while the
+    # tiering job writing into them is the flink image's uid 9999. Same uid on
+    # both sides, and the two can share the warehouse.
+    user: "9999:9999"
     depends_on:
       doris--fluss-zookeeper:
         condition: service_healthy
@@ -62,8 +68,23 @@ services:
         remote.data.dir: ${FLUSS_REMOTE_DATA_DIR}
         default.bucket.number: 3
         default.replication.factor: 1
+        # Lakehouse storage. The coordinator creates the paimon table when a
+        # datalake-enabled fluss table is created, so it needs the warehouse
+        # too, not just the tiering job. The plugin jars are already in the
+        # image: fluss-dist ships plugins/paimon (fluss-lake-paimon +
+        # paimon-bundle + shaded hadoop).
+        #
+        # These three settings are also what makes the tables READABLE by Doris:
+        # the coordinator copies its datalake.paimon.* config into every lake
+        # table's properties under a table. prefix, and that copy is the only
+        # place the fluss connector learns where the warehouse is.
+        datalake.enabled: true
+        datalake.format: paimon
+        datalake.paimon.metastore: filesystem
+        datalake.paimon.warehouse: ${FLUSS_PAIMON_WAREHOUSE}
     volumes:
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}
+      - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9123' >/dev/null 2>&1"]
       interval: 5s
@@ -77,6 +98,8 @@ services:
     container_name: doris--fluss-tablet-server
     hostname: doris--fluss-tablet-server
     command: tabletServer
+    # Same uid as the coordinator and the flink containers; see there.
+    user: "9999:9999"
     depends_on:
       doris--fluss-coordinator:
         condition: service_healthy
@@ -107,8 +130,15 @@ services:
         # tablet whose log has not advanced since its last snapshot is skipped
         # (KvTabletSnapshotTarget), and the fixtures stop writing after init.
         kv.snapshot.interval: 10s
+        # Same lakehouse settings as the coordinator: a tablet server reads them
+        # to decide the key encoding and bucketing a datalake table uses.
+        datalake.enabled: true
+        datalake.format: paimon
+        datalake.paimon.metastore: filesystem
+        datalake.paimon.warehouse: ${FLUSS_PAIMON_WAREHOUSE}
     volumes:
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}
+      - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9123' >/dev/null 2>&1"]
       interval: 5s
@@ -130,6 +160,15 @@ services:
         jobmanager.rpc.address: doris--fluss-jobmanager
         rest.address: doris--fluss-jobmanager
         rest.bind-address: 0.0.0.0
+    # The tiering job runs on this cluster and writes the paimon warehouse; the
+    # jobmanager builds the job graph, which opens the lake catalog.
+    volumes:
+      - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
+      # Tiering a primary-key table reads the kv snapshot FILES rather than the
+      # change log, straight out of remote.data.dir -- the same way Doris BE reads
+      # them. Without this mount a log table tiers and a primary-key one fails
+      # with FileNotFoundException for a file that plainly exists on the host.
+      - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8081/overview >/dev/null"]
       interval: 5s
@@ -153,6 +192,11 @@ services:
         taskmanager.numberOfTaskSlots: 4
         taskmanager.memory.process.size: 2048m
         taskmanager.memory.task.off-heap.size: 128m
+    # Writes and commits the paimon files the tiering job produces, and reads the
+    # kv snapshots it tiers a primary-key table from (see the jobmanager).
+    volumes:
+      - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
+      - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}:ro
     # The taskmanager RPC port is ephemeral, so health means "registered with
     # the jobmanager": that is also exactly what submitting a job needs.
     healthcheck:
@@ -184,6 +228,9 @@ services:
       # Read-only, and only so that init can wait for the kv snapshots to be
       # written before declaring the environment ready.
       - FLUSS_REMOTE_DATA_DIR=${FLUSS_REMOTE_DATA_DIR}
+      # This container also submits the tiering job and waits for it to commit,
+      # so it needs both the warehouse path and the paimon database naming.
+      - FLUSS_PAIMON_WAREHOUSE=${FLUSS_PAIMON_WAREHOUSE}
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: doris--fluss-jobmanager
@@ -192,6 +239,10 @@ services:
       - ./sql:/opt/fluss-sql:ro
       - ./scripts:/opt/fluss-scripts:ro
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}:ro
+      # Writable, not read-only like the one above: `flink run` builds the
+      # tiering job graph in this container, and building it opens the lake
+      # catalog, which creates the warehouse directory if it is not there yet.
+      - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/fluss-init/SUCCESS"]
       interval: 5s
