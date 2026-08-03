@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
@@ -115,13 +116,16 @@ public abstract class BaseTableStream extends Table {
     }
 
     public TableIf getBaseTableNullable() {
-        if (baseTable instanceof Table && ((Table) baseTable).isDropped) {
+        TableIf cachedBaseTable = baseTable;
+        if (cachedBaseTable instanceof Table && ((Table) cachedBaseTable).isDropped) {
             baseTable = null;
+            return null;
         }
-        if (baseTable == null) {
-            baseTable = baseTableInfo.getTableNullable();
+        if (cachedBaseTable == null) {
+            cachedBaseTable = baseTableInfo.getTableNullable();
+            baseTable = cachedBaseTable;
         }
-        return baseTable;
+        return cachedBaseTable;
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {
@@ -144,7 +148,11 @@ public abstract class BaseTableStream extends Table {
     }
 
     public boolean isDisabled() {
-        return disabled || getBaseTableNullable() == null;
+        return isDisabled(getBaseTableNullable());
+    }
+
+    boolean isDisabled(TableIf availableBaseTable) {
+        return disabled || availableBaseTable == null;
     }
 
     public void setDisabled(boolean disabled) {
@@ -152,7 +160,11 @@ public abstract class BaseTableStream extends Table {
     }
 
     public boolean isStale() {
-        return stale || getBaseTableNullable() == null;
+        return isStale(getBaseTableNullable());
+    }
+
+    boolean isStale(TableIf availableBaseTable) {
+        return stale || availableBaseTable == null;
     }
 
     public void setStale(boolean stale) {
@@ -160,7 +172,11 @@ public abstract class BaseTableStream extends Table {
     }
 
     public String getStaleReason() {
-        return getBaseTableNullable() == null ? BASE_TABLE_NOT_FOUND_STALE_REASON : staleReason;
+        return getStaleReason(getBaseTableNullable());
+    }
+
+    String getStaleReason(TableIf availableBaseTable) {
+        return availableBaseTable == null ? BASE_TABLE_NOT_FOUND_STALE_REASON : staleReason;
     }
 
     public void setStaleReason(String staleReason) {
@@ -203,7 +219,16 @@ public abstract class BaseTableStream extends Table {
     }
 
     public List<String> getBaseTableFullQualifiers() {
-        return baseTableInfo.getFullQualifiers();
+        return getBaseTableFullQualifiers(getBaseTableNullable());
+    }
+
+    List<String> getBaseTableFullQualifiers(TableIf availableBaseTable) {
+        TableIf displayBaseTable = availableBaseTable;
+        if (displayBaseTable == null && baseTableInfo.isInternalTable()) {
+            displayBaseTable = Env.getCurrentRecycleBin().getRecycledTableNullable(
+                    baseTableInfo.getDbId(), baseTableInfo.getTableId());
+        }
+        return displayBaseTable == null ? baseTableInfo.getFullQualifiers() : displayBaseTable.getFullQualifiers();
     }
 
     public TableStreamBaseTableInfo getBaseTableInfo() {

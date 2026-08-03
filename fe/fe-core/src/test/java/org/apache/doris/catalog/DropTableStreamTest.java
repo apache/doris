@@ -83,6 +83,21 @@ public class DropTableStreamTest extends TestWithFeService {
                 + " properties('show_initial_rows' = 'true')");
     }
 
+    private TRow getStreamMetadataRow(String streamName) {
+        List<TRow> rows = new ArrayList<>();
+        Env.getCurrentEnv().getTableStreamManager().fillTableStreamValuesMetadataResult(rows);
+        return rows.stream()
+                .filter(row -> streamName.equals(row.getColumnValue().get(1).getStringVal()))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+    }
+
+    private String getStreamDdl(OlapTableStream stream) {
+        List<String> createStreamStmt = new ArrayList<>();
+        Env.getDdlStmt(stream, createStreamStmt, null, null, false, true, -1L);
+        return createStreamStmt.get(0);
+    }
+
     @Test
     public void testNormalDropStream() throws Exception {
         // test drop
@@ -134,15 +149,11 @@ public class DropTableStreamTest extends TestWithFeService {
         Assertions.assertTrue(stream.isDisabled());
         Assertions.assertTrue(stream.isStale());
         Assertions.assertEquals("Base table does not exist", stream.getStaleReason());
+        Assertions.assertTrue(getStreamDdl(stream).contains("ON TABLE internal.test_stream.tbl_recover"));
         Assertions.assertTrue(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
                 .contains(stream.getId()));
 
-        List<TRow> rows = new ArrayList<>();
-        Env.getCurrentEnv().getTableStreamManager().fillTableStreamValuesMetadataResult(rows);
-        TRow streamRow = rows.stream()
-                .filter(row -> "s_recover".equals(row.getColumnValue().get(1).getStringVal()))
-                .findFirst()
-                .orElseThrow(AssertionError::new);
+        TRow streamRow = getStreamMetadataRow("s_recover");
         List<String> baseTableQualifiers = stream.getBaseTableFullQualifiers();
         Assertions.assertEquals(baseTableQualifiers.get(2), streamRow.getColumnValue().get(6).getStringVal());
         Assertions.assertEquals(baseTableQualifiers.get(1), streamRow.getColumnValue().get(7).getStringVal());
@@ -165,6 +176,48 @@ public class DropTableStreamTest extends TestWithFeService {
         Assertions.assertFalse(stream.isDisabled());
         Assertions.assertFalse(stream.isStale());
         Assertions.assertEquals("N/A", stream.getStaleReason());
+    }
+
+    @Test
+    public void testBaseTableQualifiersFollowRenameAndRecovery() throws Exception {
+        createBaseTableAndStream("tbl_rename", "s_rename");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_rename");
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_rename");
+
+        executeSql("alter table test_stream.tbl_rename rename tbl_renamed");
+
+        TRow streamRow = getStreamMetadataRow("s_rename");
+        Assertions.assertEquals("tbl_renamed", streamRow.getColumnValue().get(6).getStringVal());
+        Assertions.assertEquals("OLAP", streamRow.getColumnValue().get(9).getStringVal());
+        Assertions.assertTrue(streamRow.getColumnValue().get(10).isBoolVal());
+        Assertions.assertTrue(getStreamDdl(stream).contains("ON TABLE internal.test_stream.tbl_renamed"));
+
+        dropTableWithSql("drop table test_stream.tbl_renamed");
+
+        streamRow = getStreamMetadataRow("s_rename");
+        Assertions.assertEquals("tbl_renamed", streamRow.getColumnValue().get(6).getStringVal());
+        Assertions.assertEquals("N/A", streamRow.getColumnValue().get(9).getStringVal());
+        Assertions.assertFalse(streamRow.getColumnValue().get(10).isBoolVal());
+        Assertions.assertTrue(streamRow.getColumnValue().get(11).isBoolVal());
+        Assertions.assertTrue(getStreamDdl(stream).contains("ON TABLE internal.test_stream.tbl_renamed"));
+
+        OlapTableStream deserializedStream = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(stream), OlapTableStream.class);
+        Assertions.assertEquals("tbl_renamed", deserializedStream.getBaseTableFullQualifiers().get(2));
+        Assertions.assertTrue(getStreamDdl(deserializedStream).contains("ON TABLE internal.test_stream.tbl_renamed"));
+
+        recoverTable("recover table test_stream.tbl_renamed as tbl_recovered");
+
+        Assertions.assertSame(baseTable, stream.getBaseTableNullable());
+        Assertions.assertEquals("tbl_recovered", stream.getBaseTableFullQualifiers().get(2));
+        Assertions.assertTrue(getStreamDdl(stream).contains("ON TABLE internal.test_stream.tbl_recovered"));
+
+        dropTableWithSql("drop table test_stream.tbl_recovered");
+
+        deserializedStream = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(stream), OlapTableStream.class);
+        Assertions.assertEquals("tbl_recovered", deserializedStream.getBaseTableFullQualifiers().get(2));
+        Assertions.assertTrue(getStreamDdl(deserializedStream).contains("ON TABLE internal.test_stream.tbl_recovered"));
     }
 
     @Test
