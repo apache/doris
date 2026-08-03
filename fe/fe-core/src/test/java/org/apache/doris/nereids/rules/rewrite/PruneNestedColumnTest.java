@@ -109,6 +109,20 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  map_col map<string, string>\n"
                 + ") properties ('replication_num'='1')");
 
+        createTable("create table nn_join_dim(\n"
+                + "  id int not null,\n"
+                + "  segment varchar(32) not null\n"
+                + ") unique key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties ('replication_num'='1', 'enable_unique_key_merge_on_write'='true')");
+
+        createTable("create table nn_join_fact(\n"
+                + "  fact_id int not null,\n"
+                + "  dim_id int not null\n"
+                + ") duplicate key(fact_id)\n"
+                + "distributed by hash(fact_id) buckets 1\n"
+                + "properties ('replication_num'='1')");
+
         createTable("create table nested_container_tbl(\n"
                 + "  id int,\n"
                 + "  s struct<\n"
@@ -622,6 +636,24 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "b", "NULL")),
                 ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "b", "NULL"))
         );
+    }
+
+    @Test
+    public void testIsNullOnNotNullColumnAfterLeftJoin() throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectAllSlots(
+                "select sum(if(d.segment is null, 1, 0)) "
+                        + "from nn_join_fact f left join nn_join_dim d on f.dim_id = d.id");
+        SlotDescriptor segmentSlot = result.second.stream()
+                .filter(slot -> slot.getColumn() != null
+                        && "segment".equalsIgnoreCase(slot.getColumn().getName()))
+                .findFirst()
+                .orElseThrow();
+
+        // Physical column segment is NOT NULL and only made nullable by the LEFT JOIN: no
+        // NULL-only access path may be generated. Only the full-column [segment] path exists,
+        // which shouldSkipAccessInfo drops (whole column read needs no access info for BE).
+        Assertions.assertTrue(segmentSlot.getAllAccessPaths().isEmpty());
+        Assertions.assertFalse(segmentSlot.getAllAccessPaths().contains(path("segment", "NULL")));
     }
 
     @Test
@@ -1611,22 +1643,28 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     private Pair<PhysicalPlan, List<SlotDescriptor>> collectComplexSlots(String sql) throws Exception {
-        NereidsPlanner planner = (NereidsPlanner) executeNereidsSql(sql).planner();
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectAllSlots(sql);
         List<SlotDescriptor> complexSlots = new ArrayList<>();
+        for (SlotDescriptor slot : result.second) {
+            Type type = slot.getType();
+            if (type.isComplexType() || type.isVariantType()) {
+                complexSlots.add(slot);
+            }
+        }
+        return Pair.of(result.first, complexSlots);
+    }
+
+    private Pair<PhysicalPlan, List<SlotDescriptor>> collectAllSlots(String sql) throws Exception {
+        NereidsPlanner planner = (NereidsPlanner) executeNereidsSql(sql).planner();
+        List<SlotDescriptor> allSlots = new ArrayList<>();
         PhysicalPlan physicalPlan = planner.getPhysicalPlan();
         for (PlanFragment fragment : planner.getFragments()) {
             List<OlapScanNode> olapScanNodes = fragment.getPlanRoot().collectInCurrentFragment(OlapScanNode.class::isInstance);
             for (OlapScanNode olapScanNode : olapScanNodes) {
-                List<SlotDescriptor> slots = olapScanNode.getTupleDesc().getSlots();
-                for (SlotDescriptor slot : slots) {
-                    Type type = slot.getType();
-                    if (type.isComplexType() || type.isVariantType()) {
-                        complexSlots.add(slot);
-                    }
-                }
+                allSlots.addAll(olapScanNode.getTupleDesc().getSlots());
             }
         }
-        return Pair.of(physicalPlan, complexSlots);
+        return Pair.of(physicalPlan, allSlots);
     }
 
     private ColumnAccessPath path(String... path) {

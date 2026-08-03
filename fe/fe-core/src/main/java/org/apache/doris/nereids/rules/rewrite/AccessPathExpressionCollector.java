@@ -625,9 +625,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitIsNull(IsNull isNull, CollectorContext context) {
         Expression arg = isNull.child();
-        // Skip variant sub-column paths (v['k'] IS NULL): the sub-column path is already baked
-        // into the SlotReference, so null-only access doesn't apply the same way.
-        if (arg instanceof SlotReference && ((SlotReference) arg).hasSubColPath()) {
+        // SlotReferences that must not be pruned to NULL-only access:
+        // 1. variant sub-column path (v['k'] IS NULL) — the path is already baked into the slot
+        // 2. physical column is NOT NULL, only made nullable by an outer join — no physical null
+        //    map at the scan side, so the regular data path is sufficient to evaluate IS NULL
+        if (arg instanceof SlotReference && (((SlotReference) arg).hasSubColPath()
+                || (((SlotReference) arg).getOriginalColumn().isPresent()
+                        && !((SlotReference) arg).getOriginalColumn().get().isAllowNull()))) {
             return visit(isNull, context);
         }
         // Optimize IS NULL on nullable expressions: create a context with NULL suffix to indicate
