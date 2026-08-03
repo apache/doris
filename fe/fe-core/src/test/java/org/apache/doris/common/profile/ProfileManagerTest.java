@@ -1222,24 +1222,27 @@ class ProfileManagerTest {
             profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
         }
 
-        profileManager.isProfileLoaded = false;
-
-        AtomicInteger maxProfileLoaderThreads = new AtomicInteger(0);
-        Thread monitorThread = new Thread(() -> {
-            while (!Thread.currentThread().isInterrupted()) {
-                long loaderCount = Thread.getAllStackTraces().keySet().stream()
-                        .filter(thread -> "profile-loader".equals(thread.getName()))
-                        .count();
-                maxProfileLoaderThreads.updateAndGet(cur -> Math.max(cur, (int) loaderCount));
+        // Instrument the load entry with an invocation counter and entry/release latches, and hold
+        // the winning loader active while all trigger calls finish. This scopes the assertion to
+        // this manager and is deterministic, unlike sampling JVM-global "profile-loader" thread
+        // names (which can miss a fast load or count a loader left by another ProfileManager).
+        AtomicInteger loadEntries = new AtomicInteger(0);
+        CountDownLatch loaderEntered = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        ProfileManager pm = new ProfileManager() {
+            @Override
+            protected List<String> getOnStorageProfileInfos() {
+                loadEntries.incrementAndGet();
+                loaderEntered.countDown();
                 try {
-                    Thread.sleep(10);
+                    releaseLoader.await(30, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    return;
                 }
+                return super.getOnStorageProfileInfos();
             }
-        });
-        monitorThread.start();
+        };
+        pm.isProfileLoaded = false;
 
         int concurrentTriggers = 20;
         CountDownLatch startLatch = new CountDownLatch(1);
@@ -1248,7 +1251,7 @@ class ProfileManagerTest {
             triggerThreads[i] = new Thread(() -> {
                 try {
                     startLatch.await();
-                    profileManager.loadProfilesFromStorageIfFirstTime(false);
+                    pm.loadProfilesFromStorageIfFirstTime(false);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
@@ -1257,22 +1260,26 @@ class ProfileManagerTest {
         }
         startLatch.countDown();
 
+        // The winning loader is held inside getOnStorageProfileInfos; every trigger call returns
+        // (either after spawning the held loader, or after losing the CAS), so joining is quick.
+        Assertions.assertTrue(loaderEntered.await(10, TimeUnit.SECONDS));
         for (Thread triggerThread : triggerThreads) {
             triggerThread.join(30000);
         }
+        Assertions.assertEquals(1, loadEntries.get(),
+                "Only one profile-loader should enter the load body at a time");
+
+        releaseLoader.countDown();
 
         long waitStart = System.currentTimeMillis();
-        while (!profileManager.isProfileLoaded && System.currentTimeMillis() - waitStart < 30000) {
+        while (!pm.isProfileLoaded && System.currentTimeMillis() - waitStart < 30000) {
             Thread.sleep(100);
         }
 
-        monitorThread.interrupt();
-        monitorThread.join();
-
-        Assertions.assertTrue(profileManager.isProfileLoaded);
-        Assertions.assertEquals(1, maxProfileLoaderThreads.get(),
-                "Only one profile-loader thread should be active at a time");
-        Assertions.assertEquals(numProfiles, profileManager.queryIdToProfileMap.size());
+        Assertions.assertTrue(pm.isProfileLoaded);
+        Assertions.assertEquals(1, loadEntries.get(),
+                "No second cold load should start after the first one completes");
+        Assertions.assertEquals(numProfiles, pm.queryIdToProfileMap.size());
     }
 
     @Test
@@ -1299,26 +1306,43 @@ class ProfileManagerTest {
         asyncLoader.start();
         Assertions.assertTrue(loadingEntered.await(10, TimeUnit.SECONDS));
 
-        long waitStart = System.currentTimeMillis();
-        pm.loadProfilesFromStorageIfFirstTime(true);
-        long waitedMs = System.currentTimeMillis() - waitStart;
+        // Run the synchronous caller on its own thread so we can assert it blocks on the in-flight
+        // async load, then release the loader and confirm a successful handoff (not a 30s timeout).
+        AtomicBoolean syncReturned = new AtomicBoolean(false);
+        Thread syncCaller = new Thread(() -> {
+            pm.loadProfilesFromStorageIfFirstTime(true);
+            syncReturned.set(true);
+        });
+        syncCaller.start();
+
+        // While the async load is held, the sync caller must remain blocked in waitForProfileLoadFinish.
+        Thread.sleep(500);
+        Assertions.assertFalse(syncReturned.get(),
+                "sync load must block while an async load is in progress");
 
         allowComplete.countDown();
+        syncCaller.join(10000);
         asyncLoader.join(10000);
 
+        Assertions.assertTrue(syncReturned.get(), "sync load should return after the async load finishes");
         Assertions.assertTrue(pm.isProfileLoaded);
-        Assertions.assertTrue(waitedMs >= 50,
-                "sync load should wait for in-progress async load to finish");
     }
 
     @Test
     void testLoadProfilesFromStorageFailure() throws Exception {
-        Profile profile = constructProfile("fail-load");
+        // Use a valid TUniqueId-based profile id so parseProfileFileName accepts the file name and
+        // Profile.read() returns a profile; otherwise read() returns null before pushProfile is
+        // called and the injected failure below is never reached.
+        UUID taskId = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+        Profile profile = constructProfile(DebugUtil.printId(queryId));
         profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
 
+        AtomicBoolean pushProfileEntered = new AtomicBoolean(false);
         ProfileManager pm = new ProfileManager() {
             @Override
             public void pushProfile(Profile profile) {
+                pushProfileEntered.set(true);
                 throw new RuntimeException("simulated load failure");
             }
         };
@@ -1326,8 +1350,16 @@ class ProfileManagerTest {
 
         pm.loadProfilesFromStorageIfFirstTime(true);
 
-        Assertions.assertTrue(pm.isProfileLoaded);
+        // The injected failure must actually be hit (proves we exercised the outer load failure path).
+        Assertions.assertTrue(pushProfileEntered.get(), "pushProfile override should have been entered");
+        // A failed load must NOT be promoted to the cleanup-authoritative "index complete" state,
+        // otherwise deleteBrokenProfiles() would delete valid stored profiles missing from the
+        // partial in-memory index. It should, however, stop respawning the loader.
+        Assertions.assertFalse(pm.isProfileLoaded, "failed load must not mark the disk index authoritative");
         Assertions.assertTrue(pm.queryIdToProfileMap.isEmpty());
+        // A subsequent trigger must not restart the load (terminal failure recorded until FE restart).
+        pm.loadProfilesFromStorageIfFirstTime(true);
+        Assertions.assertFalse(pm.isProfileLoaded);
     }
 
     @Test
@@ -1352,6 +1384,7 @@ class ProfileManagerTest {
     void testWaitForProfileLoadInterrupted() throws Exception {
         CountDownLatch loadingEntered = new CountDownLatch(1);
         CountDownLatch holdLoad = new CountDownLatch(1);
+        CountDownLatch loaderFinished = new CountDownLatch(1);
         ProfileManager pm = new ProfileManager() {
             @Override
             protected List<String> getOnStorageProfileInfos() {
@@ -1361,11 +1394,18 @@ class ProfileManagerTest {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
-                return super.getOnStorageProfileInfos();
+                try {
+                    return super.getOnStorageProfileInfos();
+                } finally {
+                    loaderFinished.countDown();
+                }
             }
         };
         pm.isProfileLoaded = false;
 
+        // asyncLoader only starts the daemon "profile-loader" and returns; joining it does NOT wait
+        // for that loader. We must wait on the loader itself before returning so @AfterEach cannot
+        // restore the storage path / delete the temp dir underneath an in-flight loader.
         Thread asyncLoader = new Thread(() -> pm.loadProfilesFromStorageIfFirstTime(false));
         asyncLoader.start();
         Assertions.assertTrue(loadingEntered.await(10, TimeUnit.SECONDS));
@@ -1380,5 +1420,12 @@ class ProfileManagerTest {
 
         holdLoad.countDown();
         asyncLoader.join(10000);
+        // Wait for the real loader to leave getOnStorageProfileInfos, then for its terminal state.
+        Assertions.assertTrue(loaderFinished.await(10, TimeUnit.SECONDS));
+        long waitStart = System.currentTimeMillis();
+        while (!pm.isProfileLoaded && System.currentTimeMillis() - waitStart < 10000) {
+            Thread.sleep(50);
+        }
+        Assertions.assertTrue(pm.isProfileLoaded);
     }
 }

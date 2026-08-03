@@ -129,6 +129,12 @@ public class ProfileManager extends MasterDaemon {
     volatile boolean isProfileLoaded = false;
     // Guard against spawning multiple profile-loader threads while loading is in progress.
     private final AtomicBoolean isProfileLoading = new AtomicBoolean(false);
+    // Set when a load attempt terminates without fully indexing storage. This is distinct from
+    // isProfileLoaded, which means the on-disk index is complete and therefore authoritative for
+    // deleteBrokenProfiles()/deleteOutdatedProfilesFromStorage(). A failed attempt must stop the
+    // loader from respawning on every scheduler tick WITHOUT enabling that destructive cleanup,
+    // because a partial in-memory index would otherwise classify valid stored profiles as broken.
+    private final AtomicBoolean isProfileLoadFailed = new AtomicBoolean(false);
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
     private ReentrantReadWriteLock lock;
@@ -602,13 +608,21 @@ public class ProfileManager extends MasterDaemon {
     // deserialize to an object Profile
     // push them to memory structure of ProfileManager for index
     protected void loadProfilesFromStorageIfFirstTime(boolean sync) {
-        if (checkIfProfileLoaded()) {
+        if (checkIfProfileLoaded() || isProfileLoadFailed.get()) {
             return;
         }
         if (!isProfileLoading.compareAndSet(false, true)) {
             if (sync) {
                 waitForProfileLoadFinish();
             }
+            return;
+        }
+        // Recheck after winning ownership: a stale pre-CAS read could have observed
+        // isProfileLoaded=false while a previous loader was finishing. Without this, that loader
+        // marks loaded and clears isProfileLoading, then this CAS succeeds and starts a redundant
+        // second full cold load. Release ownership and bail if loading already terminated.
+        if (checkIfProfileLoaded() || isProfileLoadFailed.get()) {
+            isProfileLoading.set(false);
             return;
         }
 
@@ -623,14 +637,20 @@ public class ProfileManager extends MasterDaemon {
             } catch (Exception e) {
                 LOG.error("Failed to load query profile from storage", e);
             } finally {
-                // Mark loaded even on failure to avoid spawning a new profile-loader every second.
-                markProfileLoaded();
-                isProfileLoading.set(false);
-                if (!loadSucceeded) {
+                if (loadSucceeded) {
+                    // Only a fully indexed load may mark the disk index authoritative; downstream
+                    // cleanup deletes stored profiles missing from the in-memory index.
+                    markProfileLoaded();
+                } else {
+                    // Record a terminal failure so the loader is not respawned every scheduler tick,
+                    // but keep isProfileLoaded=false so destructive cleanup stays disabled on a
+                    // partial index. The load will not be retried until the FE restarts.
+                    isProfileLoadFailed.set(true);
                     LOG.warn("Profile loading did not complete successfully, "
                             + "will not retry until FE restarts. Loaded profile count in memory: {}",
                             queryIdToProfileMap.size());
                 }
+                isProfileLoading.set(false);
             }
         };
 
@@ -639,7 +659,18 @@ public class ProfileManager extends MasterDaemon {
         } else {
             Thread loadThread = new Thread(loadTask, "profile-loader");
             loadThread.setDaemon(true);
-            loadThread.start();
+            try {
+                loadThread.start();
+            } catch (Throwable t) {
+                // Native-thread allocation / start() can fail under the resource pressure this
+                // guard targets. loadTask never runs, so release ownership and record a terminal
+                // failure here; otherwise every later cycle sees isProfileLoading=true and
+                // permanently skips the cold load.
+                isProfileLoadFailed.set(true);
+                isProfileLoading.set(false);
+                LOG.warn("Failed to start profile-loader thread, "
+                        + "profile loading will not be retried until FE restarts", t);
+            }
         }
     }
 
