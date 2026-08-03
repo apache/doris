@@ -2097,6 +2097,18 @@ public class Config extends ConfigBase {
     @ConfField(description = "Maximum cache number of database and table instances in external catalogs.")
     public static long max_meta_object_cache_num = 1000;
 
+
+    @ConfField(mutable = false, masterOnly = false, description = 
+            "Stripe count used by multi-key MetaCacheEntry instances such as external object caches.")
+    public static int external_meta_cache_object_entry_lock_stripes = 256;
+
+    @ConfField(mutable = true, masterOnly = false, description = 
+            "Whether to synchronously refresh external database/table names when a name lookup misses in an "
+                    + "existing cached snapshot. This option is enabled by default to preserve existing external "
+                    + "catalog visibility behavior. Disable it to avoid repeated remote name enumeration for "
+                    + "non-existent objects.")
+    public static boolean enable_external_meta_cache_name_miss_refresh = true;
+
     @ConfField(description = "Maximum cache number of Hive partitioned tables.")
     public static long max_hive_partition_table_cache_num = 10000;
 

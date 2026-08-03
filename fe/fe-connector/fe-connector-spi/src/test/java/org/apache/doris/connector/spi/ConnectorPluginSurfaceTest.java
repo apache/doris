@@ -30,6 +30,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Properties;
 import java.util.TreeSet;
 
 /**
@@ -60,6 +61,19 @@ import java.util.TreeSet;
 public class ConnectorPluginSurfaceTest {
 
     private static final String BASELINE_RESOURCE = "/connector-plugin-surface.txt";
+
+    @Test
+    public void connectorApiMajorTracksTheRecordedSurfaceChange() throws IOException {
+        Properties version = new Properties();
+        try (InputStream in = ConnectorProvider.class.getResourceAsStream(
+                "/META-INF/doris/connector-plugin-api-version.properties")) {
+            Assertions.assertNotNull(in, "missing connector plugin API version resource");
+            version.load(in);
+        }
+        // ConnectorProvider gained detached property validation in this surface revision. Keeping
+        // major 1 would let pre-change plugins load while silently using the new default method.
+        Assertions.assertEquals("2.0", version.getProperty("api.version"));
+    }
 
     /** The types a connector plugin implements or calls. Everything reachable on them is the contract. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(

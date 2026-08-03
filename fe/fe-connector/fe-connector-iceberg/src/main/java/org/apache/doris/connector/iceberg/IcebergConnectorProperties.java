@@ -27,6 +27,27 @@ public final class IcebergConnectorProperties {
     private IcebergConnectorProperties() {
     }
 
+    // -- Deployment-level settings, read from this plugin's own iceberg.conf (named after
+    // ConnectorProvider.name()). Each falls back to the ENV_ name below it, which is the fe.conf key it
+    // used to live under and still works.
+    //
+    // Both are shared with other connectors at the fe.conf end -- one jdbc_drivers_dir and one
+    // hive_metastore_client_timeout_second serve jdbc, iceberg and paimon. A plugin conf cannot express
+    // that, so a deployment that moves to these files sets the value in each plugin's own conf. That is
+    // the accepted cost of a per-plugin file; the fe.conf keys stay as the shared fallback. --
+    public static final String CONF_DRIVERS_DIR = "drivers_dir";
+    public static final String CONF_METASTORE_CLIENT_TIMEOUT_SECOND = "metastore_client_timeout_second";
+
+    /** The fe.conf name of {@link #CONF_DRIVERS_DIR}, forwarded through the engine environment. */
+    public static final String ENV_JDBC_DRIVERS_DIR = "jdbc_drivers_dir";
+    /** The fe.conf name of {@link #CONF_METASTORE_CLIENT_TIMEOUT_SECOND}. */
+    public static final String ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND =
+            "hive_metastore_client_timeout_second";
+    /** Engine-wide, not this connector's: the FE install root. Stays in the engine environment. */
+    public static final String ENV_DORIS_HOME = "doris_home";
+    /** Legacy default when neither channel names a metastore client timeout. */
+    public static final String DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND = "10";
+
     // -- Catalog type (second-level dispatch) --
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
 

@@ -67,6 +67,7 @@ import org.apache.doris.connector.hms.HmsCreateTableRequest;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
+import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystem;
@@ -1618,7 +1619,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         Map<String, String> env = context.getEnvironment();
         String fileFormat = userProps.getOrDefault(HiveConnectorProperties.CREATE_FILE_FORMAT,
-                env.getOrDefault(HiveConnectorProperties.ENV_HIVE_DEFAULT_FILE_FORMAT,
+                ConnectorConf.get(context, HiveConnectorProperties.CONF_DEFAULT_FILE_FORMAT,
+                        HiveConnectorProperties.ENV_HIVE_DEFAULT_FILE_FORMAT,
                         HiveConnectorProperties.DEFAULT_FILE_FORMAT));
 
         // Metastore table parameters: lower-case every key and stamp the file_format / location keys under a
@@ -1673,11 +1675,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // enable gate first, then the hash requirement.
         ConnectorBucketSpec bucketSpec = request.getBucketSpec();
         if (bucketSpec != null) {
-            boolean bucketEnabled = Boolean.parseBoolean(env.getOrDefault(
+            boolean bucketEnabled = Boolean.parseBoolean(ConnectorConf.get(context,
+                    HiveConnectorProperties.CONF_ENABLE_CREATE_BUCKET_TABLE,
                     HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "false"));
             if (!bucketEnabled) {
-                throw new DorisConnectorException(
-                        "Create hive bucket table need set enable_create_hive_bucket_table to true");
+                throw new DorisConnectorException("Create hive bucket table need set '"
+                        + HiveConnectorProperties.CONF_ENABLE_CREATE_BUCKET_TABLE + "' in hms.conf (or "
+                        + HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE
+                        + " in fe.conf) to true");
             }
             if (HiveConnectorProperties.BUCKET_ALGO_RANDOM.equals(bucketSpec.getAlgorithm())) {
                 throw new DorisConnectorException("External hive table only supports hash bucketing");

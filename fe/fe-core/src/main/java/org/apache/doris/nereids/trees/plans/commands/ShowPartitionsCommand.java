@@ -241,9 +241,7 @@ public class ShowPartitionsCommand extends ShowCommand {
         }
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
-        TableIf table = db.getTableOrMetaException(tblName, TableType.OLAP,
-                TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE,
-                TableType.PLUGIN_EXTERNAL_TABLE);
+        TableIf table = db.getTableOrMetaException(tblName, TableType.OLAP, TableType.PLUGIN_EXTERNAL_TABLE);
 
         if (!catalog.isInternalCatalog()) {
             if (!table.isPartitionedTable()) {

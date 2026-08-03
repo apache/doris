@@ -211,7 +211,23 @@ metastore/shade/cache). For a write path, the richest example is
     (example: `RecordingConnectorContext`). Never touch
     `connector-metadata-methods.txt` unless you changed the shared SPI
     surface itself.
-14. **Packaging.** Add `src/main/assembly/plugin-zip.xml` (copy from es or
+14. **Deployment-level settings** (if any). A value that is one-per-FE rather
+    than one-per-catalog goes in your plugin's own settings file, NOT in
+    fe.conf: ship `src/main/resources/<name>.conf.template`, add it to your
+    assembly's `<files>` at the zip root, and read it with
+    `ConnectorConf.get(context, "<key>", null, "<default>")`. `<name>` is
+    `ConnectorProvider.name()`, which is **not** necessarily your plugin
+    directory name — `plugins/connector/hive/` holds `hms.conf` and
+    `plugins/connector/trino/` holds `trino-connector.conf`. Guard that with a
+    test asserting `name() + ".conf.template"` is on the classpath (copy
+    `IcebergConnectorConfTest#theConfTemplateIsNamedAfterTheProvider`); a
+    template under any other name deploys a file the engine never opens.
+    `build.sh` seeds the live `.conf` from the template generically, so it
+    needs no change. Do NOT add a key to `Config.java` or to
+    `DefaultConnectorContext.buildEnvironment` — that is an engine change per
+    setting, and the keys still there are only the ones several connectors
+    share plus the fe.conf fallbacks kept for existing deployments.
+15. **Packaging.** Add `src/main/assembly/plugin-zip.xml` (copy from es or
     paimon). Verify your module through `package`/`install`, not just
     `test-compile` — shades and the plugin zip only materialize then.
 15. **Gates and e2e.** Your module must pass the forbidden-import gate (runs

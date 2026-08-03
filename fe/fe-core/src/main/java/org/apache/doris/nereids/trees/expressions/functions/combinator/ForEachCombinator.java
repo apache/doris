@@ -48,6 +48,7 @@ public class ForEachCombinator extends NullableAggregateFunction
             add("percentile");
             add("percentile_array");
             add("percentile_approx");
+            add("percentile_approx_array");
             add("percentile_approx_weighted");
         }
     });

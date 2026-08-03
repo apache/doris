@@ -82,6 +82,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -228,6 +229,25 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        CatalogProperty candidateProperty = new CatalogProperty(null, candidate);
+        super.checkProperties(candidateProperty);
+        try {
+            // Connector validation must observe the complete candidate without making it visible
+            // to concurrent catalog initialization; the provider handles legacy-value compatibility.
+            ConnectorFactory.validatePropertiesForUpdate(getType(), currentProperties, updatedProperties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
+        return true;
+    }
+
+    @Override
     public void checkWhenCreating() throws DdlException {
         // Let the connector perform its type-specific pre-creation validation
         // (e.g., JDBC driver security, checksum computation).
@@ -293,10 +313,21 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void onRefreshCache(boolean invalidCache) {
         super.onRefreshCache(invalidCache);
         if (invalidCache) {
-            Connector localConnector = connector;
-            if (localConnector != null) {
-                localConnector.invalidateAll();
-            }
+            invalidateAllConnectorCachesIfPresent();
+        }
+    }
+
+    /**
+     * Invalidates connector-owned caches without initializing or rebuilding the connector.
+     *
+     * <p>This is also used by edit-log replay when only a retained local database name is available. Without a
+     * database object, replay cannot recover the remote database/table identity, so whole-connector invalidation is
+     * the conservative cache-only fallback.
+     */
+    public void invalidateAllConnectorCachesIfPresent() {
+        Connector localConnector = connector;
+        if (localConnector != null) {
+            localConnector.invalidateAll();
         }
     }
 
@@ -432,14 +463,16 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * REGISTER_DATABASE change (via {@code CatalogMgr.registerExternalDatabaseFromEvent}). Pulled up from
      * {@code HMSExternalCatalog} so a flipped (generic) catalog no longer throws
      * {@code NotImplementedException} on a create/rename-database event. The body is fully generic
-     * (buildDbForInit + metaCache, name-derived id) and mirrors the legacy HMS implementation.
+     * (buildDbForInit + the shared metadata-cache update protocol) and mirrors the legacy HMS implementation.
      */
     @Override
-    public void registerDatabase(long dbId, String dbName) {
-        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
+    public void registerDatabase(String dbName) {
+        String localDbName = canonicalLocalDatabaseNameFromRemote(dbName);
+        long dbId = Util.genIdByName(getName(), localDbName);
+        ExternalDatabase<? extends ExternalTable> db =
+                buildDbForInit(dbName, localDbName, dbId, logType, false);
         if (isInitialized()) {
-            metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
-                    Util.genIdByName(name, db.getFullName()));
+            updateDatabaseCache(db.getRemoteName(), db.getFullName(), db);
         }
     }
 

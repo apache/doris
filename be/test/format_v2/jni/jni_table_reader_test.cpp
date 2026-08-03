@@ -27,6 +27,9 @@
 #include <thread>
 #include <vector>
 
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "format/jni/jni_data_bridge.h"
 #include "io/io_common.h"
 
 namespace doris::format {
@@ -107,6 +110,40 @@ Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOConte
             .runtime_state = nullptr,
             .scanner_profile = scanner_profile,
     });
+}
+
+TEST(JniTableReaderTest, RequiredFieldEncodingPreservesQuotedIdentifiers) {
+    EXPECT_EQ(JniDataBridge::encode_schema_values({"region,code", "hash#name", "地区 名"}),
+              "$cmVnaW9uLGNvZGU=,$aGFzaCNuYW1l,$5Zyw5Yy6IOWQjQ==");
+    EXPECT_EQ(JniDataBridge::encode_schema_values({}), "");
+    EXPECT_EQ(JniDataBridge::encode_schema_values({""}), "$");
+}
+
+TEST(JniTableReaderTest, EncodedTypeDescriptorsPreserveNestedQuotedIdentifiers) {
+    auto type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                       std::make_shared<DataTypeString>()},
+            Strings {"hash#name", "region,code", "colon:name"});
+
+    // Keep standard Base64 padding in the wire-contract expectation; Java decodes these tokens
+    // verbatim, and field names whose length is not divisible by three require trailing '=' bytes.
+    EXPECT_EQ(JniDataBridge::get_jni_type_with_encoded_struct_fields(type),
+              "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU=:string,$Y29sb246bmFtZQ==:string>");
+}
+
+TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {
+    FakeJniTableReader reader;
+    reader._jni_columns = {JniTableReader::JniColumn {
+            .java_name = "region,code",
+            // Keep the aggregate complete because BE UT treats omitted JNI column fields as errors.
+            .output_type = std::make_shared<DataTypeString>(),
+            .transfer_type = std::make_shared<DataTypeString>(),
+    }};
+
+    reader._prepare_jni_scanner_schema();
+
+    EXPECT_FALSE(reader._scanner_params.contains("required_fields_base64"));
+    EXPECT_FALSE(reader._scanner_params.contains("columns_types_base64"));
 }
 
 TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {

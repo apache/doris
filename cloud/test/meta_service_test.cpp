@@ -8640,6 +8640,8 @@ TEST(MetaServiceTxnStoreRetryableTest, MaybeCommittedCodeWithoutRetryReturnsComm
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_EQ(index, 1);
 
     SyncPoint::get_instance()->disable_processing();
@@ -8680,6 +8682,8 @@ TEST(MetaServiceTxnStoreRetryableTest, ReadMaybeCommittedCodeWithoutRetryReturns
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_EQ(resp.version(), 2);
     EXPECT_EQ(index, 1);
 }
@@ -8719,6 +8723,8 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCodeReturnsCommitErr) 
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 
     SyncPoint::get_instance()->disable_processing();
@@ -8763,6 +8769,8 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryReadMaybeCommittedCodeReturnsCommitE
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_EQ(resp.version(), 2);
     EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 }

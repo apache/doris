@@ -21,70 +21,29 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.util.List;
-import java.util.UUID;
 
-public class DropPartitionTest {
-    private static String runningDir = "fe/mocked/DropPartitionTest/" + UUID.randomUUID().toString() + "/";
+public class DropPartitionTest extends TestWithFeService {
 
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-        // create database
-        String createDbStmtStr = "create database test;";
-        String createTablleStr = "create table test.tbl1(d1 date, k1 int, k2 bigint) duplicate key(d1, k1) "
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+        createTable("create table test.tbl1(d1 date, k1 int, k2 bigint) duplicate key(d1, k1) "
                 + "PARTITION BY RANGE(d1) (PARTITION p20210201 VALUES [('2021-02-01'), ('2021-02-02')),"
                 + "PARTITION p20210202 VALUES [('2021-02-02'), ('2021-02-03')),"
                 + "PARTITION p20210203 VALUES [('2021-02-03'), ('2021-02-04'))) distributed by hash(k1) "
-                + "buckets 1 properties('replication_num' = '1');";
-        createDb(createDbStmtStr);
-        createTable(createTablleStr);
+                + "buckets 1 properties('replication_num' = '1');");
     }
 
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-    }
-
-    private static void createDb(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void createTable(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof CreateTableCommand) {
-            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void dropPartition(String sql) throws Exception {
+    private void dropPartition(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
@@ -93,7 +52,7 @@ public class DropPartitionTest {
         }
     }
 
-    private static void recoverPartition(String sql) throws Exception {
+    private void recoverPartition(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
@@ -112,13 +71,13 @@ public class DropPartitionTest {
         dropPartition(dropPartitionSql);
         List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         partition = table.getPartition("p20210201");
-        Assert.assertEquals(1, replicaList.size());
-        Assert.assertNull(partition);
+        Assertions.assertEquals(1, replicaList.size());
+        Assertions.assertNull(partition);
         String recoverPartitionSql = "recover partition p20210201 from test.tbl1";
         recoverPartition(recoverPartitionSql);
         partition = table.getPartition("p20210201");
-        Assert.assertNotNull(partition);
-        Assert.assertEquals("p20210201", partition.getName());
+        Assertions.assertNotNull(partition);
+        Assertions.assertEquals("p20210201", partition.getName());
     }
 
     @Test
@@ -131,8 +90,8 @@ public class DropPartitionTest {
         dropPartition(dropPartitionSql);
         List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         partition = table.getPartition("p20210202");
-        Assert.assertTrue(replicaList.isEmpty());
-        Assert.assertNull(partition);
+        Assertions.assertTrue(replicaList.isEmpty());
+        Assertions.assertNull(partition);
         String recoverPartitionSql = "recover partition p20210202 from test.tbl1";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "No partition named 'p20210202' or partition id '-1' in table tbl1",
@@ -148,7 +107,7 @@ public class DropPartitionTest {
         table.dropPartitionAndReserveTablet("p20210203");
         List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         partition = table.getPartition("p20210203");
-        Assert.assertEquals(1, replicaList.size());
-        Assert.assertNull(partition);
+        Assertions.assertEquals(1, replicaList.size());
+        Assertions.assertNull(partition);
     }
 }

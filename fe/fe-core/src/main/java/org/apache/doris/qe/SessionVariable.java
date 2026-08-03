@@ -2123,7 +2123,15 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterPrune = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true)
+    @VarAttrDef.VarAttr(
+            name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE,
+            description = {"控制支持该变量的 scanner 是否启用运行时过滤器分区裁剪。"
+                    + "File Scanner V2 始终启用安全的分区裁剪。默认为 true。",
+                    "Controls runtime-filter partition pruning in scanners that honor this variable. "
+                            + "File Scanner V2 always enables safe partition pruning. "
+                            + "The default value is true."},
+            needForward = true,
+            fuzzy = true)
     public boolean enableRuntimeFilterPartitionPrune = true;
 
     /**
@@ -2588,7 +2596,8 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(
             name = ENABLE_EXPR_ZONEMAP_FILTER,
             fuzzy = true,
-            description = "Controls whether to enable expression ZoneMap filtering in scanners. "
+            description = "Controls expression ZoneMap filtering in scanners that honor this variable. "
+                    + "File Scanner V2 always enables safe expression ZoneMap filtering. "
                     + "The default value is true.",
             needForward = true)
     public boolean enableExprZonemapFilter = true;

@@ -32,7 +32,6 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Multimap;
-import org.apache.hadoop.fs.Path;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -155,10 +154,10 @@ public class FederationBackendPolicyTest {
             for (Split split : assignedSplits) {
                 FileSplit fileSplit = (FileSplit) split;
                 ++totalSplitNum;
-                if (fileSplit.getPath().getPath().equals(new Path("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"))) {
+                if (fileSplit.getPath().getNormalizedLocation().equals("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc")) {
                     Assert.assertEquals("172.30.0.100", backend.getHost());
                     checkedLocalSplit.add(true);
-                } else if (fileSplit.getPath().getPath().equals(new Path("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"))) {
+                } else if (fileSplit.getPath().getNormalizedLocation().equals("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc")) {
                     Assert.assertEquals("172.30.0.106", backend.getHost());
                     checkedLocalSplit.add(true);
                 }
