@@ -118,6 +118,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
+    public boolean usesHiveParquetInt96TimeZone() {
+        return true;
+    }
+
+    @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
         String dbName = hiveHandle.getDbName();

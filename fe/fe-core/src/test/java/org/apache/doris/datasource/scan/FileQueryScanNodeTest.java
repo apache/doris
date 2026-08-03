@@ -28,16 +28,14 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
-import org.apache.doris.tablefunction.JdbcQueryTableValueFunction;
+import org.apache.doris.tablefunction.PluginDrivenQueryTableValueFunction;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileFormatType;
@@ -146,16 +144,8 @@ public class FileQueryScanNodeTest {
 
     @Test
     public void testHiveParquetTimezoneOverridesDifferentSessionTimezoneInScanParams() throws Exception {
-        Map<String, String> properties = new HashMap<>();
-        properties.put("type", "hms");
-        properties.put("hive.metastore.uris", "thrift://localhost:9083");
-        properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "8:00");
-        HMSExternalCatalog catalog = new HMSExternalCatalog(1, "hms", null, properties, "");
-        catalog.checkProperties();
-
-        HMSExternalTable hmsTable = Mockito.mock(HMSExternalTable.class, Mockito.CALLS_REAL_METHODS);
-        Mockito.doReturn(catalog).when(hmsTable).getCatalog();
-        Mockito.doReturn(DLAType.HIVE).when(hmsTable).getDlaType();
+        ExternalTable hmsTable = Mockito.mock(ExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn("+08:00").when(hmsTable).getHiveParquetTimeZone();
         Mockito.doReturn(Collections.emptyList()).when(hmsTable).getBaseSchema(false);
         Mockito.doReturn(Collections.emptyList()).when(hmsTable).getFullSchema();
         SessionVariable sessionVariable = new SessionVariable();
@@ -183,11 +173,8 @@ public class FileQueryScanNodeTest {
 
     @Test
     public void testHiveParquetTimezoneIsNotSetForHmsIcebergTable() throws Exception {
-        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
-        Mockito.when(catalog.getHiveParquetTimeZone()).thenReturn("Asia/Shanghai");
-        HMSExternalTable hmsTable = Mockito.mock(HMSExternalTable.class, Mockito.CALLS_REAL_METHODS);
-        Mockito.doReturn(catalog).when(hmsTable).getCatalog();
-        Mockito.doReturn(DLAType.ICEBERG).when(hmsTable).getDlaType();
+        ExternalTable hmsTable = Mockito.mock(ExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn("").when(hmsTable).getHiveParquetTimeZone();
         Mockito.doReturn(Collections.emptyList()).when(hmsTable).getBaseSchema(false);
         Mockito.doReturn(Collections.emptyList()).when(hmsTable).getFullSchema();
 
@@ -201,11 +188,8 @@ public class FileQueryScanNodeTest {
 
     @Test
     public void testHiveParquetTimezoneIsSetForHmsHudiTable() throws Exception {
-        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
-        Mockito.when(catalog.getHiveParquetTimeZone()).thenReturn("Asia/Shanghai");
-        HMSExternalTable hmsTable = Mockito.mock(HMSExternalTable.class, Mockito.CALLS_REAL_METHODS);
-        Mockito.doReturn(catalog).when(hmsTable).getCatalog();
-        Mockito.doReturn(DLAType.HUDI).when(hmsTable).getDlaType();
+        ExternalTable hmsTable = Mockito.mock(ExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn("Asia/Shanghai").when(hmsTable).getHiveParquetTimeZone();
         Mockito.doReturn(Collections.emptyList()).when(hmsTable).getBaseSchema(false);
         Mockito.doReturn(Collections.emptyList()).when(hmsTable).getFullSchema();
 
@@ -266,9 +250,9 @@ public class FileQueryScanNodeTest {
     }
 
     @Test
-    public void testHiveParquetTimezoneIgnoresJdbcQueryTableValuedFunction() throws Exception {
-        JdbcQueryTableValueFunction tvf = Mockito.mock(
-                JdbcQueryTableValueFunction.class, Mockito.CALLS_REAL_METHODS);
+    public void testHiveParquetTimezoneIgnoresPluginDrivenQueryTableValuedFunction() throws Exception {
+        PluginDrivenQueryTableValueFunction tvf = Mockito.mock(
+                PluginDrivenQueryTableValueFunction.class, Mockito.CALLS_REAL_METHODS);
         FunctionGenTable functionGenTable = new FunctionGenTable(
                 -1, "query", TableIf.TableType.TABLE_VALUED_FUNCTION, Collections.emptyList(), tvf);
         TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());

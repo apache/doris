@@ -253,6 +253,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return cached.provider;
     }
 
+    @Override
+    protected String getHiveParquetTimeZone() throws UserException {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null || !onPluginClassLoader(
+                scanProvider, scanProvider::usesHiveParquetInt96TimeZone)) {
+            return "";
+        }
+        return super.getHiveParquetTimeZone();
+    }
+
     /**
      * Immutable (handle, provider) pair for {@link #resolveScanProvider()}'s memo. Both fields final so a single
      * volatile write of the holder safely publishes the pair to concurrent readers (no torn new-key/old-provider

@@ -33,6 +33,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
@@ -218,6 +220,13 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void checkProperties() throws DdlException {
         super.checkProperties();
         String catalogType = getType();
+        if ("hms".equalsIgnoreCase(catalogType) || "hudi".equalsIgnoreCase(catalogType)) {
+            String hiveParquetTimeZone = catalogProperty.getOrDefault(
+                    FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, null);
+            if (hiveParquetTimeZone != null) {
+                FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+            }
+        }
         try {
             ConnectorFactory.validateProperties(catalogType, catalogProperty.getProperties());
         } catch (IllegalArgumentException e) {

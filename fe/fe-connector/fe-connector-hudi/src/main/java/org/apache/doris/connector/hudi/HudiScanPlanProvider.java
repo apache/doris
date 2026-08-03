@@ -120,6 +120,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         this.context = context;
     }
 
+    @Override
+    public boolean usesHiveParquetInt96TimeZone() {
+        return true;
+    }
+
     /**
      * Reads the {@code force_jni_scanner} session flag from the SPI session properties. Package-private static
      * for offline unit testing. Default false (legacy default) when unset or the session is null.

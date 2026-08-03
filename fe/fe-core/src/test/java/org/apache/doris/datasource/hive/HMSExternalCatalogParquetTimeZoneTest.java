@@ -19,6 +19,8 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -34,10 +36,14 @@ public class HMSExternalCatalogParquetTimeZoneTest {
         return properties;
     }
 
+    private static PluginDrivenExternalCatalog catalog(Map<String, String> properties) {
+        return new PluginDrivenExternalCatalog(1, "hms", null, properties, "", null);
+    }
+
     @Test
     public void testHiveParquetTimeZoneDefaultsToDisabled() throws Exception {
-        HMSExternalCatalog catalog = new HMSExternalCatalog(1, "hms", null, baseProperties(), "");
-        Assertions.assertEquals("", catalog.getHiveParquetTimeZone());
+        PluginDrivenExternalCatalog catalog = catalog(baseProperties());
+        catalog.checkProperties();
     }
 
     @Test
@@ -47,9 +53,9 @@ public class HMSExternalCatalogParquetTimeZoneTest {
         }) {
             Map<String, String> properties = baseProperties();
             properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, timezone);
-            HMSExternalCatalog catalog = new HMSExternalCatalog(1, "hms", null, properties, "");
+            PluginDrivenExternalCatalog catalog = catalog(properties);
             catalog.checkProperties();
-            Assertions.assertEquals(timezone, catalog.getHiveParquetTimeZone());
+            Assertions.assertEquals(timezone, FileFormatUtils.parseHiveParquetTimeZone(timezone));
         }
     }
 
@@ -57,9 +63,9 @@ public class HMSExternalCatalogParquetTimeZoneTest {
     public void testHiveParquetTimeZoneCanonicalizesShorthandOffset() throws Exception {
         Map<String, String> properties = baseProperties();
         properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "8:00");
-        HMSExternalCatalog catalog = new HMSExternalCatalog(1, "hms", null, properties, "");
+        PluginDrivenExternalCatalog catalog = catalog(properties);
         catalog.checkProperties();
-        Assertions.assertEquals("+08:00", catalog.getHiveParquetTimeZone());
+        Assertions.assertEquals("+08:00", FileFormatUtils.parseHiveParquetTimeZone("8:00"));
     }
 
     @Test
@@ -67,7 +73,7 @@ public class HMSExternalCatalogParquetTimeZoneTest {
         for (String timezone : new String[] {"AET", "CST", "PRC"}) {
             Map<String, String> properties = baseProperties();
             properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, timezone);
-            HMSExternalCatalog catalog = new HMSExternalCatalog(1, "hms", null, properties, "");
+            PluginDrivenExternalCatalog catalog = catalog(properties);
             DdlException exception = Assertions.assertThrows(DdlException.class, catalog::checkProperties);
             Assertions.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
         }
@@ -80,7 +86,7 @@ public class HMSExternalCatalogParquetTimeZoneTest {
         }) {
             Map<String, String> properties = baseProperties();
             properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, timezone);
-            HMSExternalCatalog catalog = new HMSExternalCatalog(1, "hms", null, properties, "");
+            PluginDrivenExternalCatalog catalog = catalog(properties);
             DdlException exception = Assertions.assertThrows(DdlException.class, catalog::checkProperties);
             Assertions.assertTrue(exception.getMessage().contains(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
         }

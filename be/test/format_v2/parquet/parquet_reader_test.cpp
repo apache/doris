@@ -50,6 +50,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -1528,7 +1529,8 @@ protected:
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
             bool is_immutable = false, bool enable_mapping_varbinary = false,
-            std::string fs_name = {}, int64_t mtime = 0) const {
+            std::string fs_name = {}, int64_t mtime = 0,
+            std::string hive_parquet_time_zone = {}) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1541,7 +1543,8 @@ protected:
         file_description->mtime = mtime;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
-                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+                std::move(hive_parquet_time_zone));
     }
 
     std::filesystem::path _test_dir;
@@ -2144,7 +2147,7 @@ TEST_F(NewParquetReaderTest, Int96TimezoneUsesCatalogPropertyInsteadOfSessionTim
     auto read_first_value = [&](const std::string& hive_parquet_time_zone,
                                 bool enable_mapping_timestamp_tz = false) {
         auto reader = create_reader(0, -1, nullptr, enable_mapping_timestamp_tz, nullptr,
-                                    std::nullopt, false, hive_parquet_time_zone);
+                                    std::nullopt, false, false, {}, 0, hive_parquet_time_zone);
         RuntimeState state {TQueryOptions(), TQueryGlobals()};
         // A session timezone must never implicitly opt an INT96 column into legacy conversion.
         state.set_timezone("America/Los_Angeles");
@@ -2191,11 +2194,55 @@ TEST_F(NewParquetReaderTest, Int96TimezoneUsesCatalogPropertyInsteadOfSessionTim
     EXPECT_EQ(read_first_value("Asia/Shanghai", true), "2024-12-31 16:00:00.000000+00:00");
 }
 
+TEST_F(NewParquetReaderTest, Int96UsesPerColumnPaimonTimestampSemantics) {
+    write_int96_timestamp_parquet_file(_file_path);
+
+    auto read_first_value = [&](bool adjusted_to_utc) {
+        auto reader = create_reader();
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("Asia/Shanghai");
+        auto status = reader->init(&state);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        std::vector<format::ColumnDefinition> schema;
+        status = reader->get_schema(&schema);
+        if (!status.ok() || schema.size() != 1) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        auto projection = field_projection(0);
+        projection.timestamp_is_adjusted_to_utc = adjusted_to_utc;
+        schema[0].type = DataTypeFactory::instance().create_data_type(
+                adjusted_to_utc ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2, true, 0, 6);
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {projection};
+        status = reader->open(request);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        bool eof = false;
+        status = reader->get_block(&block, &rows, &eof);
+        if (!status.ok() || rows != 3) {
+            ADD_FAILURE() << status << ", rows=" << rows;
+            return std::string {};
+        }
+        return block.get_by_position(0).type->to_string(*block.get_by_position(0).column, 0);
+    };
+
+    EXPECT_EQ(read_first_value(false), "2024-12-31 16:00:00.000000");
+    EXPECT_EQ(read_first_value(true), "2024-12-31 16:00:00.000000+00:00");
+}
+
 TEST_F(NewParquetReaderTest, NestedInt96UsesHiveParquetTimezone) {
     TimezoneUtils::load_timezones_to_cache();
     write_nested_int96_timestamp_parquet_file(_file_path);
-    auto reader =
-            create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, "Asia/Shanghai");
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {}, 0,
+                                "Asia/Shanghai");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("America/Los_Angeles");
     ASSERT_TRUE(reader->init(&state).ok());
@@ -2226,8 +2273,8 @@ TEST_F(NewParquetReaderTest, NestedInt96UsesHiveParquetTimezone) {
 }
 
 TEST_F(NewParquetReaderTest, RejectsInvalidHiveParquetTimezone) {
-    auto reader =
-            create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, "Not/A_Timezone");
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {}, 0,
+                                "Not/A_Timezone");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto status = reader->init(&state);
     EXPECT_FALSE(status.ok());
