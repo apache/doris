@@ -195,24 +195,37 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
             bool replace_null_data_to_default = need_replace_null_data_to_default(
                     context, from_type_not_nullable, to_type_not_nullable);
 
+            NullableColumnInfo source_info;
+            if (block.get_by_position(arguments[0]).type->is_nullable()) {
+                source_info = block.get_by_position(arguments[0]).get_nullable_column_info();
+            }
             auto nested_result_index = block.columns();
-            block.insert(block.get_by_position(result).unnest_nullable());
+            const auto& result_column = block.get_by_position(result);
+            block.insert({nullptr, to_type_not_nullable, result_column.name});
             auto nested_source_index = block.columns();
-            block.insert(block.get_by_position(arguments[0])
-                                 .unnest_nullable(replace_null_data_to_default));
+            if (source_info.is_nullable) {
+                block.insert(block.get_by_position(arguments[0])
+                                     .unnest_nullable(source_info, replace_null_data_to_default));
+            } else {
+                block.insert(block.get_by_position(arguments[0]));
+            }
 
-            const auto& arg_col = block.get_by_position(arguments[0]);
             const NullMap::value_type* arg_null_map = nullptr;
-            if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_col.column)) {
-                arg_null_map = nullable->get_null_map_data().data();
+            if (source_info.is_nullable) {
+                arg_null_map = block.get_by_position(arguments[0])
+                                       .get_nullable_null_map_column()
+                                       ->get_data()
+                                       .data();
             }
             RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable)(
                     context, block, {nested_source_index}, nested_result_index, input_rows_count,
                     arg_null_map));
 
+            NullableColumnInfos nullable_column_infos(block.columns());
+            nullable_column_infos[arguments[0]] = std::move(source_info);
             block.get_by_position(result).column =
                     wrap_in_nullable(block.get_by_position(nested_result_index).column, block,
-                                     arguments, input_rows_count);
+                                     arguments, nullable_column_infos, input_rows_count);
 
             block.erase(nested_source_index);
             block.erase(nested_result_index);
