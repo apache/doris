@@ -78,7 +78,7 @@ public:
         CHECK(hybrid_set != nullptr);
 
         // String types need a copy because:
-        // The caller's set is StringSet<DynamicContainer<std::string>>, but here we want
+        // The caller's set is an owning dynamic StringSet, but here we want
         // StringSet<FixedContainer<std::string, N>> for small-set optimization — different
         // C++ types, cannot share the pointer.
         //
