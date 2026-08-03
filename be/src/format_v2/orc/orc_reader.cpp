@@ -529,8 +529,7 @@ std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
     return value;
 }
 
-std::optional<TimestampTzValue> timestamp_tz_from_orc_millis(int64_t millis,
-                                                             int32_t nanos_tail) {
+std::optional<TimestampTzValue> timestamp_tz_from_orc_millis(int64_t millis, int32_t nanos_tail) {
     static const auto utc_time_zone = cctz::utc_time_zone();
     auto value = datetime_v2_from_orc_millis(millis, nanos_tail, utc_time_zone);
     if (!value.has_value()) {
@@ -557,16 +556,14 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
     }
     if (use_timestamp_tz) {
         auto min_value = timestamp_tz_from_orc_millis(timestamp_statistics->getMinimum(),
-                                                       timestamp_statistics->getMinimumNanos());
+                                                      timestamp_statistics->getMinimumNanos());
         auto max_value = timestamp_tz_from_orc_millis(timestamp_statistics->getMaximum(),
-                                                       timestamp_statistics->getMaximumNanos());
+                                                      timestamp_statistics->getMaximumNanos());
         if (!min_value.has_value() || !max_value.has_value()) {
             return false;
         }
-        return set_validated_zone_map(
-                Field::create_field<TYPE_TIMESTAMPTZ>(*min_value),
-                Field::create_field<TYPE_TIMESTAMPTZ>(*max_value),
-                zone_map);
+        return set_validated_zone_map(Field::create_field<TYPE_TIMESTAMPTZ>(*min_value),
+                                      Field::create_field<TYPE_TIMESTAMPTZ>(*max_value), zone_map);
     }
     if (!format::utc_timestamp_range_is_monotonic(
                 format::floor_epoch_seconds(timestamp_statistics->getMinimum(), 1000),
@@ -574,9 +571,9 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
         return false;
     }
     auto min_value = datetime_v2_from_orc_millis(timestamp_statistics->getMinimum(),
-                                                  timestamp_statistics->getMinimumNanos(), timezone);
+                                                 timestamp_statistics->getMinimumNanos(), timezone);
     auto max_value = datetime_v2_from_orc_millis(timestamp_statistics->getMaximum(),
-                                                  timestamp_statistics->getMaximumNanos(), timezone);
+                                                 timestamp_statistics->getMaximumNanos(), timezone);
     if (!min_value.has_value() || !max_value.has_value()) {
         return false;
     }

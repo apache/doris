@@ -10262,8 +10262,7 @@ TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsRoundsToMicroseconds) {
     }
 }
 
-Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds,
-                                     bool use_timestamp_tz) {
+Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool use_timestamp_tz) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             use_timestamp_tz ? "timestamp with local time zone" : "timestamp"));
     ::orc::TimestampVectorBatch batch(1, *::orc::getDefaultPool());
@@ -10292,12 +10291,10 @@ TEST_F(NewOrcReaderTest, TimestampRoundingRejectsUpperDorisBoundary) {
     // into year 10000, which neither Doris timestamp representation can store.
     constexpr int64_t MAX_DORIS_EPOCH_SECOND = 253402300799LL;
     constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    EXPECT_FALSE(decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, false)
+                         .ok());
     EXPECT_FALSE(
-            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, false)
-                    .ok());
-    EXPECT_FALSE(
-            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, true)
-                    .ok());
+            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, true).ok());
 }
 
 TEST_F(NewOrcReaderTest, TimestampRoundingRejectsSecondOverflow) {
