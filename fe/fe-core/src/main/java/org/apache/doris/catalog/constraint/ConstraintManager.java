@@ -248,10 +248,15 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         if (!(table instanceof Table)) {
             return ImmutableList.of();
         }
-        return ((Table) table).getTableAttributes().getConstraintsMap().values().stream()
-                .filter(DistributionMappingConstraint.class::isInstance)
-                .map(DistributionMappingConstraint.class::cast)
-                .collect(ImmutableList.toImmutableList());
+        readLock();
+        try {
+            return ((Table) table).getTableAttributes().getConstraintsMap().values().stream()
+                    .filter(DistributionMappingConstraint.class::isInstance)
+                    .map(DistributionMappingConstraint.class::cast)
+                    .collect(ImmutableList.toImmutableList());
+        } finally {
+            readUnlock();
+        }
     }
 
     /** Return the table-owned mapping that uses the given column, if any. */
@@ -260,17 +265,22 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         if (!(table instanceof Table)) {
             return null;
         }
-        return ((Table) table).getTableAttributes().getConstraintsMap().entrySet().stream()
-                .filter(entry -> entry.getValue() instanceof DistributionMappingConstraint)
-                .filter(entry -> {
-                    DistributionMappingConstraint mapping =
-                            (DistributionMappingConstraint) entry.getValue();
-                    return containsIgnoreCase(mapping.getDeterminantColumnNames(), columnName)
-                            || containsIgnoreCase(mapping.getDistributionColumnNames(), columnName);
-                })
-                .map(Entry::getKey)
-                .findFirst()
-                .orElse(null);
+        readLock();
+        try {
+            return ((Table) table).getTableAttributes().getConstraintsMap().entrySet().stream()
+                    .filter(entry -> entry.getValue() instanceof DistributionMappingConstraint)
+                    .filter(entry -> {
+                        DistributionMappingConstraint mapping =
+                                (DistributionMappingConstraint) entry.getValue();
+                        return containsIgnoreCase(mapping.getDeterminantColumnNames(), columnName)
+                                || containsIgnoreCase(mapping.getDistributionColumnNames(), columnName);
+                    })
+                    .map(Entry::getKey)
+                    .findFirst()
+                    .orElse(null);
+        } finally {
+            readUnlock();
+        }
     }
 
     /** Rebuild the qualified-name index from constraints persisted with a recovered or restored table. */
@@ -326,10 +336,6 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         });
     }
 
-    /**
-     * Remove all constraints for a table and clean up bidirectional references.
-     * Called when a table is dropped.
-     */
     /**
      * Atomically check for referencing foreign keys and then drop all constraints
      * for the given table. Holds the write lock for both operations to prevent
