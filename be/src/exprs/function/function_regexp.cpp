@@ -184,11 +184,13 @@ struct RegexpExtractEngine {
 
             // Keep the original subject start reachable: match_prev_avail lets
             // look-behind assertions see characters before search_start, and
-            // match_not_bol keeps `^` anchored to the original string.
+            // match_not_bob keeps `\A` anchored to the start of the original
+            // buffer (Boost's documented repeated-regex_search idiom; with
+            // match_prev_avail set, `^` is decided by the preceding character).
             while (boost::regex_search(search_start, search_end, matches, *boost_regex,
                                        search_start == data
                                                ? boost::match_default
-                                               : boost::match_prev_avail | boost::match_not_bol)) {
+                                               : boost::match_prev_avail | boost::match_not_bob)) {
                 if (static_cast<size_t>(index) < matches.size()) {
                     results.emplace_back(matches[index].str());
                 }
