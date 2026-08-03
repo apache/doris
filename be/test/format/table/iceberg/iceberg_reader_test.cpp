@@ -311,20 +311,23 @@ void write_iceberg_id_and_nested_struct_parquet_file(const std::string& file_pat
                                                       properties.build()));
 }
 
-void write_iceberg_idless_nested_struct_parquet_file(const std::string& file_path,
-                                                     const std::vector<int32_t>& ids,
-                                                     const std::vector<int32_t>& values,
-                                                     const std::vector<bool>& parent_nulls,
-                                                     const std::string& parent_name,
-                                                     const std::string& child_name) {
+void write_iceberg_idless_nested_struct_parquet_file(
+        const std::string& file_path, const std::vector<int32_t>& ids,
+        const std::vector<int32_t>& values, const std::vector<bool>& parent_nulls,
+        const std::string& parent_name, const std::string& child_name,
+        std::optional<int32_t> child_id = std::nullopt) {
     DORIS_CHECK(ids.size() == values.size());
     auto id_field = arrow::field("id", arrow::int32(), false);
     auto child_field = arrow::field(child_name, arrow::int32(), false);
+    if (child_id.has_value()) {
+        child_field = child_field->WithMetadata(
+                arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(*child_id)}));
+    }
     auto parent_field = arrow::field(parent_name, arrow::struct_({child_field}), true);
     auto table = arrow::Table::Make(
             arrow::schema({id_field, parent_field}),
             {build_iceberg_int32_array(ids),
-             build_iceberg_nullable_struct_array(values, parent_nulls, child_name, std::nullopt)});
+             build_iceberg_nullable_struct_array(values, parent_nulls, child_name, child_id)});
 
     auto output = arrow::io::FileOutputStream::Open(file_path);
     DORIS_CHECK(output.ok());
@@ -3548,6 +3551,103 @@ TEST_F(IcebergReaderTest, v1_parquet_mixed_ids_prefer_existing_equality_field_id
     ASSERT_EQ(legacy_block.rows(), 2);
     EXPECT_EQ(id_type->to_string(*legacy_block.get_by_position(0).column, 0), "1");
     EXPECT_EQ(id_type->to_string(*legacy_block.get_by_position(0).column, 1), "3");
+
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, v1_parquet_uses_descendant_id_for_hidden_nested_equality_key) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_v1_parquet_descendant_id_equality_delete_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.parquet").string();
+    const auto delete_file = (test_dir / "equality-delete.parquet").string();
+    // Every top-level Parquet field is ID-less, but the renamed nested equality key retains ID 2.
+    // Authoritative empty name mappings ensure only descendant-ID matching can locate it.
+    write_iceberg_idless_nested_struct_parquet_file(data_file, {1, 2, 3}, {5, 7, 9},
+                                                    {false, false, false}, "legacy_payload",
+                                                    "legacy_key", 2);
+    write_iceberg_int_equality_delete_parquet_file(delete_file, "delete_key", 2, 7);
+
+    auto current_key = make_external_int_field("current_key", 2, "99", {}, true);
+    auto current_payload =
+            make_external_struct_field("current_payload", 1, {std::move(current_key)}, {}, true);
+    schema::external::TStructField root_field;
+    root_field.__set_fields(
+            {make_external_int_field("id", 0, std::nullopt), std::move(current_payload)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(std::move(root_field));
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({std::move(current_schema)});
+
+    TIcebergDeleteFileDesc delete_descriptor;
+    delete_descriptor.__set_content(IcebergReaderMixin<ParquetReader>::EQUALITY_DELETE);
+    delete_descriptor.__set_path(delete_file);
+    delete_descriptor.__set_field_ids({2});
+    delete_descriptor.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    TIcebergFileDesc iceberg_descriptor;
+    iceberg_descriptor.__set_format_version(2);
+    iceberg_descriptor.__set_original_file_path(data_file);
+    iceberg_descriptor.__set_delete_files({std::move(delete_descriptor)});
+    TTableFormatFileDesc table_format_descriptor;
+    table_format_descriptor.__set_iceberg_params(std::move(iceberg_descriptor));
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_table_format_params(std::move(table_format_descriptor));
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_single_int_tuple_descriptor(&object_pool, "id", 0, &descriptor_table,
+                                                   &tuple_descriptor)
+                        .ok());
+    ASSERT_NE(tuple_descriptor, nullptr);
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
+                                &runtime_state, cache.get());
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(data_file, &file_reader).ok());
+    reader.set_file_reader(file_reader);
+
+    std::vector<ColumnDescriptor> column_descriptors(1);
+    column_descriptors[0].name = "id";
+    std::unordered_map<std::string, uint32_t> block_positions = {{"id", 0}};
+    ParquetInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+    const auto init_status = reader.init_reader(&context);
+    ASSERT_TRUE(init_status.ok()) << init_status;
+
+    const auto id_type = make_nullable(std::make_shared<DataTypeInt32>());
+    Block block;
+    block.insert({id_type->create_column(), id_type, "id"});
+    size_t read_rows = 0;
+    bool eof = false;
+    const auto status = reader.get_next_block(&block, &read_rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(read_rows, 2);
+    ASSERT_EQ(block.rows(), 2);
 
     std::filesystem::remove_all(test_dir);
 }

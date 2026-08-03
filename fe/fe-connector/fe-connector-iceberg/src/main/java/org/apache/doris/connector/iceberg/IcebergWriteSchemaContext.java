@@ -33,6 +33,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortField;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
@@ -41,7 +42,9 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.SnapshotUtil;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -91,9 +94,11 @@ final class IcebergWriteSchemaContext {
         Objects.requireNonNull(table, "table should not be null");
         Objects.requireNonNull(tableName, "tableName should not be null");
         Objects.requireNonNull(branchName, "branchName should not be null");
-        // Iceberg schema evolution is table-global. A branch selects the snapshot lineage that receives
-        // the commit, while files written by that commit use the table's current schema.
-        Schema schema = table.schema();
+        Schema schema = branchName.isPresent()
+                ? resolveBranchSchema(table, branchName.get(), tableName) : table.schema();
+        if (branchName.isPresent()) {
+            validateBranchWriterSchema(schema, table.schema(), branchName.get(), tableName);
+        }
         int formatVersion = IcebergWriterHelper.getFormatVersion(table);
         TableIdentity identity = pinTableIdentity(table, formatVersion);
         return new IcebergWriteSchemaContext(
@@ -214,8 +219,60 @@ final class IcebergWriteSchemaContext {
         }
     }
 
+    private static Schema resolveBranchSchema(Table table, String branchName, String tableName) {
+        SnapshotRef ref = table.refs().get(branchName);
+        if (ref == null) {
+            throw new DorisConnectorException(branchName + " is not founded in " + tableName);
+        }
+        if (!ref.isBranch()) {
+            throw new DorisConnectorException(branchName
+                    + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
+        }
+        return SnapshotUtil.schemaFor(table, ref.snapshotId());
+    }
+
+    private static void validateBranchWriterSchema(
+            Schema branchSchema, Schema currentSchema, String branchName, String tableName) {
+        Map<Integer, Types.NestedField> branchFields = TypeUtil.indexById(branchSchema.asStruct());
+        Map<Integer, Types.NestedField> currentFields = TypeUtil.indexById(currentSchema.asStruct());
+        Map<Integer, Integer> currentParents = TypeUtil.indexParents(currentSchema.asStruct());
+        for (Types.NestedField currentField : currentFields.values()) {
+            Types.NestedField branchField = branchFields.get(currentField.fieldId());
+            if (branchField != null) {
+                if (currentField.isRequired() && branchField.isOptional()) {
+                    throw incompatibleBranchSchema(branchSchema, currentSchema, branchName, tableName,
+                            currentField, "is optional in the pinned branch schema and can contain explicit nulls");
+                }
+                continue;
+            }
+            Types.NestedField highestMissingField = currentField;
+            Integer parentId = currentParents.get(currentField.fieldId());
+            while (parentId != null && !branchFields.containsKey(parentId)) {
+                highestMissingField = Preconditions.checkNotNull(currentFields.get(parentId),
+                        "Iceberg parent field %s is absent from current schema", parentId);
+                parentId = currentParents.get(parentId);
+            }
+            if (highestMissingField.isRequired() && highestMissingField.initialDefault() == null) {
+                throw incompatibleBranchSchema(branchSchema, currentSchema, branchName, tableName,
+                        highestMissingField,
+                        "is absent from the pinned branch schema and has no initial default");
+            }
+        }
+    }
+
+    private static DorisConnectorException incompatibleBranchSchema(
+            Schema branchSchema, Schema currentSchema, String branchName, String tableName,
+            Types.NestedField field, String incompatibility) {
+        return new DorisConnectorException("Iceberg table current schema " + currentSchema.schemaId()
+                + " cannot label files written with pinned branch " + branchName + " schema "
+                + branchSchema.schemaId() + " for table " + tableName + ": required field "
+                + field.name() + " (id " + field.fieldId() + ") " + incompatibility
+                + "; retry after updating the branch schema");
+    }
+
     void validateCurrentSchema(Table table, boolean requireCurrentPartitionSpec) {
-        Schema currentSchema = table.schema();
+        Schema currentSchema = branchName.isPresent()
+                ? resolveBranchSchema(table, branchName.get(), tableName) : table.schema();
         int currentFormatVersion = IcebergWriterHelper.getFormatVersion(table);
         validateTableIdentity(table, currentFormatVersion);
         if (currentSchema.schemaId() != schema.schemaId() || currentFormatVersion != formatVersion) {
@@ -223,6 +280,9 @@ final class IcebergWriteSchemaContext {
                     + tableName + ": pinned schema " + schema.schemaId() + "/format " + formatVersion
                     + ", current schema " + currentSchema.schemaId() + "/format " + currentFormatVersion
                     + "; retry the statement");
+        }
+        if (branchName.isPresent()) {
+            validateBranchWriterSchema(schema, table.schema(), branchName.get(), tableName);
         }
         PartitionSpec retainedSpec = table.specs().get(partitionSpec.specId());
         if (retainedSpec == null

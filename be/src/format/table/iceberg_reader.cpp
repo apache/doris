@@ -92,6 +92,13 @@ bool orc_subtree_has_iceberg_id(const orc::Type* type, const std::string& attrib
     return false;
 }
 
+bool parquet_subtree_has_iceberg_id(const FieldSchema& field) {
+    if (field.field_id >= 0) {
+        return true;
+    }
+    return std::ranges::any_of(field.children, parquet_subtree_has_iceberg_id);
+}
+
 struct ParquetEqualityFieldPath {
     std::vector<const FieldSchema*> fields;
     std::vector<size_t> child_indexes;
@@ -519,7 +526,8 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         if (field_schema) {
             if (field_schema->field_id < 0) {
                 all_file_columns_have_field_ids = false;
-            } else {
+            }
+            if (parquet_subtree_has_iceberg_id(*field_schema)) {
                 any_file_column_has_field_id = true;
             }
         }

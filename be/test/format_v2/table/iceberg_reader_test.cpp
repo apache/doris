@@ -3069,6 +3069,77 @@ TEST(IcebergV2ReaderTest, IcebergMissingNestedEqualityKeyPreservesNullableParent
     }
 }
 
+// Keep the shared Parquet/ORC reader setup together so both V2 paths materialize missing struct
+// literals before traversing their children.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+TEST(IcebergV2ReaderTest, IcebergMissingWholeStructEqualityKeyMaterializesDefault) {
+    const auto run_case = [](FileFormat file_format,
+                             const std::optional<std::string>& root_default) {
+        const bool is_parquet = file_format == FileFormat::PARQUET;
+        const std::string format_name = is_parquet ? "parquet" : "orc";
+        const std::string default_name = root_default.has_value() ? "empty_struct" : "null";
+        const auto test_dir =
+                std::filesystem::temp_directory_path() /
+                ("doris_v2_missing_whole_struct_equality_key_" + format_name + "_" + default_name);
+        std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directories(test_dir);
+        const auto file_path = (test_dir / ("split." + format_name)).string();
+        const auto delete_file_path = (test_dir / ("equality-delete." + format_name)).string();
+        if (is_parquet) {
+            write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+            write_nested_equality_parquet_file(delete_file_path, {}, {7}, {false}, true, "k", 3);
+        } else {
+            write_single_int_orc_file(file_path, "id", {1, 2, 3}, 0);
+            write_nested_equality_orc_file(delete_file_path, {}, {7}, {false}, "k", 3);
+        }
+
+        auto payload = external_struct_schema_field(
+                "payload", 1,
+                {external_schema_field("k", 3, {}, "7",
+                                       external_primitive_type(TPrimitiveType::INT), false, true)},
+                true, root_default);
+        std::vector<schema::external::TSchema> history = {
+                external_schema(100, {external_schema_field("id", 0), payload})};
+
+        std::vector<ColumnDefinition> projected_columns;
+        projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+        auto scan_params = make_local_scan_params(file_format);
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_current_schema_id(100);
+        scan_params.__set_history_schema_info(std::move(history));
+
+        RuntimeProfile profile("test_profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        io::FileReaderStats file_reader_stats;
+        io::FileCacheStatistics file_cache_stats;
+        auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+        ShardedKVCache cache(1);
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile,
+                            file_format);
+
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_split_format = file_format;
+        const auto thrift_file_format =
+                is_parquet ? TFileFormatType::FORMAT_PARQUET : TFileFormatType::FORMAT_ORC;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path,
+                {make_iceberg_equality_delete_file(delete_file_path, {3}, thrift_file_format)}, 3));
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        const std::vector<int32_t> expected_ids =
+                root_default.has_value() ? std::vector<int32_t> {} : std::vector {1, 2, 3};
+        EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), expected_ids);
+        ASSERT_TRUE(reader.close().ok());
+        std::filesystem::remove_all(test_dir);
+    };
+
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        run_case(file_format, std::nullopt);
+        run_case(file_format, "{}");
+    }
+}
+
 TEST(IcebergV2ReaderTest, IcebergEqualityDeleteCastsDataColumnToDeleteKeyType) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_equality_delete_cast_test";

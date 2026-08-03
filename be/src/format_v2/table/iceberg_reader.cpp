@@ -553,11 +553,14 @@ public:
         ColumnPtr current;
         RETURN_IF_ERROR(
                 _children.front()->execute_column(context, block, selector, count, current));
+        current = current->convert_to_full_column_if_const();
 
+        std::vector<ColumnPtr> ancestor_nullable_columns;
         std::vector<const NullMap*> ancestor_null_maps;
         for (const size_t child_index : _child_indexes) {
             if (const auto* nullable = check_and_get_column<ColumnNullable>(*current);
                 nullable != nullptr) {
+                ancestor_nullable_columns.push_back(current);
                 ancestor_null_maps.push_back(&nullable->get_null_map_data());
                 current = nullable->get_nested_column_ptr();
             }
@@ -568,6 +571,7 @@ public:
         }
         if (const auto* nullable = check_and_get_column<ColumnNullable>(*current);
             nullable != nullptr) {
+            ancestor_nullable_columns.push_back(current);
             ancestor_null_maps.push_back(&nullable->get_null_map_data());
             current = nullable->get_nested_column_ptr();
         }

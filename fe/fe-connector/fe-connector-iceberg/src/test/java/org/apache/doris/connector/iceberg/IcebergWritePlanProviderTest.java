@@ -267,6 +267,23 @@ public class IcebergWritePlanProviderTest {
         }
     }
 
+    @Test
+    public void branchWritePinsBranchHeadSchema() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().renameColumn("name", "renamed_name").commit();
+
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.t2", Optional.of("old_schema"), false, false);
+
+        Assertions.assertNotEquals(table.schema().schemaId(), writeContext.getSchema().schemaId());
+        Assertions.assertNotNull(writeContext.getSchema().findField("name"));
+        Assertions.assertNull(writeContext.getSchema().findField("renamed_name"));
+        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
+    }
+
     // ───────────────────────────── INSERT: table-derived fields ─────────────────────────────
 
     @Test
