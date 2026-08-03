@@ -1515,7 +1515,7 @@ public abstract class RoutineLoadJob
         }
 
         if (!isReplay && jobState != JobState.RUNNING) {
-            if (jobState == JobState.PAUSED) {
+            if (jobState == JobState.PAUSED || jobState == JobState.CANCELLED) {
                 Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState, reason));
             } else {
                 Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
@@ -1945,8 +1945,15 @@ public abstract class RoutineLoadJob
         if (!isFinal()) {
             return false;
         }
-        Preconditions.checkState(endTimestamp != -1, endTimestamp);
-        return (System.currentTimeMillis() - endTimestamp) > Config.label_keep_max_second * 1000;
+        try {
+            Preconditions.checkState(endTimestamp != -1, endTimestamp);
+            return (System.currentTimeMillis() - endTimestamp) > Config.label_keep_max_second * 1000;
+        } catch (Exception e) {
+            LOG.warn("routine load job {} is in final state {} but has no endTimestamp, "
+                    + "skip expiring it this round (may race with an in-progress cancel/stop).",
+                    id, state, e);
+            return false;
+        }
     }
 
     public boolean isFinal() {
@@ -2035,11 +2042,17 @@ public abstract class RoutineLoadJob
                 ctx.cleanup();
             }
         } catch (Exception e) {
-            this.state = JobState.CANCELLED;
-            if (this.cancelReason == null) {
-                String timeStr = TimeUtils.longToTimeString(System.currentTimeMillis());
-                this.cancelReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
-                        "FE restart deserialize failed at " + timeStr + ": " + e.getMessage());
+            // Terminalize this unusable job as CANCELLED. Set endTimestamp only if unset (avoid
+            // refreshing on every image load) and keep the existing cancel reason if present.
+            state = JobState.CANCELLED;
+            routineLoadTaskInfoList.clear();
+            if (endTimestamp == -1) {
+                endTimestamp = System.currentTimeMillis();
+            }
+            if (cancelReason == null) {
+                cancelReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
+                        "FE restart deserialize failed at " + TimeUtils.longToTimeString(endTimestamp)
+                                + ": " + e.getMessage());
             }
             LOG.warn("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
