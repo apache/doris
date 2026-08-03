@@ -148,12 +148,14 @@ protected:
         ASSERT_NE(_cache, nullptr);
         for (int attempt = 0;
              attempt < 5000 && (_cache->async_write_service()->pending_count() != 0 ||
-                                _cache->inflight_write_buffer_index()->size() != 0);
+                                _cache->inflight_write_buffer_index()->count() != 0 ||
+                                _cache->inflight_write_buffer_index()->buffer_bytes() != 0);
              ++attempt) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         EXPECT_EQ(_cache->async_write_service()->pending_count(), 0);
-        EXPECT_EQ(_cache->inflight_write_buffer_index()->size(), 0);
+        EXPECT_EQ(_cache->inflight_write_buffer_index()->count(), 0);
+        EXPECT_EQ(_cache->inflight_write_buffer_index()->buffer_bytes(), 0);
     }
 
     BlockFileCache* cache() const { return _cache; }
@@ -615,7 +617,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest, concurrent_cold_reads_publish_only_one_a
     EXPECT_EQ(first_stats.async_cache_write_submitted + second_stats.async_cache_write_submitted,
               1);
     EXPECT_EQ(cache()->async_write_service()->pending_count(), 1);
-    EXPECT_EQ(cache()->inflight_write_buffer_index()->size(), 1);
+    EXPECT_EQ(cache()->inflight_write_buffer_index()->count(), 1);
     {
         std::unique_lock lock(worker_mutex);
         ASSERT_TRUE(worker_cv.wait_for(lock, std::chrono::seconds(5),
@@ -660,7 +662,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(stats.async_cache_write_buffer_alloc_fail, 1);
     EXPECT_EQ(stats.async_cache_write_submitted, 0);
     EXPECT_EQ(cache()->async_write_service()->pending_count(), 0);
-    EXPECT_EQ(cache()->inflight_write_buffer_index()->size(), 0);
+    EXPECT_EQ(cache()->inflight_write_buffer_index()->count(), 0);
     EXPECT_GE(cache()->async_write_service()->_buffer_alloc_fail_metric->get_value(), 1);
 }
 
@@ -1079,11 +1081,12 @@ TEST_F(BlockFileCacheTest, async_write_reuses_inflight_buffer_then_reads_downloa
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     ASSERT_EQ(cache->async_write_service()->pending_count(), 0);
-    for (int attempt = 0; attempt < 500 && cache->inflight_write_buffer_index()->size() != 0;
+    for (int attempt = 0; attempt < 500 && cache->inflight_write_buffer_index()->count() != 0;
          ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    ASSERT_EQ(cache->inflight_write_buffer_index()->size(), 0);
+    ASSERT_EQ(cache->inflight_write_buffer_index()->count(), 0);
+    EXPECT_EQ(cache->inflight_write_buffer_index()->buffer_bytes(), 0);
 
     std::string third_page(4096, '\0');
     FileCacheStatistics third_stats;
@@ -1257,12 +1260,12 @@ TEST_F(BlockFileCacheTest, async_write_reads_only_middle_span_between_cached_sid
     EXPECT_EQ(read_stats.async_cache_write_submitted, 1);
 
     for (int attempt = 0; attempt < 5000 && (cache->async_write_service()->pending_count() != 0 ||
-                                             cache->inflight_write_buffer_index()->size() != 0);
+                                             cache->inflight_write_buffer_index()->count() != 0);
          ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     EXPECT_EQ(cache->async_write_service()->pending_count(), 0);
-    EXPECT_EQ(cache->inflight_write_buffer_index()->size(), 0);
+    EXPECT_EQ(cache->inflight_write_buffer_index()->count(), 0);
 }
 
 TEST_F(BlockFileCacheTest, async_write_middle_hit_uses_one_remote_span_and_submits_only_misses) {
@@ -1351,12 +1354,12 @@ TEST_F(BlockFileCacheTest, async_write_middle_hit_uses_one_remote_span_and_submi
     }
 
     for (int attempt = 0; attempt < 5000 && (cache->async_write_service()->pending_count() != 0 ||
-                                             cache->inflight_write_buffer_index()->size() != 0);
+                                             cache->inflight_write_buffer_index()->count() != 0);
          ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     EXPECT_EQ(cache->async_write_service()->pending_count(), 0);
-    EXPECT_EQ(cache->inflight_write_buffer_index()->size(), 0);
+    EXPECT_EQ(cache->inflight_write_buffer_index()->count(), 0);
 }
 
 TEST_F(BlockFileCacheTest, async_write_backpressure_rolls_back_inflight_entry) {
@@ -1464,7 +1467,7 @@ TEST_F(BlockFileCacheTest, async_write_backpressure_rolls_back_inflight_entry) {
             cache->inflight_write_buffer_index()->lookup(
                     reader->_cache_hash, 1_mb, cache->async_write_service()->current_write_epoch()),
             nullptr);
-    EXPECT_EQ(cache->inflight_write_buffer_index()->size(), 1);
+    EXPECT_EQ(cache->inflight_write_buffer_index()->count(), 1);
 
     {
         std::lock_guard lock(mutex);
@@ -1472,12 +1475,12 @@ TEST_F(BlockFileCacheTest, async_write_backpressure_rolls_back_inflight_entry) {
     }
     cv.notify_all();
     for (int attempt = 0; attempt < 5000 && (cache->async_write_service()->pending_count() != 0 ||
-                                             cache->inflight_write_buffer_index()->size() != 0);
+                                             cache->inflight_write_buffer_index()->count() != 0);
          ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     EXPECT_EQ(cache->async_write_service()->pending_count(), 0);
-    EXPECT_EQ(cache->inflight_write_buffer_index()->size(), 0);
+    EXPECT_EQ(cache->inflight_write_buffer_index()->count(), 0);
 }
 
 TEST_F(BlockFileCacheTest, cache_write_mode_is_resolved_for_each_read_context) {

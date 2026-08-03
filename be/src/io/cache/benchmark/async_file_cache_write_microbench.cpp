@@ -350,7 +350,7 @@ private:
     void sample() {
         update_max(&_peak_pending, _service->pending_count());
         update_max(&_peak_queued, _service->queued_count());
-        update_max(&_peak_inflight, _index->size());
+        update_max(&_peak_inflight, _index->count());
         const int64_t buffer_memory_bytes = _service->buffer_memory_bytes();
         DORIS_CHECK(buffer_memory_bytes >= 0);
         update_max(&_peak_buffer_bytes, static_cast<size_t>(buffer_memory_bytes));
@@ -526,7 +526,7 @@ public:
         return wait_until(
                 [&]() {
                     return service()->pending_count() == 0 && service()->queued_count() == 0 &&
-                           index()->size() == 0;
+                           index()->count() == 0;
                 },
                 "async write queue and inflight index to drain");
     }
@@ -865,7 +865,7 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
                 return environment->service()->pending_count() == 0 &&
                        completed.load(std::memory_order_acquire) ==
                                accepted.load(std::memory_order_acquire) &&
-                       environment->index()->size() == 0;
+                       environment->index()->count() == 0;
             },
             "direct service tasks to complete"));
     const auto drain_end = Clock::now();
@@ -938,7 +938,9 @@ void print_index_result(std::string_view variant, size_t repetition, size_t oper
 /// @param key_count Number of distinct cache hashes used by the workload.
 /// @param populate Whether every lookup should hit a pre-populated entry.
 /// @param repetition One-based repetition index included in output.
-Status run_index_case(std::string variant, size_t key_count, bool populate, size_t repetition) {
+Status run_index_case(BenchmarkEnvironment* environment, std::string variant, size_t key_count,
+                      bool populate, size_t repetition) {
+    DORIS_CHECK(environment != nullptr);
     const size_t producer_count = static_cast<size_t>(FLAGS_producer_threads);
     const size_t operations_per_thread = static_cast<size_t>(FLAGS_index_operations_per_thread);
     InflightWriteBufferIndex index(
@@ -946,8 +948,9 @@ Status run_index_case(std::string variant, size_t key_count, bool populate, size
     std::vector<UInt128Wrapper> hashes;
     hashes.reserve(key_count);
     const uint64_t epoch = 1;
-    auto entry =
-            std::make_shared<InflightWriteBufferEntry>(nullptr, 0, 1, MonotonicMicros(), epoch);
+    AsyncCacheWriteBufferPtr buffer;
+    RETURN_IF_ERROR(environment->service()->allocate_tracked_buffer(1, &buffer));
+    auto entry = std::make_shared<InflightWriteBufferEntry>(buffer, 0, 1, MonotonicMicros(), epoch);
     for (size_t key = 0; key < key_count; ++key) {
         hashes.emplace_back(
                 BlockFileCache::hash("inflight_index_" + variant + "_" + std::to_string(key)));
@@ -1036,10 +1039,11 @@ Status run_benchmarks(const std::vector<std::string>& modes,
                                      repetition));
         }
         if (mode_enabled(modes, "index")) {
-            RETURN_IF_ERROR(
-                    run_index_case("sharded_miss", FLAGS_index_key_count, false, repetition));
-            RETURN_IF_ERROR(run_index_case("sharded_hit", FLAGS_index_key_count, true, repetition));
-            RETURN_IF_ERROR(run_index_case("hot_key_hit", 1, true, repetition));
+            RETURN_IF_ERROR(run_index_case(&environment, "sharded_miss", FLAGS_index_key_count,
+                                           false, repetition));
+            RETURN_IF_ERROR(run_index_case(&environment, "sharded_hit", FLAGS_index_key_count, true,
+                                           repetition));
+            RETURN_IF_ERROR(run_index_case(&environment, "hot_key_hit", 1, true, repetition));
         }
     }
     return Status::OK();

@@ -65,9 +65,15 @@ InflightWriteBufferIndex::InflightWriteBufferIndex(size_t shard_count, std::stri
     }
 
     const char* prefix = metric_prefix.c_str();
-    _size_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
-            prefix, "inflight_write_buffer_index_size",
-            [](void* index) { return static_cast<InflightWriteBufferIndex*>(index)->size(); },
+    _count_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
+            prefix, "inflight_write_buffer_index_count",
+            [](void* index) { return static_cast<InflightWriteBufferIndex*>(index)->count(); },
+            this);
+    _buffer_bytes_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
+            prefix, "inflight_write_buffer_index_buffer_bytes",
+            [](void* index) {
+                return static_cast<InflightWriteBufferIndex*>(index)->buffer_bytes();
+            },
             this);
     _lookup_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "inflight_write_buffer_index_lookup_total");
@@ -99,6 +105,7 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::insert_if_ab
         const UInt128Wrapper& cache_hash, size_t block_offset,
         std::shared_ptr<InflightWriteBufferEntry> entry) {
     DORIS_CHECK(entry != nullptr);
+    const size_t entry_buffer_bytes = entry->buffer->size();
     Key key {.cache_hash = cache_hash, .block_offset = block_offset};
     auto& shard = *_shards[_shard_index(key)];
     {
@@ -106,9 +113,18 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::insert_if_ab
         auto iterator = shard.entries.find(key);
         if (iterator == shard.entries.end()) {
             shard.entries.emplace(key, std::move(entry));
-            _size.fetch_add(1, std::memory_order_relaxed);
+            _count.fetch_add(1, std::memory_order_relaxed);
+            _buffer_bytes.fetch_add(entry_buffer_bytes, std::memory_order_relaxed);
         } else if (iterator->second->write_epoch < entry->write_epoch) {
+            const size_t old_buffer_bytes = iterator->second->buffer->size();
             iterator->second = std::move(entry);
+            if (entry_buffer_bytes > old_buffer_bytes) {
+                _buffer_bytes.fetch_add(entry_buffer_bytes - old_buffer_bytes,
+                                        std::memory_order_relaxed);
+            } else if (entry_buffer_bytes < old_buffer_bytes) {
+                _buffer_bytes.fetch_sub(old_buffer_bytes - entry_buffer_bytes,
+                                        std::memory_order_relaxed);
+            }
             *_stale_epoch_replace_metric << 1;
             *_insert_metric << 1;
             return nullptr;
@@ -140,9 +156,11 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::lookup(
         }
         *_stale_epoch_miss_metric << 1;
         if (iterator->second->write_epoch < expected_epoch) {
+            const size_t entry_buffer_bytes = iterator->second->buffer->size();
             shard.entries.erase(iterator);
-            const size_t old_size = _size.fetch_sub(1, std::memory_order_relaxed);
-            DCHECK_GT(old_size, 0);
+            const size_t old_count = _count.fetch_sub(1, std::memory_order_relaxed);
+            DCHECK_GT(old_count, 0);
+            _buffer_bytes.fetch_sub(entry_buffer_bytes, std::memory_order_relaxed);
         }
     }
     *_miss_metric << 1;
@@ -174,9 +192,11 @@ bool InflightWriteBufferIndex::remove_if(
         TimedShardLock lock(shard.mutex, *_lock_wait_latency_metric, *_lock_hold_latency_metric);
         auto iterator = shard.entries.find(key);
         if (iterator != shard.entries.end() && iterator->second == expected) {
+            const size_t entry_buffer_bytes = iterator->second->buffer->size();
             shard.entries.erase(iterator);
-            const size_t old_size = _size.fetch_sub(1, std::memory_order_relaxed);
-            DCHECK_GT(old_size, 0);
+            const size_t old_count = _count.fetch_sub(1, std::memory_order_relaxed);
+            DCHECK_GT(old_count, 0);
+            _buffer_bytes.fetch_sub(entry_buffer_bytes, std::memory_order_relaxed);
             removed = true;
         }
     }
