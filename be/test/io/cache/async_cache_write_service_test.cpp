@@ -1338,11 +1338,10 @@ TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsValidatesAndAppliesAtRuntime) {
     const auto updated = service->options();
     EXPECT_EQ(updated.worker_count, 3);
     EXPECT_EQ(updated.max_pending_bytes, 7 * 4096);
-    EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 3);
 
     options.worker_count = 1;
     ASSERT_TRUE(service->update_options(options).ok());
-    EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 1);
+    EXPECT_EQ(service->options().worker_count, 1);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, ResizeWorkersPreservesActiveTaskOwnership) {
@@ -1419,12 +1418,10 @@ TEST_F(AsyncCacheWriteServiceTest, ResizeWorkersPreservesActiveTaskOwnership) {
     auto shrink_future = std::async(std::launch::async, [service, shrink_options]() {
         return service->update_options(shrink_options);
     });
-    for (int attempt = 0;
-         attempt < 5000 && service->_desired_worker_count.load(std::memory_order_acquire) != 1;
-         ++attempt) {
+    for (int attempt = 0; attempt < 5000 && service->options().worker_count != 1; ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 1);
+    EXPECT_EQ(service->options().worker_count, 1);
     EXPECT_EQ(shrink_future.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
     {
         std::lock_guard lock(mutex);
