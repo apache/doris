@@ -26,6 +26,7 @@ import com.google.common.collect.Streams;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -36,7 +37,7 @@ public abstract class CacheBulkLoader<K, V> implements CacheLoader<K, V> {
     protected abstract ExecutorService getExecutor();
 
     @Override
-    public Map<K, V> loadAll(Iterable<? extends K> keys)
+    public Map<? extends K, ? extends V> loadAll(Set<? extends K> keys)
                 throws ExecutionException, InterruptedException {
         List<Pair<? extends K, Future<V>>> pList = Streams.stream(keys)
                 .map(key -> Pair.of(key, getExecutor().submit(() -> load(key))))

@@ -773,6 +773,7 @@ enum TIcebergQueryType {
   SNAPSHOTS
 }
 
+// deprecated
 enum THudiQueryType {
   TIMELINE = 0
 }

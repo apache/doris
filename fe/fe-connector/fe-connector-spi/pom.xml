@@ -34,8 +34,9 @@ under the License.
     <name>Doris FE Connector SPI</name>
     <description>
         Service Provider Interface (SPI) for Doris FE connector abstraction.
-        Contains ConnectorProvider (ServiceLoader SPI entry point), ConnectorContext,
-        and ConnectorTypeMapper.
+        Contains ConnectorProvider (the ServiceLoader entry point a connector implements)
+        plus the engine services a connector consumes: ConnectorContext,
+        ConnectorMetaInvalidator and ConnectorBrokerAddress.
         Zero third-party external dependencies — only JDK and Doris internal SPI interfaces.
     </description>
 
@@ -50,6 +51,14 @@ under the License.
             <artifactId>fe-extension-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-filesystem-api: the connector storage contract (StorageProperties) that fe-core binds
+             and hands down via ConnectorContext.getStorageProperties(). This is the load-bearing
+             "fe-connector depends ONLY on fe-filesystem-api" edge (Doris-internal API, no third-party). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -59,6 +68,20 @@ under the License.
 
     <build>
         <finalName>doris-fe-connector-spi</finalName>
+        <resources>
+            <!-- Default resource root, restated because declaring <resources> replaces the default. -->
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!--
+              Kept apart from src/main/resources so that ${...} substitution applies ONLY to the
+              plugin API version file and can never rewrite a service descriptor by accident.
+            -->
+            <resource>
+                <directory>src/main/resources-filtered</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

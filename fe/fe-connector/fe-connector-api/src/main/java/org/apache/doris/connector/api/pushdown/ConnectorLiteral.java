@@ -27,8 +27,17 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * A literal value expression. The value must be a standard Java type
- * (null, Boolean, Integer, Long, Double, String, BigDecimal, LocalDate, LocalDateTime).
+ * A literal value expression.
+ *
+ * <p>The value is a standard Java type. The engine produces exactly these eight shapes — see the package
+ * javadoc (Rule 4) for the full Doris-type-to-Java-class table: {@code null}, {@code Boolean}, {@code Long},
+ * {@code Double}, {@code BigDecimal}, {@code String}, {@code LocalDate}, {@code LocalDateTime}.</p>
+ *
+ * <p>Two consequences worth stating outright, because both have produced wrong connector code:
+ * <b>{@code Integer} never arrives</b> (every integral type, {@code TINYINT} through {@code BIGINT}, is a
+ * {@code Long}; the {@link #ofInt} factory exists for tests), and <b>{@code LARGEINT} arrives as a decimal
+ * {@code String}</b>, not as a {@code BigInteger}. A converter that switches on the Java class must have a
+ * fall-through for the {@code String} case rather than assuming a numeric column carries a numeric object.</p>
  */
 public final class ConnectorLiteral implements ConnectorExpression {
 
@@ -82,7 +91,13 @@ public final class ConnectorLiteral implements ConnectorExpression {
         return type;
     }
 
-    /** Returns the value (may be null for NULL literals). */
+    /**
+     * Returns the value, which is {@code null} for a NULL literal.
+     *
+     * <p>A NULL literal is a legal operand of any comparison, so check {@link #isNull()} FIRST. In particular
+     * {@code ConnectorComparison.Operator#EQ_FOR_NULL} means {@code IS NULL} only when this is null and plain
+     * equality otherwise; conflating the two loses rows (see {@link ConnectorComparison}).</p>
+     */
     public Object getValue() {
         return value;
     }

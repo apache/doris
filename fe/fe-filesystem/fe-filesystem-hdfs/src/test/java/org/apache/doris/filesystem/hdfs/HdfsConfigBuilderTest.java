@@ -79,6 +79,29 @@ class HdfsConfigBuilderTest {
     }
 
     @Test
+    void buildPinsPluginClassLoaderNotTccl() {
+        // WHY (test_string_dict_filter, hdfs scan): Hadoop resolves impl classes via Configuration.getClass,
+        // which uses the conf's OWN classLoader field. new HdfsConfiguration() captures the thread-context CL
+        // active AT CONSTRUCTION into that field. DFSFileSystem is built under a connector's plugin loader
+        // during a scan, so unpinned the conf would carry that connector loader; then RPC.getProtocolEngine
+        // loads ProtobufRpcEngine2 from the connector's hadoop-common copy while RPC/RpcEngine come from the
+        // engine copy -> "class ProtobufRpcEngine2 cannot be cast to class RpcEngine". The conf MUST be pinned
+        // to this plugin's loader. MUTATION: drop the setClassLoader in build() -> the conf keeps the foreign
+        // TCCL below -> red. (A flat-classpath assertion alone cannot repro the real cross-loader cast, so we
+        // install a distinct TCCL to make the captured-loader bug observable offline.)
+        ClassLoader foreign = new java.net.URLClassLoader(new java.net.URL[0], null);
+        ClassLoader prev = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(foreign);
+            Configuration conf = HdfsConfigBuilder.build(Map.of());
+            Assertions.assertSame(HdfsConfigBuilder.class.getClassLoader(), conf.getClassLoader());
+            Assertions.assertNotSame(foreign, conf.getClassLoader());
+        } finally {
+            Thread.currentThread().setContextClassLoader(prev);
+        }
+    }
+
+    @Test
     void isKerberosEnabledBothPresent() {
         Assertions.assertTrue(HdfsConfigBuilder.isKerberosEnabled(Map.of(
                 "hadoop.kerberos.principal", "doris@REALM",

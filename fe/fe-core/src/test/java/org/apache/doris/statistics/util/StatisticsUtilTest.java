@@ -33,45 +33,22 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
-import org.apache.doris.datasource.PluginDrivenExternalDatabase;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
-import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.TableStatsMeta;
-import org.apache.doris.thrift.TIcebergColumnStats;
-import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TStorageType;
 
-import com.google.common.collect.Maps;
-import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.SortOrder;
-import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.TableScan;
-import org.apache.iceberg.io.CloseableIterable;
-import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.io.IOException;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -80,63 +57,6 @@ import java.util.List;
 import java.util.Map;
 
 class StatisticsUtilTest {
-    @Test
-    void testGetIcebergColumnStatsReturnsEmptyForDisabledMetrics() {
-        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
-        PartitionSpec spec = PartitionSpec.builderFor(schema).build();
-        org.apache.iceberg.Table table = Mockito.mock(org.apache.iceberg.Table.class);
-        Mockito.when(table.schema()).thenReturn(schema);
-        Mockito.when(table.spec()).thenReturn(spec);
-        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
-        Mockito.when(table.properties()).thenReturn(Map.of(
-                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
-                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none"));
-
-        TIcebergColumnStats columnStats = new TIcebergColumnStats();
-        columnStats.setColumnSizes(Map.of(1, 128L));
-        columnStats.setValueCounts(Map.of(1, 10L));
-        columnStats.setNullValueCounts(Map.of(1, 0L));
-        TIcebergCommitData commitData = new TIcebergCommitData();
-        commitData.setFilePath("/path/to/data.parquet");
-        commitData.setRowCount(10);
-        commitData.setFileSize(1024);
-        commitData.setColumnStats(columnStats);
-        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, List.of(commitData)).dataFiles()[0];
-
-        TableScan tableScan = Mockito.mock(TableScan.class);
-        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
-        Mockito.when(table.newScan()).thenReturn(tableScan);
-        Mockito.when(tableScan.includeColumnStats()).thenReturn(tableScan);
-        Mockito.when(tableScan.planFiles())
-                .thenReturn(CloseableIterable.withNoopClose(List.of(fileScanTask)));
-        Mockito.when(fileScanTask.spec()).thenReturn(spec);
-        Mockito.when(fileScanTask.file()).thenReturn(dataFile);
-
-        Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
-    }
-
-    @Test
-    void testGetIcebergColumnStatsReturnsEmptyWhenCloseFails() {
-        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
-        PartitionSpec spec = PartitionSpec.builderFor(schema).build();
-        org.apache.iceberg.Table table = Mockito.mock(org.apache.iceberg.Table.class);
-        TableScan tableScan = Mockito.mock(TableScan.class);
-        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
-        DataFile dataFile = Mockito.mock(DataFile.class);
-        Mockito.when(table.newScan()).thenReturn(tableScan);
-        Mockito.when(tableScan.includeColumnStats()).thenReturn(tableScan);
-        Mockito.when(tableScan.planFiles()).thenReturn(CloseableIterable.combine(
-                List.of(fileScanTask), () -> {
-                    throw new IOException("close failed");
-                }));
-        Mockito.when(fileScanTask.spec()).thenReturn(spec);
-        Mockito.when(fileScanTask.file()).thenReturn(dataFile);
-        Mockito.when(dataFile.columnSizes()).thenReturn(Map.of());
-        Mockito.when(dataFile.nullValueCounts()).thenReturn(Map.of());
-
-        Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
-    }
-
     @Test
     void testConvertToDouble() {
         try {
@@ -228,8 +148,10 @@ class StatisticsUtilTest {
         schema.add(column);
         OlapTable realTable = new OlapTable(200, "testTable", schema, null, null, null);
         OlapTable table = Mockito.spy(realTable);
-        HMSExternalCatalog externalCatalog = new HMSExternalCatalog();
-        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, 1L, "dbName", "dbName");
+        PluginDrivenExternalCatalog externalCatalog = new PluginDrivenExternalCatalog(1, "name", "resource",
+                new HashMap<>(), "", null);
+        PluginDrivenExternalDatabase externalDatabase = new PluginDrivenExternalDatabase(externalCatalog, 1L,
+                "dbName", "dbName");
         // Test olap table auto analyze disabled.
         Map<String, String> properties = new HashMap<>();
         properties.put(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "disable");
@@ -244,7 +166,8 @@ class StatisticsUtilTest {
         Mockito.when(catalog1.getId()).thenReturn(0L);
 
         // Test auto analyze catalog disabled.
-        HMSExternalTable hmsTable = Mockito.spy(new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase) {
+        PluginDrivenExternalTable hmsTable = Mockito.spy(new PluginDrivenExternalTable(1, "name", "name",
+                externalCatalog, externalDatabase) {
             @Override
             protected synchronized void makeSureInitialized() { }
         });
@@ -264,7 +187,8 @@ class StatisticsUtilTest {
 
             // Test external table auto analyze enabled.
             externalCatalog.getCatalogProperty().addProperty(ExternalCatalog.ENABLE_AUTO_ANALYZE, "false");
-            HMSExternalTable hmsTable1 = Mockito.spy(new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase) {
+            PluginDrivenExternalTable hmsTable1 = Mockito.spy(new PluginDrivenExternalTable(1, "name", "name",
+                    externalCatalog, externalDatabase) {
                 @Override
                 protected synchronized void makeSureInitialized() { }
             });
@@ -298,14 +222,6 @@ class StatisticsUtilTest {
                 protected synchronized void makeSureInitialized() { }
             });
             Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(pluginTable, Pair.of("index", column.getName())));
-
-            // Test hms external table not hive type.
-            HMSExternalTable hmsExternalTable = Mockito.spy(new HMSExternalTable(1, "hmsTable", "hmsTable", externalCatalog, externalDatabase) {
-                @Override
-                protected synchronized void makeSureInitialized() { }
-            });
-            Mockito.doReturn(DLAType.ICEBERG).when(hmsExternalTable).getDlaType();
-            Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsExternalTable, Pair.of("index", column.getName())));
 
             // Test partition first load.
             tableMeta.partitionChanged.set(true);
@@ -374,13 +290,17 @@ class StatisticsUtilTest {
         Mockito.doReturn(true).when(table).autoAnalyzeEnabled();
 
         // Test external table
-        IcebergExternalDatabase icebergDatabase = new IcebergExternalDatabase(null, 1L, "", "");
-        Map<String, String> props = Maps.newHashMap();
-        props.put(CatalogProperties.WAREHOUSE_LOCATION, "s3://tmp");
-        IcebergExternalCatalog catalog = new IcebergHadoopExternalCatalog(0, "iceberg_ctl", "", props, "");
-        IcebergExternalTable icebergTable = Mockito.spy(new IcebergExternalTable(0, "", "", catalog, icebergDatabase));
-        Mockito.doReturn(true).when(icebergTable).autoAnalyzeEnabled();
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(icebergTable, Pair.of("index", column.getName()), 0));
+        PluginDrivenExternalCatalog externalCatalog = new PluginDrivenExternalCatalog(1, "name", "resource",
+                new HashMap<>(), "", null);
+        PluginDrivenExternalDatabase externalDatabase = new PluginDrivenExternalDatabase(externalCatalog, 1L,
+                "dbName", "dbName");
+        PluginDrivenExternalTable externalTable = Mockito.spy(new PluginDrivenExternalTable(0, "name", "name",
+                externalCatalog, externalDatabase) {
+            @Override
+            protected synchronized void makeSureInitialized() { }
+        });
+        Mockito.doReturn(true).when(externalTable).autoAnalyzeEnabled();
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(externalTable, Pair.of("index", column.getName()), 0));
 
         // Mock Env.getServingEnv().getAnalysisManager() for remaining tests
         Env mockEnv = Mockito.mock(Env.class);
@@ -451,9 +371,12 @@ class StatisticsUtilTest {
         Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, null, true, 1));
 
         // Test external table always return true;
-        HMSExternalCatalog externalCatalog = new HMSExternalCatalog();
-        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, 1L, "dbName", "dbName");
-        HMSExternalTable hmsTable = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
+        PluginDrivenExternalCatalog externalCatalog = new PluginDrivenExternalCatalog(1, "name", "resource",
+                new HashMap<>(), "", null);
+        PluginDrivenExternalDatabase externalDatabase = new PluginDrivenExternalDatabase(externalCatalog, 1L,
+                "dbName", "dbName");
+        PluginDrivenExternalTable hmsTable = new PluginDrivenExternalTable(1, "name", "name", externalCatalog,
+                externalDatabase);
         Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, hmsTable, true, 1));
 
         // Test agg key return true;

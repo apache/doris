@@ -1,6 +1,8 @@
 name: Code Review Runner
 
 on:
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -16,6 +18,11 @@ on:
         required: false
         type: string
         default: ''
+      manage_status:
+        description: Update the code-review commit status from this run.
+        required: false
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       pr_number:
@@ -31,8 +38,16 @@ on:
         required: false
         type: string
         default: ''
+      manage_status:
+        description: >-
+          Update the code-review commit status. Callers that enable this must
+          grant statuses: write.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
+  statuses: write
   pull-requests: write
   contents: read
   issues: write
@@ -40,20 +55,114 @@ permissions:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # Every pre-finalization step has its own timeout. Their worst-case budget,
+    # including review/failure/status handling and best-effort cleanup, is 153
+    # minutes, leaving 12 minutes for runner setup and post-job cleanup.
+    timeout-minutes: 165
+    if: >-
+      inputs.pr_number != '' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/review') &&
+        (
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
+        )
+      )
     steps:
+      - name: Resolve review inputs
+        id: review_inputs
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
+          INPUT_BASE_SHA: ${{ inputs.base_sha }}
+          INPUT_REVIEW_FOCUS: ${{ inputs.review_focus }}
+          INPUT_MANAGE_STATUS: ${{ inputs.manage_status }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$INPUT_PR_NUMBER" ]; then
+            PR_NUMBER="$INPUT_PR_NUMBER"
+            HEAD_SHA="$INPUT_HEAD_SHA"
+            BASE_SHA="$INPUT_BASE_SHA"
+            REVIEW_FOCUS="$INPUT_REVIEW_FOCUS"
+            MANAGE_STATUS="$INPUT_MANAGE_STATUS"
+          elif [ "$EVENT_NAME" = "issue_comment" ]; then
+            PR_NUMBER="$ISSUE_NUMBER"
+            PR_JSON="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+            HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
+            BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
+            REVIEW_FOCUS="$(printf '%s' "${COMMENT_BODY#'/review'}" |
+              python3 -c 'import sys; sys.stdout.write(sys.stdin.read().lstrip())')"
+            MANAGE_STATUS=true
+          else
+            echo "Review inputs are unavailable for event '$EVENT_NAME'." >&2
+            exit 1
+          fi
+
+          test -n "$PR_NUMBER"
+          test -n "$HEAD_SHA"
+          test -n "$BASE_SHA"
+
+          if [ "$MANAGE_STATUS" = "true" ]; then
+            PR_JSON="${PR_JSON:-$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")}"
+            LIVE_HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
+            LIVE_BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
+            if [ "$LIVE_HEAD_SHA" != "$HEAD_SHA" ] || [ "$LIVE_BASE_SHA" != "$BASE_SHA" ]; then
+              echo "Refusing to update status for a PR/head/base mismatch." >&2
+              echo "Declared base/head: $BASE_SHA $HEAD_SHA" >&2
+              echo "Current base/head:  $LIVE_BASE_SHA $LIVE_HEAD_SHA" >&2
+              exit 1
+            fi
+          fi
+
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "manage_status=$MANAGE_STATUS" >> "$GITHUB_OUTPUT"
+          focus_delimiter="review_focus_${RANDOM}_${RANDOM}"
+          {
+            echo "review_focus<<${focus_delimiter}"
+            printf '%s\n' "$REVIEW_FOCUS"
+            echo "${focus_delimiter}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Mark Code Review status as pending
+        if: ${{ steps.review_inputs.outputs.manage_status == 'true' }}
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state='pending' \
+            -f context='code-review' \
+            -f description="Automated review is running for ${HEAD_SHA}." \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
       - name: Checkout repository
+        timeout-minutes: 10
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.head_sha }}
+          ref: ${{ steps.review_inputs.outputs.head_sha }}
           fetch-depth: 0
 
       - name: Install ripgrep
+        timeout-minutes: 5
         run: |
           sudo apt-get update
           sudo apt-get install -y ripgrep
 
       - name: Install Codex
+        timeout-minutes: 5
         run: |
           for attempt in 1 2 3; do
             if npm install -g @openai/codex; then
@@ -67,6 +176,7 @@ jobs:
           exit 1
 
       - name: Install ossutil
+        timeout-minutes: 5
         run: |
           tmp_dir="$(mktemp -d)"
           trap 'rm -rf "$tmp_dir"' EXIT
@@ -75,6 +185,7 @@ jobs:
           sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
 
       - name: Install Codex goal binary
+        timeout-minutes: 10
         run: |
           codex_cmd="$(command -v codex)"
           codex_target="$(readlink -f "$codex_cmd")"
@@ -101,15 +212,61 @@ jobs:
           OSS_CODEX_GOAL_FALLBACK_OBJECT: oss://doris-community-ci/codex/codex-goal
 
       - name: Configure Codex auth
+        id: auth
+        timeout-minutes: 5
         run: |
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
-          auth_object="$(printf '%s\n' \
+          auth_object=""
+          earliest_retry_after_epoch=""
+          now_epoch="$(date +%s)"
+          while IFS= read -r candidate; do
+            context_file="$(mktemp "$RUNNER_TEMP/codex-auth-context.XXXXXX")"
+            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+              cp -f "${candidate}.context" "$context_file" >/dev/null 2>&1; then
+              if raw_retry_after_epoch="$(jq -ser '
+                select(length == 1)
+                | .[0]
+                | select(type == "object"
+                    and .version == 1
+                    and .state == "usage_limited"
+                    and (.retry_after_epoch | type == "number" and floor == .))
+                | .retry_after_epoch
+              ' "$context_file" 2>/dev/null)" && \
+                 retry_after_epoch="$(date -u -d "@$raw_retry_after_epoch" +%s 2>/dev/null)"; then
+                if [ "$retry_after_epoch" -gt "$now_epoch" ]; then
+                  retry_at="$(date -u -d "@$retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+                  echo "Skipping usage-limited Codex auth ${candidate##*/} until $retry_at."
+                  if [ -z "$earliest_retry_after_epoch" ] || \
+                     [ "$retry_after_epoch" -lt "$earliest_retry_after_epoch" ]; then
+                    earliest_retry_after_epoch="$retry_after_epoch"
+                  fi
+                  continue
+                fi
+              else
+                echo "::warning::Ignoring unusable Codex auth context for ${candidate##*/}; the account remains eligible."
+              fi
+            fi
+
+            auth_object="$candidate"
+            break
+          done < <(printf '%s\n' \
+            'oss://doris-community-ci/codex/auth.json.1' \
             'oss://doris-community-ci/codex/auth.json.2' \
             'oss://doris-community-ci/codex/auth.json.3' \
             'oss://doris-community-ci/codex/auth.json.4' \
-            | shuf -n 1)"
+            'oss://doris-community-ci/codex/auth.json.5' \
+            | shuf)
+
+          if [ -z "$auth_object" ]; then
+            retry_at="$(date -u -d "@$earliest_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+            auth_failure_reason="All Codex review accounts are usage-limited; earliest retry is $retry_at."
+            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+            echo "::error::$auth_failure_reason"
+            exit 1
+          fi
+
           printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
           echo "Selected Codex auth object: ${auth_object##*/}"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$RUNNER_TEMP/codex-home/auth.json"
@@ -148,6 +305,7 @@ jobs:
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
 
       - name: Sync Codex memories from OSS
+        timeout-minutes: 5
         run: |
           install -m 700 -d "$CODEX_HOME/memories"
           archive="$RUNNER_TEMP/codex-memories.tar.gz"
@@ -181,6 +339,7 @@ jobs:
           OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/memories.tar.gz
 
       - name: Prepare review context directory
+        timeout-minutes: 2
         run: |
           review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.code-review.XXXXXX")"
           review_context_rel="$(basename "$review_context_dir")"
@@ -188,10 +347,11 @@ jobs:
           printf 'REVIEW_CONTEXT_REL=%s\n' "$review_context_rel" >> "$GITHUB_ENV"
 
       - name: Fetch existing PR review threads
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
         run: |
           MAX_THREADS=30
           MAX_BODY_CHARS=1200
@@ -248,8 +408,9 @@ jobs:
           fi
 
       - name: Prepare user review focus
+        timeout-minutes: 2
         env:
-          REVIEW_FOCUS: ${{ inputs.review_focus }}
+          REVIEW_FOCUS: ${{ steps.review_inputs.outputs.review_focus }}
         run: |
           if [ -n "$(printf '%s' "$REVIEW_FOCUS" | tr -d '[:space:]')" ]; then
             printf '%s\n' "$REVIEW_FOCUS" > "$REVIEW_CONTEXT_DIR/review_focus.txt"
@@ -259,12 +420,13 @@ jobs:
 
       - name: Prepare authoritative PR context and required AGENTS guides
         id: review_context
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          BASE_SHA: ${{ inputs.base_sha }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
           HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
           checkout_head_sha="$(git rev-parse HEAD)"
@@ -318,6 +480,7 @@ jobs:
           sed 's/^/  /' "$REVIEW_CONTEXT_DIR/required_agents.txt"
 
       - name: Prepare review prompt
+        timeout-minutes: 5
         run: |
           cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
           You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN.
@@ -484,19 +647,19 @@ jobs:
           EOF
         env:
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          BASE_SHA: ${{ inputs.base_sha }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
 
       - name: Run automated code review
         id: review
-        timeout-minutes: 115
+        timeout-minutes: 60
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
         run: |
           GOAL_PROMPT="$(cat "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt")"
           review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -530,6 +693,27 @@ jobs:
             fi
             if [ -z "$failure_reason" ]; then
               failure_reason="Codex exited with status $status"
+            fi
+
+            usage_limit_retry_after_epoch=""
+            if grep -Fqi "You've hit your usage limit" <<<"$failure_reason"; then
+              now_epoch="$(date +%s)"
+              retry_at_text="$(sed -nE \
+                's/.*[Tt]ry again at (([A-Za-z]{3} [0-9]{1,2}(st|nd|rd|th)?, [0-9]{4} )?[0-9]{1,2}:[0-9]{2} (AM|PM)).*/\1/p' \
+                <<<"$failure_reason")"
+              if [ -n "$retry_at_text" ]; then
+                retry_at_text="$(sed -E 's/([0-9])(st|nd|rd|th),/\1,/' <<<"$retry_at_text")"
+                usage_limit_retry_after_epoch="$(date -u -d "$retry_at_text" +%s 2>/dev/null || true)"
+              fi
+
+              if [ -z "$usage_limit_retry_after_epoch" ] || \
+                 [ "$usage_limit_retry_after_epoch" -le "$now_epoch" ]; then
+                usage_limit_retry_after_epoch="$((now_epoch + 30 * 60))"
+                echo "::warning::Codex usage limit had no usable future retry time; using the explicit 30-minute fallback."
+              fi
+              retry_at="$(date -u -d "@$usage_limit_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+              echo "Codex usage limit detected; account retry time is $retry_at."
+              echo "usage_limit_retry_after_epoch=$usage_limit_retry_after_epoch" >> "$GITHUB_OUTPUT"
             fi
           fi
 
@@ -568,17 +752,132 @@ jobs:
             exit 1
           fi
 
+      - name: Record Codex usage limit
+        id: usage_limit_record
+        if: ${{ always() && steps.review.outputs.usage_limit_retry_after_epoch != '' }}
+        timeout-minutes: 5
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          RETRY_AFTER_EPOCH: ${{ steps.review.outputs.usage_limit_retry_after_epoch }}
+        run: |
+          context_file="$(mktemp "$RUNNER_TEMP/codex-auth-context.XXXXXX")"
+          jq -n \
+            --argjson retry_after_epoch "$RETRY_AFTER_EPOCH" \
+            '{version: 1, state: "usage_limited", retry_after_epoch: $retry_after_epoch}' \
+            > "$context_file"
+
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            cp -f "$context_file" "${CODEX_AUTH_OSS_OBJECT}.context"
+          retry_at="$(date -u -d "@$RETRY_AFTER_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Recorded usage limit for ${CODEX_AUTH_OSS_OBJECT##*/} until $retry_at."
+
+      - name: Comment PR on review failure
+        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTH_FAILURE_REASON: ${{ steps.auth.outputs.failure_reason }}
+          USAGE_LIMIT_RECORD_OUTCOME: ${{ steps.usage_limit_record.outcome }}
+          USAGE_LIMIT_RETRY_AFTER_EPOCH: ${{ steps.review.outputs.usage_limit_retry_after_epoch }}
+          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          recovery_msg="Please inspect the workflow logs and rerun the review after the underlying issue is resolved."
+          if [ -n "$AUTH_FAILURE_REASON" ]; then
+            error_msg="$AUTH_FAILURE_REASON"
+            recovery_msg="Please trigger /review again after that time."
+          elif [ -n "$USAGE_LIMIT_RETRY_AFTER_EPOCH" ] && \
+               [ "$USAGE_LIMIT_RECORD_OUTCOME" = "success" ]; then
+            retry_at="$(date -u -d "@$USAGE_LIMIT_RETRY_AFTER_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+            error_msg="${REVIEW_FAILURE_REASON:-The selected Codex account reached its usage limit.}"
+            recovery_msg="The selected account is excluded until $retry_at. Please trigger /review again; another configured account may be available."
+          elif [ -n "$USAGE_LIMIT_RETRY_AFTER_EPOCH" ]; then
+            error_msg="Codex reached its usage limit, but the workflow failed to record the account context."
+            recovery_msg="Please inspect the workflow logs and trigger /review again after the recording problem is resolved."
+          elif [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+            error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          else
+            error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          fi
+          gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
+          Codex automated review failed and did not complete.
+
+          Error: ${error_msg}
+          Workflow run: ${RUN_URL}
+
+          ${recovery_msg}
+          EOF
+          )"
+
+      - name: Fail workflow if review failed
+        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
+        timeout-minutes: 1
+        env:
+          AUTH_FAILURE_REASON: ${{ steps.auth.outputs.failure_reason }}
+          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          if [ -n "$AUTH_FAILURE_REASON" ]; then
+            error_msg="$AUTH_FAILURE_REASON"
+          elif [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+            error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          else
+            error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          fi
+          echo "Codex automated review failed: ${error_msg}"
+          exit 1
+
+      - name: Sync Code Review check for current head
+        if: >-
+          ${{
+            always() &&
+            steps.review_inputs.outcome == 'success' &&
+            steps.review_inputs.outputs.manage_status == 'true'
+          }}
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          JOB_STATUS: ${{ job.status }}
+          REPO: ${{ github.repository }}
+          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          state="pending"
+          summary="Trigger /review to start automated review for ${HEAD_SHA}."
+
+          if [ "$JOB_STATUS" = "success" ] && \
+             [ "$REVIEW_CONTEXT_OUTCOME" = "success" ] && \
+             [ "$REVIEW_OUTCOME" = "success" ]; then
+            state="success"
+            summary="Automated review was triggered for ${HEAD_SHA}."
+          fi
+
+          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state="${state}" \
+            -f context='code-review' \
+            -f description="${summary}" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
       - name: Record review I/O to Litefuse
         if: ${{ always() }}
         continue-on-error: true
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SK }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          BASE_SHA: ${{ inputs.base_sha }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
           HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
           if [ ! -s "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" ] || [ ! -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
@@ -620,6 +919,7 @@ jobs:
       - name: Sync Codex sessions back to OSS
         if: ${{ always() }}
         continue-on-error: true
+        timeout-minutes: 5
         run: |
           if [ ! -d "$CODEX_HOME/sessions" ]; then
             echo "No Codex sessions directory found; skipping session sync."
@@ -648,6 +948,8 @@ jobs:
 
       - name: Sync Codex auth back to OSS
         if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 5
         run: |
           if [ -z "$CODEX_AUTH_OSS_OBJECT" ]; then
             echo "No selected Codex auth object found; skipping OSS auth sync."
@@ -669,42 +971,3 @@ jobs:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-
-      - name: Comment PR on review failure
-        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
-          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
-          REVIEW_OUTCOME: ${{ steps.review.outcome }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          if [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
-            error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
-          else
-            error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
-          fi
-          gh pr comment "${{ inputs.pr_number }}" --body "$(cat <<EOF
-          Codex automated review failed and did not complete.
-
-          Error: ${error_msg}
-          Workflow run: ${RUN_URL}
-
-          Please inspect the workflow logs and rerun the review after the underlying issue is resolved.
-          EOF
-          )"
-
-      - name: Fail workflow if review failed
-        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
-        env:
-          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
-          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
-          REVIEW_OUTCOME: ${{ steps.review.outcome }}
-        run: |
-          if [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
-            error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
-          else
-            error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
-          fi
-          echo "Codex automated review failed: ${error_msg}"
-          exit 1

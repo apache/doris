@@ -232,9 +232,6 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     VLOG_CRITICAL << "MetaScanner::_fetch_metadata";
     TFetchSchemaTableDataRequest request;
     switch (meta_scan_range.metadata_type) {
-    case TMetadataType::HUDI:
-        RETURN_IF_ERROR(_build_hudi_metadata_request(meta_scan_range, &request));
-        break;
     case TMetadataType::BACKENDS:
         RETURN_IF_ERROR(_build_backends_metadata_request(meta_scan_range, &request));
         break;
@@ -294,26 +291,6 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         return status;
     }
     _batch_data = std::move(result.data_batch);
-    return Status::OK();
-}
-
-Status MetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                 TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "MetaScanner::_build_hudi_metadata_request";
-    if (!meta_scan_range.__isset.hudi_params) {
-        return Status::InternalError("Can not find THudiMetadataParams from meta_scan_range.");
-    }
-
-    // create request
-    request->__set_cluster_name("");
-    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
-
-    // create TMetadataTableRequestParams
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::HUDI);
-    metadata_table_params.__set_hudi_metadata_params(meta_scan_range.hudi_params);
-
-    request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
 }
 
