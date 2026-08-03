@@ -474,7 +474,6 @@ public:
         config::async_file_cache_write_workers_per_disk = FLAGS_reader_workers;
         config::async_file_cache_write_max_pending_bytes_per_disk = static_cast<int64_t>(
                 std::max(FLAGS_reader_operations, FLAGS_service_operations) * FLAGS_block_size);
-        config::async_file_cache_write_batch_size = 16;
 
         DORIS_CHECK(ExecEnv::GetInstance()->file_cache_factory() == nullptr);
         ExecEnv::GetInstance()->set_file_cache_open_fd_cache(std::make_unique<FDCache>());
@@ -519,7 +518,6 @@ public:
         auto options = service()->options();
         options.worker_count = workers;
         options.max_pending_bytes = max_pending_bytes;
-        options.batch_size = 16;
         return service()->update_options(options);
     }
 

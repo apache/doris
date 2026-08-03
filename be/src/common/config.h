@@ -1352,7 +1352,6 @@ DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 DECLARE_mBool(enable_async_file_cache_write);
 DECLARE_mInt32(async_file_cache_write_workers_per_disk);
 DECLARE_mInt64(async_file_cache_write_max_pending_bytes_per_disk);
-DECLARE_mInt32(async_file_cache_write_batch_size);
 DECLARE_mBool(enable_async_file_cache_write_inflight_write_buffer_index);
 DECLARE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count);
 

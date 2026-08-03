@@ -556,7 +556,6 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
             .worker_count = static_cast<size_t>(config::async_file_cache_write_workers_per_disk),
             .max_pending_bytes =
                     static_cast<size_t>(config::async_file_cache_write_max_pending_bytes_per_disk),
-            .batch_size = static_cast<size_t>(config::async_file_cache_write_batch_size),
     };
     _async_write_service =
             std::make_unique<AsyncCacheWriteService>(this, std::move(async_write_options));
