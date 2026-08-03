@@ -55,7 +55,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ExecuteCommandTest {
 
     @Test
-    public void testExecutionStateIsResetForEveryExecute() throws Exception {
+    public void testResolvedScanOptionsAreResetForEveryExecute() throws Exception {
         String sql = "select * from p@options('scan.mode'='latest')";
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
         UnboundRelation relation = logicalPlan.<UnboundRelation>collectToList(
@@ -77,21 +77,57 @@ public class ExecuteCommandTest {
         Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
         Mockito.when(executor.getContext()).thenReturn(connectContext);
 
-        statementContext.getTableUsedPartitionNameMap().put(
-                Collections.singletonList("table"), Pair.of(new RelationId(0), Collections.singleton("p1")));
-        statementContext.getCommonTableIdToRelationIdMap().put(0, 0);
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
-        Assertions.assertTrue(statementContext.getTableUsedPartitionNameMap().isEmpty());
-        Assertions.assertTrue(statementContext.getCommonTableIdToRelationIdMap().isEmpty());
         Assertions.assertEquals("2", resolveNextSnapshot(scanParams, snapshotId));
 
-        statementContext.getTableUsedPartitionNameMap().put(
-                Collections.singletonList("table"), Pair.of(new RelationId(1), Collections.singleton("p2")));
-        statementContext.getCommonTableIdToRelationIdMap().put(0, 1);
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
-        Assertions.assertTrue(statementContext.getTableUsedPartitionNameMap().isEmpty());
-        Assertions.assertTrue(statementContext.getCommonTableIdToRelationIdMap().isEmpty());
         Assertions.assertEquals("3", resolveNextSnapshot(scanParams, snapshotId));
+        Mockito.verify(executor, Mockito.times(2)).execute();
+    }
+
+    @Test
+    public void testPartitionStateIsResetForEveryExecute() throws Exception {
+        String sql = "select 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        List<String> tableQualifier = Collections.singletonList("table");
+        AtomicInteger relationId = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            int currentRelationId = relationId.getAndIncrement();
+            statementContext.getTableUsedPartitionNameMap().put(tableQualifier,
+                    Pair.of(new RelationId(currentRelationId), Collections.singleton("p")));
+            statementContext.getCommonTableIdToRelationIdMap().put(0, currentRelationId);
+            return null;
+        }).when(executor).execute();
+
+        statementContext.getTableUsedPartitionNameMap().put(
+                tableQualifier, Pair.of(new RelationId(100), Collections.singleton("old")));
+        statementContext.getCommonTableIdToRelationIdMap().put(0, 100);
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        Assertions.assertEquals(1, statementContext.getTableUsedPartitionNameMap().size());
+        Assertions.assertEquals(0, statementContext.getTableUsedPartitionNameMap()
+                .get(tableQualifier).iterator().next().key().asInt());
+        Assertions.assertEquals(Collections.singleton(0),
+                statementContext.getCommonTableIdToRelationIdMap().get(0));
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        Assertions.assertEquals(1, statementContext.getTableUsedPartitionNameMap().size());
+        Assertions.assertEquals(1, statementContext.getTableUsedPartitionNameMap()
+                .get(tableQualifier).iterator().next().key().asInt());
+        Assertions.assertEquals(Collections.singleton(1),
+                statementContext.getCommonTableIdToRelationIdMap().get(0));
         Mockito.verify(executor, Mockito.times(2)).execute();
     }
 
