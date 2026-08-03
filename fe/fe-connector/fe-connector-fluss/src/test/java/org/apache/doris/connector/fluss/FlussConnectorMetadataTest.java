@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -58,6 +59,7 @@ public class FlussConnectorMetadataTest {
 
     private static final TablePath LOG_TABLE = TablePath.of("db", "log_table");
     private static final TablePath PK_TABLE = TablePath.of("db", "pk_table");
+    private static final TablePath PART_TABLE = TablePath.of("db", "part_table");
 
     private static FlussConnectorMetadata metadata(RecordingFlussAdminOps adminOps) {
         return metadata(adminOps, FlussTypeMapping.Options.DEFAULT);
@@ -326,6 +328,134 @@ public class FlussConnectorMetadataTest {
         Assertions.assertEquals(Collections.emptyList(), metadata.listPartitionNames(null, handle));
         Assertions.assertFalse(adminOps.calls.stream().anyMatch(call -> call.startsWith("listPartitionInfos")),
                 "no partition call should have been made, calls were: " + adminOps.calls);
+    }
+
+    /**
+     * A partition column of every type fluss allows AND Doris can read back, in one table. The values
+     * below are the ones a fluss cluster really names these partitions with — verified against one —
+     * because the whole question here is whether the name survives the round trip.
+     */
+    private static RecordingFlussAdminOps withEveryReadablePartitionType() {
+        RecordingFlussAdminOps adminOps = new RecordingFlussAdminOps();
+        adminOps.tableInfos.put(PART_TABLE, FlussTestTables.builder(PART_TABLE)
+                .column("id", DataTypes.INT())
+                .column("p_str", DataTypes.STRING())
+                .column("p_char", DataTypes.CHAR(2))
+                .column("p_bool", DataTypes.BOOLEAN())
+                .column("p_tiny", DataTypes.TINYINT())
+                .column("p_small", DataTypes.SMALLINT())
+                .column("p_int", DataTypes.INT())
+                .column("p_big", DataTypes.BIGINT())
+                .column("p_date", DataTypes.DATE())
+                .column("p_bin", DataTypes.BINARY(2))
+                .partitionedBy("p_str", "p_char", "p_bool", "p_tiny", "p_small", "p_int", "p_big",
+                        "p_date", "p_bin")
+                .buckets(1)
+                .build());
+        adminOps.partitionsByTable.put(PART_TABLE, Collections.singletonList(
+                partition(1L, "p_str", "cn", "p_char", "c1", "p_bool", "true", "p_tiny", "1",
+                        "p_small", "10", "p_int", "100", "p_big", "1000", "p_date", "2026-01-01",
+                        "p_bin", "0102")));
+        return adminOps;
+    }
+
+    /** A table partitioned by one column of the given type, and nothing else of interest. */
+    private static RecordingFlussAdminOps withPartitionColumnOfType(
+            org.apache.fluss.types.DataType type) {
+        RecordingFlussAdminOps adminOps = new RecordingFlussAdminOps();
+        adminOps.tableInfos.put(PART_TABLE, FlussTestTables.builder(PART_TABLE)
+                .column("id", DataTypes.INT())
+                .column("p", type)
+                .partitionedBy("p")
+                .buckets(1)
+                .build());
+        adminOps.partitionsByTable.put(PART_TABLE,
+                Collections.singletonList(partition(1L, "p", "2026-01-01-01-02-03")));
+        return adminOps;
+    }
+
+    @Test
+    public void everyPartitionTypeWhoseNameSurvivesIsListed() {
+        RecordingFlussAdminOps adminOps = withEveryReadablePartitionType();
+        FlussConnectorMetadata metadata = metadata(adminOps);
+        ConnectorTableHandle handle = metadata.getTableHandle(null, "db", "part_table")
+                .orElseThrow(AssertionError::new);
+
+        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(null, handle, Optional.empty());
+        Assertions.assertEquals(1, partitions.size());
+        Assertions.assertEquals("p_str=cn/p_char=c1/p_bool=true/p_tiny=1/p_small=10/p_int=100/"
+                + "p_big=1000/p_date=2026-01-01/p_bin=0102", partitions.get(0).getPartitionName());
+    }
+
+    /**
+     * Fluss stores a partition's value only in its name, and rewrites the characters a name may not
+     * hold: a TIMESTAMP {@code 2026-01-01 01:02:03} is named {@code 2026-01-01-01-02-03}. Handing that
+     * on gets it as far as fe-core's partition parser, which fails with the name and nothing else —
+     * no column, no type, no fluss. So the refusal belongs here, where all three are still known.
+     */
+    @Test
+    public void partitionValueFlussRewroteIsRefusedByName() {
+        RecordingFlussAdminOps adminOps = withPartitionColumnOfType(DataTypes.TIMESTAMP(3));
+        FlussConnectorMetadata metadata = metadata(adminOps);
+        ConnectorTableHandle handle = metadata.getTableHandle(null, "db", "part_table")
+                .orElseThrow(AssertionError::new);
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata.listPartitions(null, handle, Optional.empty()));
+        Assertions.assertTrue(failure.getMessage().contains("db.part_table"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("'p'"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("TIMESTAMP(3)"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("cannot be read back"), failure.getMessage());
+        // Refused from the schema alone, so a table with no partitions yet is refused the same way and
+        // the cluster is not asked a question whose answer could not be used.
+        Assertions.assertFalse(adminOps.calls.stream().anyMatch(call -> call.startsWith("listPartitionInfos")),
+                "the partitions should not have been fetched, calls were: " + adminOps.calls);
+        // listPartitionNames goes through the same funnel; a second entrance would be a way around it.
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata.listPartitionNames(null, handle));
+    }
+
+    /**
+     * A handle that names a partition column it carries no type for has come apart from the schema it
+     * was built from — an ALTER between the two reads, a handle assembled by hand. Assuming such a
+     * column readable would put exactly the names this guard exists to stop back on the path to
+     * fe-core's parser, so the unknown is refused and says which column it was.
+     */
+    @Test
+    public void partitionColumnWithNoTypeIsRefusedRatherThanAssumed() {
+        FlussTableHandle handle = new FlussTableHandle("db", "part_table", 1L, 1, false,
+                Collections.emptyList(), Collections.emptyList(), 1,
+                Collections.singletonList("p"), false, null,
+                Collections.emptyMap(), Collections.emptyMap());
+        RecordingFlussAdminOps adminOps = withPartitionColumnOfType(DataTypes.STRING());
+        FlussConnectorMetadata metadata = metadata(adminOps);
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata.listPartitions(null, handle, Optional.empty()));
+        Assertions.assertTrue(failure.getMessage().contains("'p'"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("no type"), failure.getMessage());
+        Assertions.assertFalse(adminOps.calls.stream().anyMatch(call -> call.startsWith("listPartitionInfos")),
+                "the partitions should not have been fetched, calls were: " + adminOps.calls);
+    }
+
+    @Test
+    public void binaryPartitionIsRefusedOnlyWhenTheColumnIsNotText() {
+        // Fluss names such a partition with the hex text of the bytes. Read as a string that is exactly
+        // what was written; asked for as a VARBINARY it is not a literal of anything.
+        FlussConnectorMetadata asText = metadata(withPartitionColumnOfType(DataTypes.BINARY(2)));
+        Assertions.assertEquals(1, asText.listPartitions(null,
+                asText.getTableHandle(null, "db", "part_table").orElseThrow(AssertionError::new),
+                Optional.empty()).size());
+
+        RecordingFlussAdminOps adminOps = withPartitionColumnOfType(DataTypes.BINARY(2));
+        FlussConnectorMetadata asVarbinary = metadata(adminOps, new FlussTypeMapping.Options(true, false));
+        ConnectorTableHandle handle = asVarbinary.getTableHandle(null, "db", "part_table")
+                .orElseThrow(AssertionError::new);
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> asVarbinary.listPartitions(null, handle, Optional.empty()));
+        Assertions.assertTrue(
+                failure.getMessage().contains(FlussConnectorProperties.ENABLE_MAPPING_VARBINARY),
+                "the fix is a property, so name it: " + failure.getMessage());
     }
 
     @Test
