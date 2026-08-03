@@ -43,7 +43,6 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "exec/scan/vector_search_user_params.h"
-#include "io/fs/s3_file_system.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/workload_group/workload_group_fwd.h"

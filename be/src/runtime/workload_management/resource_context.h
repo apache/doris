@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/data.pb.h>
-
 #include <memory>
 
 #include "common/factory_creator.h"

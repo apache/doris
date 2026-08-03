@@ -152,6 +152,51 @@ RULES = [
         "workload_group.h (and its thrift payload) out of it keeps the exec layer "
         "from re-spreading BackendService_types.h",
     ),
+    (
+        "runtime/runtime_state.h",
+        "io/fs/s3_file_system.h",
+        set(),
+        "RuntimeState holds the error-log S3 filesystem only behind a shared_ptr "
+        "(forward-declared, dereferenced in runtime_state.cpp); s3_file_system.h "
+        "carries util/s3_util.h, the AWS SDK surface and gen_cpp/cloud.pb.h, "
+        "which must not ride into the ~1060 TUs that include RuntimeState",
+    ),
+    (
+        "runtime/thread_context.h",
+        "runtime/workload_management/",
+        set(),
+        "ThreadContext stores ResourceContext behind a shared_ptr (forward-declared; "
+        "attach_task and the orphan fallback are defined out of line) and the "
+        "SCOPED/LIMIT macros only expand at call sites; resource_context.h used to "
+        "carry the whole workload_management family plus task_controller's "
+        "PaloInternalService_types.h into nearly every TU",
+    ),
+    (
+        "runtime/thread_context.h",
+        "gen_cpp/",
+        {
+            # Status embeds TStatus/PStatus (ride in through common/status.h);
+            # TUniqueId lives in Types_types.h; the profile family rides in
+            # through runtime_profile.h held by the memory-tracker chain.
+            "gen_cpp/Status_types.h",
+            "gen_cpp/types.pb.h",
+            "gen_cpp/Types_types.h",
+            "gen_cpp/Metrics_types.h",
+            "gen_cpp/RuntimeProfile_types.h",
+            "gen_cpp/runtime_profile.pb.h",
+        },
+        "ThreadContext reaches ~1000 TUs; any generated protobuf/thrift header "
+        "beyond the status/types/profile carriers listed here is reparsed by "
+        "most of the backend",
+    ),
+    (
+        "runtime/workload_management/resource_context.h",
+        "gen_cpp/data.pb.h",
+        set(),
+        "resource_context.h references no data.pb symbol (TQueryStatistics is "
+        "thrift and forward-declared); this was a dead include spreading PBlock "
+        "and segment_v2.pb.h to ~595 TUs through thread_context.h",
+    ),
 ]
 
 # Forward-declaration headers are the sanctioned way through a barrier: they carry

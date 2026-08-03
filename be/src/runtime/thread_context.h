@@ -27,10 +27,8 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/macros.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
-#include "runtime/workload_management/resource_context.h"
 #include "util/defer_op.h" // IWYU pragma: keep
 
 // Used to tracking query/load/compaction/e.g. execution thread memory usage.
