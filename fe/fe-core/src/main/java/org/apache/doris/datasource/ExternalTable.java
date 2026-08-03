@@ -252,6 +252,13 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
                 || "hudi".equalsIgnoreCase(catalog.getType()))) {
             return "";
         }
+        return getConfiguredHiveParquetTimeZone();
+    }
+
+    public String getConfiguredHiveParquetTimeZone() throws UserException {
+        if (catalog == null) {
+            return "";
+        }
         String value = catalog.getProperties().get(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE);
         return value == null ? "" : FileFormatUtils.parseHiveParquetTimeZone(value);
     }

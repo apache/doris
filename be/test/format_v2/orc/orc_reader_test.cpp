@@ -58,6 +58,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/primitive_type.h"
 #include "core/value/timestamptz_value.h"
@@ -10259,6 +10260,54 @@ TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsRoundsToMicroseconds) {
                       expected[row]);
         }
     }
+}
+
+Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds,
+                                     bool use_timestamp_tz) {
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
+            use_timestamp_tz ? "timestamp with local time zone" : "timestamp"));
+    ::orc::TimestampVectorBatch batch(1, *::orc::getDefaultPool());
+    batch.numElements = 1;
+    batch.data[0] = seconds;
+    batch.nanoseconds[0] = nanoseconds;
+    static const auto utc_time_zone = cctz::utc_time_zone();
+    OrcDecodedColumnView view {.file_type = type.get(),
+                               .selected_type = type.get(),
+                               .batch = &batch,
+                               .rows = 1,
+                               .timezone = &utc_time_zone,
+                               .enable_mapping_timestamp_tz = use_timestamp_tz};
+    if (use_timestamp_tz) {
+        DataTypeTimeStampTz data_type(6);
+        auto column = data_type.create_column();
+        return data_type.get_serde()->read_column_from_orc(*column, view);
+    }
+    DataTypeDateTimeV2 data_type(6);
+    auto column = data_type.create_column();
+    return data_type.get_serde()->read_column_from_orc(*column, view);
+}
+
+TEST_F(NewOrcReaderTest, TimestampRoundingRejectsUpperDorisBoundary) {
+    // 253402300799 is 9999-12-31 23:59:59 UTC; rounding the fractional part carries
+    // into year 10000, which neither Doris timestamp representation can store.
+    constexpr int64_t MAX_DORIS_EPOCH_SECOND = 253402300799LL;
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    EXPECT_FALSE(
+            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, false)
+                    .ok());
+    EXPECT_FALSE(
+            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, true)
+                    .ok());
+}
+
+TEST_F(NewOrcReaderTest, TimestampRoundingRejectsSecondOverflow) {
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    EXPECT_FALSE(decode_orc_timestamp_boundary(std::numeric_limits<int64_t>::max(),
+                                               ROUNDING_CARRY_NANOS, false)
+                         .ok());
+    EXPECT_FALSE(decode_orc_timestamp_boundary(std::numeric_limits<int64_t>::max(),
+                                               ROUNDING_CARRY_NANOS, true)
+                         .ok());
 }
 
 TEST_F(NewOrcReaderTest, TimestampSargMatchesRoundedMicroseconds) {
