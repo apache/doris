@@ -18,8 +18,8 @@
 #include "io/cache/async_cache_write_service.h"
 
 #include <algorithm>
+#include <exception>
 #include <limits>
-#include <new>
 #include <optional>
 #include <thread>
 #include <type_traits>
@@ -42,39 +42,27 @@ namespace {
 static_assert(std::is_nothrow_move_constructible_v<AsyncCacheWriteTask>);
 static_assert(std::is_nothrow_move_assignable_v<AsyncCacheWriteTask>);
 
-enum class SubmitResult : uint8_t {
-    ACCEPTED,
-    REJECT_BACKPRESSURE,
-    REJECT_ENQUEUE_FAILURE,
-};
-
 /// Keep an in-progress phase gauge balanced across every return path.
 class ScopedActiveCounter {
 public:
-    explicit ScopedActiveCounter(std::atomic<size_t>* counter) : _counter(counter) {
-        DORIS_CHECK(_counter != nullptr);
-        _counter->fetch_add(1, std::memory_order_relaxed);
+    explicit ScopedActiveCounter(std::atomic<size_t>& counter) : _counter(counter) {
+        _counter.fetch_add(1, std::memory_order_relaxed);
     }
 
-    ~ScopedActiveCounter() {
-        const size_t old_count = _counter->fetch_sub(1, std::memory_order_relaxed);
-        DORIS_CHECK(old_count > 0);
-    }
+    ~ScopedActiveCounter() { _counter.fetch_sub(1, std::memory_order_relaxed); }
 
 private:
-    std::atomic<size_t>* _counter;
+    std::atomic<size_t>& _counter;
 };
 
 /// Acquire the FIFO mutex while measuring only the actual lock wait and critical-section hold.
 class TimedQueueLock {
 public:
-    TimedQueueLock(std::mutex& mutex, bvar::LatencyRecorder* wait_latency,
-                   bvar::LatencyRecorder* hold_latency)
+    TimedQueueLock(std::mutex& mutex, bvar::LatencyRecorder& wait_latency,
+                   bvar::LatencyRecorder& hold_latency)
             : _lock(mutex, std::defer_lock),
               _wait_latency(wait_latency),
               _hold_latency(hold_latency) {
-        DORIS_CHECK(_wait_latency != nullptr);
-        DORIS_CHECK(_hold_latency != nullptr);
         const int64_t wait_start_us = MonotonicMicros();
         _lock.lock();
         _acquired_at_us = MonotonicMicros();
@@ -84,14 +72,14 @@ public:
     ~TimedQueueLock() {
         const int64_t hold_us = MonotonicMicros() - _acquired_at_us;
         _lock.unlock();
-        *_wait_latency << _wait_us;
-        *_hold_latency << hold_us;
+        _wait_latency << _wait_us;
+        _hold_latency << hold_us;
     }
 
 private:
     std::unique_lock<std::mutex> _lock;
-    bvar::LatencyRecorder* _wait_latency;
-    bvar::LatencyRecorder* _hold_latency;
+    bvar::LatencyRecorder& _wait_latency;
+    bvar::LatencyRecorder& _hold_latency;
     int64_t _acquired_at_us {0};
     int64_t _wait_us {0};
 };
@@ -119,7 +107,6 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
     DORIS_CHECK(_cache != nullptr);
     DORIS_CHECK(options.worker_count > 0);
     DORIS_CHECK(options.max_pending_bytes > 0);
-    DORIS_CHECK(options.batch_size > 0);
 
     const char* prefix = _cache->get_base_path().c_str();
     _mem_tracker = MemTrackerLimiter::create_shared(
@@ -233,8 +220,6 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
             prefix, "async_cache_write_reject_not_running_total");
     _reject_backpressure_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "async_cache_write_reject_backpressure_total");
-    _reject_enqueue_failure_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "async_cache_write_reject_enqueue_failure_total");
     _buffer_alloc_fail_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "async_cache_write_buffer_alloc_fail_total");
     _submit_latency_metric =
@@ -342,14 +327,10 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
     }
 
     const size_t task_buffer_bytes = task.buffer->size();
-    bool inject_enqueue_failure = false;
-    TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::try_submit:inject_enqueue_failure",
-                             &inject_enqueue_failure);
     std::optional<AsyncCacheWriteTask> victim;
-    const SubmitResult result = [&]() {
-        TimedQueueLock lock(_queue_mutex, _queue_lock_wait_latency_metric.get(),
-                            _queue_lock_hold_latency_metric.get());
-        Defer check_queue_invariants {[&]() { _check_queue_invariants_locked(); }};
+    {
+        TimedQueueLock lock(_queue_mutex, *_queue_lock_wait_latency_metric,
+                            *_queue_lock_hold_latency_metric);
         const auto options = _options.load(std::memory_order_acquire);
         const size_t max_pending_bytes = options->max_pending_bytes;
         const size_t pending_bytes = _pending_bytes.load(std::memory_order_relaxed);
@@ -358,37 +339,21 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
         }
         DORIS_CHECK(task_buffer_bytes == _task_buffer_size);
 
-        const auto push_task = [&]() {
-            if (inject_enqueue_failure) {
-                return false;
-            }
-            try {
-                _queue.push_back(std::move(task));
-                return true;
-            } catch (const std::bad_alloc&) {
-                return false;
-            }
-        };
-
         if (task_buffer_bytes > max_pending_bytes) {
-            return SubmitResult::REJECT_BACKPRESSURE;
+            *_rejected_metric << 1;
+            *_reject_backpressure_metric << 1;
+            return false;
         }
 
         const bool has_capacity = pending_bytes <= max_pending_bytes - task_buffer_bytes;
         if (!has_capacity && _queue.empty()) {
-            return SubmitResult::REJECT_BACKPRESSURE;
-        }
-        if (!has_capacity) {
-            DORIS_CHECK(_queue.front().buffer != nullptr);
-            DORIS_CHECK(_queue.front().buffer->size() == task_buffer_bytes);
+            *_rejected_metric << 1;
+            *_reject_backpressure_metric << 1;
+            return false;
         }
 
-        if (!push_task()) {
-            return SubmitResult::REJECT_ENQUEUE_FAILURE;
-        }
-
+        _queue.push_back(std::move(task));
         if (has_capacity) {
-            _queued_count.fetch_add(1, std::memory_order_relaxed);
             _queued_bytes.fetch_add(task_buffer_bytes, std::memory_order_relaxed);
             _pending_count.fetch_add(1, std::memory_order_relaxed);
             _pending_bytes.fetch_add(task_buffer_bytes, std::memory_order_relaxed);
@@ -396,20 +361,7 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
             victim.emplace(std::move(_queue.front()));
             _queue.pop_front();
         }
-        return SubmitResult::ACCEPTED;
-    }();
-
-    switch (result) {
-    case SubmitResult::ACCEPTED:
-        break;
-    case SubmitResult::REJECT_BACKPRESSURE:
-        *_rejected_metric << 1;
-        *_reject_backpressure_metric << 1;
-        return false;
-    case SubmitResult::REJECT_ENQUEUE_FAILURE:
-        *_rejected_metric << 1;
-        *_reject_enqueue_failure_metric << 1;
-        return false;
+        _check_queue_invariants_locked();
     }
 
     *_submitted_metric << 1;
@@ -483,11 +435,8 @@ void AsyncCacheWriteService::_worker_loop(size_t worker_id) {
             return;
         }
 
-        size_t processed = 0;
-        const auto options = _options.load(std::memory_order_acquire);
         AsyncCacheWriteTask task;
-        while (processed < options->batch_size && _try_take_task(&task)) {
-            ++processed;
+        if (_try_take_task(&task)) {
             Defer finish {[&]() { _finish_active_task(std::move(task)); }};
 
             const int64_t age_us = MonotonicMicros() - task.submit_ts_us;
@@ -506,43 +455,35 @@ void AsyncCacheWriteService::_worker_loop(size_t worker_id) {
                              << ", offset=" << task.file_offset << ", size=" << task.write_size
                              << ", status=" << status;
             }
+            continue;
         }
 
         if (_shutdown_requested.load(std::memory_order_acquire) &&
             _pending_count.load(std::memory_order_acquire) == 0) {
             return;
         }
-        if (processed == 0) {
-            std::unique_lock lock(_queue_mutex);
-            _queue_cv.wait(lock, [&]() {
-                const bool shutdown_requested = _shutdown_requested.load(std::memory_order_acquire);
-                return !_queue.empty() ||
-                       (!shutdown_requested &&
-                        worker_id >= _desired_worker_count.load(std::memory_order_acquire)) ||
-                       (shutdown_requested && _pending_count.load(std::memory_order_relaxed) == 0);
-            });
-        }
+        std::unique_lock lock(_queue_mutex);
+        _queue_cv.wait(lock, [&]() {
+            const bool shutdown_requested = _shutdown_requested.load(std::memory_order_acquire);
+            return !_queue.empty() ||
+                   (!shutdown_requested &&
+                    worker_id >= _desired_worker_count.load(std::memory_order_acquire)) ||
+                   (shutdown_requested && _pending_count.load(std::memory_order_relaxed) == 0);
+        });
     }
 }
 
 bool AsyncCacheWriteService::_try_take_task(AsyncCacheWriteTask* task) {
-    DORIS_CHECK(task != nullptr);
-    TimedQueueLock lock(_queue_mutex, _queue_lock_wait_latency_metric.get(),
-                        _queue_lock_hold_latency_metric.get());
+    TimedQueueLock lock(_queue_mutex, *_queue_lock_wait_latency_metric,
+                        *_queue_lock_hold_latency_metric);
     if (_queue.empty()) {
-        _check_queue_invariants_locked();
         return false;
     }
 
     *task = std::move(_queue.front());
     _queue.pop_front();
-    DORIS_CHECK(task->buffer != nullptr);
     const size_t task_buffer_bytes = task->buffer->size();
-    const size_t old_queued = _queued_count.fetch_sub(1, std::memory_order_relaxed);
-    DORIS_CHECK(old_queued > 0);
-    const size_t old_queued_bytes =
-            _queued_bytes.fetch_sub(task_buffer_bytes, std::memory_order_relaxed);
-    DORIS_CHECK(old_queued_bytes >= task_buffer_bytes);
+    _queued_bytes.fetch_sub(task_buffer_bytes, std::memory_order_relaxed);
     _active_task_count.fetch_add(1, std::memory_order_relaxed);
     _active_bytes.fetch_add(task_buffer_bytes, std::memory_order_relaxed);
     _check_queue_invariants_locked();
@@ -550,10 +491,6 @@ bool AsyncCacheWriteService::_try_take_task(AsyncCacheWriteTask* task) {
 }
 
 Status AsyncCacheWriteService::_write_one(const AsyncCacheWriteTask& task) {
-    DORIS_CHECK(task.buffer != nullptr);
-    DORIS_CHECK(task.write_size > 0);
-    DORIS_CHECK(task.write_size <= task.buffer->size());
-    DORIS_CHECK(task.write_size <= std::numeric_limits<size_t>::max() - task.file_offset);
     if (!is_current_write_epoch(task.write_epoch)) {
         *_drop_stale_epoch_metric << 1;
         return Status::OK();
@@ -568,7 +505,7 @@ Status AsyncCacheWriteService::_write_one(const AsyncCacheWriteTask& task) {
     context.is_warmup = task.admission_ctx.is_warmup;
     context.stats = &dummy_stats;
     auto holder = [&]() {
-        ScopedActiveCounter active_get_or_set(&_active_get_or_set_count);
+        ScopedActiveCounter active_get_or_set(_active_get_or_set_count);
         const int64_t start_us = MonotonicMicros();
         Defer record_latency {
                 [&]() { *_get_or_set_latency_metric << (MonotonicMicros() - start_us); }};
@@ -621,7 +558,7 @@ Status AsyncCacheWriteService::_write_one(const AsyncCacheWriteTask& task) {
         DORIS_CHECK(block->range().size() <= task.write_size - buffer_offset);
         Status status;
         {
-            ScopedActiveCounter active_append(&_active_append_count);
+            ScopedActiveCounter active_append(_active_append_count);
             TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::_write_one:before_append", &task);
             const int64_t start_us = MonotonicMicros();
             status = block->append(
@@ -637,7 +574,7 @@ Status AsyncCacheWriteService::_write_one(const AsyncCacheWriteTask& task) {
             continue;
         }
         {
-            ScopedActiveCounter active_finalize(&_active_finalize_count);
+            ScopedActiveCounter active_finalize(_active_finalize_count);
             const int64_t start_us = MonotonicMicros();
             status = block->finalize();
             *_finalize_latency_metric << (MonotonicMicros() - start_us);
@@ -657,22 +594,17 @@ Status AsyncCacheWriteService::_write_one(const AsyncCacheWriteTask& task) {
 }
 
 void AsyncCacheWriteService::_finish_active_task(AsyncCacheWriteTask task) {
-    DORIS_CHECK(task.buffer != nullptr);
     const size_t task_buffer_bytes = task.buffer->size();
     bool became_empty = false;
     {
-        TimedQueueLock lock(_queue_mutex, _queue_lock_wait_latency_metric.get(),
-                            _queue_lock_hold_latency_metric.get());
+        TimedQueueLock lock(_queue_mutex, *_queue_lock_wait_latency_metric,
+                            *_queue_lock_hold_latency_metric);
         const size_t old_active = _active_task_count.fetch_sub(1, std::memory_order_relaxed);
-        DORIS_CHECK(old_active > 0);
-        const size_t old_active_bytes =
-                _active_bytes.fetch_sub(task_buffer_bytes, std::memory_order_relaxed);
-        DORIS_CHECK(old_active_bytes >= task_buffer_bytes);
+        DCHECK_GT(old_active, 0);
+        _active_bytes.fetch_sub(task_buffer_bytes, std::memory_order_relaxed);
         const size_t old_pending = _pending_count.fetch_sub(1, std::memory_order_relaxed);
-        DORIS_CHECK(old_pending > 0);
-        const size_t old_pending_bytes =
-                _pending_bytes.fetch_sub(task_buffer_bytes, std::memory_order_relaxed);
-        DORIS_CHECK(old_pending_bytes >= task_buffer_bytes);
+        DCHECK_GT(old_pending, 0);
+        _pending_bytes.fetch_sub(task_buffer_bytes, std::memory_order_relaxed);
         became_empty = old_pending == 1;
         _check_queue_invariants_locked();
     }
@@ -684,7 +616,6 @@ void AsyncCacheWriteService::_finish_active_task(AsyncCacheWriteTask task) {
 
 void AsyncCacheWriteService::_finalize_task(AsyncCacheWriteTask task,
                                             TaskFinalizationReason reason) {
-    DORIS_CHECK(task.buffer != nullptr);
     const size_t task_buffer_bytes = task.buffer->size();
     if (reason == TaskFinalizationReason::WORKER_FINISHED) {
         *_worker_finished_metric << 1;
@@ -702,19 +633,18 @@ void AsyncCacheWriteService::_finalize_task(AsyncCacheWriteTask task,
 }
 
 void AsyncCacheWriteService::_check_queue_invariants_locked() const {
-    const size_t queued = _queued_count.load(std::memory_order_relaxed);
+    const size_t queued = _queue.size();
     const size_t queued_bytes = _queued_bytes.load(std::memory_order_relaxed);
     const size_t active = _active_task_count.load(std::memory_order_relaxed);
     const size_t active_bytes = _active_bytes.load(std::memory_order_relaxed);
     const size_t pending = _pending_count.load(std::memory_order_relaxed);
     const size_t pending_bytes = _pending_bytes.load(std::memory_order_relaxed);
-    DORIS_CHECK(queued == _queue.size());
-    DORIS_CHECK(pending == queued + active);
-    DORIS_CHECK(pending_bytes == queued_bytes + active_bytes);
+    DCHECK_EQ(pending, queued + active);
+    DCHECK_EQ(pending_bytes, queued_bytes + active_bytes);
     if (_task_buffer_size > 0) {
-        DORIS_CHECK(queued_bytes == queued * _task_buffer_size);
-        DORIS_CHECK(active_bytes == active * _task_buffer_size);
-        DORIS_CHECK(pending_bytes == pending * _task_buffer_size);
+        DCHECK_EQ(queued_bytes, queued * _task_buffer_size);
+        DCHECK_EQ(active_bytes, active * _task_buffer_size);
+        DCHECK_EQ(pending_bytes, pending * _task_buffer_size);
     }
 }
 
@@ -768,14 +698,11 @@ Status AsyncCacheWriteService::update_options(const AsyncCacheWriteServiceOption
         return Status::InvalidArgument(
                 "async file cache write pending byte limit must be positive");
     }
-    if (options.batch_size == 0) {
-        return Status::InvalidArgument("async file cache write batch size must be positive");
-    }
     auto next_options = std::make_shared<const AsyncCacheWriteServiceOptions>(options);
     RETURN_IF_ERROR(resize_workers(options.worker_count));
     {
-        TimedQueueLock lock(_queue_mutex, _queue_lock_wait_latency_metric.get(),
-                            _queue_lock_hold_latency_metric.get());
+        TimedQueueLock lock(_queue_mutex, *_queue_lock_wait_latency_metric,
+                            *_queue_lock_hold_latency_metric);
         _options.store(std::move(next_options), std::memory_order_release);
         _check_queue_invariants_locked();
     }
@@ -786,6 +713,11 @@ AsyncCacheWriteServiceOptions AsyncCacheWriteService::options() const {
     AsyncCacheWriteServiceOptions result = *_options.load(std::memory_order_acquire);
     result.worker_count = _desired_worker_count.load(std::memory_order_acquire);
     return result;
+}
+
+size_t AsyncCacheWriteService::queued_count() const {
+    std::lock_guard lock(_queue_mutex);
+    return _queue.size();
 }
 
 int64_t AsyncCacheWriteService::queue_lock_wait_p99_us() const {
@@ -817,13 +749,12 @@ void AsyncCacheWriteService::shutdown() {
             });
         }
         {
-            TimedQueueLock lock(_queue_mutex, _queue_lock_wait_latency_metric.get(),
-                                _queue_lock_hold_latency_metric.get());
+            TimedQueueLock lock(_queue_mutex, *_queue_lock_wait_latency_metric,
+                                *_queue_lock_hold_latency_metric);
             _check_queue_invariants_locked();
             DORIS_CHECK(_queue.empty());
             DORIS_CHECK(_pending_count.load(std::memory_order_relaxed) == 0);
             DORIS_CHECK(_pending_bytes.load(std::memory_order_relaxed) == 0);
-            DORIS_CHECK(_queued_count.load(std::memory_order_relaxed) == 0);
             DORIS_CHECK(_queued_bytes.load(std::memory_order_relaxed) == 0);
             DORIS_CHECK(_active_task_count.load(std::memory_order_relaxed) == 0);
             DORIS_CHECK(_active_bytes.load(std::memory_order_relaxed) == 0);

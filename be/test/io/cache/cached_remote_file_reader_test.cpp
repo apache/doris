@@ -674,7 +674,6 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     auto options = service->options();
     options.worker_count = 1;
     options.max_pending_bytes = 3_mb;
-    options.batch_size = 1;
     ASSERT_TRUE(service->update_options(options).ok());
 
     auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());

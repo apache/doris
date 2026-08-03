@@ -29,13 +29,11 @@ namespace {
 /// Acquire one index shard while recording both contention and critical-section duration.
 class TimedShardLock {
 public:
-    TimedShardLock(std::mutex& mutex, bvar::LatencyRecorder* wait_latency,
-                   bvar::LatencyRecorder* hold_latency)
+    TimedShardLock(std::mutex& mutex, bvar::LatencyRecorder& wait_latency,
+                   bvar::LatencyRecorder& hold_latency)
             : _lock(mutex, std::defer_lock),
               _wait_latency(wait_latency),
               _hold_latency(hold_latency) {
-        DORIS_CHECK(wait_latency != nullptr);
-        DORIS_CHECK(_hold_latency != nullptr);
         const int64_t wait_start_us = MonotonicMicros();
         _lock.lock();
         _acquired_at_us = MonotonicMicros();
@@ -45,14 +43,14 @@ public:
     ~TimedShardLock() {
         const int64_t hold_us = MonotonicMicros() - _acquired_at_us;
         _lock.unlock();
-        *_wait_latency << _wait_us;
-        *_hold_latency << hold_us;
+        _wait_latency << _wait_us;
+        _hold_latency << hold_us;
     }
 
 private:
     std::unique_lock<std::mutex> _lock;
-    bvar::LatencyRecorder* _wait_latency;
-    bvar::LatencyRecorder* _hold_latency;
+    bvar::LatencyRecorder& _wait_latency;
+    bvar::LatencyRecorder& _hold_latency;
     int64_t _acquired_at_us {0};
     int64_t _wait_us {0};
 };
@@ -103,15 +101,12 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::insert_if_ab
     DORIS_CHECK(entry != nullptr);
     Key key {.cache_hash = cache_hash, .block_offset = block_offset};
     auto& shard = *_shards[_shard_index(key)];
-    bool inserted = false;
     {
-        TimedShardLock lock(shard.mutex, _lock_wait_latency_metric.get(),
-                            _lock_hold_latency_metric.get());
+        TimedShardLock lock(shard.mutex, *_lock_wait_latency_metric, *_lock_hold_latency_metric);
         auto iterator = shard.entries.find(key);
         if (iterator == shard.entries.end()) {
             shard.entries.emplace(key, std::move(entry));
             _size.fetch_add(1, std::memory_order_relaxed);
-            inserted = true;
         } else if (iterator->second->write_epoch < entry->write_epoch) {
             iterator->second = std::move(entry);
             *_stale_epoch_replace_metric << 1;
@@ -123,7 +118,6 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::insert_if_ab
         }
     }
 
-    DORIS_CHECK(inserted);
     *_insert_metric << 1;
     return nullptr;
 }
@@ -134,8 +128,7 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::lookup(
     Key key {.cache_hash = cache_hash, .block_offset = block_offset};
     auto& shard = *_shards[_shard_index(key)];
     {
-        TimedShardLock lock(shard.mutex, _lock_wait_latency_metric.get(),
-                            _lock_hold_latency_metric.get());
+        TimedShardLock lock(shard.mutex, *_lock_wait_latency_metric, *_lock_hold_latency_metric);
         auto iterator = shard.entries.find(key);
         if (iterator == shard.entries.end()) {
             *_miss_metric << 1;
@@ -149,7 +142,7 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::lookup(
         if (iterator->second->write_epoch < expected_epoch) {
             shard.entries.erase(iterator);
             const size_t old_size = _size.fetch_sub(1, std::memory_order_relaxed);
-            DORIS_CHECK(old_size > 0);
+            DCHECK_GT(old_size, 0);
         }
     }
     *_miss_metric << 1;
@@ -178,13 +171,12 @@ bool InflightWriteBufferIndex::remove_if(
     auto& shard = *_shards[_shard_index(key)];
     bool removed = false;
     {
-        TimedShardLock lock(shard.mutex, _lock_wait_latency_metric.get(),
-                            _lock_hold_latency_metric.get());
+        TimedShardLock lock(shard.mutex, *_lock_wait_latency_metric, *_lock_hold_latency_metric);
         auto iterator = shard.entries.find(key);
         if (iterator != shard.entries.end() && iterator->second == expected) {
             shard.entries.erase(iterator);
             const size_t old_size = _size.fetch_sub(1, std::memory_order_relaxed);
-            DORIS_CHECK(old_size > 0);
+            DCHECK_GT(old_size, 0);
             removed = true;
         }
     }
