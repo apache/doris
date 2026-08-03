@@ -103,7 +103,15 @@ The fixtures recreate database `fluss_test` from scratch on every start:
 | `lake_cold` | lake table read entirely from the lake — no log tail at all |
 | `lake_types` | lake table with the full type coverage; non-NULL rows tiered, the all-NULL row in the log |
 | `lake_part` | lake table partitioned by `dt`; only `20260101` has a log tail |
-| `lake_pk` | primary-key lake table; its tail updates one tiered row, deletes another and adds a key the lake never saw |
+| `lake_pk` | primary-key lake table, one bucket; its tail updates one tiered row, deletes another and adds a key the lake never saw |
+| `lake_pk_multi` | primary-key lake table over 3 buckets; the tail reaches some buckets and not others, which is what makes per-bucket binding observable |
+| `lake_pk_part` | primary-key lake table partitioned by `dt`: `20260101` is lake + tail, `20260102` is lake only, `20260103` was written after tiering stopped so the lake has never seen it |
+| `lake_pk_cold` | primary-key lake table read entirely from the lake — no tail, so nothing to merge |
+
+There is deliberately no deletion-vector fixture. Fluss does forward a
+`paimon.deletion-vectors.enabled` table property into the paimon table it
+creates, but its tiering service writes no deletion vector index, and paimon then
+reads such a table as empty — see the note in `sql/init.sql`.
 
 ### Lake tables are frozen half in, half out
 

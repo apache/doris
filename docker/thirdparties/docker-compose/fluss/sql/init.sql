@@ -468,3 +468,101 @@ INSERT INTO lake_pk VALUES
 
 INSERT INTO lake_pk VALUES
     (2, 'lp2-lake');
+
+-- ---------------------------------------------------------------------------
+-- lake_pk_multi: the same table over three buckets. A primary-key table is
+-- merged with its log tail per BUCKET, and a single-bucket fixture cannot tell
+-- that apart from merging per table: with one bucket the two are the same
+-- arrangement. Here they are not -- the tail below touches some buckets and not
+-- others, so a lake split may only be filtered by the tail of ITS OWN bucket.
+-- Binding one bucket's tail to another's split suppresses nothing (a key lives
+-- in exactly one bucket), and the rows that tail was meant to replace come back
+-- as duplicates.
+--
+-- Nine keys, because which bucket a key lands in is fluss's hash of it and not
+-- ours to choose: enough of them to be spread over all three, few enough to
+-- read. Row 5 is updated before tiering, so the lake half already holds a
+-- merged view here too.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_pk_multi (
+    id INT NOT NULL,
+    name STRING,
+    PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+    'bucket.num' = '3',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_pk_multi VALUES
+    (1, 'm1'),
+    (2, 'm2'),
+    (3, 'm3'),
+    (4, 'm4'),
+    (5, 'm5'),
+    (6, 'm6'),
+    (7, 'm7'),
+    (8, 'm8'),
+    (9, 'm9');
+
+INSERT INTO lake_pk_multi VALUES
+    (5, 'm5-lake');
+
+-- ---------------------------------------------------------------------------
+-- lake_pk_part: partitioned primary-key table tiered into paimon. The tail is
+-- written into one partition only and a third partition is created after
+-- tiering has stopped, so one query reads all three ways a partition can stand
+-- with respect to the lake: 20260101 is lake plus tail, 20260102 is lake alone,
+-- and 20260103 exists in fluss only -- the lake has never heard of it, so its
+-- buckets have to be read whole from fluss inside the very same scan.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_pk_part (
+    id INT NOT NULL,
+    name STRING,
+    dt STRING NOT NULL,
+    PRIMARY KEY (id, dt) NOT ENFORCED
+) PARTITIONED BY (dt)
+WITH (
+    'bucket.num' = '2',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_pk_part VALUES
+    (1, 'pp1a', '20260101'),
+    (2, 'pp1b', '20260101'),
+    (3, 'pp2a', '20260102'),
+    (4, 'pp2b', '20260102');
+
+-- ---------------------------------------------------------------------------
+-- lake_pk_cold: a primary-key lake table with nothing left in the log. It gets
+-- no tail at all, so planning must wrap no lake split and emit no tail range:
+-- the merge has to cost nothing when there is nothing to merge, and a reader
+-- that always builds a suppression set would still return the right rows here
+-- while doing the work -- only the plan shows the difference.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_pk_cold (
+    id INT NOT NULL,
+    name STRING,
+    PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+    'bucket.num' = '2',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_pk_cold VALUES
+    (1, 'c1'),
+    (2, 'c2'),
+    (3, 'c3');
+
+-- No deletion-vector fixture, and the reason is worth recording where the next
+-- person to want one will look. Fluss does forward a 'paimon.*' table property
+-- into the paimon table it creates, so a table declared with
+-- 'paimon.deletion-vectors.enabled' = 'true' really is created with deletion
+-- vectors on -- that much was verified against this environment. What the
+-- tiering service then writes into it is data files and no index: no deletion
+-- vector is ever produced, and paimon's own reader answers COUNT(*) with 0 on a
+-- table whose files are sitting right there. A fixture that reads as empty
+-- proves nothing, so deletion vectors under the merge stay covered by the BE
+-- unit tests until the tiering side writes them.
