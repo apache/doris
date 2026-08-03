@@ -193,6 +193,15 @@ public class BrokerUtilTest {
     }
 
     @Test
+    public void parseColumnsFromPathForLoadKeepsLegacyNullSemantics() throws Exception {
+        BrokerUtil.ParsedColumnsFromPath parsed = BrokerUtil.parseColumnsFromPathWithNullInfoForLoad(
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+
+        Assert.assertEquals(Collections.singletonList(""), parsed.getValues());
+        Assert.assertEquals(Collections.singletonList(true), parsed.getIsNull());
+    }
+
+    @Test
     public void testReadFile(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
                              @Injectable BrokerMgr brokerMgr)
             throws TException, UserException, UnsupportedEncodingException {

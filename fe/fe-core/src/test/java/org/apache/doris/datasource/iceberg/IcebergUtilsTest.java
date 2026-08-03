@@ -522,6 +522,36 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testMappedTypesAreExcludedFromPartitionMetadata() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Dt", Types.StringType.get()),
+                Types.NestedField.required(2, "uuid_col", Types.UUIDType.get()),
+                Types.NestedField.required(3, "ts_tz", Types.TimestampType.withZone()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("Dt")
+                .identity("uuid_col")
+                .identity("ts_tz")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "2026-08-03");
+        partitionData.set(1, UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+        partitionData.set(2, 0L);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(partitionSpec);
+        Mockito.when(table.specs()).thenReturn(Collections.singletonMap(partitionSpec.specId(), partitionSpec));
+
+        Assert.assertEquals(Collections.singletonList("Dt"),
+                IcebergUtils.getIdentityPartitionColumns(table, true, true));
+        Assert.assertEquals(Collections.singletonList("Dt"),
+                IcebergUtils.getCommonIdentityPartitionColumns(table, true, true));
+        Assert.assertEquals(Collections.singletonMap("Dt", "2026-08-03"),
+                IcebergUtils.getIdentityPartitionInfoMap(
+                        partitionData, partitionSpec, table, "Asia/Shanghai", true, true));
+    }
+
+    @Test
     public void testGetIdentityPartitionInfoMapSupportsFloatingPointPartitions() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "float_partition", Types.FloatType.get()),

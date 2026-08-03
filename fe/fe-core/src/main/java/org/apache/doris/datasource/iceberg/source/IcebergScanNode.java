@@ -157,6 +157,10 @@ public class IcebergScanNode extends FileQueryScanNode {
     // Used to avoid repeatedly calculating partition info map for the same
     // partition data and spec.
     private Map<Pair<Integer, PartitionData>, Map<String, String>> partitionMapInfos;
+    private List<String> orderedPathPartitionKeys;
+    private List<String> orderedPartitionMetadataKeys;
+    private boolean enableMappingVarbinaryForPartitionMetadata;
+    private boolean enableMappingTimestampTzForPartitionMetadata;
     private boolean isPartitionedTable;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
@@ -253,6 +257,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             icebergTable = source.getIcebergTable();
             icebergTable = useFrozenTableGeneration(icebergTable);
             partitionMapInfos = new HashMap<>();
+            initializePartitionMetadata();
             isPartitionedTable = icebergTable.spec().isPartitioned();
             // Metadata tables (system tables) are not BaseTable instances, so we need to handle this case
             if (icebergTable instanceof BaseTable) {
@@ -416,20 +421,39 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private List<String> getOrderedPathPartitionKeys() {
-        if (isSystemTable || icebergTable == null) {
-            return Collections.emptyList();
+        if (orderedPathPartitionKeys == null) {
+            initializePartitionMetadata();
         }
-        return IcebergUtils.getCommonIdentityPartitionColumns(icebergTable);
+        return orderedPathPartitionKeys;
     }
 
     private List<String> getOrderedPartitionMetadataKeys() {
+        if (orderedPartitionMetadataKeys == null) {
+            initializePartitionMetadata();
+        }
+        return orderedPartitionMetadataKeys;
+    }
+
+    private void initializePartitionMetadata() {
         if (isSystemTable || icebergTable == null) {
-            return Collections.emptyList();
+            orderedPathPartitionKeys = Collections.emptyList();
+            orderedPartitionMetadataKeys = Collections.emptyList();
+            return;
         }
+        enableMappingVarbinaryForPartitionMetadata = getEnableMappingVarbinary();
+        enableMappingTimestampTzForPartitionMetadata = getEnableMappingTimestampTz();
+        orderedPathPartitionKeys = Collections.unmodifiableList(
+                IcebergUtils.getCommonIdentityPartitionColumns(icebergTable,
+                        enableMappingVarbinaryForPartitionMetadata,
+                        enableMappingTimestampTzForPartitionMetadata));
         if (sessionVariable.enableFileScannerV2) {
-            return IcebergUtils.getIdentityPartitionColumns(icebergTable);
+            orderedPartitionMetadataKeys = Collections.unmodifiableList(
+                    IcebergUtils.getIdentityPartitionColumns(icebergTable,
+                            enableMappingVarbinaryForPartitionMetadata,
+                            enableMappingTimestampTzForPartitionMetadata));
+        } else {
+            orderedPartitionMetadataKeys = orderedPathPartitionKeys;
         }
-        return getOrderedPathPartitionKeys();
     }
 
     @VisibleForTesting
@@ -1121,7 +1145,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                         partitionData, partitionSpec, sessionVariable.getTimeZone()));
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         Pair.of(specId, partitionData), k -> IcebergUtils.getIdentityPartitionInfoMap(
-                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone()));
+                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone(),
+                                enableMappingVarbinaryForPartitionMetadata,
+                                enableMappingTimestampTzForPartitionMetadata));
                 // A spec may mix identity and transformed fields. Keep its identity values so a
                 // runtime filter can prune that split without treating source columns as constants
                 // for files written under another evolved spec.

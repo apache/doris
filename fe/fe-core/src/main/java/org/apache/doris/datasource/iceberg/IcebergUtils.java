@@ -800,10 +800,20 @@ public class IcebergUtils {
     }
 
     public static List<String> getIdentityPartitionColumns(Table table) {
+        return getIdentityPartitionColumns(table, false, false);
+    }
+
+    public static List<String> getIdentityPartitionColumns(Table table,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
         for (PartitionSpec spec : table.specs().values()) {
             for (PartitionField partitionField : spec.fields()) {
                 if (!partitionField.transform().isIdentity()) {
+                    continue;
+                }
+                NestedField sourceField = table.schema().findField(partitionField.sourceId());
+                if (sourceField == null || !isSupportedPartitionValueType(
+                        sourceField.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
                     continue;
                 }
                 String columnName = table.schema().findColumnName(partitionField.sourceId());
@@ -821,11 +831,17 @@ public class IcebergUtils {
      * so only common identity partition columns can be used for partition pruning.
      */
     public static List<String> getCommonIdentityPartitionColumns(Table table) {
+        return getCommonIdentityPartitionColumns(table, false, false);
+    }
+
+    public static List<String> getCommonIdentityPartitionColumns(Table table,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         LinkedHashSet<Integer> commonSourceIds = new LinkedHashSet<>();
         for (PartitionField field : table.spec().fields()) {
             NestedField sourceField = table.schema().findField(field.sourceId());
             if (field.transform().isIdentity() && sourceField != null
-                    && isSupportedPartitionValueType(sourceField.type().typeId())) {
+                    && isSupportedPartitionValueType(
+                            sourceField.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
                 commonSourceIds.add(field.sourceId());
             }
         }
@@ -844,6 +860,12 @@ public class IcebergUtils {
 
     public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
             PartitionSpec partitionSpec, Table table, String timeZone) {
+        return getIdentityPartitionInfoMap(partitionData, partitionSpec, table, timeZone, false, false);
+    }
+
+    public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
+            PartitionSpec partitionSpec, Table table, String timeZone,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         List<PartitionField> partitionFields = partitionSpec.fields();
@@ -856,7 +878,8 @@ public class IcebergUtils {
             if (!partitionField.transform().isIdentity()) {
                 continue;
             }
-            if (!isSupportedPartitionValueType(field.type().typeId())) {
+            if (!isSupportedPartitionValueType(
+                    field.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
                 continue;
             }
 
@@ -875,8 +898,17 @@ public class IcebergUtils {
         return partitionInfoMap;
     }
 
-    private static boolean isSupportedPartitionValueType(TypeID typeId) {
-        return typeId != TypeID.BINARY && typeId != TypeID.FIXED;
+    private static boolean isSupportedPartitionValueType(org.apache.iceberg.types.Type type,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        TypeID typeId = type.typeId();
+        if (typeId == TypeID.BINARY || typeId == TypeID.FIXED) {
+            return false;
+        }
+        if (enableMappingVarbinary && typeId == TypeID.UUID) {
+            return false;
+        }
+        return !enableMappingTimestampTz || typeId != TypeID.TIMESTAMP
+                || !((TimestampType) type).shouldAdjustToUTC();
     }
 
     public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,

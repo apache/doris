@@ -24,6 +24,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
@@ -233,6 +234,25 @@ public class BrokerUtil {
         }
         return new ParsedColumnsFromPath(
                 Lists.newArrayList(columns), Lists.newArrayList(columnsFromPathIsNull));
+    }
+
+    public static ParsedColumnsFromPath parseColumnsFromPathWithNullInfoForLoad(
+            String filePath,
+            List<String> columnsFromPath,
+            boolean caseSensitive,
+            boolean isACID)
+            throws UserException {
+        ParsedColumnsFromPath parsed = parseColumnsFromPathWithNullInfo(
+                filePath, columnsFromPath, caseSensitive, isACID);
+        List<String> values = new ArrayList<>(parsed.getValues());
+        List<Boolean> isNull = new ArrayList<>(parsed.getIsNull());
+        for (int i = 0; i < values.size(); i++) {
+            if (FeConstants.null_string.equals(values.get(i))) {
+                values.set(i, "");
+                isNull.set(i, true);
+            }
+        }
+        return new ParsedColumnsFromPath(values, isNull);
     }
 
     public static ParsedColumnsFromPath normalizeColumnsFromPath(List<String> columnsFromPath) {
