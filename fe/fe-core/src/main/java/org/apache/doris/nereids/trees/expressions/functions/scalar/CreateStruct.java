@@ -60,9 +60,9 @@ public class CreateStruct extends ScalarFunction
         if (arity() == 0) {
             throw new AnalysisException("struct requires at least one argument, like: struct(1)");
         }
-        children.forEach(child -> {
-            if (child.getDataType().isJsonType()
-                    || VariantType.isLegacyVariant(child.getDataType())) {
+        getArguments().forEach(argument -> {
+            if (argument.getDataType().isJsonType()
+                    || VariantType.isLegacyVariant(argument.getDataType())) {
                 throw new AnalysisException("struct does not support jsonb/variant type");
             }
         });

@@ -440,15 +440,14 @@ TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructPreservesEncodedAndTypedBytes
 
 TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructLeavesPrimitiveCompatibilityToConsumer) {
     DataTypeVariantV2SerDe serde;
-    auto time = ColumnTimeV2::create();
-    time->insert_value(1500000.0);
-    const std::array<uint8_t, 1> not_null {0};
-    auto typed_time = ColumnVariantV2::create_typed(nullable(std::move(time), not_null),
-                                                    std::make_shared<DataTypeTimeV2>(6));
-    ColumnPtr encoded = encoded_copy(*typed_time);
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
+    auto row = builder.begin_row();
+    row.add_time_ntz_micros(1'500'000);
+    row.finish();
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_encoded_batch(builder.finish_batch());
     // The Arrow layer is transport-only. Paimon compatibility is checked by its SDK after IPC.
-    expect_binary_variant_bytes(serde, *typed_time, assert_cast<const ColumnVariantV2&>(*encoded));
-    EXPECT_TRUE(typed_time->is_typed());
+    expect_binary_variant_bytes(serde, *encoded, *encoded);
 }
 
 } // namespace doris

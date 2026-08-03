@@ -87,7 +87,7 @@ public class CreateMap extends ScalarFunction
             throw new AnalysisException("map can't be odd parameters, need even parameters " + this.toSql());
         }
         for (int i = 0; i < arity(); i++) {
-            DataType childType = child(i).getDataType();
+            DataType childType = getArgument(i).getDataType();
             boolean isKey = i % 2 == 0;
             if (childType.isJsonType()
                     || (isKey && childType.isVariantType())

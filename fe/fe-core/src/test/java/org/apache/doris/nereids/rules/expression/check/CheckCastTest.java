@@ -73,6 +73,29 @@ public class CheckCastTest {
     }
 
     @Test
+    public void testComputeVariantV2CastSourcesMatchExecutionKernel() {
+        VariantType target = VariantType.COMPUTE_V2_INSTANCE;
+        Assertions.assertTrue(CheckCast.check(IntegerType.INSTANCE, target, true));
+        Assertions.assertTrue(CheckCast.check(JsonType.INSTANCE, target, true));
+        Assertions.assertTrue(CheckCast.check(ArrayType.of(IntegerType.INSTANCE), target, true));
+        Assertions.assertTrue(CheckCast.check(DecimalV3Type.SYSTEM_DEFAULT, target, true));
+
+        Assertions.assertFalse(CheckCast.check(VariantType.INSTANCE, target, true));
+        Assertions.assertFalse(CheckCast.check(TimeV2Type.MAX, target, true));
+        Assertions.assertFalse(CheckCast.check(
+                DecimalV3Type.createDecimalV3TypeNoCheck(39, 0), target, true));
+        Assertions.assertFalse(CheckCast.check(
+                MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), target, true));
+        Assertions.assertFalse(CheckCast.check(
+                new StructType(Lists.newArrayList(
+                        new StructField("field", IntegerType.INSTANCE, true, ""))),
+                target, true));
+        Assertions.assertFalse(CheckCast.check(
+                ArrayType.of(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE)),
+                target, true));
+    }
+
+    @Test
     public void testCastFromBoolean() {
         // Strict mode
         Assertions.assertTrue(CheckCast.check(BooleanType.INSTANCE, BooleanType.INSTANCE, true));

@@ -97,6 +97,24 @@ suite("test_paimon_write_variant", "p0,external,paimon") {
                      parse_to_variant('{"batch":"large-string"}'))
         """
 
+        // Every VALUES row must reach Variant coercion before the inline table chooses a common
+        // type. In particular, the integer in the first row must not become the string "1".
+        sql """
+            INSERT INTO t_variant_basic VALUES
+                (20, 1, 'row-one'),
+                (21, 'row-two', 2)
+        """
+        def heterogeneousRows = spark_paimon """
+            SELECT id, schema_of_variant(payload), schema_of_variant(secondary)
+            FROM paimon.${dbName}.t_variant_basic
+            WHERE id IN (20, 21)
+            ORDER BY id
+        """
+        assertEquals(["20", "BIGINT", "STRING"],
+                heterogeneousRows[0].collect { value -> value.toString() })
+        assertEquals(["21", "STRING", "BIGINT"],
+                heterogeneousRows[1].collect { value -> value.toString() })
+
         def objectRows = spark_paimon """
             SELECT
                 variant_get(payload, '${root}.object.name', 'string'),
@@ -155,7 +173,7 @@ suite("test_paimon_write_variant", "p0,external,paimon") {
         def rowCount = spark_paimon """
             SELECT COUNT(*) FROM paimon.${dbName}.t_variant_basic
         """
-        assertEquals("13", rowCount[0][0].toString())
+        assertEquals("15", rowCount[0][0].toString())
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }

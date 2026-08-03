@@ -22,6 +22,10 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VariantType;
 
 import org.apache.paimon.table.FileStoreTable;
@@ -89,6 +93,55 @@ public class PaimonVariantWriteAnalyzerTest {
                 DataTypes.FIELD(0, "payload", DataTypes.STRING()));
 
         validate(target, org.apache.doris.nereids.types.StringType.INSTANCE, false);
+    }
+
+    @Test
+    public void testOmittedVariantColumnDoesNotRequireVariantV2() throws Exception {
+        PaimonWriteTarget target = createTarget(
+                DataTypes.FIELD(0, "id", DataTypes.INT()),
+                DataTypes.FIELD(1, "payload", DataTypes.VARIANT()));
+        Column id = target.getColumn("id");
+
+        PaimonVariantWriteAnalyzer.validate(
+                target,
+                Collections.singletonList(id),
+                outputs("id", IntegerType.INSTANCE),
+                false);
+    }
+
+    @Test
+    public void testLegacyVariantNestedInShapeChangingSourceIsRejected() throws Exception {
+        PaimonWriteTarget scalarTarget = createTarget(
+                DataTypes.FIELD(0, "payload", DataTypes.VARIANT()));
+        AnalysisException arraySourceException = Assert.assertThrows(
+                AnalysisException.class,
+                () -> validate(
+                        scalarTarget, ArrayType.of(VariantType.INSTANCE), true));
+        Assert.assertTrue(arraySourceException.getMessage().contains("payload[]"));
+
+        PaimonWriteTarget arrayTarget = createTarget(
+                DataTypes.FIELD(0, "payload", DataTypes.ARRAY(DataTypes.VARIANT())));
+        AnalysisException scalarSourceException = Assert.assertThrows(
+                AnalysisException.class,
+                () -> validate(arrayTarget, VariantType.INSTANCE, true));
+        Assert.assertTrue(scalarSourceException.getMessage().contains("payload"));
+    }
+
+    @Test
+    public void testUnsupportedComputeV2SourcesAreRejectedDuringAnalysis() throws Exception {
+        PaimonWriteTarget target = createTarget(
+                DataTypes.FIELD(0, "payload", DataTypes.VARIANT()));
+
+        AnalysisException mapException = Assert.assertThrows(
+                AnalysisException.class,
+                () -> validate(
+                        target, MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), true));
+        Assert.assertTrue(mapException.getMessage().contains("MAP"));
+
+        AnalysisException timeException = Assert.assertThrows(
+                AnalysisException.class,
+                () -> validate(target, TimeV2Type.MAX, true));
+        Assert.assertTrue(timeException.getMessage().contains("TIME"));
     }
 
     private static void validate(

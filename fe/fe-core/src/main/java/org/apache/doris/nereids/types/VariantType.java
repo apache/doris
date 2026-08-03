@@ -342,6 +342,37 @@ public class VariantType extends PrimitiveType {
     }
 
     /**
+     * Whether the Variant V2 execution kernel can convert this source type.
+     *
+     * <p>This mirrors the BE {@code execute_to_variant} contract: encoded JSON, nested arrays,
+     * compute V2 values, and the scalar types supported by the typed Variant representation.
+     * MAP, STRUCT, TIMEV2 and DECIMAL256 are intentionally excluded until their BE conversions
+     * are implemented.</p>
+     */
+    public static boolean isSupportedComputeV2CastSource(DataType dataType) {
+        if (dataType.isNullType() || dataType.isJsonType()) {
+            return true;
+        }
+        if (dataType instanceof VariantType) {
+            return ((VariantType) dataType).isComputeV2();
+        }
+        if (dataType instanceof ArrayType) {
+            return isSupportedComputeV2CastSource(((ArrayType) dataType).getItemType());
+        }
+        if (dataType instanceof DecimalV3Type) {
+            return ((DecimalV3Type) dataType).getPrecision()
+                    <= DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        }
+        return dataType.isBooleanType()
+                || dataType.isIntegralType()
+                || dataType.isFloatLikeType()
+                || dataType.isDecimalV2Type()
+                || dataType.isDateLikeType()
+                || dataType.isStringLikeType()
+                || dataType.isIPType();
+    }
+
+    /**
      * Whether two types have the same execution layout.
      *
      * <p>Variant V2 layout properties describe storage/materialization behavior, but every

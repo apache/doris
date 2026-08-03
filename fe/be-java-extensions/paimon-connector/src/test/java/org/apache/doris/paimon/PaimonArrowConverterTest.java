@@ -155,7 +155,7 @@ public class PaimonArrowConverterTest {
         byte[] unsupportedValue = array.value().clone();
         int primitiveHeaderOffset = unsupportedValue.length - 2;
         // The final array element is INT1 (id 3). Replace it with TIME_NTZ_MICROS (id 17),
-        // which Doris V2 can encode but Paimon 1.3.1 does not recognize.
+        // which Doris V2 can encode but Paimon 1.4.2 does not recognize.
         Assertions.assertEquals(3 << 2, unsupportedValue[primitiveHeaderOffset] & 0xff);
         unsupportedValue[primitiveHeaderOffset] = (byte) (17 << 2);
 

@@ -37,14 +37,16 @@ public final class PaimonVariantWriteAnalyzer {
     }
 
     /**
-     * Rejects a disabled V2 protocol and legacy Variant inputs before sink coercion.
+     * Rejects a disabled V2 protocol and unsupported Variant V2 conversions before sink coercion.
      */
     public static void validate(
             PaimonWriteTarget writeTarget,
             List<Column> writeColumns,
             Map<String, NamedExpression> columnToOutput,
             boolean enableVariantV2) throws AnalysisException {
-        boolean targetContainsVariant = writeTarget.getColumnTypes().values().stream()
+        boolean targetContainsVariant = writeColumns.stream()
+                .map(column -> writeTarget.getColumnTypes().get(column.getName()))
+                .filter(type -> type != null)
                 .map(DataType::fromCatalogType)
                 .anyMatch(VariantType::containsVariant);
         if (!targetContainsVariant) {
@@ -62,26 +64,21 @@ public final class PaimonVariantWriteAnalyzer {
             if (output == null || targetCatalogType == null) {
                 continue;
             }
-            rejectLegacyVariant(
+            validateVariantConversion(
                     output.getDataType(),
                     DataType.fromCatalogType(targetCatalogType),
                     column.getName());
         }
     }
 
-    private static void rejectLegacyVariant(
+    private static void validateVariantConversion(
             DataType sourceType, DataType targetType, String path) throws AnalysisException {
         if (targetType instanceof VariantType) {
-            if (sourceType instanceof VariantType
-                    && !((VariantType) sourceType).isComputeV2()) {
-                throw new AnalysisException(
-                        "Paimon VARIANT write only supports Variant V2, but input column '"
-                                + path + "' is Variant V1");
-            }
+            validateVariantSource(sourceType, path);
             return;
         }
         if (sourceType instanceof ArrayType && targetType instanceof ArrayType) {
-            rejectLegacyVariant(
+            validateVariantConversion(
                     ((ArrayType) sourceType).getItemType(),
                     ((ArrayType) targetType).getItemType(),
                     path + "[]");
@@ -90,8 +87,10 @@ public final class PaimonVariantWriteAnalyzer {
         if (sourceType instanceof MapType && targetType instanceof MapType) {
             MapType sourceMap = (MapType) sourceType;
             MapType targetMap = (MapType) targetType;
-            rejectLegacyVariant(sourceMap.getKeyType(), targetMap.getKeyType(), path + ".key");
-            rejectLegacyVariant(sourceMap.getValueType(), targetMap.getValueType(), path + ".value");
+            validateVariantConversion(
+                    sourceMap.getKeyType(), targetMap.getKeyType(), path + ".key");
+            validateVariantConversion(
+                    sourceMap.getValueType(), targetMap.getValueType(), path + ".value");
             return;
         }
         if (sourceType instanceof StructType && targetType instanceof StructType) {
@@ -99,11 +98,36 @@ public final class PaimonVariantWriteAnalyzer {
             List<StructField> targetFields = ((StructType) targetType).getFields();
             int fieldCount = Math.min(sourceFields.size(), targetFields.size());
             for (int i = 0; i < fieldCount; i++) {
-                rejectLegacyVariant(
+                validateVariantConversion(
                         sourceFields.get(i).getDataType(),
                         targetFields.get(i).getDataType(),
                         path + "." + targetFields.get(i).getName());
             }
+            return;
+        }
+
+        // A shape-changing cast can bypass the matching container branches above. Validate its
+        // complete source against the leaf conversion contract before sink coercion adds a cast.
+        if (VariantType.containsVariant(targetType)) {
+            validateVariantSource(sourceType, path);
+        }
+    }
+
+    private static void validateVariantSource(
+            DataType sourceType, String path) throws AnalysisException {
+        if (VariantType.isLegacyVariant(sourceType)) {
+            throw new AnalysisException(
+                    "Paimon VARIANT write only supports Variant V2, but input column '"
+                            + path + "' is Variant V1");
+        }
+        if (sourceType instanceof ArrayType) {
+            validateVariantSource(((ArrayType) sourceType).getItemType(), path + "[]");
+            return;
+        }
+        if (!VariantType.isSupportedComputeV2CastSource(sourceType)) {
+            throw new AnalysisException(
+                    "Paimon VARIANT write cannot convert input column '" + path
+                            + "' from " + sourceType.toSql() + " to Variant V2");
         }
     }
 }

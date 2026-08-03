@@ -49,6 +49,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
@@ -408,6 +409,9 @@ public class InsertUtils {
         }
 
         ConnectContext context = ConnectContext.get();
+        boolean enableVariantV2 = context != null
+                && context.getSessionVariable().isEnableVariantV2();
+        boolean isPaimonSink = unboundLogicalSink instanceof UnboundPaimonTableSink;
         ExpressionRewriteContext rewriteContext = null;
         if (context != null && context.getStatementContext() != null) {
             rewriteContext = new ExpressionRewriteContext(
@@ -461,7 +465,8 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = targetTypeForInlineValue(sameNameColumn);
+                            DataType targetType = targetTypeForInlineValue(
+                                    sameNameColumn, values.get(i), isPaimonSink, enableVariantV2);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
                                     targetType, rewriteContext, strictCast);
                         }
@@ -482,7 +487,8 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = targetTypeForInlineValue(columns.get(i));
+                            DataType targetType = targetTypeForInlineValue(
+                                    columns.get(i), values.get(i), isPaimonSink, enableVariantV2);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
                                     rewriteContext, strictCast);
                         }
@@ -494,13 +500,34 @@ public class InsertUtils {
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
     }
 
-    private static DataType targetTypeForInlineValue(Column column) {
+    static DataType targetTypeForInlineValue(
+            Column column, NamedExpression value, boolean isPaimonSink, boolean enableVariantV2) {
         DataType targetType = DataType.fromCatalogType(column.getType());
-        if (VariantType.containsVariant(targetType)) {
-            // A table column describes its storage representation, while Variant V1/V2 and
-            // nested expression layouts are resolved during analysis. BindSink has both the
-            // analyzed expression and final sink schema, so it is the correct coercion boundary.
-            return null;
+        if (isPaimonSink && VariantType.containsVariant(targetType)) {
+            // Defer all Paimon Variant coercion to BindSink. This preserves the source shape so
+            // PaimonVariantWriteAnalyzer can reject V1 (including nested V1) before the generic
+            // inline-table coercion reports an unrelated Variant layout cast failure.
+            if (!enableVariantV2) {
+                return null;
+            }
+            Expression source = value instanceof Alias || value instanceof UnboundAlias
+                    ? value.child(0) : value;
+            try {
+                if (VariantType.containsVariant(source.getDataType())) {
+                    // Keep Variant-shaped expressions intact until session-aware analysis. At
+                    // this point parse_to_variant and explicit CAST may still expose their legacy
+                    // signature; wrapping them in compute V2 would either reject a valid V2 value
+                    // prematurely or hide an actual V1 source from the Paimon analyzer.
+                    return null;
+                }
+            } catch (UnboundException ignored) {
+                // The normal expression analysis pass will determine and validate this source.
+            }
+            // Cast non-Variant VALUES before LogicalInlineTable chooses a common column type.
+            // Otherwise heterogeneous inputs such as (1), ('x') are first unified as STRING,
+            // irreversibly changing the integer into a Variant string. Complex targets recurse
+            // so nested Variant leaves receive the same compute-V2 steering.
+            return VariantType.toComputeV2(targetType);
         }
         return targetType;
     }

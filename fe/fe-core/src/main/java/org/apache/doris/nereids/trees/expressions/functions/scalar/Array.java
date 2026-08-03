@@ -67,11 +67,11 @@ public class Array extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (children.isEmpty()) {
+        if (arity() == 0) {
             return;
         }
-        for (Expression child : children) {
-            DataType childType = child.getDataType();
+        for (Expression argument : getArguments()) {
+            DataType childType = argument.getDataType();
             if (childType.isJsonType() || VariantType.isLegacyVariant(childType)) {
                 throw new AnalysisException("array does not support jsonb/variant type");
             }
