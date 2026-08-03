@@ -40,6 +40,7 @@
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
+#include "exec/common/endian.h"
 #include "exprs/function/cast/cast_to_decimal.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "orc/Int128.hh"
@@ -72,6 +73,15 @@ NativeType decode_big_endian_signed_integer(const uint8_t* data, int length) {
         }
         return static_cast<NativeType>(value);
     }
+}
+
+template <typename NativeType>
+NativeType decode_big_endian_full_width_integer(const uint8_t* data) {
+    using UnsignedNativeType =
+            std::conditional_t<std::is_same_v<NativeType, Int128>, unsigned __int128,
+                               std::make_unsigned_t<NativeType>>;
+    return static_cast<NativeType>(
+            to_endian<std::endian::big>(unaligned_load<UnsignedNativeType>(data)));
 }
 
 template <PrimitiveType T>
@@ -288,6 +298,19 @@ public:
                                         static_cast<int>(_context.physical_type));
         }
         DORIS_CHECK_EQ(value_width, static_cast<size_t>(_context.type_length));
+        if (_context.decimal_scale == _target_scale) {
+            // Same-scale values may use a narrow signed type selected by physical width, but
+            // target-precision validation must still happen before narrowing the result.
+            if (value_width <= sizeof(int32_t)) {
+                return append_same_scale_fixed_binary<int32_t>(values, num_values, value_width);
+            }
+            if (value_width <= sizeof(int64_t)) {
+                return append_same_scale_fixed_binary<int64_t>(values, num_values, value_width);
+            }
+            if (value_width <= sizeof(Int128)) {
+                return append_same_scale_fixed_binary<Int128>(values, num_values, value_width);
+            }
+        }
         const size_t old_size = _data.size();
         _data.resize(old_size + num_values);
         for (size_t row = 0; row < num_values; ++row) {
@@ -346,6 +369,58 @@ public:
     }
 
 private:
+    template <typename SourceType>
+    Status append_same_scale_fixed_binary(const uint8_t* values, size_t num_values,
+                                          size_t value_width) {
+        if (value_width == sizeof(SourceType)) {
+            return append_same_scale_fixed_binary_impl<SourceType, true>(values, num_values,
+                                                                         value_width);
+        }
+        return append_same_scale_fixed_binary_impl<SourceType, false>(values, num_values,
+                                                                      value_width);
+    }
+
+    template <typename SourceType, bool full_width>
+    Status append_same_scale_fixed_binary_impl(const uint8_t* values, size_t num_values,
+                                               size_t value_width) {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        const auto wide_limit = parquet_decimal_limit<T>(_target_precision);
+        const auto source_max = wide::Int256(std::numeric_limits<SourceType>::max());
+        const auto fixed_width = cast_set<int>(value_width);
+        const auto decode = [&](const uint8_t* value) {
+            if constexpr (full_width) {
+                return decode_big_endian_full_width_integer<SourceType>(value);
+            }
+            return decode_big_endian_signed_integer<SourceType>(value, fixed_width);
+        };
+        // A limit above signed max also covers the asymmetric minimum (-max - 1), so the whole
+        // source domain is safe to narrow without a per-row precision branch.
+        if (wide_limit > source_max) {
+            for (size_t row = 0; row < num_values; ++row) {
+                const auto source_value = decode(values + row * value_width);
+                _data[old_size + row] = FieldType {static_cast<NativeType>(source_value)};
+            }
+            return Status::OK();
+        }
+
+        const auto limit = static_cast<SourceType>(wide_limit);
+        for (size_t row = 0; row < num_values; ++row) {
+            const auto source_value = decode(values + row * value_width);
+            if (LIKELY(source_value >= -limit && source_value <= limit)) {
+                _data[old_size + row] = FieldType {static_cast<NativeType>(source_value)};
+                continue;
+            }
+            if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                _data[old_size + row] = FieldType();
+                continue;
+            }
+            _data.resize(old_size);
+            return Status::DataQualityError("Parquet decimal value is out of range");
+        }
+        return Status::OK();
+    }
+
     template <typename SourceType>
     Status append_integers(const uint8_t* values, size_t num_values) {
         const size_t old_size = _data.size();
