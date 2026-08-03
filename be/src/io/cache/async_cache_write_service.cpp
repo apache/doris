@@ -17,7 +17,6 @@
 
 #include "io/cache/async_cache_write_service.h"
 
-#include <algorithm>
 #include <exception>
 #include <limits>
 #include <optional>
@@ -30,6 +29,7 @@
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "runtime/thread_context.h"
+#include "util/countdown_latch.h"
 #include "util/defer_op.h"
 #include "util/time.h"
 
@@ -86,6 +86,57 @@ private:
 
 } // namespace
 
+class AsyncCacheWriteService::Worker : public std::enable_shared_from_this<Worker> {
+public:
+    explicit Worker(AsyncCacheWriteService& service) : _service(service) {}
+
+    Status start() {
+        auto self = shared_from_this();
+        return _service._worker_pool->submit_func([self = std::move(self)]() { self->_run(); });
+    }
+
+    void request_stop() { _stop_requested.store(true, std::memory_order_release); }
+
+    void wait_until_stopped() { _stopped.wait(); }
+
+private:
+    void _run() {
+        _service._running_worker_count.fetch_add(1, std::memory_order_relaxed);
+        Defer mark_finished {[this]() {
+            const size_t old_running =
+                    _service._running_worker_count.fetch_sub(1, std::memory_order_relaxed);
+            DCHECK_GT(old_running, 0);
+            _stopped.count_down();
+        }};
+
+        while (!_stop_requested.load(std::memory_order_acquire)) {
+            AsyncCacheWriteTask task;
+            if (_service._try_take_task(&task)) {
+                _service._process_task(std::move(task));
+                continue;
+            }
+
+            if (_service._shutdown_requested.load(std::memory_order_acquire) &&
+                _service._pending_count.load(std::memory_order_acquire) == 0) {
+                return;
+            }
+            std::unique_lock lock(_service._queue_mutex);
+            _service._queue_cv.wait(lock, [this]() {
+                const bool shutdown_requested =
+                        _service._shutdown_requested.load(std::memory_order_acquire);
+                return !_service._queue.empty() ||
+                       _stop_requested.load(std::memory_order_acquire) ||
+                       (shutdown_requested &&
+                        _service._pending_count.load(std::memory_order_relaxed) == 0);
+            });
+        }
+    }
+
+    AsyncCacheWriteService& _service;
+    std::atomic<bool> _stop_requested {false};
+    CountDownLatch _stopped {1};
+};
+
 AsyncCacheWriteBuffer::AsyncCacheWriteBuffer(size_t size,
                                              std::shared_ptr<MemTrackerLimiter> tracker)
         : _size(size), _tracker(std::move(tracker)) {
@@ -103,7 +154,7 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
                                                AsyncCacheWriteServiceOptions options)
         : _cache(cache),
           _options(std::make_shared<const AsyncCacheWriteServiceOptions>(options)),
-          _desired_worker_count(options.worker_count) {
+          _configured_worker_count(options.worker_count) {
     DORIS_CHECK(_cache != nullptr);
     DORIS_CHECK(options.worker_count > 0);
     DORIS_CHECK(options.max_pending_bytes > 0);
@@ -157,7 +208,7 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
     _configured_worker_count_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
             prefix, "async_cache_write_configured_workers",
             [](void* service) {
-                return static_cast<AsyncCacheWriteService*>(service)->_desired_worker_count.load(
+                return static_cast<AsyncCacheWriteService*>(service)->_configured_worker_count.load(
                         std::memory_order_relaxed);
             },
             this);
@@ -274,7 +325,7 @@ Status AsyncCacheWriteService::start() {
         return Status::OK();
     }
 
-    const size_t worker_count = _desired_worker_count.load(std::memory_order_acquire);
+    const size_t worker_count = _configured_worker_count.load(std::memory_order_acquire);
     if (_worker_pool == nullptr) {
         RETURN_IF_ERROR(
                 ThreadPoolBuilder(fmt::format("AsyncFileCacheWrite-{}",
@@ -283,27 +334,10 @@ Status AsyncCacheWriteService::start() {
                         .set_max_threads(static_cast<int>(worker_count))
                         .set_max_queue_size(128)
                         .build(&_worker_pool));
-    } else {
-        // A previous start may have created only part of the requested workers before returning an
-        // error. Reuse that pool and apply the latest desired size before filling the missing ids.
-        RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
     }
-    {
-        std::lock_guard state_lock(_worker_state_mutex);
-        if (_worker_scheduled.size() < worker_count) {
-            _worker_scheduled.resize(worker_count, false);
-        }
-    }
-    for (size_t worker_id = 0; worker_id < worker_count; ++worker_id) {
-        bool scheduled = false;
-        {
-            std::lock_guard state_lock(_worker_state_mutex);
-            scheduled = _worker_scheduled[worker_id];
-        }
-        if (!scheduled) {
-            RETURN_IF_ERROR(_schedule_worker(worker_id));
-        }
-    }
+    // A failed earlier start may have left a partial worker set. Reconcile the owned workers with
+    // the latest configured count before publishing readiness.
+    RETURN_IF_ERROR(_resize_workers_locked(worker_count));
     // Publish readiness only after every configured worker loop has been accepted by the pool.
     _started.store(true, std::memory_order_release);
     return Status::OK();
@@ -401,75 +435,23 @@ Status AsyncCacheWriteService::allocate_tracked_buffer(size_t size,
     return status;
 }
 
-Status AsyncCacheWriteService::_schedule_worker(size_t worker_id) {
-    {
-        std::lock_guard lock(_worker_state_mutex);
-        if (_worker_scheduled.size() <= worker_id) {
-            _worker_scheduled.resize(worker_id + 1, false);
-        }
-        DORIS_CHECK(!_worker_scheduled[worker_id]);
-        _worker_scheduled[worker_id] = true;
+void AsyncCacheWriteService::_process_task(AsyncCacheWriteTask task) {
+    Defer finish {[&]() { _finish_active_task(std::move(task)); }};
+
+    const int64_t age_us = MonotonicMicros() - task.submit_ts_us;
+    *_queue_wait_latency_metric << age_us;
+    if (!is_current_write_epoch(task.write_epoch)) {
+        *_drop_stale_epoch_metric << 1;
+        return;
     }
-    Status status = _worker_pool->submit_func([this, worker_id]() { _worker_loop(worker_id); });
+
+    const int64_t start_us = MonotonicMicros();
+    Status status = _write_one(task);
+    *_worker_task_latency_metric << (MonotonicMicros() - start_us);
     if (!status.ok()) {
-        std::lock_guard lock(_worker_state_mutex);
-        _worker_scheduled[worker_id] = false;
-        _worker_state_cv.notify_all();
-    }
-    return status;
-}
-
-void AsyncCacheWriteService::_worker_loop(size_t worker_id) {
-    _running_worker_count.fetch_add(1, std::memory_order_relaxed);
-    Defer mark_stopped {[&]() {
-        const size_t old_running = _running_worker_count.fetch_sub(1, std::memory_order_relaxed);
-        DORIS_CHECK(old_running > 0);
-        std::lock_guard lock(_worker_state_mutex);
-        _worker_scheduled[worker_id] = false;
-        _worker_state_cv.notify_all();
-    }};
-
-    while (true) {
-        if (!_shutdown_requested.load(std::memory_order_acquire) &&
-            worker_id >= _desired_worker_count.load(std::memory_order_acquire)) {
-            return;
-        }
-
-        AsyncCacheWriteTask task;
-        if (_try_take_task(&task)) {
-            Defer finish {[&]() { _finish_active_task(std::move(task)); }};
-
-            const int64_t age_us = MonotonicMicros() - task.submit_ts_us;
-            *_queue_wait_latency_metric << age_us;
-            if (!is_current_write_epoch(task.write_epoch)) {
-                *_drop_stale_epoch_metric << 1;
-                continue;
-            }
-
-            const int64_t start_us = MonotonicMicros();
-            Status status = _write_one(task);
-            *_worker_task_latency_metric << (MonotonicMicros() - start_us);
-            if (!status.ok()) {
-                LOG(WARNING) << "Async file cache write failed, cache=" << _cache->get_base_path()
-                             << ", hash=" << task.cache_hash.to_string()
-                             << ", offset=" << task.file_offset << ", size=" << task.write_size
-                             << ", status=" << status;
-            }
-            continue;
-        }
-
-        if (_shutdown_requested.load(std::memory_order_acquire) &&
-            _pending_count.load(std::memory_order_acquire) == 0) {
-            return;
-        }
-        std::unique_lock lock(_queue_mutex);
-        _queue_cv.wait(lock, [&]() {
-            const bool shutdown_requested = _shutdown_requested.load(std::memory_order_acquire);
-            return !_queue.empty() ||
-                   (!shutdown_requested &&
-                    worker_id >= _desired_worker_count.load(std::memory_order_acquire)) ||
-                   (shutdown_requested && _pending_count.load(std::memory_order_relaxed) == 0);
-        });
+        LOG(WARNING) << "Async file cache write failed, cache=" << _cache->get_base_path()
+                     << ", hash=" << task.cache_hash.to_string() << ", offset=" << task.file_offset
+                     << ", size=" << task.write_size << ", status=" << status;
     }
 }
 
@@ -654,38 +636,36 @@ Status AsyncCacheWriteService::resize_workers(size_t worker_count) {
     }
     std::lock_guard resize_lock(_resize_mutex);
     if (!_started.load(std::memory_order_acquire)) {
-        _desired_worker_count.store(worker_count, std::memory_order_release);
+        _configured_worker_count.store(worker_count, std::memory_order_release);
         return Status::OK();
     }
     if (_shutdown_requested.load(std::memory_order_acquire)) {
         return Status::InternalError("async file cache write service is shutting down");
     }
+    _configured_worker_count.store(worker_count, std::memory_order_release);
+    return _resize_workers_locked(worker_count);
+}
 
-    const size_t old_count =
-            _desired_worker_count.exchange(worker_count, std::memory_order_acq_rel);
-    if (old_count == worker_count) {
-        return Status::OK();
-    }
-    _queue_cv.notify_all();
-
-    if (worker_count < old_count) {
-        std::unique_lock state_lock(_worker_state_mutex);
-        _worker_state_cv.wait(state_lock, [&]() {
-            for (size_t id = worker_count; id < old_count; ++id) {
-                if (id < _worker_scheduled.size() && _worker_scheduled[id]) {
-                    return false;
-                }
-            }
-            return true;
-        });
-        state_lock.unlock();
+Status AsyncCacheWriteService::_resize_workers_locked(size_t worker_count) {
+    DORIS_CHECK(_worker_pool != nullptr);
+    if (worker_count < _workers.size()) {
+        for (size_t index = worker_count; index < _workers.size(); ++index) {
+            _workers[index]->request_stop();
+        }
+        _queue_cv.notify_all();
+        for (size_t index = worker_count; index < _workers.size(); ++index) {
+            _workers[index]->wait_until_stopped();
+        }
+        _workers.resize(worker_count);
         RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
         return Status::OK();
     }
 
     RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
-    for (size_t worker_id = old_count; worker_id < worker_count; ++worker_id) {
-        RETURN_IF_ERROR(_schedule_worker(worker_id));
+    while (_workers.size() < worker_count) {
+        auto worker = std::make_shared<Worker>(*this);
+        RETURN_IF_ERROR(worker->start());
+        _workers.emplace_back(std::move(worker));
     }
     return Status::OK();
 }
@@ -711,7 +691,7 @@ Status AsyncCacheWriteService::update_options(const AsyncCacheWriteServiceOption
 
 AsyncCacheWriteServiceOptions AsyncCacheWriteService::options() const {
     AsyncCacheWriteServiceOptions result = *_options.load(std::memory_order_acquire);
-    result.worker_count = _desired_worker_count.load(std::memory_order_acquire);
+    result.worker_count = _configured_worker_count.load(std::memory_order_acquire);
     return result;
 }
 
@@ -741,12 +721,8 @@ void AsyncCacheWriteService::shutdown() {
     _queue_cv.notify_all();
 
     if (_worker_pool) {
-        {
-            std::unique_lock lock(_worker_state_mutex);
-            _worker_state_cv.wait(lock, [&]() {
-                return std::none_of(_worker_scheduled.begin(), _worker_scheduled.end(),
-                                    [](bool scheduled) { return scheduled; });
-            });
+        for (const auto& worker : _workers) {
+            worker->wait_until_stopped();
         }
         {
             TimedQueueLock lock(_queue_mutex, *_queue_lock_wait_latency_metric,

@@ -187,16 +187,18 @@ public:
     int64_t queue_lock_hold_p99_us() const;
 
 private:
+    class Worker;
+
     enum class TaskFinalizationReason : uint8_t {
         WORKER_FINISHED,
         EVICTED_OLDEST,
     };
 
-    /// Mark `worker_id` active and submit its persistent loop to the thread pool.
-    Status _schedule_worker(size_t worker_id);
+    /// Resize the owned worker set while `_resize_mutex` is held and `_worker_pool` exists.
+    Status _resize_workers_locked(size_t worker_count);
 
-    /// Drain tasks until shutdown or until this worker id is retired by a resize.
-    void _worker_loop(size_t worker_id);
+    /// Process one task already moved from queued to active ownership.
+    void _process_task(AsyncCacheWriteTask task);
 
     /// Move the oldest queued task to active ownership.
     bool _try_take_task(AsyncCacheWriteTask* task);
@@ -237,11 +239,10 @@ private:
 
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     std::unique_ptr<ThreadPool> _worker_pool;
-    std::atomic<size_t> _desired_worker_count {0};
+    std::atomic<size_t> _configured_worker_count {0};
     std::mutex _resize_mutex;
-    std::mutex _worker_state_mutex;
-    std::condition_variable _worker_state_cv;
-    std::vector<bool> _worker_scheduled;
+    // Protected by `_resize_mutex`. Worker lifecycle state is owned by each Worker.
+    std::vector<std::shared_ptr<Worker>> _workers;
 
     std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_bytes_metric;
