@@ -292,11 +292,29 @@ public class Memo {
      *                       is the corresponding group expression of the plan
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
+        return copyIn(plan, target, rewrite, false);
+    }
+
+    /**
+     * Add plan to Memo.
+     *
+     * @param plan {@link Plan} or {@link Expression} to be added
+     * @param target target group to add node. null to generate new Group
+     * @param rewrite whether to rewrite the node to the target group
+     * @param isInDpHyper whether this copy happens during DPHyp enumeration. During DPHyp
+     *                    the output of a group is only guaranteed to be consistent by its
+     *                    output slot set (nullability may legitimately differ across join
+     *                    orders of outer joins), so the relaxed set-only comparison is used.
+     * @return CopyInResult, in which the generateNewExpression is true if a newly generated
+     *                       groupExpression added into memo, and the correspondingExpression
+     *                       is the corresponding group expression of the plan
+     */
+    public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite, boolean isInDpHyper) {
         CopyInResult result;
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(plan, target, null, false);
+            result = doCopyIn(plan, target, null, isInDpHyper);
         }
         maybeAddStateId(result);
         return result;
