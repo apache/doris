@@ -54,6 +54,9 @@ struct WriteCooldownMetaExecutors;
 class TokenBucketRateLimiterHolder;
 using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 class MSRpcRateLimitServices;
+class ThreadPool;
+struct StorePath;
+struct CachePath;
 namespace io {
 class FDCache;
 class FileCacheFactory;
@@ -363,12 +366,10 @@ public:
         _s_tracking_memory.store(tracking_memory, std::memory_order_release);
     }
     void set_orc_memory_pool(orc::MemoryPool* pool) { _orc_memory_pool = pool; }
-    void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
-        _non_block_close_thread_pool = std::move(pool);
-    }
-    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
-        _s3_file_upload_thread_pool = std::move(pool);
-    }
+    // Defined out of line: assigning the unique_ptr destroys the old pointee,
+    // which would require ThreadPool to be complete here.
+    void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool);
+    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool);
     void set_file_cache_factory(io::FileCacheFactory* factory) { _file_cache_factory = factory; }
     // Defined out of line: assigning the unique_ptr destroys the old pointee,
     // which would require io::FDCache to be complete here.

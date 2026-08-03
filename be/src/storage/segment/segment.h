@@ -34,6 +34,7 @@
 #include "common/status.h" // Status
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "io/cache/file_cache_common.h" // io::UInt128Wrapper returned by value
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"

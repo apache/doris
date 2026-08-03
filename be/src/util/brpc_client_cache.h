@@ -44,6 +44,7 @@
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/client_connection_provider.h"
+#include "util/defer_op.h"
 #include "util/dns_cache.h"
 #include "util/network_util.h"
 

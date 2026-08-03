@@ -36,6 +36,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "storage/options.h"
 #include "util/parse_util.h"
 
 namespace doris {

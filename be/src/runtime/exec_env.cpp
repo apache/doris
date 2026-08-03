@@ -40,6 +40,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "util/debug_util.h"
+#include "util/threadpool.h" // ThreadPool must be complete: unique_ptr member assignment
 #include "util/time.h"
 
 namespace doris {
@@ -63,6 +64,12 @@ void ExecEnv::set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
 }
 void ExecEnv::set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache) {
     _file_cache_open_fd_cache = std::move(fd_cache);
+}
+void ExecEnv::set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+    _non_block_close_thread_pool = std::move(pool);
+}
+void ExecEnv::set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+    _s3_file_upload_thread_pool = std::move(pool);
 }
 #endif // BE_TEST
 
