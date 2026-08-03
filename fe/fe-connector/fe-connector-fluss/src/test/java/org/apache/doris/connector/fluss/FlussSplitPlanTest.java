@@ -17,9 +17,11 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRequest;
@@ -30,6 +32,7 @@ import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.ResolvedPartitionSpec;
+import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
@@ -62,10 +65,20 @@ public class FlussSplitPlanTest {
     private RecordingFlussAdminOps adminOps;
     private ConnectorSession session;
 
+    /**
+     * The lake sibling, built only when a test asks for it. A test that never registers a lake table must
+     * never reach it, and {@link #lakeSibling} fails loud if it does — a fluss-only plan that quietly
+     * consulted the lake would still look correct in every other assertion.
+     */
+    private RecordingLakeSibling sibling;
+    private boolean siblingExpected;
+
     @BeforeEach
     public void setUp() {
         adminOps = new RecordingFlussAdminOps();
         session = new FlussTestSession(1L, "q1");
+        sibling = null;
+        siblingExpected = false;
     }
 
     // ---------------------------------------------------------------- unpartitioned log table
@@ -352,6 +365,8 @@ public class FlussSplitPlanTest {
                 .buckets(2, "id")
                 .property("table.datalake.enabled", "true")
                 .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.metastore", "filesystem")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
                 .build());
         adminOps.readableLakeSnapshot = new LakeSnapshot(7L, Collections.emptyMap());
 
@@ -360,21 +375,221 @@ public class FlussSplitPlanTest {
         Assertions.assertTrue(e.getMessage().contains("not supported yet"), e.getMessage());
     }
 
+
+    // ---------------------------------------------------------------- union read: lake + log
+
     /**
-     * A lake table read as fluss-only returns only what the log still holds, dropping everything tiering
-     * has moved into the lake — a query that succeeds with missing rows. Until the union read exists,
-     * the refusal is the correct answer.
+     * The two halves have to MEET: the lake holds everything up to the offset its snapshot recorded, and
+     * the log range starts at exactly that offset. One off in either direction is a wrong answer that no
+     * row count catches — reading the log from the earliest offset instead duplicates every tiered row,
+     * and starting one later drops one.
      */
     @Test
-    public void tieredLakeTableIsRefusedUntilTheUnionReadExists() {
+    public void theLogIsReadFromWhereTheLakeSnapshotLeftOff() {
         registerLakeTable(2);
-        adminOps.readableLakeSnapshot = new LakeSnapshot(7L, Collections.emptyMap());
+        lakeSnapshotAt(7L, offsets(5L, 3L));
+        latestOffsets(null, 9L, 3L);
+        lakeRanges(2);
+
+        List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
+
+        // Two lake ranges, then the one bucket whose log went past the snapshot. Bucket 1's log has not
+        // moved since it was tiered, so everything it holds is already in the lake and it yields nothing.
+        Assertions.assertEquals(3, ranges.size());
+        assertLogRange(ranges.get(2), 0, 5L, 9L);
+    }
+
+    /**
+     * A bucket the lake snapshot never mentions has never been tiered, so nothing of it is in the lake
+     * and its whole log is still the truth. Starting it at the snapshot's (absent) offset would be the
+     * bug: there is no offset to start at, and treating that as zero rows would drop the bucket.
+     */
+    @Test
+    public void bucketTheLakeNeverSawIsReadFromTheEarliestOffset() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(4L, null));
+        latestOffsets(null, 6L, 8L);
+
+        List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        assertLogRange(ranges.get(0), 0, 4L, 6L);
+        assertLogRange(ranges.get(1), 1, -2L, 8L);
+    }
+
+    /** A bucket whose log has not moved past the lake needs no log range at all. */
+    @Test
+    public void bucketTheLakeHasCaughtUpWithYieldsNoLogRange() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(6L, 6L));
+        latestOffsets(null, 6L, 6L);
+
+        Assertions.assertTrue(plan(LOG_TABLE, catalog()).isEmpty());
+    }
+
+    /**
+     * The lake is pinned to the snapshot FLUSS says is readable, not to whatever the lake calls latest.
+     * Unpinned, the lake half would drift ahead of the offsets the log half stops at and the rows in
+     * between would be read twice.
+     */
+    @Test
+    public void theLakeIsPinnedToTheSnapshotFlussReportsAsReadable() {
+        registerLakeTable(1);
+        lakeSnapshotAt(7L, offsets(2L));
+        latestOffsets(null, 5L);
+
+        plan(LOG_TABLE, catalog());
+
+        Assertions.assertEquals(7L, sibling.plannedHandle.pinnedSnapshotId);
+        // The pin is expressed in the SPI's terms only: a snapshot id and no connector-specific options.
+        Assertions.assertTrue(sibling.calls.contains("applySnapshot:7:{}"), sibling.calls.toString());
+    }
+
+    /**
+     * The lake snapshot must be read BEFORE the log's stopping offsets. Log offsets only move forward, so
+     * asking in this order keeps the snapshot at or behind where the log half stops; asked the other way
+     * round, a snapshot committed in between would cover rows past that point and the bucket's log range
+     * would start after it ended.
+     */
+    @Test
+    public void theLakeSnapshotIsReadBeforeTheStoppingOffsets() {
+        registerLakeTable(1);
+        lakeSnapshotAt(7L, offsets(2L));
+        latestOffsets(null, 5L);
+
+        plan(LOG_TABLE, catalog());
+
+        int snapshotCall = indexOfCall("getReadableLakeSnapshot");
+        int offsetsCall = indexOfCall("listOffsets");
+        Assertions.assertTrue(snapshotCall >= 0 && snapshotCall < offsetsCall, adminOps.calls.toString());
+    }
+
+    /**
+     * The lake half is planned on the LAKE's own column handles. The sibling projects by its own handle
+     * type and ignores anything else, so handing it fluss's handles would leave it reading every column —
+     * including the three system columns tiering appends — and no assertion about rows would notice.
+     */
+    @Test
+    public void theLakeHalfIsPlannedOnTheLakeTablesOwnColumnHandles() {
+        registerLakeTable(1);
+        lakeTableColumns("id", "__bucket", "__offset", "__timestamp");
+        lakeSnapshotAt(7L, offsets(0L));
+        latestOffsets(null, 5L);
+
+        new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling).planScan(session,
+                ConnectorScanRequest.builder(handle(LOG_TABLE),
+                        Collections.singletonList(new FlussColumnHandle("id", 0))).build());
+
+        Assertions.assertEquals(
+                Collections.singletonList(new RecordingLakeSibling.LakeColumn("id")),
+                sibling.plannedColumns);
+    }
+
+    /** A column the lake table does not have means the two schemas are not the same table's. */
+    @Test
+    public void columnMissingFromTheLakeTableIsRefused() {
+        registerLakeTable(1);
+        lakeTableColumns("id");
+        lakeSnapshotAt(7L, offsets(0L));
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(LOG_TABLE, catalog()));
-        Assertions.assertTrue(e.getMessage().contains("not supported yet"), e.getMessage());
-        Assertions.assertTrue(e.getMessage().contains(FlussConnectorProperties.UNION_READ_MODE),
+                () -> new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling).planScan(session,
+                        ConnectorScanRequest.builder(handle(LOG_TABLE),
+                                Collections.singletonList(new FlussColumnHandle("gone", 1))).build()));
+        Assertions.assertTrue(e.getMessage().contains("does not exist in its lake table"), e.getMessage());
+    }
+
+    /**
+     * One scan node, one property map: the engine calls {@code populateScanLevelParams} once, so the lake
+     * half's entries have to travel in the same map or its ranges arrive at BE unreadable.
+     */
+    @Test
+    public void nodePropertiesCarryBothHalves() {
+        registerLakeTable(1);
+        lakeSnapshotAt(7L, offsets(0L));
+        sibling(); // built up-front so the node properties can be set before they are asked for
+        sibling.lakeNodeProperties = Collections.singletonMap("paimon.serialized_table", "encoded");
+
+        Map<String, String> props = nodeProperties(LOG_TABLE, catalog());
+
+        Assertions.assertEquals("db", props.get("fluss.db_name"));
+        Assertions.assertEquals("encoded", props.get("paimon.serialized_table"));
+    }
+
+    /** The lake half gets its turn at the same thrift params, and only it knows which entries are its. */
+    @Test
+    public void scanLevelParamsAreOfferedToTheLakeHalfToo() {
+        registerLakeTable(1);
+        lakeSnapshotAt(7L, offsets(0L));
+        sibling();
+        sibling.lakeNodeProperties = Collections.singletonMap("paimon.serialized_table", "encoded");
+        Map<String, String> catalog = catalog();
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog, this::lakeSibling);
+        Map<String, String> props = provider.getScanNodeProperties(
+                session, handle(LOG_TABLE), Collections.emptyList(), Optional.empty());
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+
+        // fluss took only its own keys; the sibling saw the whole map, its own entries included.
+        Assertions.assertFalse(params.getFlussProperties().containsKey("paimon.serialized_table"));
+        Assertions.assertEquals("encoded",
+                sibling.populatedNodeProperties.get("paimon.serialized_table"));
+    }
+
+    /**
+     * The split between file columns and partition columns is decided ONCE for the scan node, so two
+     * halves that disagree about it would read different columns out of the same tuple. They cannot
+     * legitimately disagree, which is why a disagreement is raised rather than resolved by picking one.
+     */
+    @Test
+    public void halvesThatDisagreeAboutTheSharedPropertiesAreRefused() {
+        registerPartitionedLakeTable(1, "20260101");
+        lakeSnapshotAt(7L, offsets(0L));
+        sibling();
+        sibling.lakeNodeProperties =
+                Collections.singletonMap(ScanNodePropertyKeys.PATH_PARTITION_KEYS, "not_dt");
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> nodeProperties(LOG_TABLE, catalog()));
+        Assertions.assertTrue(e.getMessage().contains(ScanNodePropertyKeys.PATH_PARTITION_KEYS),
                 e.getMessage());
+    }
+
+    /** A partitioned table's lake offsets are per (partition, bucket), not per bucket. */
+    @Test
+    public void partitionedTablesLogIsResumedPerPartitionAndBucket() {
+        registerPartitionedLakeTable(1, "20260101", "20260102");
+        Map<TableBucket, Long> lakeOffsets = new HashMap<>();
+        lakeOffsets.put(new TableBucket(FlussTestTables.TABLE_ID, 100L, 0), 4L);
+        lakeOffsets.put(new TableBucket(FlussTestTables.TABLE_ID, 101L, 0), 1L);
+        lakeSnapshotAt(7L, lakeOffsets);
+        latestOffsets("20260101", 9L);
+        latestOffsets("20260102", 6L);
+
+        List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        assertLogRange(ranges.get(0), 0, 4L, 9L);
+        assertLogRange(ranges.get(1), 0, 1L, 6L);
+    }
+
+    /** The line a union-read regression test reads to know the lake was actually part of the answer. */
+    @Test
+    public void explainReportsTheUnionAndTheSizeOfEachHalf() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(1L, 9L));
+        latestOffsets(null, 5L, 9L);
+        lakeRanges(3);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        provider.planScan(session, request(handle(LOG_TABLE), Collections.emptyList()));
+
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+
+        Assertions.assertEquals(
+                "flussScan: unionRead=yes, lakeSplits=3, logRanges=1, pkRanges=0, mode=auto\n",
+                output.toString());
     }
 
     /** Nothing in the lake means the log holds the whole table, so the fluss-only read IS complete. */
@@ -420,7 +635,7 @@ public class FlussSplitPlanTest {
         catalog.put("fluss.client.writer.batch-size", "2mb");
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog, this::lakeSibling);
         provider.populateScanLevelParams(params, nodeProperties(LOG_TABLE, catalog));
 
         Map<String, String> expected = new LinkedHashMap<>();
@@ -439,7 +654,7 @@ public class FlussSplitPlanTest {
         nodeProps.put(ScanNodePropertyKeys.SYNTHETIC_TOTAL_READ_SPLITS, "3");
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        new FlussScanPlanProvider(adminOps, catalog()).populateScanLevelParams(params, nodeProps);
+        new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling).populateScanLevelParams(params, nodeProps);
 
         Assertions.assertFalse(params.getFlussProperties()
                 .containsKey(ScanNodePropertyKeys.PATH_PARTITION_KEYS));
@@ -455,7 +670,7 @@ public class FlussSplitPlanTest {
     public void explainReportsHowTheScanWasActuallyPlanned() {
         registerLogTable(LOG_TABLE, 3);
         latestOffsets(null, 1L, 0L, 5L);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog());
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
         provider.planScan(session, request(handle(LOG_TABLE), Collections.emptyList()));
 
         StringBuilder output = new StringBuilder();
@@ -476,7 +691,7 @@ public class FlussSplitPlanTest {
         registerPkTable(PK_TABLE, 3);
         kvSnapshots(null, new long[] {1L, NO_SNAPSHOT, NO_SNAPSHOT}, new long[] {10L, 0L, 0L});
         latestOffsets(null, 12L, 4L, 0L);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog());
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
         provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
 
         StringBuilder output = new StringBuilder();
@@ -492,7 +707,7 @@ public class FlussSplitPlanTest {
         registerLogTable(LOG_TABLE, 1);
         latestOffsets(null, 1L);
         Map<String, String> catalog = catalog(FlussConnectorProperties.UNION_READ_MODE, "disabled");
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog, this::lakeSibling);
         provider.planScan(session, request(handle(LOG_TABLE), Collections.emptyList()));
 
         StringBuilder output = new StringBuilder();
@@ -533,12 +748,12 @@ public class FlussSplitPlanTest {
 
     private List<ConnectorScanRange> plan(TablePath tablePath, Map<String, String> catalogProperties,
             List<String> requiredPartitions) {
-        return new FlussScanPlanProvider(adminOps, catalogProperties)
+        return new FlussScanPlanProvider(adminOps, catalogProperties, this::lakeSibling)
                 .planScan(session, request(handle(tablePath), requiredPartitions));
     }
 
     private Map<String, String> nodeProperties(TablePath tablePath, Map<String, String> catalogProperties) {
-        return new FlussScanPlanProvider(adminOps, catalogProperties).getScanNodeProperties(
+        return new FlussScanPlanProvider(adminOps, catalogProperties, this::lakeSibling).getScanNodeProperties(
                 session, handle(tablePath), Collections.emptyList(), Optional.empty());
     }
 
@@ -578,7 +793,10 @@ public class FlussSplitPlanTest {
                 .buckets(buckets)
                 .property("table.datalake.enabled", "true")
                 .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.metastore", "filesystem")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
                 .build());
+        siblingExpected = true;
     }
 
     private void registerPkTable(TablePath tablePath, int buckets) {
@@ -669,4 +887,83 @@ public class FlussSplitPlanTest {
         assertLogRange(range, bucket, -2L, stop);
     }
 
+    // ---------------------------------------------------------------- union-read fixtures
+
+    /**
+     * The lake sibling this catalog would build. Fails loud when a test that registered no lake table
+     * reaches it: a fluss-only plan that quietly consulted the lake still passes every other assertion.
+     */
+    private Connector lakeSibling(Map<String, String> siblingProperties) {
+        if (!siblingExpected) {
+            throw new AssertionError("no lake sibling is expected in this test");
+        }
+        if (sibling == null) {
+            sibling = new RecordingLakeSibling(siblingProperties);
+        }
+        return sibling;
+    }
+
+    /** The sibling, built now so a test can set what it answers before planning asks. */
+    private RecordingLakeSibling sibling() {
+        lakeSibling(Collections.emptyMap());
+        return sibling;
+    }
+
+    /** The readable lake snapshot fluss reports, with the log offset it recorded for each bucket. */
+    private void lakeSnapshotAt(long snapshotId, Map<TableBucket, Long> bucketOffsets) {
+        adminOps.readableLakeSnapshot = new LakeSnapshot(snapshotId, bucketOffsets);
+    }
+
+    /**
+     * Lake offsets for buckets 0..n-1 of an unpartitioned table; a {@code null} entry is a bucket the
+     * snapshot does not mention at all (never tiered), which is not the same as offset 0.
+     */
+    private static Map<TableBucket, Long> offsets(Long... byBucket) {
+        Map<TableBucket, Long> offsets = new HashMap<>();
+        for (int bucket = 0; bucket < byBucket.length; bucket++) {
+            if (byBucket[bucket] != null) {
+                offsets.put(new TableBucket(FlussTestTables.TABLE_ID, bucket), byBucket[bucket]);
+            }
+        }
+        return offsets;
+    }
+
+    /** {@code count} ranges for the sibling's scan planner to return as the lake half. */
+    private void lakeRanges(int count) {
+        List<ConnectorScanRange> ranges = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            ranges.add(new RecordingLakeSibling.LakeRange());
+        }
+        sibling().lakeRanges = ranges;
+    }
+
+    /** The columns the lake table reports, in order. */
+    private void lakeTableColumns(String... names) {
+        Map<String, ConnectorColumnHandle> columns = new LinkedHashMap<>();
+        for (String name : names) {
+            columns.put(name, new RecordingLakeSibling.LakeColumn(name));
+        }
+        sibling().lakeColumns = columns;
+    }
+
+    /** A lake-enabled log table partitioned by {@code dt}, with partition ids 100, 101, ... in order. */
+    private void registerPartitionedLakeTable(int buckets, String... partitionValues) {
+        adminOps.tableInfos.put(LOG_TABLE, FlussTestTables.builder(LOG_TABLE)
+                .column("id", DataTypes.INT())
+                .column("dt", DataTypes.STRING())
+                .partitionedBy("dt")
+                .buckets(buckets)
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.metastore", "filesystem")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
+                .build());
+        List<PartitionInfo> partitions = new ArrayList<>();
+        for (int i = 0; i < partitionValues.length; i++) {
+            partitions.add(new PartitionInfo(100L + i,
+                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null));
+        }
+        adminOps.partitionsByTable.put(LOG_TABLE, partitions);
+        siblingExpected = true;
+    }
 }

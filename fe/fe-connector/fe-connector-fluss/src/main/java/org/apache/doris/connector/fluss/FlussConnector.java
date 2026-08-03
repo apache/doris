@@ -97,7 +97,7 @@ public class FlussConnector implements Connector {
      */
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new FlussScanPlanProvider(adminOps(), properties);
+        return new FlussScanPlanProvider(adminOps(), properties, this::getOrCreateLakeSibling);
     }
 
     /**
