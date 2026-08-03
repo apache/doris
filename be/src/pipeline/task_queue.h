@@ -27,6 +27,8 @@
 #include <ostream>
 #include <queue>
 #include <set>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "pipeline_task.h"
@@ -35,6 +37,8 @@
 namespace doris {
 namespace pipeline {
 
+using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
+
 class TaskQueue {
 public:
     TaskQueue(int core_size) : _core_size(core_size) {}
@@ -42,7 +46,7 @@ public:
     virtual void close() = 0;
     // Get the task by core id.
     // TODO: To think the logic is useful?
-    virtual PipelineTask* take(int core_id) = 0;
+    virtual PipelineTaskSPtr take(int core_id) = 0;
 
     // push from scheduler
     virtual Status push_back(PipelineTask* task) = 0;
@@ -63,9 +67,16 @@ class SubTaskQueue {
     friend class PriorityTaskQueue;
 
 public:
-    void push_back(PipelineTask* task) { _queue.emplace(task); }
+    void push_back(PipelineTaskSPtr task) { _queue.emplace(std::move(task)); }
 
-    PipelineTask* try_take(bool is_steal);
+    PipelineTaskSPtr try_take(bool is_steal);
+
+    void drain(std::vector<PipelineTaskSPtr>* tasks) {
+        while (!_queue.empty()) {
+            tasks->emplace_back(std::move(_queue.front()));
+            _queue.pop();
+        }
+    }
 
     void set_level_factor(double level_factor) { _level_factor = level_factor; }
 
@@ -81,7 +92,7 @@ public:
     bool empty() { return _queue.empty(); }
 
 private:
-    std::queue<PipelineTask*> _queue;
+    std::queue<PipelineTaskSPtr> _queue;
     // depends on LEVEL_QUEUE_TIME_FACTOR
     double _level_factor = 1;
 
@@ -95,18 +106,18 @@ public:
 
     void close();
 
-    PipelineTask* try_take(bool is_steal);
+    PipelineTaskSPtr try_take(bool is_steal);
 
-    PipelineTask* take(uint32_t timeout_ms = 0);
+    PipelineTaskSPtr take(uint32_t timeout_ms = 0);
 
-    Status push(PipelineTask* task);
+    Status push(PipelineTaskSPtr task);
 
     void inc_sub_queue_runtime(int level, uint64_t runtime) {
         _sub_queues[level].inc_runtime(runtime);
     }
 
 private:
-    PipelineTask* _try_take_unprotected(bool is_steal);
+    PipelineTaskSPtr _try_take_unprotected(bool is_steal);
     static constexpr auto LEVEL_QUEUE_TIME_FACTOR = 2;
     static constexpr size_t SUB_QUEUE_LEVEL = 6;
     SubTaskQueue _sub_queues[SUB_QUEUE_LEVEL];
@@ -135,7 +146,7 @@ public:
     void close() override;
 
     // Get the task by core id.
-    PipelineTask* take(int core_id) override;
+    PipelineTaskSPtr take(int core_id) override;
 
     // TODO combine these methods to `push_back(task, core_id = -1)`
     Status push_back(PipelineTask* task) override;
@@ -149,7 +160,7 @@ public:
     }
 
 private:
-    PipelineTask* _steal_take(int core_id);
+    PipelineTaskSPtr _steal_take(int core_id);
 
     std::vector<PriorityTaskQueue> _prio_task_queue_list;
     std::atomic<uint32_t> _next_core = 0;

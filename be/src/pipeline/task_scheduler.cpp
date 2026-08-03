@@ -264,16 +264,23 @@ void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status
 void TaskScheduler::_do_work(size_t index) {
     const auto& marker = _markers[index];
     while (*marker) {
-        auto* task = _task_queue->take(index);
-        if (!task) {
+        auto task_holder = _task_queue->take(index);
+        if (!task_holder) {
             continue;
         }
-        if (task->is_pipelineX() && task->is_running()) {
+        auto* task = task_holder.get();
+        if (task->is_pipelineX() && task->set_running(true)) {
             static_cast<void>(_task_queue->push_back(task, index));
             continue;
         }
+        if (task->is_finished()) {
+            task->set_running(false);
+            continue;
+        }
         task->log_detail_if_need();
-        task->set_running(true);
+        if (!task->is_pipelineX()) {
+            task->set_running(true);
+        }
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
         bool canceled = fragment_ctx->is_canceled();

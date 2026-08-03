@@ -44,9 +44,10 @@ Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, s
 }
 
 void Dependency::_add_block_task(PipelineXTask* task) {
-    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
+    auto task_holder = std::static_pointer_cast<PipelineXTask>(task->get_task_holder());
+    DCHECK(_blocked_task.empty() || _blocked_task.back().lock().get() != task)
             << "Duplicate task: " << task->debug_string();
-    _blocked_task.push_back(task);
+    _blocked_task.emplace_back(task_holder);
 }
 
 void Dependency::set_ready() {
@@ -54,7 +55,7 @@ void Dependency::set_ready() {
         return;
     }
     _watcher.stop();
-    std::vector<PipelineXTask*> local_block_task {};
+    std::vector<std::weak_ptr<PipelineXTask>> local_block_task {};
     {
         std::unique_lock<std::mutex> lc(_task_lock);
         if (_ready) {
@@ -63,8 +64,10 @@ void Dependency::set_ready() {
         _ready = true;
         local_block_task.swap(_blocked_task);
     }
-    for (auto* task : local_block_task) {
-        task->wake_up();
+    for (auto& task : local_block_task) {
+        if (auto task_holder = task.lock()) {
+            task_holder->wake_up();
+        }
     }
 }
 

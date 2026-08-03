@@ -259,7 +259,12 @@ public:
     virtual bool is_pipelineX() const { return false; }
 
     bool is_running() { return _running.load(); }
-    void set_running(bool running) { _running = running; }
+    // Return the previous state so a scheduler can atomically claim the task.
+    bool set_running(bool running) { return _running.exchange(running); }
+
+    // Pipeline tasks are owned by their fragment context. The aliasing shared pointer keeps the
+    // context (and therefore this task) alive while the task is waiting in an asynchronous queue.
+    std::shared_ptr<PipelineTask> get_task_holder();
 
     bool is_exceed_debug_timeout() {
         if (_has_exceed_timeout) {

@@ -208,6 +208,11 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
     _task_queue = task_queue;
 }
 
+std::shared_ptr<PipelineTask> PipelineTask::get_task_holder() {
+    auto context_holder = _fragment_context->shared_from_this();
+    return std::shared_ptr<PipelineTask>(context_holder, this);
+}
+
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
