@@ -24,6 +24,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -235,6 +237,65 @@ class RequestPropertyDeriverTest {
                 ShuffleType.REQUIRE
         ))));
         Assertions.assertEquals(expected, actual);
+    }
+
+    @Test
+    void testGlobalAggregatePropagatesColocateMappingRequestWhenEnabled() {
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference extra = new SlotReference("extra", IntegerType.INSTANCE);
+        Alias outputD1 = new Alias(d1, "output_d1");
+        Alias outputK2 = new Alias(k2, "output_k2");
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        Alias distinctCount = new Alias(
+                new AggregateExpression(new MultiDistinctCount(extra), aggregateParam), "distinct_count");
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(d1, k2),
+                Lists.newArrayList(outputD1, outputK2, distinctCount),
+                Optional.of(Lists.newArrayList(d1, k2)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                Lists.newArrayList(outputD1.getExprId(), outputK2.getExprId(), distinctCount.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        PhysicalProperties mappingRequest = PhysicalProperties.createHash(
+                Lists.newArrayList(d1.getExprId(), k2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        PhysicalProperties originalRequest = PhysicalProperties.createHash(
+                Lists.newArrayList(d1.getExprId(), k2.getExprId()), ShuffleType.REQUIRE);
+
+        testConnectContext.getSessionVariable().enableColocateMappingConstraint = true;
+        List<List<PhysicalProperties>> enabled = new RequestPropertyDeriver(
+                testConnectContext, parentProperties).getRequestChildrenPropertyList(groupExpression);
+        Assertions.assertEquals(ImmutableList.of(
+                ImmutableList.of(mappingRequest), ImmutableList.of(originalRequest)), enabled);
+
+        testConnectContext.getSessionVariable().enableColocateMappingConstraint = false;
+        List<List<PhysicalProperties>> disabled = new RequestPropertyDeriver(
+                testConnectContext, parentProperties).getRequestChildrenPropertyList(groupExpression);
+        Assertions.assertEquals(ImmutableList.of(ImmutableList.of(originalRequest)), disabled);
+
+        PhysicalHashAggregate<GroupPlan> expressionGroupByAggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(new EqualTo(d1, k2), k2),
+                Lists.newArrayList(outputD1, outputK2, distinctCount),
+                Optional.of(Lists.newArrayList(d1, k2)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        GroupExpression expressionGroupBy = new GroupExpression(expressionGroupByAggregate);
+        new Group(null, expressionGroupBy, null);
+        testConnectContext.getSessionVariable().enableColocateMappingConstraint = true;
+        List<List<PhysicalProperties>> expressionGroupByRequests = new RequestPropertyDeriver(
+                testConnectContext, parentProperties).getRequestChildrenPropertyList(expressionGroupBy);
+        Assertions.assertEquals(ImmutableList.of(ImmutableList.of(originalRequest)), expressionGroupByRequests);
     }
 
     @Test

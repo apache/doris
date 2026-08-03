@@ -260,7 +260,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
             groupByExprIds.add(((SlotReference) groupBy).getExprId());
         }
-        if (!naturalMappingSpec.distributionKeysCoveredBy(groupByExprIds)) {
+        if (!naturalMappingSpec.distributionKeysCoveredByDirectOrMapping(groupByExprIds)) {
             return withoutNaturalDistributionMapping(childOutputProperty);
         }
 

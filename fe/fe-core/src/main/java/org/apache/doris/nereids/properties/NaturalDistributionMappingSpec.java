@@ -98,8 +98,8 @@ public class NaturalDistributionMappingSpec {
         return distributionMappings;
     }
 
-    /** Return whether visible distribution slots cover every underlying bucket position. */
-    public boolean distributionKeysCoveredBy(Set<ExprId> exprIds) {
+    /** Return whether direct slots and complete mapping determinants cover every bucket position. */
+    public boolean distributionKeysCoveredByDirectOrMapping(Set<ExprId> exprIds) {
         BitSet coveredIndices = new BitSet(distributionKeyCount);
         for (ExprId exprId : exprIds) {
             Integer index = visibleDistributionExprToIndex.get(exprId);
@@ -107,25 +107,17 @@ public class NaturalDistributionMappingSpec {
                 coveredIndices.set(index);
             }
         }
+        for (DistributionMapping mapping : distributionMappings) {
+            if (exprIds.containsAll(mapping.getDeterminantExprIds())) {
+                mapping.getTargetDistributionIndices().forEach(coveredIndices::set);
+            }
+        }
         return coveredIndices.nextClearBit(0) >= distributionKeyCount;
     }
 
     /** Return whether direct slots and mapping determinants cover every underlying bucket position. */
     public boolean satisfy(List<ExprId> requiredExprIds) {
-        Set<ExprId> required = ImmutableSet.copyOf(requiredExprIds);
-        BitSet coveredIndices = new BitSet(distributionKeyCount);
-        for (ExprId exprId : required) {
-            Integer index = visibleDistributionExprToIndex.get(exprId);
-            if (index != null) {
-                coveredIndices.set(index);
-            }
-        }
-        for (DistributionMapping mapping : distributionMappings) {
-            if (required.containsAll(mapping.getDeterminantExprIds())) {
-                mapping.getTargetDistributionIndices().forEach(coveredIndices::set);
-            }
-        }
-        return coveredIndices.nextClearBit(0) >= distributionKeyCount;
+        return distributionKeysCoveredByDirectOrMapping(ImmutableSet.copyOf(requiredExprIds));
     }
 
     /**

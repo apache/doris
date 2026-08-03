@@ -388,7 +388,7 @@ public class DistributionSpecHash extends DistributionSpec {
         STORAGE_BUCKETED,
         // require, need to satisfy the distribution spec by equals.
         REQUIRE_EQUAL,
-        // join-only request allowing NATURAL distribution mappings to cover hash keys.
+        // Non-enforceable proof request allowing NATURAL distribution mappings to cover required keys.
         COLOCATE_MAPPING_REQUIRE
     }
 }

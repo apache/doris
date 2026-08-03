@@ -797,7 +797,7 @@ class ChildOutputPropertyDeriverTest {
         Alias outputK2 = new Alias(k2, "output_k2");
         Alias outputD1 = new Alias(d1, "output_d1");
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
-                ImmutableList.of(k1, k2, d1),
+                ImmutableList.of(d1, k2),
                 ImmutableList.of(outputK2, outputD1),
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
@@ -853,6 +853,30 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
+    void testAggregateDoesNotUseIncompleteMappingDeterminant() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        SlotReference d2 = new SlotReference("d2", IntegerType.INSTANCE);
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(d1, k2),
+                ImmutableList.of(d1, k2),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId(), k2.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(d1.getExprId(), d2.getExprId()), ImmutableList.of(0))));
+
+        Assertions.assertTrue(deriveAggregateHash(
+                aggregate, childHash).getDistributionMappings().isEmpty());
+    }
+
+    @Test
     void testDistinctAggregatePropagatesMappingFromNaturalChild() {
         SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
         SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
@@ -862,8 +886,8 @@ class ChildOutputPropertyDeriverTest {
         for (AggPhase phase : AggPhase.values()) {
             AggregateParam aggregateParam = new AggregateParam(phase, AggMode.INPUT_TO_RESULT);
             PhysicalHashAggregate<GroupPlan> distinctAggregate = new PhysicalHashAggregate<>(
-                    ImmutableList.of(k1, k2, d1),
-                    ImmutableList.of(k1, k2, d1, new Alias(
+                    ImmutableList.of(d1, k2),
+                    ImmutableList.of(k2, d1, new Alias(
                             new AggregateExpression(new MultiDistinctCount(extra), aggregateParam), "distinct_count")),
                     aggregateParam,
                     true,

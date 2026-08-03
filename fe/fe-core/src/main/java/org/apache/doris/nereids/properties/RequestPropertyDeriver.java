@@ -501,6 +501,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         } else if (agg.getAggPhase().isGlobal()) {
+            addColocateMappingRequestForAggregate(agg);
             // partition expressions already set by rule
             if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
                 addRequestPropertyToChildren(
@@ -539,6 +540,50 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
         }
         return null;
+    }
+
+    private void addColocateMappingRequestForAggregate(PhysicalHashAggregate<? extends Plan> agg) {
+        DistributionSpec parentDistribution = requestPropertyFromParent.getDistributionSpec();
+        if (connectContext == null
+                || !connectContext.getSessionVariable().isEnableColocateMappingConstraint()
+                || agg.hasSourceRepeat()
+                || !(parentDistribution instanceof DistributionSpecHash)
+                || ((DistributionSpecHash) parentDistribution).getShuffleType()
+                        != ShuffleType.COLOCATE_MAPPING_REQUIRE) {
+            return;
+        }
+
+        Map<ExprId, NamedExpression> outputByExprId = agg.getOutputExpressions().stream()
+                .collect(Collectors.toMap(NamedExpression::getExprId, output -> output, (left, right) -> left));
+        Set<ExprId> groupByExprIds = Sets.newHashSet();
+        for (Expression groupBy : agg.getGroupByExpressions()) {
+            if (!(groupBy instanceof SlotReference)) {
+                return;
+            }
+            groupByExprIds.add(((SlotReference) groupBy).getExprId());
+        }
+        List<ExprId> childRequiredExprIds = Lists.newArrayList();
+        for (ExprId requiredExprId
+                : ((DistributionSpecHash) parentDistribution).getOrderedShuffledColumns()) {
+            NamedExpression output = outputByExprId.get(requiredExprId);
+            ExprId childExprId;
+            if (output instanceof Alias && ((Alias) output).child() instanceof SlotReference) {
+                childExprId = ((SlotReference) ((Alias) output).child()).getExprId();
+            } else if (output instanceof SlotReference) {
+                childExprId = output.getExprId();
+            } else {
+                continue;
+            }
+            if (!groupByExprIds.contains(childExprId)) {
+                return;
+            }
+            childRequiredExprIds.add(childExprId);
+        }
+        if (childRequiredExprIds.isEmpty()) {
+            return;
+        }
+        addRequestPropertyToChildren(
+                PhysicalProperties.createHash(childRequiredExprIds, ShuffleType.COLOCATE_MAPPING_REQUIRE));
     }
 
     @Override

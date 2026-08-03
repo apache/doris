@@ -119,6 +119,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             return ImmutableList.of();
         }
         PhysicalProperties requiredChildProperty = requiredProperties.get(0);
+        DistributionSpec requiredChildDistribution = requiredChildProperty.getDistributionSpec();
+        if (requiredChildDistribution instanceof DistributionSpecHash
+                && ((DistributionSpecHash) requiredChildDistribution).getShuffleType()
+                        == ShuffleType.COLOCATE_MAPPING_REQUIRE) {
+            return originChildrenProperties.get(0).satisfy(requiredChildProperty)
+                    ? ImmutableList.of(originChildrenProperties)
+                    : ImmutableList.of();
+        }
         if (!agg.getAggregateParam().canBeBanned) {
             return visit(agg, context);
         }

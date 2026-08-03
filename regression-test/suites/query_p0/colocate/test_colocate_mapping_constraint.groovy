@@ -296,12 +296,12 @@ suite("test_colocate_mapping_constraint") {
                 FROM (
                     SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
                     FROM test_colocate_mapping_constraint_left
-                    GROUP BY k1, k2, d1
+                    GROUP BY k2, d1
                 ) l
                 JOIN (
                     SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
                     FROM test_colocate_mapping_constraint_right
-                    GROUP BY k1, k2, d1
+                    GROUP BY k2, d1
                 ) r
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
         notContains "COLOCATE"
@@ -474,12 +474,12 @@ suite("test_colocate_mapping_constraint") {
                 FROM (
                     SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
                     FROM test_colocate_mapping_constraint_left
-                    GROUP BY k1, k2, d1
+                    GROUP BY k2, d1
                 ) l
                 JOIN (
                     SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
                     FROM test_colocate_mapping_constraint_right
-                    GROUP BY k1, k2, d1
+                    GROUP BY k2, d1
                 ) r
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
         contains "COLOCATE"
@@ -487,15 +487,15 @@ suite("test_colocate_mapping_constraint") {
     explain {
         sql """ SELECT *
                 FROM (
-                    SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
+                    SELECT d1, MAX(k2) AS k2, COUNT(DISTINCT extra_col) AS distinct_extra
                     FROM test_colocate_mapping_constraint_left
-                    GROUP BY k2, d1
+                    GROUP BY d1
                 ) l
                 JOIN test_colocate_mapping_constraint_right r
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
         notContains "COLOCATE"
     }
-    // Unsupported Aggregate shapes must discard mapping locality.
+    // Mapping determinants can cover distribution keys that are absent from Group By.
     explain {
         sql """ SELECT *
                 FROM (
@@ -505,8 +505,22 @@ suite("test_colocate_mapping_constraint") {
                 ) l
                 JOIN test_colocate_mapping_constraint_right r
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
-        notContains "COLOCATE"
+        contains "COLOCATE"
     }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT k2, d1, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY k2, d1
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1
+                 AND l.k2 = r.k2
+                 AND l.sum_extra = r.extra_col """
+        contains "COLOCATE"
+    }
+    // Unsupported Aggregate shapes must discard mapping locality.
     explain {
         sql """ SELECT *
                 FROM (

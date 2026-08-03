@@ -187,6 +187,51 @@ public class ChildrenPropertiesRegulatorTest {
     }
 
     @Test
+    public void testAggregateColocateMappingRequestRequiresNaturalMappingProof() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        GroupPlan mockedGroupPlan = Mockito.mock(GroupPlan.class);
+        Mockito.when(mockedGroupPlan.getAllChildrenTypes()).thenReturn(new BitSet());
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(d1, k2),
+                ImmutableList.of(d1, k2),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                null,
+                false,
+                mockedGroupPlan);
+        GroupExpression parent = new GroupExpression(aggregate);
+        PhysicalProperties required = PhysicalProperties.createHash(
+                ImmutableList.of(d1.getExprId(), k2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        DistributionSpecHash naturalWithMapping = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId(), k2.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, Sets.newHashSet(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+        DistributionSpecHash naturalWithoutMapping = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId(), k2.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, Sets.newHashSet(3L), ImmutableList.of());
+
+        Assertions.assertFalse(adjustAggregateProperties(
+                parent, new PhysicalProperties(naturalWithMapping), required).isEmpty());
+        Assertions.assertTrue(adjustAggregateProperties(
+                parent, new PhysicalProperties(naturalWithoutMapping), required).isEmpty());
+    }
+
+    private List<List<PhysicalProperties>> adjustAggregateProperties(
+            GroupExpression parent, PhysicalProperties childOutput, PhysicalProperties required) {
+        ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(
+                parent,
+                ImmutableList.of(Mockito.mock(GroupExpression.class)),
+                ImmutableList.of(childOutput),
+                ImmutableList.of(required),
+                mockedJobContext);
+        return regulator.adjustChildrenProperties();
+    }
+
+    @Test
     public void testRejectPartiallySatisfiedColocateMappingRequest() {
         assertColocateMappingRequestRejected(Optional.empty(), Optional.of("mapping_1"));
     }
