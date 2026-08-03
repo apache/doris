@@ -95,12 +95,38 @@ public class FlussConnectorPropertiesTest {
                 "message should list the accepted values, was: " + e.getMessage());
     }
 
+    /**
+     * The ceiling on how much log tail BE may hold while reading a primary-key table together with its
+     * lake. Zero and negative are rejected rather than read as "no limit": that limit exists because BE
+     * is a long-lived process shared by every other query, and there is deliberately no way to say
+     * "unbounded".
+     */
+    @Test
+    public void theTailCeilingDefaultsToTwoMillionRowsAndMustBePositive() {
+        Assertions.assertEquals(2_000_000L, FlussConnectorProperties.maxTailRows(props()));
+        Assertions.assertEquals(500L, FlussConnectorProperties.maxTailRows(
+                props(FlussConnectorProperties.UNION_READ_MAX_TAIL_ROWS, " 500 ")));
+
+        for (String bad : new String[] {"0", "-1", "lots", ""}) {
+            Map<String, String> properties = props(
+                    FlussConnectorProperties.BOOTSTRAP_SERVERS, "localhost:9123",
+                    FlussConnectorProperties.UNION_READ_MAX_TAIL_ROWS, bad);
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> FlussConnectorProperties.validate(properties),
+                    "accepted '" + bad + "' as a row ceiling");
+            Assertions.assertTrue(
+                    e.getMessage().contains(FlussConnectorProperties.UNION_READ_MAX_TAIL_ROWS),
+                    e.getMessage());
+        }
+    }
+
     @Test
     public void clientConfigIsThePrefixedPropertiesMinusTheDorisOnlyOnes() {
         Map<String, String> properties = props(
                 FlussConnectorProperties.BOOTSTRAP_SERVERS, "localhost:9123",
                 "fluss.client.security.protocol", "sasl",
                 FlussConnectorProperties.UNION_READ_MODE, "required",
+                FlussConnectorProperties.UNION_READ_MAX_TAIL_ROWS, "10",
                 FlussConnectorProperties.ENABLE_MAPPING_VARBINARY, "true",
                 FlussConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true",
                 "type", "fluss",
