@@ -117,6 +117,16 @@ public:
             doris::snii::format::IndexConfig index_config,
             std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
             doris::snii::writer::SniiStreamedIndexSession** session);
+    // Registers one opaque BLOB logical index (a numeric BKD, an ANN graph, ...)
+    // on this SNII compound. Unlike add_snii_index it feeds the writer no terms:
+    // the sub-file bytes are pulled through the BlobFileSource callbacks at
+    // finish(), which is what lets the container -- not the producer -- decide
+    // cold/hot placement. Registration writes no byte, so a rejected call leaves
+    // the writer clean.
+    Status add_snii_blob_index(const TabletIndex* index_meta,
+                               doris::snii::format::LogicalIndexKind kind,
+                               std::vector<doris::snii::writer::BlobFileSource> cold_files,
+                               std::vector<doris::snii::writer::BlobFileSource> hot_files);
     void retain_snii_memory_reporter(
             std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter);
     // SNII only, BUILD INDEX rewrite: copies the source container's valid
@@ -158,9 +168,22 @@ private:
                                       std::shared_ptr<DorisFSDirectory> dir);
     virtual Result<std::unique_ptr<IndexSearcherBuilder>> _construct_index_searcher_builder(
             const DorisCompoundReader* dir);
+    // SNII only: turns every CLucene directory opened through open() into a blob
+    // logical index in the container. Runs once, from begin_close(), before the
+    // compound writer is sealed.
+    Status _seal_snii_blob_directories();
+    // Drops the directories harvested by the above once the container owns their
+    // bytes. Only the SNII path needs this: the V1/V2 branch of begin_close()
+    // deletes its own directories inline.
+    void _release_snii_blob_directories();
 
     // Member variables...
     InvertedIndexDirectoryMap _indices_dirs;
+    // SNII only: the index metadata behind each entry of _indices_dirs. Owned a
+    // copy rather than borrowed, because the harvest happens in begin_close(),
+    // long after open() returned. Held by shared_ptr so this header keeps
+    // TabletIndex incomplete -- it is included nearly everywhere.
+    std::map<std::pair<int64_t, std::string>, std::shared_ptr<TabletIndex>> _snii_blob_dir_metas;
     const io::FileSystemSPtr _fs;
     std::string _index_path_prefix;
     std::string _rowset_id;

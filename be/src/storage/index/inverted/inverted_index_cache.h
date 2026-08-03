@@ -37,6 +37,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/snii_bkd_searcher.h"
 #include "util/lru_cache.h"
 #include "util/slice.h"
 #include "util/time.h"
@@ -61,6 +62,10 @@ public:
         IndexSearcherPtr index_searcher;
         std::shared_ptr<IndexFileReader> snii_index_file_reader;
         std::unique_ptr<doris::snii::reader::LogicalIndexReader> snii_logical_reader;
+        // The numeric counterpart of snii_logical_reader: an opened SNII-native
+        // BKD blob index. A cache entry holds exactly one of the two, decided by
+        // which constructor ran.
+        std::unique_ptr<doris::snii::bkd::BkdSearcher> snii_bkd_searcher;
         size_t size = 0;
         int64_t last_visit_time;
 
@@ -75,6 +80,14 @@ public:
                             std::shared_ptr<IndexFileReader> index_file_reader)
                 : snii_index_file_reader(std::move(index_file_reader)),
                   snii_logical_reader(std::move(logical_reader)) {
+            size = mem_size;
+            last_visit_time = visit_time;
+        }
+        explicit CacheValue(std::unique_ptr<doris::snii::bkd::BkdSearcher> bkd_searcher,
+                            size_t mem_size, int64_t visit_time,
+                            std::shared_ptr<IndexFileReader> index_file_reader)
+                : snii_index_file_reader(std::move(index_file_reader)),
+                  snii_bkd_searcher(std::move(bkd_searcher)) {
             size = mem_size;
             last_visit_time = visit_time;
         }
@@ -182,6 +195,11 @@ public:
     doris::snii::reader::LogicalIndexReader* get_snii_logical_reader() {
         return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))
                 ->snii_logical_reader.get();
+    }
+
+    doris::snii::bkd::BkdSearcher* get_snii_bkd_searcher() {
+        return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))
+                ->snii_bkd_searcher.get();
     }
 
     InvertedIndexSearcherCache::CacheValue* get_index_cache_value() {

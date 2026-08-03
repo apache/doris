@@ -94,6 +94,18 @@ public class InvertedIndexUtil {
         return InvertedIndexProperties.getInvertedIndexFieldPattern(properties);
     }
 
+    /**
+     * Scalar column types the SNII storage format can serve with its native BKD index. Mirrors
+     * {@code field_is_numeric_type} on the BE side, which is what routes the column to
+     * SniiBkdIndexColumnWriter / SniiBkdIndexReader. Kept in sync with
+     * {@code IndexDefinition.isSupportSniiNumericIdxType}, which applies the same rule one layer up
+     * where the ARRAY item type is also known.
+     */
+    public static boolean isSupportSniiNumericIdxType(PrimitiveType colType) {
+        return colType.isNumericType() || colType.isDateLikeType() || colType.isTimeStampTzType()
+                || colType.isIPType() || colType == PrimitiveType.BOOLEAN;
+    }
+
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
             Map<String, String> properties,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
@@ -107,8 +119,9 @@ public class InvertedIndexUtil {
         }
 
         if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII
-                && !colType.isStringType() && !colType.isArrayType()) {
-            throw new AnalysisException("SNII inverted index storage format only supports string columns, column: "
+                && !colType.isStringType() && !colType.isArrayType()
+                && !isSupportSniiNumericIdxType(colType)) {
+            throw new AnalysisException("SNII inverted index storage format does not support index on column: "
                     + indexColName + " type: " + colType);
         }
 

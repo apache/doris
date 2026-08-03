@@ -408,6 +408,14 @@ void pfor_encode(const uint32_t* values, size_t n, ByteSink* out) {
 Status pfor_decode(ByteSource* src, size_t n, uint32_t* out) {
     uint8_t w;
     RETURN_IF_ERROR(src->get_u8(&w));
+    // choose_width never returns above 32. A larger width is damage, and while
+    // the unpackers stay in bounds for it, they would read up to 32x the honest
+    // byte count and hand back silently truncated values -- a wrong answer where
+    // a corruption Status belongs.
+    if (w > 32) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "pfor bit width {} exceeds 32", w);
+    }
     uint32_t n_exc;
     RETURN_IF_ERROR(src->get_varint32(&n_exc));
     RETURN_IF_ERROR(bitunpack(src, n, w, out));

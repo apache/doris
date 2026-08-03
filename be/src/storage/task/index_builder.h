@@ -74,11 +74,17 @@ public:
     // inherited). `container_has` reports whether the SOURCE container holds a
     // given logical index; static and callback-based so the classification is
     // directly unit-testable without files.
+    //
+    // `source_container_has_blob` suppresses inheritance for the WHOLE segment:
+    // inheritance snapshots the source container, and a container holding a blob
+    // logical index cannot be snapshotted at all (SniiSegmentReader rejects it,
+    // by directory content rather than by what is being kept). Rebuilding every
+    // index is then the only way through, and it is a correct one.
     static Status plan_snii_index_rewrite(
             const TabletSchema& input_schema, const TabletSchema& output_schema,
             const std::set<int64_t>& alter_index_ids,
             const std::function<Status(const TabletIndex&, bool*)>& container_has,
-            SniiIndexRewritePlan* plan);
+            bool source_container_has_blob, SniiIndexRewritePlan* plan);
 
 private:
     // SNII counterpart of the V1/V2 build branch in handle_single_rowset: plans

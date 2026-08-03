@@ -3552,7 +3552,8 @@ TEST_F(IndexBuilderTest, SniiBuildPlanClassifiesInheritBuildReplaceAndDrop) {
 
     IndexBuilder::SniiIndexRewritePlan plan;
     ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(*input_schema, *output_schema, {2, 3},
-                                                      container_has, &plan)
+                                                      container_has,
+                                                      /*source_container_has_blob=*/false, &plan)
                         .ok());
     ASSERT_EQ(plan.inherit_keys.size(), 1U);
     EXPECT_EQ(plan.inherit_keys.front().index_id, 1U);
@@ -3583,7 +3584,8 @@ TEST_F(IndexBuilderTest, SniiBuildPlanToleratesUnrequestedIndexWithoutColumnUniq
 
     IndexBuilder::SniiIndexRewritePlan plan;
     ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(*input_schema, *output_schema, {1},
-                                                      container_has, &plan)
+                                                      container_has,
+                                                      /*source_container_has_blob=*/false, &plan)
                         .ok());
     // The healthy index still inherits; the malformed one just stays absent.
     ASSERT_EQ(plan.inherit_keys.size(), 1U);
@@ -3605,11 +3607,37 @@ TEST_F(IndexBuilderTest, SniiBuildPlanRejectsIndexWithoutColumnUniqueId) {
         return Status::OK();
     };
     IndexBuilder::SniiIndexRewritePlan plan;
-    const Status status = IndexBuilder::plan_snii_index_rewrite(*input_schema, *output_schema, {1},
-                                                                container_has, &plan);
+    const Status status =
+            IndexBuilder::plan_snii_index_rewrite(*input_schema, *output_schema, {1}, container_has,
+                                                  /*source_container_has_blob=*/false, &plan);
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
     EXPECT_TRUE(plan.inherit_keys.empty());
     EXPECT_TRUE(plan.build_columns.empty());
+}
+
+// A source container holding a blob logical index (a numeric column, served by
+// the native BKD) cannot be snapshotted for inheritance AT ALL: the snapshot is
+// rejected by the container's directory content, not by the subset being kept.
+// So an otherwise-inheritable text index must be reclassified to rebuild too --
+// leaving even one key in inherit_keys makes the whole segment rewrite fail.
+TEST_F(IndexBuilderTest, SniiBuildPlanRebuildsEverythingWhenSourceContainerHoldsABlob) {
+    const auto input_schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2}});
+    // Same key, same definition, present in the container: inheritable by every
+    // rule except the container's blob.
+    const auto container_has = [](const TabletIndex& index, bool* exists) {
+        *exists = index.index_id() == 1;
+        return Status::OK();
+    };
+
+    IndexBuilder::SniiIndexRewritePlan plan;
+    ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(*input_schema, *input_schema, {1},
+                                                      container_has,
+                                                      /*source_container_has_blob=*/true, &plan)
+                        .ok());
+    EXPECT_TRUE(plan.inherit_keys.empty());
+    ASSERT_EQ(plan.build_columns.size(), 1U);
+    EXPECT_EQ(plan.build_columns.front().first, 2);
 }
 
 TEST_F(IndexBuilderTest, SniiBuildPlanClassifiesReplaceAndRetry) {
@@ -3627,8 +3655,9 @@ TEST_F(IndexBuilderTest, SniiBuildPlanClassifiesReplaceAndRetry) {
                                                               .column_unique_id = 2,
                                                               .properties = {{"parser", "none"}}}});
     IndexBuilder::SniiIndexRewritePlan replace_plan;
-    ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(*input_schema, *replaced_schema, {1},
-                                                      container_has, &replace_plan)
+    ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(
+                        *input_schema, *replaced_schema, {1}, container_has,
+                        /*source_container_has_blob=*/false, &replace_plan)
                         .ok());
     EXPECT_TRUE(replace_plan.inherit_keys.empty());
     ASSERT_EQ(replace_plan.build_columns.size(), 1U);
@@ -3637,9 +3666,10 @@ TEST_F(IndexBuilderTest, SniiBuildPlanClassifiesReplaceAndRetry) {
     // Retry: the requested index already exists in schema and container with the
     // same definition -> inherit, no build work at all.
     IndexBuilder::SniiIndexRewritePlan retry_plan;
-    ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(*input_schema, *input_schema, {1},
-                                                      container_has, &retry_plan)
-                        .ok());
+    ASSERT_TRUE(
+            IndexBuilder::plan_snii_index_rewrite(*input_schema, *input_schema, {1}, container_has,
+                                                  /*source_container_has_blob=*/false, &retry_plan)
+                    .ok());
     ASSERT_EQ(retry_plan.inherit_keys.size(), 1U);
     EXPECT_TRUE(retry_plan.build_columns.empty());
 }

@@ -373,85 +373,226 @@ suite("test_storage_format_snii", "p0, nonConcurrent") {
         );
     """
 
-    test {
-        sql """
-            ALTER TABLE test_storage_format_snii_add_index
-            ADD INDEX idx_score_added (`score`) USING INVERTED COMMENT ''
-        """
-        exception "SNII inverted index storage format"
-    }
+    // ADD INDEX on a scalar numeric is accepted: the SNII-native BKD serves it.
+    sql """
+        ALTER TABLE test_storage_format_snii_add_index
+        ADD INDEX idx_score_added (`score`) USING INVERTED COMMENT ''
+    """
 
-    test {
-        sql """
-            ALTER TABLE test_storage_format_snii_add_index
-            ADD INDEX idx_scores_added (`scores`) USING INVERTED COMMENT ''
-        """
-        exception "SNII inverted index storage format"
-    }
+    // ADD INDEX on an ARRAY of numerics is accepted too.
+    sql """
+        ALTER TABLE test_storage_format_snii_add_index
+        ADD INDEX idx_scores_added (`scores`) USING INVERTED COMMENT ''
+    """
 
-    test {
-        sql """
-            CREATE INDEX idx_ann_added ON test_storage_format_snii_add_index (`embedding`) USING ANN PROPERTIES(
-              "index_type" = "hnsw",
-              "metric_type" = "l2_distance",
-              "dim" = "1"
-            )
-        """
-        exception "ANN index is not supported in index format SNII"
-    }
+    // ADD INDEX on an ANN column is accepted: SNII stores it as a blob logical
+    // index (kAnn), the same container mechanism the native BKD uses.
+    sql """
+        CREATE INDEX idx_ann_added ON test_storage_format_snii_add_index (`embedding`) USING ANN PROPERTIES(
+          "index_type" = "hnsw",
+          "metric_type" = "l2_distance",
+          "dim" = "1"
+        )
+    """
 
-    test {
-        sql """
-            CREATE TABLE test_storage_format_snii_bkd (
-              id INT NULL,
-              score INT NULL,
-              INDEX idx_score (`score`) USING INVERTED COMMENT ''
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
-            DISTRIBUTED BY RANDOM BUCKETS 1
-            PROPERTIES (
-              "replication_allocation" = "tag.location.default: 1",
-              "inverted_index_storage_format" = "SNII"
-            );
-        """
-        exception "SNII inverted index storage format"
-    }
+    // Scalar numeric columns are served by the SNII-native BKD index. The column
+    // set spans the width classes (1/4/8/16 bytes) and the composite CppTypes
+    // (DECIMAL, DATETIME), because the writer walks the value array by
+    // field_type_size and encodes with the matching KeyCoder -- a disagreement
+    // for any one of them silently shifts every row's value.
+    sql """
+        CREATE TABLE test_storage_format_snii_bkd (
+          id INT NULL,
+          score INT NULL,
+          big BIGINT NULL,
+          huge LARGEINT NULL,
+          tiny TINYINT NULL,
+          ratio DOUBLE NULL,
+          price DECIMAL(20, 4) NULL,
+          ts DATETIME NULL,
+          INDEX idx_score (`score`) USING INVERTED COMMENT '',
+          INDEX idx_big (`big`) USING INVERTED COMMENT '',
+          INDEX idx_huge (`huge`) USING INVERTED COMMENT '',
+          INDEX idx_tiny (`tiny`) USING INVERTED COMMENT '',
+          INDEX idx_ratio (`ratio`) USING INVERTED COMMENT '',
+          INDEX idx_price (`price`) USING INVERTED COMMENT '',
+          INDEX idx_ts (`ts`) USING INVERTED COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "disable_auto_compaction" = "true",
+          "inverted_index_storage_format" = "SNII"
+        );
+    """
 
-    test {
-        sql """
-            CREATE TABLE test_storage_format_snii_array_bkd (
-              id INT NULL,
-              scores ARRAY<INT> NULL,
-              INDEX idx_scores (`scores`) USING INVERTED COMMENT ''
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
-            DISTRIBUTED BY RANDOM BUCKETS 1
-            PROPERTIES (
-              "replication_allocation" = "tag.location.default: 1",
-              "inverted_index_storage_format" = "SNII"
-            );
-        """
-        exception "SNII inverted index storage format"
-    }
+    sql """
+        INSERT INTO test_storage_format_snii_bkd VALUES
+          (1, -100, -9223372036854775808, -170141183460469231731687303715884105728, -128, -1.5, -99999.9999, '2020-01-01 00:00:00'),
+          (2, -1, -1, -1, -1, -0.5, -0.0001, '2021-06-15 12:30:45'),
+          (3, 0, 0, 0, 0, 0.0, 0.0000, '2022-01-01 00:00:00'),
+          (4, 1, 1, 1, 1, 0.5, 0.0001, '2023-03-08 08:08:08'),
+          (5, 100, 9223372036854775807, 170141183460469231731687303715884105727, 127, 1.5, 99999.9999, '2024-12-31 23:59:59'),
+          (6, NULL, NULL, NULL, NULL, NULL, NULL, NULL),
+          (7, 50, 50, 50, 50, 0.25, 12.3456, '2022-07-04 06:00:00');
+    """
+    sql "sync"
 
-    test {
-        sql """
-            CREATE TABLE test_storage_format_snii_ann (
-              id INT NULL,
-              embedding ARRAY<FLOAT> NOT NULL,
-              INDEX idx_ann (`embedding`) USING ANN PROPERTIES(
-                "index_type" = "hnsw",
-                "metric_type" = "l2_distance",
-                "dim" = "1"
-              )
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
-            DISTRIBUTED BY RANDOM BUCKETS 1
-            PROPERTIES (
-              "replication_allocation" = "tag.location.default: 1",
-              "inverted_index_storage_format" = "SNII"
-            );
-        """
-        exception "ANN index is not supported in index format SNII"
-    }
+    // Every shape the BKD reader translates: equality, both strict and
+    // non-strict one-sided bounds, and the two-sided form that arrives as a
+    // conjunction of two independent predicates.
+    order_qt_bkd_eq """SELECT id FROM test_storage_format_snii_bkd WHERE score = 0 ORDER BY id"""
+    order_qt_bkd_lt """SELECT id FROM test_storage_format_snii_bkd WHERE score < 1 ORDER BY id"""
+    order_qt_bkd_le """SELECT id FROM test_storage_format_snii_bkd WHERE score <= 1 ORDER BY id"""
+    order_qt_bkd_gt """SELECT id FROM test_storage_format_snii_bkd WHERE score > 0 ORDER BY id"""
+    order_qt_bkd_ge """SELECT id FROM test_storage_format_snii_bkd WHERE score >= 0 ORDER BY id"""
+    order_qt_bkd_between """SELECT id FROM test_storage_format_snii_bkd WHERE score BETWEEN -1 AND 50 ORDER BY id"""
+    order_qt_bkd_in """SELECT id FROM test_storage_format_snii_bkd WHERE score IN (-100, 0, 100) ORDER BY id"""
+
+    // A NULL row owns no point, so it must not answer any comparison, and
+    // IS NULL must still find it.
+    order_qt_bkd_is_null """SELECT id FROM test_storage_format_snii_bkd WHERE score IS NULL ORDER BY id"""
+    order_qt_bkd_is_not_null """SELECT id FROM test_storage_format_snii_bkd WHERE score IS NOT NULL ORDER BY id"""
+
+    // The remaining width classes, each at its type's extremes.
+    order_qt_bkd_bigint """SELECT id FROM test_storage_format_snii_bkd WHERE big <= -1 ORDER BY id"""
+    order_qt_bkd_largeint """SELECT id FROM test_storage_format_snii_bkd WHERE huge > 0 ORDER BY id"""
+    order_qt_bkd_tinyint """SELECT id FROM test_storage_format_snii_bkd WHERE tiny >= 1 ORDER BY id"""
+    order_qt_bkd_double """SELECT id FROM test_storage_format_snii_bkd WHERE ratio < 0.0 ORDER BY id"""
+    order_qt_bkd_decimal """SELECT id FROM test_storage_format_snii_bkd WHERE price >= 0.0001 ORDER BY id"""
+    order_qt_bkd_datetime """SELECT id FROM test_storage_format_snii_bkd WHERE ts < '2022-07-04 06:00:00' ORDER BY id"""
+
+    // The index must not change the answer. Turning it off has to produce the
+    // same rows, which is what makes the assertions above about the INDEX
+    // rather than about the data.
+    sql "SET enable_inverted_index_query = false"
+    order_qt_bkd_noindex_lt """SELECT id FROM test_storage_format_snii_bkd WHERE score < 1 ORDER BY id"""
+    order_qt_bkd_noindex_between """SELECT id FROM test_storage_format_snii_bkd WHERE score BETWEEN -1 AND 50 ORDER BY id"""
+    order_qt_bkd_noindex_decimal """SELECT id FROM test_storage_format_snii_bkd WHERE price >= 0.0001 ORDER BY id"""
+    sql "SET enable_inverted_index_query = true"
+
+    // ARRAY<numeric> on SNII: each element is indexed as its own point under the
+    // row's id, so a row matches when ANY of its elements does.
+    sql """
+        CREATE TABLE test_storage_format_snii_array_bkd (
+          id INT NULL,
+          scores ARRAY<INT> NULL,
+          INDEX idx_scores (`scores`) USING INVERTED COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "disable_auto_compaction" = "true",
+          "inverted_index_storage_format" = "SNII"
+        );
+    """
+
+    sql """
+        INSERT INTO test_storage_format_snii_array_bkd VALUES
+          (1, [10, 20, 30]),
+          (2, [20]),
+          (3, []),
+          (4, NULL),
+          (5, [-5, 0, 5]),
+          (6, [30, 30, 30]);
+    """
+    sql "sync"
+
+    // 20 lives on rows 1 and 2: one row matching through several elements, and
+    // one through its only element.
+    order_qt_array_contains_20 """
+        SELECT id FROM test_storage_format_snii_array_bkd
+        WHERE array_contains(scores, 20) ORDER BY id
+    """
+    order_qt_array_contains_30 """
+        SELECT id FROM test_storage_format_snii_array_bkd
+        WHERE array_contains(scores, 30) ORDER BY id
+    """
+    // Absent from every row.
+    order_qt_array_contains_absent """
+        SELECT id FROM test_storage_format_snii_array_bkd
+        WHERE array_contains(scores, 999) ORDER BY id
+    """
+    // An empty array is NOT null; only row 4 is.
+    order_qt_array_is_null """
+        SELECT id FROM test_storage_format_snii_array_bkd
+        WHERE scores IS NULL ORDER BY id
+    """
+    // The index must not change the answer.
+    sql "SET enable_inverted_index_query = false"
+    order_qt_array_noindex_contains_20 """
+        SELECT id FROM test_storage_format_snii_array_bkd
+        WHERE array_contains(scores, 20) ORDER BY id
+    """
+    order_qt_array_noindex_is_null """
+        SELECT id FROM test_storage_format_snii_array_bkd
+        WHERE scores IS NULL ORDER BY id
+    """
+    sql "SET enable_inverted_index_query = true"
+
+    // An ANN index coexisting with text and BKD indexes in ONE SNII container.
+    //
+    // The container format reserved LogicalIndexKind::kAnn from the start and its
+    // blob logical index is a table of named opaque sub-files -- exactly what
+    // faiss emits -- so ANN needs no format change, only the adapter on both ends
+    // (IndexFileWriter::open + begin_close on the way in, DorisCompoundReader over
+    // the blob's absolute container offsets on the way out).
+    sql "DROP TABLE IF EXISTS test_storage_format_snii_ann"
+    sql """
+        CREATE TABLE test_storage_format_snii_ann (
+          id INT NULL,
+          note TEXT NULL,
+          score INT NULL,
+          embedding ARRAY<FLOAT> NOT NULL,
+          INDEX idx_ann_note (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT '',
+          INDEX idx_ann_score (`score`) USING INVERTED COMMENT '',
+          INDEX idx_ann (`embedding`) USING ANN PROPERTIES(
+            "index_type" = "hnsw",
+            "metric_type" = "l2_distance",
+            "dim" = "4"
+          )
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "inverted_index_storage_format" = "SNII"
+        );
+    """
+    sql """
+        INSERT INTO test_storage_format_snii_ann VALUES
+          (1, 'alpha one',   10, [1.0, 1.0, 1.0, 1.0]),
+          (2, 'beta two',    20, [2.0, 2.0, 2.0, 2.0]),
+          (3, 'gamma three', 30, [3.0, 3.0, 3.0, 3.0]),
+          (4, 'delta four',  40, [9.0, 9.0, 9.0, 9.0]),
+          (5, 'alpha five',  50, [8.0, 8.0, 8.0, 8.0]);
+    """
+    sql "sync"
+
+    // The nearest neighbour of a probe sitting on row 1's vector is row 1, and
+    // the ordering out from it follows the grid the rows were laid on.
+    order_qt_ann_topn_near_one """
+        SELECT id FROM test_storage_format_snii_ann
+        ORDER BY l2_distance_approximate(embedding, [1.0, 1.0, 1.0, 1.0])
+        LIMIT 3
+    """
+    // A probe at the far corner must pick the far rows instead, so the answer is
+    // driven by the query vector rather than by row order.
+    order_qt_ann_topn_near_nine """
+        SELECT id FROM test_storage_format_snii_ann
+        ORDER BY l2_distance_approximate(embedding, [9.0, 9.0, 9.0, 9.0])
+        LIMIT 2
+    """
+    // The text and BKD indexes in the SAME container must still answer: sealing
+    // an ANN blob alongside them must not disturb the metadata groups.
+    order_qt_ann_container_text """
+        SELECT id FROM test_storage_format_snii_ann
+        WHERE note MATCH_ANY 'alpha' ORDER BY id
+    """
+    order_qt_ann_container_bkd """
+        SELECT id FROM test_storage_format_snii_ann
+        WHERE score >= 30 ORDER BY id
+    """
 }

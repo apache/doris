@@ -66,7 +66,7 @@ Status IndexBuilder::plan_snii_index_rewrite(
         const TabletSchema& input_schema, const TabletSchema& output_schema,
         const std::set<int64_t>& alter_index_ids,
         const std::function<Status(const TabletIndex&, bool*)>& container_has,
-        SniiIndexRewritePlan* plan) {
+        bool source_container_has_blob, SniiIndexRewritePlan* plan) {
     DORIS_CHECK(plan != nullptr);
     plan->inherit_keys.clear();
     plan->build_columns.clear();
@@ -74,7 +74,7 @@ Status IndexBuilder::plan_snii_index_rewrite(
     // index on that column and the output layout is deterministic.
     std::map<int32_t, std::vector<const TabletIndex*>> build_by_column;
     std::set<std::pair<uint64_t, std::string>> seen_keys;
-    for (const TabletIndex* index : output_schema.inverted_indexes()) {
+    for (const TabletIndex* index : output_schema.inverted_and_ann_indexes()) {
         const auto key =
                 std::make_pair(cast_set<uint64_t>(index->index_id()), index->get_index_suffix());
         // The target schema holds each logical index exactly once; the final
@@ -83,7 +83,7 @@ Status IndexBuilder::plan_snii_index_rewrite(
         bool in_container = false;
         RETURN_IF_ERROR(container_has(*index, &in_container));
         const TabletIndex* input_index = nullptr;
-        for (const TabletIndex* candidate : input_schema.inverted_indexes()) {
+        for (const TabletIndex* candidate : input_schema.inverted_and_ann_indexes()) {
             if (candidate->index_id() == index->index_id() &&
                 candidate->get_index_suffix() == index->get_index_suffix()) {
                 input_index = candidate;
@@ -92,7 +92,13 @@ Status IndexBuilder::plan_snii_index_rewrite(
         }
         const bool definition_unchanged =
                 input_index != nullptr && input_index->properties() == index->properties();
-        if (in_container && definition_unchanged) {
+        // Inheritance is ONE snapshot of the source container per segment, and a
+        // container holding a blob logical index cannot be snapshotted at all:
+        // SniiSegmentReader rejects it by scanning every directory entry, not by
+        // what the snapshot was asked to keep. So leaving even one key here would
+        // fail the whole rewrite -- when the source holds a blob, everything is
+        // rebuilt instead, which costs a raw column read but is always correct.
+        if (in_container && definition_unchanged && !source_container_has_blob) {
             plan->inherit_keys.push_back({.index_id = key.first, .index_suffix = key.second});
             continue;
         }
@@ -324,8 +330,7 @@ Status IndexBuilder::update_inverted_index_info() {
         }
 
         const bool preserve_snii_container =
-                is_snii_drop && (output_rs_tablet_schema->has_inverted_index() ||
-                                 output_rs_tablet_schema->has_ann_index());
+                is_snii_drop && (output_rs_tablet_schema->has_inverted_or_ann_index());
         std::set<int64_t>* excluded_index_ids =
                 without_index_uids.empty() ? &_alter_index_ids : &without_index_uids;
         if (preserve_snii_container) {
@@ -826,31 +831,11 @@ Status IndexBuilder::_rewrite_single_segment_snii(const io::FileSystemSPtr& fs,
             return init_status;
         }
     }
-    // The rewrite plan below can only represent IndexType::INVERTED, on BOTH
-    // sides, and a shortfall on either side is a silent drop:
-    //   * target schema: a non-text index there is never planned, so the sealed
-    //     container would simply not have it while the schema claims it does;
-    //   * source container: a blob logical index there is neither inherited nor
-    //     rebuilt, so it would not be carried over.
-    // prepare_rewrite_snapshot refuses blob-bearing containers, but only when
-    // something is inheritable, so it cannot be relied on here. FE rejects ANN on
-    // SNII in CREATE TABLE and ADD INDEX, and the storage format is immutable
-    // after creation -- but RESTORE re-validates almost nothing, so treat these
-    // as reachable rather than impossible, and keep them refused once that gate
-    // is relaxed for real.
-    if (output_rowset_schema->has_ann_index()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
-                "SNII rewrite: the target schema holds a non-text index this rewrite can neither "
-                "inherit nor rebuild. tablet_id={} rowset_id={} segment_id={}",
-                _tablet->tablet_id(), rowset_id, seg_ptr->id());
-    }
-    if (has_container && source_reader->snii_has_blob_index()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
-                "SNII rewrite over a container holding a blob logical index is not supported; "
-                "carrying blob entries through a rewrite needs them re-emitted into the new "
-                "container. tablet_id={} rowset_id={} segment_id={}",
-                _tablet->tablet_id(), rowset_id, seg_ptr->id());
-    }
+    // An ANN index needs no special case here any more. plan_snii_index_rewrite
+    // enumerates inverted_and_ann_indexes(), which covers ANN, and an ANN index is stored
+    // as a blob logical index -- so it is classified rebuild-always exactly like a
+    // BKD, and IndexColumnWriter::create routes it to the ANN writer from the same
+    // raw column read.
     const auto container_has = [source_reader, has_container](const TabletIndex& index,
                                                               bool* exists) -> Status {
         if (!has_container) {
@@ -860,8 +845,9 @@ Status IndexBuilder::_rewrite_single_segment_snii(const io::FileSystemSPtr& fs,
         return source_reader->index_file_exist(&index, exists);
     };
     SniiIndexRewritePlan plan;
-    RETURN_IF_ERROR(plan_snii_index_rewrite(input_schema, *output_rowset_schema, _alter_index_ids,
-                                            container_has, &plan));
+    RETURN_IF_ERROR(plan_snii_index_rewrite(
+            input_schema, *output_rowset_schema, _alter_index_ids, container_has,
+            has_container && source_reader->snii_has_blob_index(), &plan));
 
     std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
             local_segment_path(_tablet->tablet_path(), rowset_id, seg_ptr->id()))};

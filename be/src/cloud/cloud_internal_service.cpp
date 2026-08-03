@@ -983,7 +983,7 @@ void record_warmup_ed_fail_index(const std::string& job_id_str, int64_t idx_size
 void record_warmup_ed_skipped_rowset_as_finished(RowsetMeta& rs_meta,
                                                  const std::string& job_id_str) {
     auto schema_ptr = rs_meta.tablet_schema();
-    bool has_inverted_index = schema_ptr->has_inverted_index() || schema_ptr->has_ann_index();
+    bool has_inverted_index = schema_ptr->has_inverted_or_ann_index();
     auto idx_version = schema_ptr->get_inverted_index_storage_format();
     for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
         record_warmup_ed_finish_segment(job_id_str, rs_meta.segment_file_size(segment_id));
@@ -1287,7 +1287,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             auto schema_ptr = rs_meta.tablet_schema();
             auto idx_version = schema_ptr->get_inverted_index_storage_format();
 
-            if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
+            if (schema_ptr->has_inverted_or_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
                     auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
                     std::unordered_map<int64_t, int64_t> index_size_map;

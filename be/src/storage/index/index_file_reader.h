@@ -37,6 +37,7 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_bkd_searcher.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 
 namespace doris {
@@ -71,6 +72,13 @@ public:
                               const io::IOContext* io_ctx = nullptr);
     MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> open(
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
+    // Opens one BLOB logical index of kind kBkd: resolves its named sub-files
+    // (bkd_data / bkd_index / bkd_nulls) into extents through the CONTAINER's own
+    // directory and hands back a reader bound to this IndexFileReader's file.
+    // The caller must keep this IndexFileReader alive for the reader's lifetime,
+    // exactly as open_snii_index requires.
+    Result<std::unique_ptr<doris::snii::bkd::BkdSearcher>> open_snii_bkd_index(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx) const;
     Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> open_snii_index(
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr,
             doris::snii::reader::LogicalIndexOpenMode open_mode =

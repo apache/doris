@@ -166,7 +166,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
     IndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
     }
 
@@ -191,7 +191,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
                 _context.data_dir, writer_options, index_file_writer.get());
     }
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
     }
     auto s = writer->init();
@@ -210,7 +210,7 @@ Status SegmentFlusher::_create_segment_writer(
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
     IndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
     }
 
@@ -227,7 +227,7 @@ Status SegmentFlusher::_create_segment_writer(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
             _context.data_dir, writer_options, index_file_writer.get());
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
     }
     auto s = writer->init();

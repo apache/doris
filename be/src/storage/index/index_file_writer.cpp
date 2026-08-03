@@ -131,9 +131,14 @@ Status IndexFileWriter::_insert_directory_into_map(int64_t index_id,
 }
 
 Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletIndex* index_meta) {
-    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+    // A text index under SNII has no business here: its postings go through the
+    // SPIMI writer, not a CLucene directory. An ANN index is the other case --
+    // faiss writes through this directory abstraction, and the container stores
+    // the result as a blob logical index (kAnn), exactly as it stores the BKD.
+    // begin_close() harvests the directory into that blob.
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII && !index_meta->is_ann_index()) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII format does not open CLucene directories"));
+                "SNII format does not open CLucene directories for inverted indexes"));
     }
     auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             _tmp_dir, _rowset_id, _seg_id, index_meta->index_id(), index_meta->get_index_suffix());
@@ -144,8 +149,105 @@ Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletInde
     if (!st.ok()) {
         return ResultError(st);
     }
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        // Copied, not borrowed: the directory's files are not harvested until
+        // begin_close(), and nothing promises the caller's TabletIndex is still
+        // alive by then.
+        _snii_blob_dir_metas.emplace(
+                std::make_pair(index_meta->index_id(), index_meta->get_index_suffix()),
+                std::make_shared<TabletIndex>(*index_meta));
+    }
 
     return dir;
+}
+
+Status IndexFileWriter::_seal_snii_blob_directories() {
+    DORIS_CHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
+    for (const auto& [key, dir] : _indices_dirs) {
+        const auto meta_it = _snii_blob_dir_metas.find(key);
+        // Every SNII directory is registered with its metadata by open(), which
+        // is the only way one gets into this map.
+        DORIS_CHECK(meta_it != _snii_blob_dir_metas.end());
+        // open()'s gate admits ONLY ann indexes under SNII, and the kind stamped
+        // below depends on it. Asserted here, where it is relied upon, so that
+        // widening that gate cannot silently mislabel another index kind.
+        DORIS_CHECK(meta_it->second->is_ann_index());
+
+        // list() and fileLength() throw CLuceneError on a real I/O failure. The
+        // snii core has no try/catch on its sealing path -- an escaping exception
+        // would skip poison() -- so this adapter must convert them here, exactly
+        // as it does for openInput and for the read_fn below.
+        std::vector<std::string> names;
+        std::vector<int64_t> lengths;
+        try {
+            dir->list(&names);
+            // Deterministic sub-file order, so two builds of the same index lay
+            // the container out identically.
+            std::sort(names.begin(), names.end());
+            lengths.reserve(names.size());
+            for (const std::string& name : names) {
+                lengths.push_back(dir->fileLength(name.c_str()));
+            }
+        } catch (const CLuceneError& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "SNII blob seal: cannot enumerate the index directory: {}", e.what());
+        }
+
+        std::vector<doris::snii::writer::BlobFileSource> files;
+        files.reserve(names.size());
+        for (size_t i = 0; i < names.size(); ++i) {
+            const std::string& name = names[i];
+            const int64_t length = lengths[i];
+            // A directory cannot report a negative length for a file it just
+            // listed; anything else means CLucene lied about its own state.
+            DORIS_CHECK_GE(length, 0);
+            // Opened ONCE per sub-file rather than per read: the source is pulled
+            // in chunks and reopening for each would turn a copy into a syscall
+            // storm.
+            std::shared_ptr<lucene::store::IndexInput> input;
+            {
+                lucene::store::IndexInput* raw = nullptr;
+                CLuceneError err;
+                if (!dir->openInput(name.c_str(), raw, err)) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "SNII blob seal: cannot open {} in the index directory: {}", name,
+                            err.what());
+                }
+                input.reset(raw);
+            }
+            files.push_back(doris::snii::writer::BlobFileSource {
+                    .name = name,
+                    .length = static_cast<uint64_t>(length),
+                    .read_fn = [input](uint64_t offset, size_t len, uint8_t* out) -> Status {
+                        try {
+                            input->seek(static_cast<int64_t>(offset));
+                            input->readBytes(out, static_cast<int32_t>(len));
+                        } catch (const CLuceneError& e) {
+                            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                                    "SNII blob seal: read failed: {}", e.what());
+                        }
+                        return Status::OK();
+                    }});
+        }
+        // All cold: a faiss index is read at QUERY time, never at container open,
+        // so nothing here belongs in the hot area the text metadata groups share.
+        RETURN_IF_ERROR(add_snii_blob_index(meta_it->second.get(),
+                                            doris::snii::format::LogicalIndexKind::kAnn,
+                                            std::move(files), {}));
+    }
+    return Status::OK();
+}
+
+void IndexFileWriter::_release_snii_blob_directories() {
+    for (const auto& [key, dir] : _indices_dirs) {
+        // A RAM directory frees its own buffers when the last reference drops; a
+        // filesystem one leaves its files behind unless told otherwise.
+        if (std::strcmp(dir->getObjectName(), "DorisFSDirectory") == 0) {
+            static_cast<DorisFSDirectory*>(dir.get())->deleteDirectory();
+        }
+    }
+    _indices_dirs.clear();
+    _snii_blob_dir_metas.clear();
 }
 
 Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
@@ -180,6 +282,28 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.mem_reporter = mem_reporter;
     snii_resolve_index_write_params(options.is_direct_load, &input);
     RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
+    ++_snii_index_count;
+    return Status::OK();
+}
+
+Status IndexFileWriter::add_snii_blob_index(
+        const TabletIndex* index_meta, doris::snii::format::LogicalIndexKind kind,
+        std::vector<doris::snii::writer::BlobFileSource> cold_files,
+        std::vector<doris::snii::writer::BlobFileSource> hot_files) {
+    DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
+    DCHECK(index_meta != nullptr);
+    if (_idx_v2_writer == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "SNII index file writer is null for {}", _index_path_prefix);
+    }
+    if (_snii_file_writer == nullptr) {
+        _snii_file_writer = std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
+        _snii_compound_writer =
+                std::make_unique<doris::snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
+    }
+    RETURN_IF_ERROR(_snii_compound_writer->add_blob_index(
+            cast_set<uint64_t>(index_meta->index_id()), index_meta->get_index_suffix(), kind,
+            std::move(cold_files), std::move(hot_files)));
     ++_snii_index_count;
     return Status::OK();
 }
@@ -390,7 +514,15 @@ Status IndexFileWriter::begin_close() {
             _snii_compound_writer = std::make_unique<doris::snii::writer::SniiCompoundWriter>(
                     _snii_file_writer.get());
         }
+        RETURN_IF_ERROR(_seal_snii_blob_directories());
         RETURN_IF_ERROR(_snii_compound_writer->finish());
+        // finish() has copied every harvested byte into the container, so the temp
+        // directories are dead. Nothing else drops them on this path: unlike the
+        // non-SNII branch below, finish_close() returns before _indices_dirs is
+        // cleared -- and a DorisFSDirectory destructor does NOT remove its files,
+        // so an on-disk directory (config::inverted_index_ram_dir_enable=false)
+        // would survive until the next BE restart wiped the whole tmp dir.
+        _release_snii_blob_directories();
         _total_file_size = _idx_v2_writer->bytes_appended();
         _file_info.set_index_size(_total_file_size);
         return _idx_v2_writer->close(true);

@@ -62,3 +62,133 @@
 1
 101
 3
+
+-- !bkd_eq --
+3
+
+-- !bkd_lt --
+1
+2
+3
+
+-- !bkd_le --
+1
+2
+3
+4
+
+-- !bkd_gt --
+4
+5
+7
+
+-- !bkd_ge --
+3
+4
+5
+7
+
+-- !bkd_between --
+2
+3
+4
+7
+
+-- !bkd_in --
+1
+3
+5
+
+-- !bkd_is_null --
+6
+
+-- !bkd_is_not_null --
+1
+2
+3
+4
+5
+7
+
+-- !bkd_bigint --
+1
+2
+
+-- !bkd_largeint --
+4
+5
+7
+
+-- !bkd_tinyint --
+4
+5
+7
+
+-- !bkd_double --
+1
+2
+
+-- !bkd_decimal --
+4
+5
+7
+
+-- !bkd_datetime --
+1
+2
+3
+
+-- !bkd_noindex_lt --
+1
+2
+3
+
+-- !bkd_noindex_between --
+2
+3
+4
+7
+
+-- !bkd_noindex_decimal --
+4
+5
+7
+
+-- !array_contains_20 --
+1
+2
+
+-- !array_contains_30 --
+1
+6
+
+-- !array_contains_absent --
+
+-- !array_is_null --
+4
+
+-- !array_noindex_contains_20 --
+1
+2
+
+-- !array_noindex_is_null --
+4
+
+-- !ann_topn_near_one --
+1
+2
+3
+
+-- !ann_topn_near_nine --
+4
+5
+
+-- !ann_container_text --
+1
+5
+
+-- !ann_container_bkd --
+3
+4
+5
+
