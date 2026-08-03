@@ -31,10 +31,6 @@
 #include "common/config.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "io/cache/fs_file_cache_storage.h"
-#include "load/memtable/memtable_memory_limiter.h"
-#include "runtime/cluster_info.h"
-#include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "storage/options.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "util/threadpool.h"

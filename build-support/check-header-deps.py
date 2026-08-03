@@ -70,6 +70,42 @@ RULES = [
         "into the ~1000 TUs that include ExecEnv transitively",
     ),
     (
+        "runtime/exec_env.h",
+        "io/cache/",
+        {
+            # Plain cache-key/settings structs that storage/options.h needs for
+            # CachePath; carries only config.h, core/uint128.h and io/io_common.h.
+            "io/cache/file_cache_common.h",
+        },
+        "ExecEnv holds the file-cache machinery as pointers and forward-declares "
+        "io::FDCache and io::FileCacheFactory; fs_file_cache_storage.h used to drag "
+        "gen_cpp/internal_service.pb.h, descriptors.pb.h and the io/fs family into "
+        "the ~1060 TUs that include ExecEnv",
+    ),
+    (
+        "runtime/exec_env.h",
+        "load/memtable/",
+        set(),
+        "ExecEnv only names MemTableMemoryLimiter through a unique_ptr member and "
+        "accessors (forward-declared, setter defined out of line); the memtable "
+        "stack must not ride the ExecEnv superhighway",
+    ),
+    (
+        "runtime/exec_env.h",
+        "runtime/frontend_info.h",
+        set(),
+        "FrontendInfo embeds TFrontendInfo by value, so frontend_info.h carries "
+        "gen_cpp/HeartbeatService_types.h and AgentService_types.h; ExecEnv keeps "
+        "the frontends map behind a unique_ptr and forward-declares the types",
+    ),
+    (
+        "runtime/exec_env.h",
+        "runtime/cluster_info.h",
+        set(),
+        "ExecEnv only holds ClusterInfo* (forward-declared); cluster_info.h carries "
+        "gen_cpp/Types_types.h, which must not enter every TU through this header",
+    ),
+    (
         "runtime/thread_context.h",
         "runtime/workload_group/",
         set(),
