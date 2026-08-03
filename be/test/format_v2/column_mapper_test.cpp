@@ -1225,6 +1225,38 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperScansFullComplexRootForOutpu
     EXPECT_TRUE(request.predicate_columns.empty());
 }
 
+TEST(ColumnMapperScanRequestTest, FullProjectionRetainsOnlyTimestampSemanticPaths) {
+    auto table_timestamp = field_id_col("ts", 2, timestamptz(6));
+    auto table_payload = field_id_col("payload", 3, i32());
+    auto table_event = struct_col("event", 1, {table_timestamp, table_payload});
+    auto table_other = field_id_col("other", 4, i32());
+    auto table_root = struct_col("root", 0, {table_event, table_other});
+
+    auto file_timestamp = field_id_col("ts", 2, timestamptz(6), 0);
+    file_timestamp.timestamp_is_adjusted_to_utc = true;
+    auto file_payload = field_id_col("payload", 3, i32(), 1);
+    auto file_event = struct_col("event", 1, {file_timestamp, file_payload}, 0);
+    auto file_other = field_id_col("other", 4, i32(), 1);
+    auto file_root = struct_col("root", 0, {file_event, file_other}, 10);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_root}, {}, {file_root}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_root}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& root_projection = request.non_predicate_columns[0];
+    EXPECT_TRUE(root_projection.project_all_children);
+    ASSERT_EQ(root_projection.children.size(), 1);
+    EXPECT_EQ(root_projection.children[0].local_id(), 0);
+    ASSERT_EQ(root_projection.children[0].children.size(), 1);
+    const auto& timestamp_projection = root_projection.children[0].children[0];
+    EXPECT_EQ(timestamp_projection.local_id(), 0);
+    ASSERT_TRUE(timestamp_projection.timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*timestamp_projection.timestamp_is_adjusted_to_utc);
+}
+
 // Scenario: array/map nested projections also scan the full top-level complex root for
 // materialized readers. This keeps row-oriented formats from receiving Parquet-style partial
 // projections for `array<struct>` elements or map value structs.

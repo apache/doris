@@ -1734,11 +1734,18 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     return Status::OK();
 }
 
+static bool has_timestamp_semantics(const ColumnMapping& mapping) {
+    return mapping.timestamp_is_adjusted_to_utc.has_value() ||
+           std::ranges::any_of(mapping.child_mappings, has_timestamp_semantics);
+}
+
 static void attach_timestamp_semantics(const ColumnMapping& mapping, LocalColumnIndex* projection) {
     DORIS_CHECK(projection != nullptr);
     projection->timestamp_is_adjusted_to_utc = mapping.timestamp_is_adjusted_to_utc;
     for (const auto& child_mapping : mapping.child_mappings) {
-        if (!child_mapping.file_local_id.has_value()) {
+        // A full projection represents ordinary children implicitly; materialize only paths that
+        // carry an override so existing readers still observe an empty children list.
+        if (!child_mapping.file_local_id.has_value() || !has_timestamp_semantics(child_mapping)) {
             continue;
         }
         auto child_it =
