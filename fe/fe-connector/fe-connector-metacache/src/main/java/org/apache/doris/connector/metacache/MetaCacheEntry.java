@@ -100,9 +100,12 @@ public class MetaCacheEntry<K, V> {
     private final AtomicLong lastLoadFailureTimeMs = new AtomicLong(-1L);
     private final AtomicReference<String> lastError = new AtomicReference<>("");
 
+    /**
+     * Convenience constructor for a connector loader-backed entry without automatic refresh or manual miss loading.
+     */
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor) {
-        this(name, loader, cacheSpec, refreshExecutor, true, false, defaultObjectStripeCount(),
-                DEFAULT_REFRESH_AFTER_WRITE_SECONDS, true, null, false);
+        this(name, loader, cacheSpec, refreshExecutor, false, false, defaultObjectStripeCount(),
+                0L, false, null, false);
     }
 
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
@@ -332,6 +335,9 @@ public class MetaCacheEntry<K, V> {
 
     /**
      * Publish a caller-loaded value only when no invalidation raced the external load.
+     *
+     * <p>The guarded value is a coordinated mutation: it supersedes manual loads, refreshes, and exact-key actions
+     * admitted under an older stripe generation without holding a publication monitor during the external load.
      */
     public void putIfNotInvalidatedSince(long generation, K key, V value) {
         Objects.requireNonNull(key, "key can not be null");
@@ -344,6 +350,9 @@ public class MetaCacheEntry<K, V> {
             if (generation != invalidationGeneration.get()) {
                 return;
             }
+            bumpGenerationLocked(state);
+            bumpActiveActionGenerationLocked(state, key);
+            beforeGuardedCachePutForTest(key, value);
             data.put(key, value);
             if (generation != invalidationGeneration.get()) {
                 removeLoadedValueWithoutGenerationBump(key, value);
@@ -863,6 +872,10 @@ public class MetaCacheEntry<K, V> {
 
     // Let tests pause between the first generation check and data.put without affecting production behavior.
     void beforeManualCachePutForTest(K key, V loaded) {
+    }
+
+    // Let tests pause after the guarded invalidation check and before its cache put.
+    void beforeGuardedCachePutForTest(K key, V value) {
     }
 
     void beforePublicMutationWriteForTest(K key) {

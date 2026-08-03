@@ -39,6 +39,31 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ConnectorMetaCacheEntryCompatibilityTest {
 
     @Test
+    public void fourArgumentConstructorPreservesConnectorDefaults() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            AtomicInteger manualPublicationCount = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                    "test",
+                    String::length,
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor) {
+                @Override
+                void beforeManualCachePutForTest(String key, Integer loaded) {
+                    manualPublicationCount.incrementAndGet();
+                }
+            };
+
+            Assertions.assertEquals(Integer.valueOf(1), entry.get("k"));
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(entry.stats().isAutoRefresh()),
+                    () -> Assertions.assertEquals(0, manualPublicationCount.get()));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void loaderGetTracksHitMissAndLastError() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         try {
@@ -226,7 +251,9 @@ public class ConnectorMetaCacheEntryCompatibilityTest {
             // No invalidation since the captured generation -> the guarded put caches normally.
             long g1 = entry.invalidationGeneration();
             entry.putIfNotInvalidatedSince(g1, "a", 1);
+            entry.putIfNotInvalidatedSince(g1, "a2", 11);
             Assertions.assertEquals(Integer.valueOf(1), entry.getIfPresent("a"));
+            Assertions.assertEquals(Integer.valueOf(11), entry.getIfPresent("a2"));
 
             // An invalidation between the capture and the put (the flush-races-an-in-flight-load case) must make
             // the put a no-op, so a stale pre-invalidation value is NOT re-cached to the TTL.
