@@ -20,6 +20,7 @@
 
 #include "core/block/block.h"
 
+#include <concurrentqueue.h>
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>

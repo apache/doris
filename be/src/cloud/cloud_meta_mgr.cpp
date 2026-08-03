@@ -57,6 +57,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/obj_storage_client.h"
 #include "load/stream_load/stream_load_context.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "storage/olap_common.h"

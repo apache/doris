@@ -59,6 +59,7 @@
 #include "io/fs/local_file_system.h"
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
 #include "storage/data_dir.h"

@@ -29,6 +29,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "load/group_commit/wal/wal_manager.h"
+#include "runtime/cluster_info.h"
 #include "storage/storage_engine.h"
 #include "util/thrift_rpc_helper.h"
 

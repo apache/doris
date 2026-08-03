@@ -24,6 +24,7 @@
 #include "core/block/block.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 

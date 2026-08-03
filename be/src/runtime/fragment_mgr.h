@@ -54,6 +54,7 @@ extern bvar::Status<uint64_t> g_fragment_last_active_time;
 class PipelineFragmentContext;
 class QueryContext;
 class ExecEnv;
+struct FrontendInfo;
 class ThreadPool;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;

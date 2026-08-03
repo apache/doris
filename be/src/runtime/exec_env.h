@@ -24,6 +24,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -58,6 +59,7 @@ class TokenBucketRateLimiterHolder;
 using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 class MSRpcRateLimitServices;
 namespace io {
+class FDCache;
 class FileCacheFactory;
 class HdfsMgr;
 class PackedFileManager;
@@ -94,6 +96,7 @@ class LoadPathMgr;
 class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
+class MemTableMemoryLimiter;
 struct TrackerLimiterGroup;
 class BaseStorageEngine;
 class ResultBufferMgr;
@@ -113,6 +116,12 @@ class PFunctionService_Stub;
 template <class T>
 class ClientCache;
 class HeartbeatFlags;
+class ClusterInfo;
+struct FrontendInfo;
+// Thrift-generated types (gen_cpp), forward-declared so their headers stay out
+// of every TU that includes ExecEnv.
+class TFrontendInfo;
+class TNetworkAddress;
 class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
@@ -324,9 +333,9 @@ public:
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs);
     void set_ready() { _s_ready = true; }
     void set_not_ready() { _s_ready = false; }
-    void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
-        _memtable_memory_limiter.reset(limiter);
-    }
+    // Defined out of line: resetting the unique_ptr deletes the old pointee,
+    // which would require MemTableMemoryLimiter to be complete here.
+    void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter);
     void set_cluster_info(ClusterInfo* cluster_info) { this->_cluster_info = cluster_info; }
     void set_new_load_stream_mgr(std::unique_ptr<NewLoadStreamMgr>&& new_load_stream_mgr);
     void clear_new_load_stream_mgr();
@@ -365,9 +374,9 @@ public:
         _s3_file_upload_thread_pool = std::move(pool);
     }
     void set_file_cache_factory(io::FileCacheFactory* factory) { _file_cache_factory = factory; }
-    void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache) {
-        _file_cache_open_fd_cache = std::move(fd_cache);
-    }
+    // Defined out of line: assigning the unique_ptr destroys the old pointee,
+    // which would require io::FDCache to be complete here.
+    void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache);
 #endif
     // WARN: The following setter methods are intended for use in test code and
     // offline tools (like meta_tool) ONLY. They should NOT be called in the
@@ -538,8 +547,10 @@ private:
     std::unique_ptr<WriteCooldownMetaExecutors> _write_cooldown_meta_executors;
 
     std::mutex _frontends_lock;
-    // ip:brpc_port -> frontend_indo
-    std::map<TNetworkAddress, FrontendInfo> _frontends;
+    // ip:brpc_port -> frontend_info. Held behind unique_ptr because std::map
+    // requires a complete mapped type, and frontend_info.h would drag
+    // gen_cpp/HeartbeatService_types.h into every TU that includes ExecEnv.
+    std::unique_ptr<std::map<TNetworkAddress, FrontendInfo>> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
     CdcClientMgr* _cdc_client_mgr = nullptr;
 

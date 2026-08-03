@@ -37,6 +37,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"

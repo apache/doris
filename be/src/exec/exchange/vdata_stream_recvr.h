@@ -53,6 +53,7 @@
 namespace doris {
 class MemTracker;
 class PBlock;
+class PTransmitDataParams;
 class MemTrackerLimiter;
 class RuntimeState;
 

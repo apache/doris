@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "information_schema/schema_scanner_helper.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/client_cache.h"

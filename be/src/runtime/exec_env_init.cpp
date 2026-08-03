@@ -79,6 +79,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/frontend_info.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/memory/cache_manager.h"
@@ -189,7 +190,7 @@ ThreadPool* ExecEnv::non_block_close_thread_pool() {
     return _non_block_close_thread_pool.get();
 }
 
-ExecEnv::ExecEnv() = default;
+ExecEnv::ExecEnv() : _frontends(std::make_unique<std::map<TNetworkAddress, FrontendInfo>>()) {}
 
 ExecEnv::~ExecEnv() {
     destroy();

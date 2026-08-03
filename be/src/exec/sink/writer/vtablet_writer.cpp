@@ -65,6 +65,7 @@
 #include "exec/sink/vtablet_finder.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_fwd.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_reclamation.h"

@@ -54,6 +54,7 @@
 #include "exec/sink/load_stream_stub.h" // IWYU pragma: keep
 #include "exec/sink/vtablet_block_convertor.h"
 #include "exec/sink/vtablet_finder.h"
+#include "load/memtable/memtable_memory_limiter.h"
 
 namespace doris {
 

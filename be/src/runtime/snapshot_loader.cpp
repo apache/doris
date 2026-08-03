@@ -48,6 +48,7 @@
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_client.h"
 #include "storage/data_dir.h"

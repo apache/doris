@@ -43,6 +43,7 @@
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "storage/index/inverted/inverted_index_desc.h"
