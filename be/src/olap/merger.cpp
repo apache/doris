@@ -52,6 +52,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_reader.h"
 #include "olap/utils.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 #include "vec/core/block.h"
 #include "vec/olap/block_reader.h"
@@ -243,10 +244,11 @@ Status Merger::vertical_compact_one_group(
         const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
         RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, Statistics* stats_output,
         std::vector<uint32_t> key_group_cluster_key_idxes, int64_t batch_size,
-        CompactionSampleInfo* sample_info) {
+        CompactionSampleInfo* sample_info,
+        vectorized::VerticalCompactionContextStats* context_stats) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
-    vectorized::VerticalBlockReader reader(row_source_buf);
+    vectorized::VerticalBlockReader reader(row_source_buf, context_stats);
     TabletReader::ReaderParams reader_params;
     reader_params.is_key_column_group = is_key;
     reader_params.key_group_cluster_key_idxes = key_group_cluster_key_idxes;
@@ -464,6 +466,13 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                                       RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
                                       int64_t merge_way_num, Statistics* stats_output) {
     LOG(INFO) << "Start to do vertical compaction, tablet_id: " << tablet->tablet_id();
+    vectorized::VerticalCompactionContextStats context_stats;
+    Defer log_context_stats {[&] {
+        DCHECK_EQ(context_stats.active_segment_contexts, 0);
+        LOG(INFO) << "Vertical compaction segment context statistics, tablet_id: "
+                  << tablet->tablet_id() << ", vertical_compaction_active_segment_contexts_peak: "
+                  << context_stats.active_segment_contexts_peak;
+    }};
     std::vector<std::vector<uint32_t>> column_groups;
     std::vector<uint32_t> key_group_cluster_key_idxes;
     vertical_split_columns(tablet_schema, &column_groups, &key_group_cluster_key_idxes);
@@ -492,7 +501,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
         Status st = vertical_compact_one_group(
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, group_stats_ptr,
-                key_group_cluster_key_idxes, batch_size, &sample_info);
+                key_group_cluster_key_idxes, batch_size, &sample_info, &context_stats);
         {
             std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
             tablet->sample_infos[i] = sample_info;

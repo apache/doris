@@ -38,7 +38,8 @@ class SegmentWriter;
 namespace vectorized {
 class RowSourcesBuffer;
 class VerticalBlockReader;
-}; // namespace vectorized
+struct VerticalCompactionContextStats;
+} // namespace vectorized
 
 class Merger {
 public:
@@ -81,7 +82,8 @@ public:
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, Statistics* stats_output,
             std::vector<uint32_t> key_group_cluster_key_idxes, int64_t batch_size,
-            CompactionSampleInfo* sample_info);
+            CompactionSampleInfo* sample_info,
+            vectorized::VerticalCompactionContextStats* context_stats);
 
     // for segcompaction
     static Status vertical_compact_one_group(int64_t tablet_id, ReaderType reader_type,
