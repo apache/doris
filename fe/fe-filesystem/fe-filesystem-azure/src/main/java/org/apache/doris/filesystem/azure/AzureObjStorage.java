@@ -55,7 +55,6 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -498,7 +497,13 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     static String multipartBlockId(String uploadId, int partNum) {
-        String rawId = String.format(Locale.ROOT, "%s:%010d", uploadId, partNum);
-        return Base64.getEncoder().encodeToString(rawId.getBytes(StandardCharsets.UTF_8));
+        int uploadNamespace = 0x811C9DC5;
+        for (byte value : uploadId.getBytes(StandardCharsets.UTF_8)) {
+            uploadNamespace = (uploadNamespace ^ (value & 0xFF)) * 0x01000193;
+        }
+        int namespacedPart = uploadNamespace + partNum;
+        // Match the legacy four-byte length so a retry can coexist with pre-upgrade residual blocks.
+        byte[] rawId = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(namespacedPart).array();
+        return Base64.getEncoder().encodeToString(rawId);
     }
 }

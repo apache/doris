@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.RequestBody;
 
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
@@ -30,9 +31,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -381,12 +384,43 @@ class AzureObjStorageExtensionTest {
 
     @Test
     void multipartBlockId_isolatesSameTargetWritersWithFixedLengthIds() {
+        Assertions.assertEquals("p3w3DA==", AzureObjStorage.multipartBlockId("upload-a", 1));
         Assertions.assertNotEquals(
                 AzureObjStorage.multipartBlockId("upload-a", 1),
                 AzureObjStorage.multipartBlockId("upload-b", 1));
         Assertions.assertEquals(
                 AzureObjStorage.multipartBlockId("upload-a", 1).length(),
                 AzureObjStorage.multipartBlockId("upload-a", 999).length());
+        Assertions.assertEquals(4,
+                Base64.getDecoder().decode(AzureObjStorage.multipartBlockId("upload-a", 1)).length);
+    }
+
+    @Test
+    void uploadPart_acceptsLegacyResidualBlockLength() throws Exception {
+        com.azure.storage.blob.specialized.BlockBlobClient blockClient =
+                Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
+        int legacyDecodedLength = Base64.getDecoder().decode("AQAAAA==").length;
+        Mockito.doAnswer(invocation -> {
+            String blockId = invocation.getArgument(0);
+            if (Base64.getDecoder().decode(blockId).length != legacyDecodedLength) {
+                throw new IllegalStateException("Azure would reject a different block ID length");
+            }
+            return null;
+        }).when(blockClient).stageBlock(
+                Mockito.anyString(), Mockito.any(java.io.InputStream.class), Mockito.anyLong());
+        BlobClient blobClient = Mockito.mock(BlobClient.class);
+        Mockito.when(blobClient.getBlockBlobClient()).thenReturn(blockClient);
+        BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(blobClient);
+        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
+
+        UploadPartResult result = storage.uploadPart(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
+                "new-upload-id", 1, RequestBody.of(new ByteArrayInputStream(new byte[]{1}), 1));
+
+        Assertions.assertEquals(legacyDecodedLength, Base64.getDecoder().decode(result.etag()).length);
     }
 
     @Test

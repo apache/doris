@@ -21,6 +21,7 @@
 #include <aws/core/utils/HashingUtils.h>
 
 #include <algorithm>
+#include <array>
 #include <azure/core/http/http.hpp>
 #include <azure/core/http/http_status_code.hpp>
 #include <azure/core/io/body_stream.hpp>
@@ -34,6 +35,7 @@
 #include <azure/storage/common/storage_credential.hpp>
 #include <azure/storage/common/storage_exception.hpp>
 #include <cctype>
+#include <cstdint>
 #include <exception>
 #include <iterator>
 #include <ranges>
@@ -65,10 +67,18 @@ std::string to_lower_ascii(std::string_view input) {
 }
 
 std::string encode_azure_block_id(std::string_view upload_id, int part_num) {
-    // Azure requires every block ID for one blob to have the same decoded length.
-    std::string raw_id = fmt::format("{}:{:010}", upload_id, part_num);
-    Aws::Utils::ByteBuffer bytes(reinterpret_cast<const unsigned char*>(raw_id.data()),
-                                 raw_id.size());
+    uint32_t upload_namespace = 0x811C9DC5U;
+    for (unsigned char byte : upload_id) {
+        upload_namespace = (upload_namespace ^ byte) * 0x01000193U;
+    }
+    uint32_t namespaced_part = upload_namespace + static_cast<uint32_t>(part_num);
+    // Four decoded bytes remain compatible with legacy residual blocks while retaining an
+    // upload-specific namespace for part IDs.
+    std::array<unsigned char, sizeof(namespaced_part)> raw_id {};
+    for (size_t i = 0; i < raw_id.size(); ++i) {
+        raw_id[i] = static_cast<unsigned char>(namespaced_part >> (i * 8));
+    }
+    Aws::Utils::ByteBuffer bytes(raw_id.data(), raw_id.size());
     return Aws::Utils::HashingUtils::Base64Encode(bytes);
 }
 

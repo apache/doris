@@ -26,6 +26,8 @@
 #include "util/s3_util.h"
 
 #ifdef USE_AZURE
+#include <aws/core/utils/HashingUtils.h>
+
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
@@ -37,10 +39,13 @@ namespace doris {
 #ifdef USE_AZURE
 
 TEST(AzureObjStorageClientMultipartHelperTest, isolates_uploads_with_fixed_length_block_ids) {
+    EXPECT_EQ("p3w3DA==", io::azure_multipart_block_id("upload-a", 1));
     EXPECT_NE(io::azure_multipart_block_id("upload-a", 1),
               io::azure_multipart_block_id("upload-b", 1));
     EXPECT_EQ(io::azure_multipart_block_id("upload-a", 1).size(),
               io::azure_multipart_block_id("upload-a", 999).size());
+    EXPECT_EQ(4, Aws::Utils::HashingUtils::Base64Decode(io::azure_multipart_block_id("upload-a", 1))
+                         .GetLength());
 }
 
 using namespace Azure::Storage::Blobs;
