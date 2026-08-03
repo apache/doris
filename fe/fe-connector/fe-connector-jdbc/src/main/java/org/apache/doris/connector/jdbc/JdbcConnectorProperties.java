@@ -30,6 +30,19 @@ public final class JdbcConnectorProperties {
     }
 
     // -- connection --
+    // -- deployment-level settings, read from this plugin's own jdbc.conf (named after
+    // ConnectorProvider.name()). Each falls back to the ENV_ name below it, which is the fe.conf key it
+    // used to live under and still works. --
+    public static final String CONF_DRIVERS_DIR = "drivers_dir";
+    public static final String CONF_FORCE_SQLSERVER_ENCRYPT_FALSE = "force_sqlserver_encrypt_false";
+
+    /** The fe.conf name of {@link #CONF_DRIVERS_DIR}, forwarded through the engine environment. */
+    public static final String ENV_DRIVERS_DIR = "jdbc_drivers_dir";
+    /** The fe.conf name of {@link #CONF_FORCE_SQLSERVER_ENCRYPT_FALSE}. */
+    public static final String ENV_FORCE_SQLSERVER_ENCRYPT_FALSE = "force_sqlserver_jdbc_encrypt_false";
+    /** Engine-wide, not this connector's: the FE install root. Stays in the engine environment. */
+    public static final String ENV_DORIS_HOME = "doris_home";
+
     public static final String JDBC_URL = "jdbc_url";
     public static final String USER = "user";
     public static final String PASSWORD = "password";

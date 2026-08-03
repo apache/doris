@@ -177,6 +177,21 @@ public interface ConnectorProvider extends PluginFactory {
         return getType();
     }
 
+    /**
+     * This plugin's identity to the engine. Defaults to {@link #getType()}; two loaded plugins may not
+     * share one ({@code ConnectorPluginManager.loadPlugins} skips the second).
+     *
+     * <p>It is also the name of this connector's own configuration file: the engine reads
+     * {@code <pluginDir>/<name>.conf} and serves it back through
+     * {@link ConnectorContext#getConnectorConfig()}. So a connector that ships a conf template must name
+     * it {@code <name>.conf.template}, and <b>changing this method renames that file</b> — the plugin
+     * directory name has no say in it, and need not match ({@code hive/hms.conf} is a shipped example).
+     * Guard it with a test that the template resource exists under {@code name() + ".conf.template"}.
+     *
+     * <p>The engine builds a file name out of this string, which is safe because
+     * {@code PluginNames.validate} has already confined it to {@code [a-zA-Z0-9._-]} — no separator can
+     * reach a path. Do not re-validate it.
+     */
     @Override
     default String name() {
         return getType();

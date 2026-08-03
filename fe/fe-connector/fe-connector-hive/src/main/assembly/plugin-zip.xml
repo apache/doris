@@ -40,6 +40,17 @@ under the License.
             <source>${project.build.directory}/${project.build.finalName}.jar</source>
             <outputDirectory>/</outputDirectory>
         </file>
+        <!--
+          The connector's settings template. Only the .template ships; build.sh seeds the live hms.conf
+          from it with cp -n, so unzipping a newer plugin build over a deployed directory refreshes this
+          file but never the administrator's copy. The name must equal ConnectorProvider.name() +
+          ".conf.template" - note that name() is "hms" while this plugin's directory is "hive";
+          HiveConnectorMetadataDdlTest fails if the two drift apart.
+        -->
+        <file>
+            <source>src/main/resources/hms.conf.template</source>
+            <outputDirectory>/</outputDirectory>
+        </file>
     </files>
 
     <dependencySets>
