@@ -855,6 +855,136 @@ public:
         return is_zero;
     }
 
+    /// Multi-word unsigned division via Knuth's Algorithm D, a faithful port of
+    /// Hacker's Delight `divmnu` (Fig. 9-2, Henry S. Warren) run in base 2^32 over
+    /// 32-bit half-limbs. Working in base 2^32 keeps every intermediate product
+    /// (qhat * vn[i], with both factors < 2^32) within a uint64_t, so no 128-bit
+    /// arithmetic is needed and the estimate-correction stays overflow-safe.
+    /// Preconditions: denominator is non-zero and occupies at least two 32-bit
+    /// half-limbs (i.e. >= 2^32). Returns quotient; leaves remainder in numerator,
+    /// matching the divide() contract.
+    template <size_t Bits2>
+    constexpr static integer<Bits2, unsigned> divide_knuth(
+            integer<Bits2, unsigned>& numerator, const integer<Bits2, unsigned>& denominator) {
+        constexpr unsigned half_count = Bits2 / 32; // 32-bit half-limbs (8 for 256-bit)
+        constexpr uint64_t base = uint64_t(1) << 32;
+
+        // Unpack the 64-bit limbs into little-endian 32-bit half-limbs.
+        uint32_t u[half_count];
+        uint32_t v[half_count];
+        for (unsigned i = 0; i < item_count; ++i) {
+            const uint64_t nu = numerator.items[little(i)];
+            const uint64_t de = denominator.items[little(i)];
+            u[2 * i] = static_cast<uint32_t>(nu);
+            u[2 * i + 1] = static_cast<uint32_t>(nu >> 32);
+            v[2 * i] = static_cast<uint32_t>(de);
+            v[2 * i + 1] = static_cast<uint32_t>(de >> 32);
+        }
+
+        int n = half_count;
+        while (n > 0 && v[n - 1] == 0) {
+            --n;
+        }
+        int m = half_count;
+        while (m > 0 && u[m - 1] == 0) {
+            --m;
+        }
+
+        integer<Bits2, unsigned> quotient = 0;
+        // Dividend shorter than divisor: quotient is 0 and remainder is the dividend
+        // (already sitting in numerator), so nothing else to do.
+        if (m < n) {
+            return quotient;
+        }
+
+        // Normalize: left-shift so the divisor's top half-limb has its high bit set.
+        int s = 0;
+        for (uint32_t hi = v[n - 1]; (hi & 0x80000000u) == 0u; hi <<= 1) {
+            ++s;
+        }
+
+        uint32_t vn[half_count];
+        for (int i = n - 1; i > 0; --i) {
+            vn[i] = (v[i] << s) | (s == 0 ? 0u : (v[i - 1] >> (32 - s)));
+        }
+        vn[0] = v[0] << s;
+
+        uint32_t un[half_count + 1];
+        un[m] = (s == 0) ? 0u : (u[m - 1] >> (32 - s));
+        for (int i = m - 1; i > 0; --i) {
+            un[i] = (u[i] << s) | (s == 0 ? 0u : (u[i - 1] >> (32 - s)));
+        }
+        un[0] = u[0] << s;
+
+        uint32_t q[half_count];
+        for (unsigned i = 0; i < half_count; ++i) {
+            q[i] = 0;
+        }
+
+        for (int j = m - n; j >= 0; --j) {
+            // Estimate quotient digit qhat and its remainder rhat, then correct a
+            // possible overestimate. The short-circuit keeps qhat * vn[n-2] from
+            // being evaluated (and overflowing) while qhat >= base.
+            const uint64_t num_top = static_cast<uint64_t>(un[j + n]) * base + un[j + n - 1];
+            uint64_t qhat = num_top / vn[n - 1];
+            uint64_t rhat = num_top - qhat * vn[n - 1];
+            while (qhat >= base || qhat * vn[n - 2] > base * rhat + un[j + n - 2]) {
+                --qhat;
+                rhat += vn[n - 1];
+                if (rhat >= base) {
+                    break;
+                }
+            }
+
+            // Multiply the divisor by qhat and subtract from the running dividend,
+            // propagating the borrow through k (signed).
+            int64_t k = 0;
+            int64_t t = 0;
+            for (int i = 0; i < n; ++i) {
+                const uint64_t p = qhat * vn[i];
+                t = static_cast<int64_t>(un[i + j]) - k - static_cast<int64_t>(p & 0xFFFFFFFFu);
+                un[i + j] = static_cast<uint32_t>(t);
+                k = static_cast<int64_t>(p >> 32) - (t >> 32);
+            }
+            t = static_cast<int64_t>(un[j + n]) - k;
+            un[j + n] = static_cast<uint32_t>(t);
+
+            q[j] = static_cast<uint32_t>(qhat);
+            if (t < 0) {
+                // qhat was one too large: decrement and add the divisor back.
+                --q[j];
+                uint64_t carry = 0;
+                for (int i = 0; i < n; ++i) {
+                    const uint64_t sum = static_cast<uint64_t>(un[i + j]) + vn[i] + carry;
+                    un[i + j] = static_cast<uint32_t>(sum);
+                    carry = sum >> 32;
+                }
+                un[j + n] = static_cast<uint32_t>(static_cast<uint64_t>(un[j + n]) + carry);
+            }
+        }
+
+        // Repack quotient half-limbs into 64-bit limbs.
+        for (unsigned i = 0; i < item_count; ++i) {
+            quotient.items[little(i)] =
+                    static_cast<uint64_t>(q[2 * i]) | (static_cast<uint64_t>(q[2 * i + 1]) << 32);
+        }
+
+        // De-normalize the remainder (right-shift by s) back into numerator.
+        uint32_t rem[half_count];
+        for (unsigned i = 0; i < half_count; ++i) {
+            rem[i] = 0;
+        }
+        for (int i = 0; i < n; ++i) {
+            rem[i] = (un[i] >> s) | (s == 0 ? 0u : (un[i + 1] << (32 - s)));
+        }
+        for (unsigned i = 0; i < item_count; ++i) {
+            numerator.items[little(i)] = static_cast<uint64_t>(rem[2 * i]) |
+                                         (static_cast<uint64_t>(rem[2 * i + 1]) << 32);
+        }
+
+        return quotient;
+    }
+
     /// returns quotient as result and remainder in numerator.
     template <size_t Bits2>
     constexpr static integer<Bits2, unsigned> divide(integer<Bits2, unsigned>& numerator,
@@ -885,8 +1015,112 @@ public:
             return res;
         }
 
+        // Fast path for wider integers (Decimal256) whose operands BOTH fit in 128
+        // bits: money/count magnitudes almost always do. A single hardware __int128
+        // divide suffices. This layer sits ahead of the divisor-width fast paths
+        // below on purpose: when the divisor is 65..128 bits those paths route to
+        // Knuth Algorithm D (a multi-word estimate/correct loop), whereas here -- if
+        // the dividend is also <= 128 bits -- one native divide wins outright.
+        // Bit-exact with the slow path, and the remainder written back to numerator
+        // keeps operator_percent correct. On a miss the extra cost is only the limb
+        // scan, then control falls through to the divisor-width fast paths and the
+        // generic loop below (no regression).
+        if constexpr (Bits > 128 && sizeof(base_type) == 8) {
+            bool operands_fit_128 = true;
+            for (unsigned i = 2; i < item_count; ++i) {
+                if (numerator.items[little(i)] != 0 || denominator.items[little(i)] != 0) {
+                    operands_fit_128 = false;
+                    break;
+                }
+            }
+            if (operands_fit_128) {
+                using CompilerUInt128 = unsigned __int128;
+                CompilerUInt128 b = (CompilerUInt128(denominator.items[little(1)]) << 64) +
+                                    denominator.items[little(0)];
+                // A zero denominator falls through to the throw below; never divide by it.
+                if (b != 0) {
+                    CompilerUInt128 a = (CompilerUInt128(numerator.items[little(1)]) << 64) +
+                                        numerator.items[little(0)];
+                    CompilerUInt128 c = a / b;
+
+                    integer<Bits2, unsigned> res;
+                    res.items[little(0)] = static_cast<base_type>(c);
+                    res.items[little(1)] = static_cast<base_type>(c >> 64);
+                    for (unsigned i = 2; i < item_count; ++i) {
+                        res.items[little(i)] = 0;
+                    }
+
+                    CompilerUInt128 remainder = a - b * c;
+                    numerator.items[little(0)] = static_cast<base_type>(remainder);
+                    numerator.items[little(1)] = static_cast<base_type>(remainder >> 64);
+                    for (unsigned i = 2; i < item_count; ++i) {
+                        numerator.items[little(i)] = 0;
+                    }
+
+                    return res;
+                }
+            }
+        }
+
         if (is_zero(denominator)) {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Division by zero");
+        }
+
+        /// Fast path for a divisor that fits in a single 64-bit limb: schoolbook long
+        /// division word-by-word from the most- to least-significant limb. Each step
+        /// divides {remainder : current_word} (128 bits) by the 64-bit divisor, which
+        /// lowers to a single hardware divide (e.g. `divq` on x86-64). O(item_count)
+        /// divides vs ~Bits iterations of the generic binary long division below.
+        {
+            bool divisor_is_single_limb = true;
+            for (unsigned i = 1; i < item_count; ++i) {
+                if (denominator.items[little(i)] != 0) {
+                    divisor_is_single_limb = false;
+                    break;
+                }
+            }
+
+            if (divisor_is_single_limb) {
+                using CompilerUInt128 = unsigned __int128;
+                // Non-zero divisor guaranteed: denominator != 0 (checked) and high limbs are 0.
+                const CompilerUInt128 d = denominator.items[little(0)];
+
+                integer<Bits2, unsigned> quotient = 0;
+                CompilerUInt128 remainder = 0;
+                for (int i = static_cast<int>(item_count) - 1; i >= 0; --i) {
+                    // remainder < d < 2^64, so cur < 2^128 and cur / d < 2^64 (fits one limb).
+                    const CompilerUInt128 cur =
+                            (remainder << base_bits) |
+                            static_cast<CompilerUInt128>(numerator.items[little(i)]);
+                    quotient.items[little(i)] = static_cast<base_type>(cur / d);
+                    remainder = cur % d;
+                }
+
+                // Contract: return quotient, leave remainder (single limb) in numerator.
+                for (unsigned i = 0; i < item_count; ++i) {
+                    numerator.items[little(i)] = 0;
+                }
+                numerator.items[little(0)] = static_cast<base_type>(remainder);
+                return quotient;
+            }
+        }
+
+        /// Fast path for a divisor that fits in two 64-bit limbs (128-bit): route it
+        /// through Knuth's Algorithm D (base 2^32). Reaching here means the divisor
+        /// did not fit a single limb, so it has >= 3 significant 32-bit half-limbs.
+        /// Divisors wider than 128 bits fall through to the generic binary long
+        /// division below.
+        if constexpr (item_count > 2) {
+            bool divisor_fits_two_limbs = true;
+            for (unsigned i = 2; i < item_count; ++i) {
+                if (denominator.items[little(i)] != 0) {
+                    divisor_fits_two_limbs = false;
+                    break;
+                }
+            }
+            if (divisor_fits_two_limbs) {
+                return divide_knuth(numerator, denominator);
+            }
         }
 
         integer<Bits2, unsigned> x = 1;
