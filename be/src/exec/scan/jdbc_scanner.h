@@ -71,6 +71,7 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
+    void _collect_profile_before_close() override;
 
 private:
     // Build JDBC params from TupleDescriptor for JdbcJniReader

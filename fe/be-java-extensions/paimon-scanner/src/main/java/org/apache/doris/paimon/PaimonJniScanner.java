@@ -82,6 +82,8 @@ public class PaimonJniScanner extends JniScanner {
             "doris.scan.manifest.parallelism-cap";
     static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
     static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
+    private static final String SERIALIZED_SYSTEM_SOURCE =
+            PAIMON_OPTION_PREFIX + DORIS_SERIALIZED_SYSTEM_SOURCE;
     static final String ENABLE_JNI_IO_MANAGER = "paimon.jni.enable_jni_io_manager";
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.jni.io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.jni.io_manager.impl_class";
@@ -647,9 +649,10 @@ public class PaimonJniScanner extends JniScanner {
         Preconditions.checkState(params.containsKey(SERIALIZED_TABLE));
         table = PaimonUtils.deserialize(params.get(SERIALIZED_TABLE));
         params.remove(SERIALIZED_TABLE);
-        String encodedSystemSource = params.get(PAIMON_OPTION_PREFIX + DORIS_SERIALIZED_SYSTEM_SOURCE);
+        String encodedSystemSource = params.get(SERIALIZED_SYSTEM_SOURCE);
         FileStoreTable systemSource = encodedSystemSource == null
                 ? null : PaimonUtils.deserialize(encodedSystemSource);
+        params.remove(SERIALIZED_SYSTEM_SOURCE);
         table = applyBackendManifestParallelism(table,
                 params.get(PAIMON_OPTION_PREFIX + DORIS_MANIFEST_PARALLELISM_CAP),
                 Runtime.getRuntime().availableProcessors(), systemSource,
@@ -883,6 +886,7 @@ public class PaimonJniScanner extends JniScanner {
         table = cachedEntry.table();
         paimonAllFieldNames = cachedEntry.fieldNames();
         params.remove(SERIALIZED_TABLE);
+        params.remove(SERIALIZED_SYSTEM_SOURCE);
         return true;
     }
 

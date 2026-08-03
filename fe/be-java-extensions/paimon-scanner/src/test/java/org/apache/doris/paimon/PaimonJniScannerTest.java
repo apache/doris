@@ -74,6 +74,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class PaimonJniScannerTest {
     private static final String SERIALIZED_TABLE = "serialized_table";
+    private static final String SERIALIZED_SYSTEM_SOURCE =
+            "paimon.doris.serialized-system-source";
     private static final String SERIALIZED_TABLE_CACHE_KEY = "serialized_table_cache_key";
 
     @Rule
@@ -100,11 +102,12 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testWarmTableCacheHitReleasesSerializedTablePayload() throws Exception {
+    public void testWarmTableCacheHitReleasesSerializedTablePayloads() throws Exception {
         String cacheKey = "warm-table-cache-hit";
         Map<String, String> params = createBaseParams();
         params.put(SERIALIZED_TABLE_CACHE_KEY, cacheKey);
         params.put(SERIALIZED_TABLE, "serialized-table-payload");
+        params.put(SERIALIZED_SYSTEM_SOURCE, "serialized-system-source-payload");
         Table cachedTable = newTestTable(Collections.emptyMap());
         PaimonTableCache.TableCacheEntry cacheEntry =
                 new PaimonTableCache.TableCacheEntry(cachedTable, Collections.emptyList());
@@ -116,6 +119,7 @@ public class PaimonJniScannerTest {
 
         Assert.assertTrue((Boolean) initTableFromCache.invoke(scanner));
         Assert.assertFalse(params.containsKey(SERIALIZED_TABLE));
+        Assert.assertFalse(params.containsKey(SERIALIZED_SYSTEM_SOURCE));
         Field tableField = PaimonJniScanner.class.getDeclaredField("table");
         tableField.setAccessible(true);
         Assert.assertSame(cachedTable, tableField.get(scanner));
