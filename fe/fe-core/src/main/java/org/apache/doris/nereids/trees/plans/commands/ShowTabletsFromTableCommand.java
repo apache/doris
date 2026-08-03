@@ -36,6 +36,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.common.util.SortAndLimit;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -57,9 +58,9 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * ShowTabletsFromTableCommand
@@ -201,12 +202,17 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
         OlapTable olapTable = db.getOlapTableOrAnalysisException(dbTableName.getTbl());
         olapTable.readLock();
         try {
-            long sizeLimit = -1;
-            if (offset > 0 && limit > 0) {
-                sizeLimit = offset + limit;
-            } else if (limit > 0) {
-                sizeLimit = limit;
+            // sizeLimit bounds how many rows need to be collected/sorted: LIMIT rows plus the
+            // OFFSET rows that get skipped afterwards.
+            Optional<Integer> sizeLimit = Optional.empty();
+            if (limit >= 0) {
+                long capped = Math.min(limit, Integer.MAX_VALUE);
+                if (offset > 0) {
+                    capped += Math.min(offset, Integer.MAX_VALUE);
+                }
+                sizeLimit = Optional.of((int) Math.min(capped, Integer.MAX_VALUE));
             }
+
             boolean stop = false;
             Collection<Partition> partitions = new ArrayList<Partition>();
             if (partitionNames != null) {
@@ -232,7 +238,9 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                     TabletsProcDir procDir = new TabletsProcDir(olapTable, index);
                     tabletInfos.addAll(procDir.fetchComparableResult(
                             version, backendId, replicaState));
-                    if (sizeLimit > -1 && tabletInfos.size() >= sizeLimit) {
+
+                    // Stop once the size is reached when no ORDER BY is given by the user explicitly.
+                    if (sizeLimit.isPresent() && tabletInfos.size() >= sizeLimit.get() && orderByPairs == null) {
                         stop = true;
                         break;
                     }
@@ -250,13 +258,12 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                     // order by tabletId, replicaId
                     comparator = new ListComparator<>(0, 1);
                 }
-                Collections.sort(tabletInfos, comparator);
-                if (sizeLimit > -1) {
-                    tabletInfos = tabletInfos.subList((int) offset,
-                            Math.min((int) sizeLimit, tabletInfos.size()));
-                }
 
-                for (List<Comparable> tabletInfo : tabletInfos) {
+                List<List<Comparable>> orderedTableInfos =
+                        SortAndLimit.sortAndLimit(tabletInfos, comparator, sizeLimit);
+                int resultOffset = (int) Math.min(offset, orderedTableInfos.size());
+                for (List<Comparable> tabletInfo
+                        : orderedTableInfos.subList(resultOffset, orderedTableInfos.size())) {
                     List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
                     for (Comparable column : tabletInfo) {
                         oneTablet.add(column.toString());
