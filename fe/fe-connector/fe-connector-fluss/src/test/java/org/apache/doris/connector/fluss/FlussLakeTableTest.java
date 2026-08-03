@@ -209,6 +209,30 @@ public class FlussLakeTableTest {
     }
 
     @Test
+    public void siblingThatDisownsItsHandleFailsLoud() {
+        // Connector.ownsHandle defaults to false, so a connector that never overrode it disowns the handles
+        // it just produced. Every guard on this side then silently fails open and the first cast throws a
+        // ClassCastException naming two class loaders and no cause -- which is exactly what the paimon
+        // connector did the first time it was used as a sibling for real. Caught where the handle is born,
+        // the message names the class that has to change.
+        FlussConnectorMetadata metadata = new FlussConnectorMetadata(withLakeTable(),
+                FlussTypeMapping.Options.DEFAULT,
+                properties -> {
+                    RecordingLakeSibling sibling = new RecordingLakeSibling(properties);
+                    sibling.claimsItsOwnHandles = false;
+                    builtSiblings.add(sibling);
+                    return sibling;
+                },
+                handle -> null);
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata.getSysTableHandle(session, baseHandle(metadata, LAKE_TABLE), "lake"));
+        Assertions.assertTrue(failure.getMessage().contains("ownsHandle"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains(RecordingLakeSibling.class.getName()),
+                failure.getMessage());
+    }
+
+    @Test
     public void theSchemaOfALakeTableComesFromTheSibling() {
         FlussConnectorMetadata metadata = metadata(withLakeTable());
         ConnectorTableSchema schema = metadata.getTableSchema(session, lakeHandle(metadata));
