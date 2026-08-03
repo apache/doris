@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/olap_file.pb.h>
-
 #include <atomic>
 #include <map>
 #include <memory>
@@ -31,9 +29,7 @@
 #include "common/config.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "storage/options.h"
 #include "storage/tablet/tablet_fwd.h"
-#include "util/threadpool.h"
 
 namespace orc {
 class MemoryPool;

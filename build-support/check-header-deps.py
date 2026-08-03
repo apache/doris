@@ -39,6 +39,10 @@ import re
 import sys
 
 INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"')
+# Generated headers are conventionally angle-included; they never include project
+# headers back, so capturing the edge (without resolving it) is enough to let a
+# rule name a gen_cpp header as a forbidden target.
+GEN_INCLUDE = re.compile(r"^\s*#\s*include\s+<(gen_cpp/[^>]+)>")
 SOURCE_ROOTS = ("be/src", "be/test")
 INCLUDE_ROOT = "be/src"
 
@@ -72,11 +76,7 @@ RULES = [
     (
         "runtime/exec_env.h",
         "io/cache/",
-        {
-            # Plain cache-key/settings structs that storage/options.h needs for
-            # CachePath; carries only config.h, core/uint128.h and io/io_common.h.
-            "io/cache/file_cache_common.h",
-        },
+        set(),
         "ExecEnv holds the file-cache machinery as pointers and forward-declares "
         "io::FDCache and io::FileCacheFactory; fs_file_cache_storage.h used to drag "
         "gen_cpp/internal_service.pb.h, descriptors.pb.h and the io/fs family into "
@@ -104,6 +104,37 @@ RULES = [
         set(),
         "ExecEnv only holds ClusterInfo* (forward-declared); cluster_info.h carries "
         "gen_cpp/Types_types.h, which must not enter every TU through this header",
+    ),
+    (
+        "runtime/exec_env.h",
+        "util/threadpool.h",
+        set(),
+        "ExecEnv holds every pool as unique_ptr<ThreadPool> with .get() accessors "
+        "and forward-declares the type (assigning setters defined out of line); "
+        "threadpool.h carries thread.h, metrics.h and the blocking-queue family, "
+        "which must not ride into the ~1060 TUs that include ExecEnv",
+    ),
+    (
+        "runtime/exec_env.h",
+        "storage/options.h",
+        set(),
+        "ExecEnv stores StorePath/CachePath only inside std::vector members and "
+        "reference-returning accessors, which work with forward declarations; "
+        "options.h carries gen_cpp/Types_types.h and io/cache/file_cache_common.h "
+        "into every TU that includes ExecEnv",
+    ),
+    (
+        "runtime/exec_env.h",
+        "gen_cpp/",
+        {
+            # Status embeds TStatus/PStatus; these two ride in through
+            # common/status.h and are the only generated headers ExecEnv may keep.
+            "gen_cpp/Status_types.h",
+            "gen_cpp/types.pb.h",
+        },
+        "ExecEnv reaches ~1060 TUs, so any generated protobuf/thrift header it "
+        "pulls in is reparsed by most of the backend; every thrift struct it "
+        "stores is behind a pointer or forward declaration",
     ),
     (
         "runtime/thread_context.h",
@@ -140,7 +171,10 @@ def load_includes():
                 with open(path, encoding="utf-8", errors="ignore") as handle:
                     includes[path] = [
                         match.group(1)
-                        for match in (INCLUDE.match(line) for line in handle)
+                        for match in (
+                            INCLUDE.match(line) or GEN_INCLUDE.match(line)
+                            for line in handle
+                        )
                         if match
                     ]
     return includes
