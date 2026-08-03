@@ -5,11 +5,10 @@
 To compile the project, run the following command:
 
 ```bash
-./build.sh --be --file-cache-microbench -j100
+./build.sh --clean --file-cache-microbench --be
 ```
 
-This will generate the `file_cache_microbench` executable in the
-`apache_doris/output/be/lib` directory.
+This will generate the `file_cache_microbench` executable in the `apache_doris/output/be/lib` directory.
 
 ## Usage
 
@@ -131,3 +130,4 @@ curl "http://localhost:{port}/MicrobenchService/get_help"
 
 ### Version Information:
 you can see it in get_help return msg
+
