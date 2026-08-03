@@ -291,10 +291,8 @@ public class PartitionCompensator {
                     continue tableLoop;
                 }
                 // If currentUsedRelationIdSet is not empty, need check relation id to get concrete used partitions
-                BitSet usedPartitionRelation = new BitSet();
-                usedPartitionRelation.set(tableUsedPartitionPair.key().asInt());
                 if (!currentUsedRelationIdSet.isEmpty()
-                        && !currentUsedRelationIdSet.intersects(usedPartitionRelation)) {
+                        && !currentUsedRelationIdSet.get(tableUsedPartitionPair.key().asInt())) {
                     continue;
                 }
                 usedPartitionSet.addAll(tableUsedPartitionPair.value());
