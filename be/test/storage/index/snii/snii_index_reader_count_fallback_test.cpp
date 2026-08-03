@@ -931,7 +931,7 @@ TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueryCacheHitLeavesPrxStatsUnch
     EXPECT_EQ(prx_stats_snapshot(cache_hit.stats), before);
 }
 
-TEST_F(SniiIndexReaderCountFallback, NonCommonGramsAnalyzerRetainsAnalyzedTermCache) {
+TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithNoneParserRetainsAnalyzedTermCache) {
     inverted_index::Settings tokenizer_settings;
     tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
     inverted_index::CustomAnalyzerConfig::Builder builder;
@@ -941,7 +941,8 @@ TEST_F(SniiIndexReaderCountFallback, NonCommonGramsAnalyzerRetainsAnalyzedTermCa
     ASSERT_FALSE(provider->uses_common_grams());
 
     InvertedIndexAnalyzerCtx analyzer_ctx;
-    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    analyzer_ctx.analyzer_name = "test_custom_analyzer";
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     analyzer_ctx.analyzer_provider = std::move(provider);
     const Field query_value = Field::create_field<TYPE_STRING>(std::string("FAILED ORDER"));
 
@@ -967,6 +968,50 @@ TEST_F(SniiIndexReaderCountFallback, NonCommonGramsAnalyzerRetainsAnalyzedTermCa
     EXPECT_EQ(second.stats.inverted_index_query_cache_hit, 1);
     EXPECT_EQ(second.stats.inverted_index_query_cache_miss, 0);
     EXPECT_EQ(second.stats.inverted_index_query_cache_insert, 0);
+}
+
+TEST_F(SniiIndexReaderCountFallback, CustomKeywordAnalyzerWithNoneParserNormalizesSingleTerm) {
+    inverted_index::CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("keyword", {});
+    builder.add_token_filter_config("lowercase", {});
+
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.analyzer_name = "test_custom_keyword_analyzer";
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
+    analyzer_ctx.analyzer_provider =
+            std::make_shared<inverted_index::CustomAnalyzerProvider>(builder.build());
+
+    QueryExecutionContext execution(/*enable_query_cache=*/false);
+    const Field query_value = Field::create_field<TYPE_STRING>(std::string("FAILED"));
+    std::shared_ptr<roaring::Roaring> bitmap;
+    assert_ok(_index_reader->query(execution.context, "content", query_value,
+                                   InvertedIndexQueryType::MATCH_ALL_QUERY, bitmap, &analyzer_ctx));
+
+    ASSERT_NE(bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*bitmap), (std::vector<uint32_t> {0, 1, 2, 3, 4, 5}));
+}
+
+TEST_F(SniiIndexReaderCountFallback, NoneParserWithoutAnalyzerUsesRawString) {
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
+
+    QueryExecutionContext lowercase_execution(/*enable_query_cache=*/false);
+    const Field lowercase_query = Field::create_field<TYPE_STRING>(std::string("failed"));
+    std::shared_ptr<roaring::Roaring> lowercase_bitmap;
+    assert_ok(_index_reader->query(lowercase_execution.context, "content", lowercase_query,
+                                   InvertedIndexQueryType::MATCH_ALL_QUERY, lowercase_bitmap,
+                                   &analyzer_ctx));
+    ASSERT_NE(lowercase_bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*lowercase_bitmap), (std::vector<uint32_t> {0, 1, 2, 3, 4, 5}));
+
+    QueryExecutionContext uppercase_execution(/*enable_query_cache=*/false);
+    const Field uppercase_query = Field::create_field<TYPE_STRING>(std::string("FAILED"));
+    std::shared_ptr<roaring::Roaring> uppercase_bitmap;
+    assert_ok(_index_reader->query(uppercase_execution.context, "content", uppercase_query,
+                                   InvertedIndexQueryType::MATCH_ALL_QUERY, uppercase_bitmap,
+                                   &analyzer_ctx));
+    ASSERT_NE(uppercase_bitmap, nullptr);
+    EXPECT_TRUE(uppercase_bitmap->isEmpty());
 }
 
 TEST_F(SniiIndexReaderCountFallback, PublicQueryWithCacheDisabledDoesNotLookupOrInsert) {

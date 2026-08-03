@@ -153,11 +153,10 @@ struct InvertedIndexAnalyzerCtx {
         return !should_tokenize() || has_complete_common_grams_identity();
     }
 
-    // Returns true if tokenization should be performed.
-    // Decision is based on parser_type (from index properties):
-    // - PARSER_NONE: no tokenization (keyword/exact match)
-    // - Other parsers: tokenize using that parser
-    bool should_tokenize() const { return parser_type != InvertedIndexParserType::PARSER_NONE; }
+    // This controls analyzer execution, not the number of emitted terms.
+    bool should_tokenize() const {
+        return !analyzer_name.empty() || parser_type != InvertedIndexParserType::PARSER_NONE;
+    }
 };
 using InvertedIndexAnalyzerCtxSPtr = std::shared_ptr<InvertedIndexAnalyzerCtx>;
 

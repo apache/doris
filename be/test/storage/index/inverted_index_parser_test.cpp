@@ -266,8 +266,7 @@ TEST_F(InvertedIndexParserTest, TestGetAnalyzerNameFromProperties) {
 TEST_F(InvertedIndexParserTest, TestInvertedIndexAnalyzerCtxShouldTokenize) {
     InvertedIndexAnalyzerCtx ctx;
 
-    // New design: should_tokenize() only depends on parser_type
-    // PARSER_NONE means no tokenization (keyword index)
+    // PARSER_NONE without a custom analyzer uses raw string matching.
     ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     ctx.analyzer_name.clear();
     EXPECT_FALSE(ctx.should_tokenize());
@@ -282,10 +281,10 @@ TEST_F(InvertedIndexParserTest, TestInvertedIndexAnalyzerCtxShouldTokenize) {
     ctx.parser_type = InvertedIndexParserType::PARSER_STANDARD;
     EXPECT_TRUE(ctx.should_tokenize());
 
-    // Even with custom_analyzer name, PARSER_NONE means no tokenization
+    // A custom analyzer must execute even when its legacy parser type is NONE.
     ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     ctx.analyzer_name = "custom_analyzer";
-    EXPECT_FALSE(ctx.should_tokenize());
+    EXPECT_TRUE(ctx.should_tokenize());
 }
 
 // Test constants
