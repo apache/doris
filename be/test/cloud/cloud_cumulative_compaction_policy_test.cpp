@@ -140,6 +140,21 @@ static int64_t total_disk_size(const std::vector<RowsetSharedPtr>& rowsets) {
     return total_size;
 }
 
+static std::vector<RowsetSharedPtr> create_max_score_trim_candidates(bool include_stranded_head) {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    if (include_stranded_head) {
+        candidate_rowsets.push_back(create_rowset(Version(13, 56), 0, false, 0));
+    }
+    candidate_rowsets.push_back(create_rowset(Version(57, 57), 192, true, 256 * kMiB));
+    candidate_rowsets.push_back(create_rowset(Version(58, 58), 0, false, 0));
+    candidate_rowsets.push_back(create_rowset(Version(59, 59), 0, false, 0));
+    candidate_rowsets.push_back(create_rowset(Version(60, 60), 150, true, 256 * kMiB));
+    for (int64_t version = 61; version <= 67; ++version) {
+        candidate_rowsets.push_back(create_rowset(Version(version, version), 1, false, kMiB));
+    }
+    return candidate_rowsets;
+}
+
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_small_base(&rs_metas);
@@ -259,6 +274,46 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
 
     EXPECT_TRUE(input_rowsets.empty());
     EXPECT_EQ(0, compaction_score);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_preserves_successor_for_non_overlapping_singleton) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = kGiB;
+    tablet._tablet_meta->_enable_unique_key_merge_on_write = true;
+    auto candidate_rowsets = create_max_score_trim_candidates(true);
+    ASSERT_EQ(12, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    ASSERT_EQ(2, input_rowsets.size());
+    EXPECT_EQ(Version(13, 56), input_rowsets[0]->version());
+    EXPECT_EQ(Version(57, 57), input_rowsets[1]->version());
+    EXPECT_GE(compaction_score, 192);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_keeps_single_overlapping_rowset_at_max_score) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = kGiB;
+    auto candidate_rowsets = create_max_score_trim_candidates(false);
+    ASSERT_EQ(11, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    ASSERT_EQ(1, input_rowsets.size());
+    EXPECT_EQ(Version(57, 57), input_rowsets.front()->version());
+    EXPECT_EQ(192, compaction_score);
 }
 
 } // namespace doris
