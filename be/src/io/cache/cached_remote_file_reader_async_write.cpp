@@ -123,27 +123,29 @@ struct CachedRemoteFileReader::AsyncReadPlan {
     size_t first_remote_block {0};
     size_t remote_block_count {0};
 
+    // These are construction-time contracts rather than runtime error handling. Keep them as
+    // debug checks so validating every logical block does not add work to each production read.
     void check_layout(size_t file_size, size_t cache_block_size) const {
-        DORIS_CHECK(file_size > 0);
-        DORIS_CHECK(cache_block_size > 0);
-        DORIS_CHECK(user_left <= user_right);
-        DORIS_CHECK(user_right < file_size);
-        DORIS_CHECK(!blocks.empty());
-        DORIS_CHECK(blocks.front().range.left <= user_left);
-        DORIS_CHECK(blocks.back().range.right >= user_right);
+        DCHECK_GT(file_size, 0);
+        DCHECK_GT(cache_block_size, 0);
+        DCHECK_LE(user_left, user_right);
+        DCHECK_LT(user_right, file_size);
+        DCHECK(!blocks.empty());
+        DCHECK_LE(blocks.front().range.left, user_left);
+        DCHECK_GE(blocks.back().range.right, user_right);
 
         for (size_t index = 0; index < blocks.size(); ++index) {
             const auto& range = blocks[index].range;
-            DORIS_CHECK(range.left <= range.right);
-            DORIS_CHECK(range.left % cache_block_size == 0);
-            DORIS_CHECK(range.right < file_size);
+            DCHECK_LE(range.left, range.right);
+            DCHECK_EQ(range.left % cache_block_size, 0);
+            DCHECK_LT(range.right, file_size);
             if (index > 0) {
-                DORIS_CHECK(blocks[index - 1].range.right + 1 == range.left);
+                DCHECK_EQ(blocks[index - 1].range.right + 1, range.left);
             }
             if (range.right + 1 < file_size) {
-                DORIS_CHECK(range.size() == cache_block_size);
+                DCHECK_EQ(range.size(), cache_block_size);
             } else {
-                DORIS_CHECK(range.size() <= cache_block_size);
+                DCHECK_LE(range.size(), cache_block_size);
             }
         }
     }
@@ -155,8 +157,8 @@ struct CachedRemoteFileReader::AsyncReadPlan {
             const auto& block = blocks[index];
             const bool is_inflight = block.source == AsyncReadBlock::Source::INFLIGHT;
             const bool is_remote = block.source == AsyncReadBlock::Source::REMOTE;
-            DORIS_CHECK((block.inflight_entry != nullptr) == is_inflight);
-            DORIS_CHECK(block.submit_write == is_remote);
+            DCHECK_EQ(block.inflight_entry != nullptr, is_inflight);
+            DCHECK_EQ(block.submit_write, is_remote);
             if (block.submit_write) {
                 if (first_miss == blocks.size()) {
                     first_miss = index;
@@ -166,15 +168,15 @@ struct CachedRemoteFileReader::AsyncReadPlan {
         }
 
         if (first_miss == blocks.size()) {
-            DORIS_CHECK(remote_block_count == 0);
+            DCHECK_EQ(remote_block_count, 0);
         } else {
-            DORIS_CHECK(first_remote_block == first_miss);
-            DORIS_CHECK(remote_block_count == last_miss - first_miss + 1);
+            DCHECK_EQ(first_remote_block, first_miss);
+            DCHECK_EQ(remote_block_count, last_miss - first_miss + 1);
         }
         if (probe_result.has_value()) {
-            DORIS_CHECK(probe_result->file_blocks.size() == blocks.size());
+            DCHECK_EQ(probe_result->file_blocks.size(), blocks.size());
         } else {
-            DORIS_CHECK(std::all_of(blocks.begin(), blocks.end(), [](const auto& block) {
+            DCHECK(std::all_of(blocks.begin(), blocks.end(), [](const auto& block) {
                 return block.source == AsyncReadBlock::Source::INFLIGHT;
             }));
         }

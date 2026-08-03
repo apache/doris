@@ -507,13 +507,12 @@ namespace doris::config {
 namespace {
 
 /// Capture all mutable async-write fields after a config update. Returning one complete value
-/// keeps every per-disk service on a coherent set of memory, worker, and batch settings.
+/// keeps every per-disk service on a coherent set of memory and worker settings.
 io::AsyncCacheWriteServiceOptions load_async_write_options_from_config() {
     return io::AsyncCacheWriteServiceOptions {
             .worker_count = static_cast<size_t>(async_file_cache_write_workers_per_disk),
             .max_pending_bytes =
                     static_cast<size_t>(async_file_cache_write_max_pending_bytes_per_disk),
-            .batch_size = static_cast<size_t>(async_file_cache_write_batch_size),
     };
 }
 
@@ -561,7 +560,4 @@ DEFINE_ON_UPDATE(async_file_cache_write_max_pending_bytes_per_disk,
                      update_async_write_options("async_file_cache_write_max_pending_bytes_per_disk",
                                                 old_value, new_value);
                  });
-DEFINE_ON_UPDATE(async_file_cache_write_batch_size, [](int32_t old_value, int32_t new_value) {
-    update_async_write_options("async_file_cache_write_batch_size", old_value, new_value);
-});
 } // namespace doris::config

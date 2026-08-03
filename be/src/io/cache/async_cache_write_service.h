@@ -85,14 +85,13 @@ struct AsyncCacheWriteTask {
     std::function<void(const AsyncCacheWriteTask&)> on_finalized;
 };
 
-/// Complete per-cache-disk worker, memory, and batch settings. The service receives this value
+/// Complete per-cache-disk worker and memory settings. The service receives this value
 /// explicitly at construction and through update_options(); it never reads global config.
 struct AsyncCacheWriteServiceOptions {
     size_t worker_count {1};
     // Accepted queued+active buffer capacity. With fixed block-size buffers, any remainder smaller
     // than one block is intentionally unusable.
     size_t max_pending_bytes {1};
-    size_t batch_size {1};
 };
 
 /// Owns the bounded async-write queue and workers for one BlockFileCache (one cache disk).
@@ -102,7 +101,7 @@ struct AsyncCacheWriteServiceOptions {
 class AsyncCacheWriteService {
 public:
     /// @param cache Non-owning target cache; it must outlive this service.
-    /// @param options Initial worker, pending-memory, and batch limits.
+    /// @param options Initial worker and pending-memory limits.
     AsyncCacheWriteService(BlockFileCache* cache, AsyncCacheWriteServiceOptions options);
     ~AsyncCacheWriteService();
 
@@ -116,8 +115,8 @@ public:
     /// pending bytes exceed the new limit. This call can briefly wait for the queue mutex and
     /// finalizes a displaced task before returning.
     /// @return true if ownership was transferred to the queue; false when workers have not been
-    /// started, during shutdown, on backpressure, or on queue rejection. A rejected task's
-    /// finalization callback is not invoked.
+    /// started, during shutdown, or on backpressure. A rejected task's finalization callback is
+    /// not invoked.
     bool try_submit(AsyncCacheWriteTask task);
 
     /// Allocate `size` payload bytes charged to the service tracker and return them in `buffer`.
@@ -159,7 +158,7 @@ public:
     size_t pending_bytes() const { return _pending_bytes.load(std::memory_order_relaxed); }
 
     /// Return accepted tasks still waiting in the FIFO queue, excluding active workers.
-    size_t queued_count() const { return _queued_count.load(std::memory_order_relaxed); }
+    size_t queued_count() const;
 
     /// Return buffer-capacity bytes still waiting in the FIFO queue.
     size_t queued_bytes() const { return _queued_bytes.load(std::memory_order_relaxed); }
@@ -196,7 +195,7 @@ private:
     /// Mark `worker_id` active and submit its persistent loop to the thread pool.
     Status _schedule_worker(size_t worker_id);
 
-    /// Drain batches until shutdown or until this worker id is retired by a resize.
+    /// Drain tasks until shutdown or until this worker id is retired by a resize.
     void _worker_loop(size_t worker_id);
 
     /// Move the oldest queued task to active ownership.
@@ -211,19 +210,18 @@ private:
     /// Record the terminal reason and invoke the task cleanup callback without the queue lock.
     void _finalize_task(AsyncCacheWriteTask task, TaskFinalizationReason reason);
 
-    /// Assert the queue count/byte conservation laws while `_queue_mutex` is held.
+    /// Debug-check the queue count/byte conservation laws while `_queue_mutex` is held.
     void _check_queue_invariants_locked() const;
 
     BlockFileCache* _cache;
     atomic_shared_ptr<const AsyncCacheWriteServiceOptions> _options;
     std::deque<AsyncCacheWriteTask> _queue;
-    std::mutex _queue_mutex;
+    mutable std::mutex _queue_mutex;
     std::condition_variable _queue_cv;
     // Learned from the first submission and protected by `_queue_mutex`.
     size_t _task_buffer_size {0};
     std::atomic<size_t> _pending_count {0};
     std::atomic<size_t> _pending_bytes {0};
-    std::atomic<size_t> _queued_count {0};
     std::atomic<size_t> _queued_bytes {0};
     std::atomic<size_t> _active_task_count {0};
     std::atomic<size_t> _active_bytes {0};
@@ -270,7 +268,6 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _rejected_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_not_running_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_backpressure_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _reject_enqueue_failure_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _buffer_alloc_fail_metric;
     std::shared_ptr<bvar::LatencyRecorder> _submit_latency_metric;
     std::shared_ptr<bvar::LatencyRecorder> _buffer_alloc_latency_metric;
