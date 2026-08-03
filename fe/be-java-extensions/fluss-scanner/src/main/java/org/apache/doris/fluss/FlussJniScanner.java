@@ -51,12 +51,14 @@ import java.util.TimeZone;
  * so every one this class needs is read through {@link #required}, which names the missing key rather
  * than letting a null reach fluss.
  *
- * <p><b>Two ways to read, one loop.</b> A log table's range is its bucket's records over
+ * <p><b>Three ways to read, one loop.</b> A log table's range is its bucket's records over
  * {@code [start, stop)}, in log order. A primary-key table's range cannot be read that way — its log
  * is a change log, so replaying it verbatim returns superseded and deleted rows — and is read instead
  * as a kv snapshot merged with the change log that followed it, by fluss's own
- * {@code KvSnapshotAndLogBatchScanner}. Both are fluss {@code BatchScanner}s, so the row loop below
- * does not know which one it is draining.
+ * {@code KvSnapshotAndLogBatchScanner}. A primary-key table whose rows are mostly in its lake needs
+ * only the tail of that change log, replayed by key into the state it ended in
+ * ({@link PkTailBatchScanner}); the lake half of that read never comes through here. All three are
+ * fluss {@code BatchScanner}s, so the row loop below does not know which one it is draining.
  *
  * <p>Partition columns are not read here. FE declares them to the engine, which leaves them out of
  * {@code required_fields} and fills them from the range itself, so the projection this builds covers
@@ -77,9 +79,12 @@ public class FlussJniScanner extends JniScanner {
     private static final String LOG_START_OFFSET = "fluss.log_start_offset";
     private static final String LOG_STOP_OFFSET = "fluss.log_stop_offset";
     private static final String KV_SNAPSHOT_ID = "fluss.kv_snapshot_id";
+    /** Scan-level, and only when a primary-key table is read as its lake plus this tail. */
+    private static final String MAX_TAIL_ROWS = "fluss.union.max_tail_rows";
 
     private static final String RANGE_TYPE_LOG = "LOG";
     private static final String RANGE_TYPE_PK_FULL = "PK_FULL";
+    private static final String RANGE_TYPE_PK_TAIL = "PK_TAIL";
 
     /**
      * How long one poll waits for data. Only affects how often the loop spins, never correctness: the
@@ -91,11 +96,13 @@ public class FlussJniScanner extends JniScanner {
     private final ClassLoader classLoader;
     private final FlussColumnValue columnValue;
 
-    private final boolean primaryKeyRange;
+    private final String rangeType;
     private final long logStopOffset;
     private final long logStartOffset;
     /** Kv snapshot to start a primary-key read from; {@code -1} when the bucket has never had one. */
     private final long kvSnapshotId;
+    /** How many change log records a {@code PK_TAIL} range may hold while replaying it. */
+    private final long maxTailRows;
     private final int bucketId;
     /** {@code null} on an unpartitioned table, which fluss subscribes to by bucket alone. */
     private final Long partitionId;
@@ -103,6 +110,8 @@ public class FlussJniScanner extends JniScanner {
     private Connection connection;
     private Table table;
     private BatchScanner scanner;
+    /** The same object as {@link #scanner} on a {@code PK_TAIL} range, for what it counted. */
+    private PkTailBatchScanner tailScanner;
 
     /** Fluss types of the projected columns, positionally aligned with {@link #fields}. */
     private List<DataType> projectedTypes;
@@ -115,20 +124,31 @@ public class FlussJniScanner extends JniScanner {
         this.params = params;
         this.classLoader = this.getClass().getClassLoader();
 
-        String rangeType = required(RANGE_TYPE);
-        this.primaryKeyRange = RANGE_TYPE_PK_FULL.equals(rangeType);
-        if (!primaryKeyRange && !RANGE_TYPE_LOG.equals(rangeType)) {
-            // Union ranges are planned but not read yet; failing here beats returning the fluss half
-            // of a union read as if it were the whole table.
+        this.rangeType = required(RANGE_TYPE);
+        if (!RANGE_TYPE_LOG.equals(rangeType) && !RANGE_TYPE_PK_FULL.equals(rangeType)
+                && !RANGE_TYPE_PK_TAIL.equals(rangeType)) {
+            // The suppression descriptor a union read attaches to a lake split also travels as a range
+            // type, and is read by BE's C++ side alone; one reaching here would mean a lake split was
+            // handed to the fluss scanner, and reading it as a fluss range would return nothing at all.
             throw new IllegalArgumentException(
-                    "fluss scan range type '" + rangeType + "' is not supported yet; expected "
-                            + RANGE_TYPE_LOG + " or " + RANGE_TYPE_PK_FULL);
+                    "fluss scan range type '" + rangeType + "' is not one this scanner reads; expected "
+                            + RANGE_TYPE_LOG + ", " + RANGE_TYPE_PK_FULL + " or " + RANGE_TYPE_PK_TAIL);
         }
         // Every range field is parsed here, before open() creates a connection: a range that cannot be
         // read should say so without having contacted the cluster first.
         this.logStopOffset = Long.parseLong(required(LOG_STOP_OFFSET));
         this.logStartOffset = Long.parseLong(required(LOG_START_OFFSET));
-        this.kvSnapshotId = primaryKeyRange ? Long.parseLong(required(KV_SNAPSHOT_ID)) : -1L;
+        this.kvSnapshotId = RANGE_TYPE_PK_FULL.equals(rangeType)
+                ? Long.parseLong(required(KV_SNAPSHOT_ID)) : -1L;
+        this.maxTailRows = RANGE_TYPE_PK_TAIL.equals(rangeType) ? maxTailRows() : 0L;
+        if (RANGE_TYPE_PK_TAIL.equals(rangeType) && logStartOffset >= logStopOffset) {
+            // A bucket whose lake has caught up with its log contributes nothing, and planning says so
+            // by not planning a range at all. One arriving here means the lake half and the fluss half
+            // were bounded by different offsets, which is a duplicate or a missing row either way.
+            throw new IllegalArgumentException("a fluss log tail must read something, but bucket "
+                    + required(BUCKET_ID) + " was given [" + logStartOffset + ", " + logStopOffset
+                    + ")");
+        }
         this.bucketId = Integer.parseInt(required(BUCKET_ID));
         String partition = params.get(PARTITION_ID);
         this.partitionId = partition == null ? null : Long.parseLong(partition);
@@ -170,10 +190,7 @@ public class FlussJniScanner extends JniScanner {
             TableBucket tableBucket = partitionId == null
                     ? new TableBucket(tableId, bucketId)
                     : new TableBucket(tableId, partitionId, bucketId);
-            scanner = primaryKeyRange
-                    ? primaryKeyScanner(tableBucket, projection)
-                    : new BoundedLogBatchScanner(table, tableBucket, scanProjection(projection),
-                            logStartOffset, logStopOffset);
+            scanner = createScanner(tableBucket, projection);
         } catch (Throwable e) {
             try {
                 close();
@@ -185,6 +202,24 @@ public class FlussJniScanner extends JniScanner {
                     + " bucket " + params.get(BUCKET_ID), e);
         } finally {
             Thread.currentThread().setContextClassLoader(callerLoader);
+        }
+    }
+
+    /**
+     * The reader for this kind of range. All three are fluss {@code BatchScanner}s, which is what lets
+     * {@link #getNext} drain any of them without knowing which it has.
+     */
+    private BatchScanner createScanner(TableBucket tableBucket, int[] projection) {
+        switch (rangeType) {
+            case RANGE_TYPE_PK_FULL:
+                return primaryKeyScanner(tableBucket, projection);
+            case RANGE_TYPE_PK_TAIL:
+                tailScanner = new PkTailBatchScanner(table, tableBucket, projection,
+                        logStartOffset, logStopOffset, maxTailRows);
+                return tailScanner;
+            default:
+                return new BoundedLogBatchScanner(table, tableBucket, scanProjection(projection),
+                        logStartOffset, logStopOffset);
         }
     }
 
@@ -318,7 +353,25 @@ public class FlussJniScanner extends JniScanner {
         Map<String, String> statistics = new HashMap<>();
         statistics.put("counter:FlussJniRowsRead", String.valueOf(rowsRead));
         statistics.put("gauge:FlussJniRequiredFieldCount", String.valueOf(fields.length));
+        if (tailScanner != null) {
+            // What the tail cost and what it hid: the records replayed, and the keys it ended deleted —
+            // those are lake rows that disappear with nothing returned in their place.
+            statistics.put("counter:FlussJniTailRecordsRead",
+                    String.valueOf(tailScanner.getRecordsRead()));
+            statistics.put("counter:FlussJniTailTombstoneKeys",
+                    String.valueOf(tailScanner.getTombstoneKeys()));
+        }
         return statistics;
+    }
+
+    /** The tail ceiling, which planning sends with every {@code PK_TAIL} range of a union read. */
+    private long maxTailRows() {
+        long rows = Long.parseLong(required(MAX_TAIL_ROWS));
+        if (rows <= 0) {
+            throw new IllegalArgumentException("fluss scanner parameter '" + MAX_TAIL_ROWS
+                    + "' is " + rows + "; expected a positive number of rows");
+        }
+        return rows;
     }
 
     private String required(String key) {
