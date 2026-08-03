@@ -679,6 +679,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<ConnectorColumn> boundTargetColumns = connectorTableSink.getBoundTargetSchema().stream()
                 .map(PhysicalPlanTranslator::toWriteConnectorColumn)
                 .collect(java.util.stream.Collectors.toList());
+        // Sort ordinals are consumed against the sink output. BindSink puts positional writes in
+        // bound-schema order (visible columns only for ordinary writes), while name-mapped writes keep
+        // user order. Preserve that coordinate space so partial/static INSERTs cannot sort another slot.
+        List<ConnectorColumn> boundOutputColumns = targetTable.requiresFullSchemaWriteOrder()
+                ? connectorTableSink.getBoundTargetSchema().stream()
+                        .filter(column -> connectorTableSink.isRewrite() || column.isVisible())
+                        .map(PhysicalPlanTranslator::toWriteConnectorColumn)
+                        .collect(java.util.stream.Collectors.toList())
+                : connectorColumns;
 
         // Every write-capable connector builds its own opaque TDataSink via its write-plan
         // provider (jdbc / maxcompute / iceberg). A connector whose declared write operations do
@@ -716,9 +725,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TSortInfo here (the connector's planWrite has no bound exprs). Empty for connectors with no
         // write sort (jdbc/maxcompute) -> null, byte-identical unsorted sink.
         TSortInfo writeSortInfo = buildConnectorWriteSortInfo(
-                // Resolve against the actual bound output subset. A full-schema ordinal can be out of range
-                // for a partial INSERT even when the table schema itself has not changed.
-                writePlanProvider.getWriteSortColumns(connSession, providerTableHandle, connectorColumns),
+                writePlanProvider.getWriteSortColumns(connSession, providerTableHandle, boundOutputColumns),
                 connectorTableSink, context);
 
         // A distributed rewrite_data_files INSERT-SELECT threads WriteOperation.REWRITE so the connector's
