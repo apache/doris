@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -53,7 +55,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ExecuteCommandTest {
 
     @Test
-    public void testResolvedScanOptionsAreResetForEveryExecute() throws Exception {
+    public void testExecutionStateIsResetForEveryExecute() throws Exception {
         String sql = "select * from p@options('scan.mode'='latest')";
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
         UnboundRelation relation = logicalPlan.<UnboundRelation>collectToList(
@@ -75,10 +77,20 @@ public class ExecuteCommandTest {
         Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
         Mockito.when(executor.getContext()).thenReturn(connectContext);
 
+        statementContext.getTableUsedPartitionNameMap().put(
+                Collections.singletonList("table"), Pair.of(new RelationId(0), Collections.singleton("p1")));
+        statementContext.getCommonTableIdToRelationIdMap().put(0, 0);
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        Assertions.assertTrue(statementContext.getTableUsedPartitionNameMap().isEmpty());
+        Assertions.assertTrue(statementContext.getCommonTableIdToRelationIdMap().isEmpty());
         Assertions.assertEquals("2", resolveNextSnapshot(scanParams, snapshotId));
 
+        statementContext.getTableUsedPartitionNameMap().put(
+                Collections.singletonList("table"), Pair.of(new RelationId(1), Collections.singleton("p2")));
+        statementContext.getCommonTableIdToRelationIdMap().put(0, 1);
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        Assertions.assertTrue(statementContext.getTableUsedPartitionNameMap().isEmpty());
+        Assertions.assertTrue(statementContext.getCommonTableIdToRelationIdMap().isEmpty());
         Assertions.assertEquals("3", resolveNextSnapshot(scanParams, snapshotId));
         Mockito.verify(executor, Mockito.times(2)).execute();
     }
