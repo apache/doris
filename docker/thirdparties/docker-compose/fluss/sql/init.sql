@@ -444,11 +444,12 @@ INSERT INTO lake_part VALUES
 
 -- ---------------------------------------------------------------------------
 -- lake_pk: primary-key table tiered into paimon. Merging a lake with a change
--- log BY KEY is not implemented, so the connector refuses this table unless the
--- lake is switched off -- the fixture exists to pin that refusal, to check that
--- the fluss-only read still returns the whole table, and to let $lake read the
--- paimon side directly. Row 2 is updated before tiering, so the lake already
--- holds a merged view rather than a raw change log.
+-- log BY KEY is not implemented, so this table is read from fluss alone -- which
+-- is the WHOLE table rather than a part of it, because fluss keeps a primary-key
+-- table's state in full. That read is the baseline the future merge has to
+-- reproduce: $lake shows what paimon holds, the front door shows the answer.
+-- Row 2 is updated before tiering, so the lake already holds a merged view
+-- rather than a raw change log.
 -- ---------------------------------------------------------------------------
 CREATE TABLE lake_pk (
     id INT NOT NULL,
