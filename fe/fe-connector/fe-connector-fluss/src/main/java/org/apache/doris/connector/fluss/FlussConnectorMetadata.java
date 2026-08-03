@@ -111,16 +111,13 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Obtains the lake sibling's metadata through the per-statement funnel: the first forward in a statement
-     * builds it and every later one reuses that instance, mirroring what fe-core's own metadata funnel does
-     * for a plain connector. The key carries the catalog id and the owner role because a fluss catalog runs
-     * two connectors (itself and the paimon sibling) under ONE catalog id — keying on the id alone would
-     * collapse them onto one metadata and misroute every call. Only SPI types are touched here, and neither
-     * the returned metadata nor any handle it produces may be cast (cross-loader {@code CCE}).
+     * Forwards one call to the lake sibling's metadata. Only SPI types are touched, and neither the metadata
+     * nor any handle it produces may be cast (cross-loader {@code CCE}). {@link LakeSibling#forward} owns the
+     * classloader pin and the per-statement instance, so both are shared with the scan planner.
      */
-    private ConnectorMetadata siblingMetadata(ConnectorSession session, Connector sibling) {
-        String key = "metadata:" + session.getCatalogId() + ":" + LAKE_SYS_TABLE;
-        return session.getStatementScope().getOrCreateMetadata(key, () -> sibling.getMetadata(session));
+    private <T> T forward(ConnectorSession session, Connector sibling,
+            Function<ConnectorMetadata, T> call) {
+        return LakeSibling.forward(session, sibling, call);
     }
 
     @Override
@@ -171,7 +168,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             ConnectorTableHandle baseTableHandle) {
         Connector owner = siblingOwner.apply(baseTableHandle);
         if (owner != null) {
-            return siblingMetadata(session, owner).listSupportedSysTables(session, baseTableHandle);
+            return forward(session, owner, m -> m.listSupportedSysTables(session, baseTableHandle));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) baseTableHandle;
         return flussHandle.isDataLakeEnabled()
@@ -193,7 +190,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             ConnectorTableHandle baseTableHandle, String sysName) {
         Connector owner = siblingOwner.apply(baseTableHandle);
         if (owner != null) {
-            return siblingMetadata(session, owner).getSysTableHandle(session, baseTableHandle, sysName);
+            return forward(session, owner, m -> m.getSysTableHandle(session, baseTableHandle, sysName));
         }
         if (!LAKE_SYS_TABLE.equals(sysName)) {
             return Optional.empty();
@@ -217,8 +214,8 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
 
         Connector sibling = lakeSiblingFactory.apply(
                 PaimonSiblingProperties.synthesize(flussHandle.getProperties()));
-        Optional<ConnectorTableHandle> lakeHandle = siblingMetadata(session, sibling).getTableHandle(
-                session, flussHandle.getDatabaseName(), flussHandle.getTableName());
+        Optional<ConnectorTableHandle> lakeHandle = forward(session, sibling, m -> m.getTableHandle(
+                session, flussHandle.getDatabaseName(), flussHandle.getTableName()));
         if (!lakeHandle.isPresent()) {
             // The lake table is created by the tiering service on its first commit, so "not there" means
             // nothing has been tiered yet — a state that resolves itself and is worth saying out loud.
@@ -236,8 +233,8 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             ConnectorTableHandle baseTableHandle, String sysName) {
         Connector owner = siblingOwner.apply(baseTableHandle);
         if (owner != null) {
-            return siblingMetadata(session, owner)
-                    .isPartitionValuesSysTable(session, baseTableHandle, sysName);
+            return forward(session, owner,
+                    m -> m.isPartitionValuesSysTable(session, baseTableHandle, sysName));
         }
         // The lake table is a real data table served by the paimon sibling, not the generic
         // partition_values function.
@@ -248,7 +245,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
         Connector owner = siblingOwner.apply(handle);
         if (owner != null) {
-            return siblingMetadata(session, owner).getTableSchema(session, handle);
+            return forward(session, owner, m -> m.getTableSchema(session, handle));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         TableInfo info = tableInfo(session, flussHandle.toTablePath());
@@ -278,7 +275,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         Connector owner = siblingOwner.apply(handle);
         if (owner != null) {
-            return siblingMetadata(session, owner).getColumnHandles(session, handle);
+            return forward(session, owner, m -> m.getColumnHandles(session, handle));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         List<Schema.Column> columns = tableInfo(session, flussHandle.toTablePath()).getSchema().getColumns();
@@ -299,7 +296,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
         Connector owner = siblingOwner.apply(handle);
         if (owner != null) {
-            return siblingMetadata(session, owner).listPartitionNames(session, handle);
+            return forward(session, owner, m -> m.listPartitionNames(session, handle));
         }
         List<ConnectorPartitionInfo> partitions = listPartitions(session, handle, Optional.empty());
         List<String> names = new ArrayList<>(partitions.size());
@@ -326,7 +323,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
         Connector owner = siblingOwner.apply(handle);
         if (owner != null) {
-            return siblingMetadata(session, owner).listPartitions(session, handle, filter);
+            return forward(session, owner, m -> m.listPartitions(session, handle, filter));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         List<String> partitionKeys = flussHandle.getPartitionKeys();
@@ -363,7 +360,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         Connector owner = siblingOwner.apply(handle);
         if (owner != null) {
-            return siblingMetadata(session, owner).getTableStatistics(session, handle);
+            return forward(session, owner, m -> m.getTableStatistics(session, handle));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         long rowCount;
