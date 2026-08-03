@@ -16,6 +16,8 @@
 // under the License.
 
 suite("check_meta", "check_meta") {
+    enableRecyclerCaseTimeout()
+
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId;
     def cloudUniqueId = context.config.cloudUniqueId;

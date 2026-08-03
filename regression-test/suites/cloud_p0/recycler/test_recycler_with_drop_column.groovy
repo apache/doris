@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import java.util.stream.Collectors
 
 suite("test_recycler_with_drop_column") {
+    enableRecyclerCaseTimeout()
+
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId;
     def cloudUniqueId = context.config.cloudUniqueId

@@ -41,6 +41,8 @@ import com.azure.storage.common.StorageSharedKeyCredential
 import java.time.Duration
 
 suite("test_checker") {
+    enableRecyclerCaseTimeout()
+
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId;
     def cloudUniqueId = context.config.cloudUniqueId;
