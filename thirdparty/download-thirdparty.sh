@@ -344,7 +344,7 @@ fi
 reset_arrow_paimon_source() {
     local archive_name="$1"
     local source_name="$2"
-    echo "Resetting ${source_name} because its Arrow/Paimon build fingerprint changed"
+    echo "Resetting ${source_name} because its patch state is incomplete or stale"
     rm -rf "${TP_SOURCE_DIR:?}/${source_name}"
     "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${TP_SOURCE_DIR}/"
 }
@@ -454,13 +454,10 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
     fi
     if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-24.0.0" ]]; then
         arrow_fingerprint_mark="${TP_SOURCE_DIR}/${ARROW_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
-        if [[ ! -f "${TP_SOURCE_DIR}/${ARROW_SOURCE}/${PATCHED_MARK}" ||
-              ! -f "${arrow_fingerprint_mark}" ||
-              "$(<"${arrow_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
-            if [[ -f "${TP_SOURCE_DIR}/${ARROW_SOURCE}/${PATCHED_MARK}" ||
-                  -f "${arrow_fingerprint_mark}" ]]; then
-                reset_arrow_paimon_source "${ARROW_NAME}" "${ARROW_SOURCE}"
-            fi
+        if ! [[ -f "${TP_SOURCE_DIR}/${ARROW_SOURCE}/${PATCHED_MARK}" &&
+               -f "${arrow_fingerprint_mark}" ]] ||
+           [[ "$(<"${arrow_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
+            reset_arrow_paimon_source "${ARROW_NAME}" "${ARROW_SOURCE}"
             cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
             # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
             # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
@@ -769,17 +766,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     PAIMON_CPP_ARROW_24_PATCHED_MARK="patched_mark_arrow_24"
     PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK="patched_mark_arrow_24_compute"
     paimon_fingerprint_mark="${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
-    if [[ ! -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PATCHED_MARK}" ||
-          ! -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_PATCHED_MARK}" ||
-          ! -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}" ||
-          ! -f "${paimon_fingerprint_mark}" ||
-          "$(<"${paimon_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
-        if [[ -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PATCHED_MARK}" ||
-              -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_PATCHED_MARK}" ||
-              -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}" ||
-              -f "${paimon_fingerprint_mark}" ]]; then
-            reset_arrow_paimon_source "${PAIMON_CPP_NAME}" "${PAIMON_CPP_SOURCE}"
-        fi
+    if ! [[ -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PATCHED_MARK}" &&
+           -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_PATCHED_MARK}" &&
+           -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}" &&
+           -f "${paimon_fingerprint_mark}" ]] ||
+       [[ "$(<"${paimon_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
+        reset_arrow_paimon_source "${PAIMON_CPP_NAME}" "${PAIMON_CPP_SOURCE}"
         cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compatibility.patch"

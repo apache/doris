@@ -881,13 +881,15 @@ void write_sparse_filter_nested_parquet_file(const std::string& file_path) {
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     builder.disable_dictionary();
     builder.write_batch_size(8);
-    builder.data_pagesize(64);
+    // Arrow 24 checks repeated-column page limits only at record or WriteBatch boundaries.
+    // A one-byte target deterministically flushes at every eligible boundary, including the
+    // deliberately split wide record below.
+    builder.data_pagesize(1);
     auto writer = ::parquet::ParquetFileWriter::Open(out, schema, builder.build());
     auto* row_group = writer->AppendRowGroup();
 
-    // Arrow 24 keeps repeated records together while batching, including for V1 pages. Split each
-    // wide record across WriteBatch calls so the first call flushes an oversized page and the next
-    // page starts with a continuation repetition level.
+    // Split each wide record across WriteBatch calls. The first half flushes at the one-byte page
+    // limit, so the second call deterministically creates a page whose first repetition level is 1.
     constexpr int64_t SPANNING_BATCH_VALUES = SPANNING_NESTED_VALUES / 2;
 
     auto* id_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());

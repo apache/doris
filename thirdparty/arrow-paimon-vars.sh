@@ -45,23 +45,128 @@ PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
 PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
 PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
-# Identify the checked-in source, patch, and build inputs selected for the
-# Arrow/Paimon stack. Shared prebuilt archives record this value after a
-# successful build, allowing consumers to reject stale sources or patches.
-arrow_paimon_build_fingerprint() {
+# Identify the checked-in source, patch, and build inputs selected for Arrow.
+# Arrow and Paimon publish separate installed markers so a package-only build
+# cannot certify a component that it did not rebuild.
+arrow_build_fingerprint() {
     local vars_dir
     vars_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     (
-        cd "${vars_dir}"
-        export LC_ALL=C
+        cd "${vars_dir}" || return 1
+        LC_ALL=C
         git hash-object \
             arrow-paimon-vars.sh \
             vars.sh \
             download-thirdparty.sh \
             build-thirdparty.sh \
-            paimon-cpp-cache.cmake \
-            patches/apache-arrow-"${ARROW_VERSION}"-*.patch \
-            patches/paimon-cpp-*.patch |
+            patches/apache-arrow-"${ARROW_VERSION}"-*.patch |
             git hash-object --stdin
     )
+}
+
+paimon_build_fingerprint() {
+    local vars_dir
+    vars_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    (
+        cd "${vars_dir}" || return 1
+        LC_ALL=C
+        {
+            arrow_build_fingerprint
+            git hash-object \
+                arrow-paimon-vars.sh \
+                vars.sh \
+                download-thirdparty.sh \
+                build-thirdparty.sh \
+                paimon-cpp-cache.cmake \
+                patches/paimon-cpp-*.patch
+        } | git hash-object --stdin
+    )
+}
+
+# Source patch markers use a combined value because either component's inputs
+# may change the external-Arrow contract applied to both source trees.
+arrow_paimon_build_fingerprint() {
+    {
+        arrow_build_fingerprint
+        paimon_build_fingerprint
+    } | git hash-object --stdin
+}
+
+ARROW_PAIMON_REQUIRED_LIBRARIES=(
+    libbrotlicommon.a
+    libbrotlidec.a
+    libbrotlienc.a
+    libarrow.a
+    libarrow_compute.a
+    libarrow_flight.a
+    libarrow_flight_sql.a
+    libarrow_dataset.a
+    libarrow_acero.a
+    libarrow_bundled_dependencies.a
+    libparquet.a
+    libpaimon.a
+    libpaimon_parquet_file_format.a
+    libpaimon_orc_file_format.a
+    libpaimon_blob_file_format.a
+    libpaimon_local_file_system.a
+    libpaimon_file_index.a
+    libpaimon_global_index.a
+    libroaring_bitmap_paimon.a
+    libxxhash_paimon.a
+    libfmt_paimon.a
+    libtbb_paimon.a
+)
+
+arrow_paimon_prebuilt_valid() {
+    local install_dir="$1"
+    local arrow_fingerprint_mark="${install_dir}/arrow-build-fingerprint.txt"
+    local paimon_fingerprint_mark="${install_dir}/paimon-build-fingerprint.txt"
+    local expected_fingerprint
+    local installed_fingerprint
+    local installed_arrow_version
+    local library
+
+    if [[ ! -f "${arrow_fingerprint_mark}" ]]; then
+        echo "Missing Arrow build fingerprint: ${arrow_fingerprint_mark}" >&2
+        return 1
+    fi
+    expected_fingerprint="$(arrow_build_fingerprint)"
+    installed_fingerprint="$(<"${arrow_fingerprint_mark}")"
+    if [[ "${installed_fingerprint}" != "${expected_fingerprint}" ]]; then
+        echo "Arrow build fingerprint does not match selected inputs" >&2
+        return 1
+    fi
+
+    if [[ ! -f "${paimon_fingerprint_mark}" ]]; then
+        echo "Missing Paimon build fingerprint: ${paimon_fingerprint_mark}" >&2
+        return 1
+    fi
+    expected_fingerprint="$(paimon_build_fingerprint)"
+    installed_fingerprint="$(<"${paimon_fingerprint_mark}")"
+    if [[ "${installed_fingerprint}" != "${expected_fingerprint}" ]]; then
+        echo "Paimon build fingerprint does not match selected inputs" >&2
+        return 1
+    fi
+
+    if [[ ! -f "${install_dir}/include/arrow/util/config.h" ]]; then
+        echo "Missing installed Arrow version header" >&2
+        return 1
+    fi
+    installed_arrow_version="$(
+        awk '$1 == "#define" && $2 == "ARROW_VERSION_STRING" {
+               gsub(/"/, "", $3); print $3; exit
+             }' "${install_dir}/include/arrow/util/config.h"
+    )"
+    if [[ "${installed_arrow_version}" != "${ARROW_VERSION}" ]]; then
+        echo "Installed Arrow version ${installed_arrow_version} does not match ${ARROW_VERSION}" >&2
+        return 1
+    fi
+
+    for library in "${ARROW_PAIMON_REQUIRED_LIBRARIES[@]}"; do
+        if [[ ! -f "${install_dir}/lib64/${library}" ]]; then
+            echo "Missing Arrow/Paimon library: ${library}" >&2
+            return 1
+        fi
+    done
+    return 0
 }

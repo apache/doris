@@ -1150,6 +1150,9 @@ build_arrow() {
     strip_lib libparquet.a
     strip_lib libarrow_dataset.a
     strip_lib libarrow_acero.a
+
+    rm -f "${TP_INSTALL_DIR}/arrow-paimon-build-fingerprint.txt"
+    arrow_build_fingerprint >"${TP_INSTALL_DIR}/arrow-build-fingerprint.txt"
 }
 
 # arrow-adbc
@@ -2210,7 +2213,8 @@ build_paimon_cpp() {
     fi
 
     echo "Paimon-cpp internal dependencies installed successfully"
-    arrow_paimon_build_fingerprint >"${TP_INSTALL_DIR}/arrow-paimon-build-fingerprint.txt"
+    rm -f "${TP_INSTALL_DIR}/arrow-paimon-build-fingerprint.txt"
+    paimon_build_fingerprint >"${TP_INSTALL_DIR}/paimon-build-fingerprint.txt"
 }
 
 # lance-c
