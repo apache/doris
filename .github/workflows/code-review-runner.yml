@@ -951,13 +951,16 @@ jobs:
 
       - name: Sync refreshed Codex auth back to OSS
         if: ${{ always() && steps.auth.outcome == 'success' }}
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: |
-          jq -e '
+          if ! jq -e '
             .auth_mode == "chatgpt"
             and (.tokens.access_token | type == "string" and length > 0)
             and (.tokens.refresh_token | type == "string" and length > 0)
-          ' "$CODEX_HOME/auth.json" >/dev/null
+          ' "$CODEX_HOME/auth.json" >/dev/null; then
+            echo "::error::Refreshed Codex auth is invalid; refusing OSS auth sync."
+            exit 1
+          fi
 
           original_hash="$(<"$RUNNER_TEMP/codex-auth-original.sha256")"
           local_hash="$(sha256sum "$CODEX_HOME/auth.json" | awk '{print $1}')"
