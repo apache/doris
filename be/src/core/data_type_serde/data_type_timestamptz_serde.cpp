@@ -17,12 +17,12 @@
 
 #include "core/data_type_serde/data_type_timestamptz_serde.h"
 
-#include <arrow/array.h>
 #include <arrow/builder.h>
-#include <arrow/type.h>
 #include <cctz/time_zone.h>
 
+#include "common/config.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
@@ -54,52 +54,6 @@ Status append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& da
         return Status::DataQualityError(
                 "Decoded TIMESTAMPTZ is outside the Doris 0001-9999 range: micros={}",
                 timestamp_micros);
-    }
-    data.push_back(timestamp_tz);
-    return Status::OK();
-}
-
-Status append_timestamptz_from_arrow_timestamp(ColumnTimeStampTz::Container& data, int64_t value,
-                                               arrow::TimeUnit::type unit) {
-    int64_t units_per_second;
-    int64_t micros_per_unit;
-    switch (unit) {
-    case arrow::TimeUnit::SECOND:
-        units_per_second = 1;
-        micros_per_unit = 0;
-        break;
-    case arrow::TimeUnit::MILLI:
-        units_per_second = 1000;
-        micros_per_unit = 1000;
-        break;
-    case arrow::TimeUnit::MICRO:
-        units_per_second = 1000000;
-        micros_per_unit = 1;
-        break;
-    case arrow::TimeUnit::NANO:
-        units_per_second = 1000000000;
-        micros_per_unit = 0;
-        break;
-    default:
-        return Status::InvalidArgument("Unsupported Arrow Timestamp unit: {}", unit);
-    }
-
-    int64_t epoch_seconds = value / units_per_second;
-    int64_t subsecond_units = value % units_per_second;
-    if (subsecond_units < 0) {
-        subsecond_units += units_per_second;
-        --epoch_seconds;
-    }
-    const int64_t micros_of_second = unit == arrow::TimeUnit::NANO
-                                             ? subsecond_units / 1000
-                                             : subsecond_units * micros_per_unit;
-
-    static const auto UTC = cctz::utc_time_zone();
-    TimestampTzValue timestamp_tz;
-    timestamp_tz.from_unixtime(epoch_seconds, UTC);
-    timestamp_tz.set_microsecond(static_cast<uint32_t>(micros_of_second));
-    if (!timestamp_tz.is_valid_date()) {
-        return Status::DataQualityError("Decoded TIMESTAMPTZ is outside the Doris 0001-9999 range");
     }
     data.push_back(timestamp_tz);
     return Status::OK();
@@ -405,29 +359,88 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
     return Status::OK();
 }
 
+/**
+ * Reads an Arrow timestamp array into a TIMESTAMPTZ column.
+ *
+ * <p>Without this the base DataTypeNumberSerDe<TYPE_TIMESTAMPTZ> reader runs instead, and its
+ * fixed-width path memcpy's the array's int64 epoch values straight into the column -- whose element
+ * is a PACKED date/time value, not an epoch. Both are 8 bytes wide, so no check catches it: the scan
+ * succeeds and every row is silently wrong. That is why an unreadable Arrow type below is an error
+ * rather than a fallback.
+ *
+ * <p>The value is read as an instant on the UTC line, which is the inverse of what
+ * write_column_to_arrow emits (it converts with cctz::utc_time_zone(), not with ctz). ctz is
+ * therefore unused here: an Arrow timestamp's zone -- whether it names one or not -- describes how
+ * to DISPLAY the instant, and TIMESTAMPTZ stores the instant itself.
+ */
 Status DataTypeTimeStampTzSerDe::read_column_from_arrow(IColumn& column,
                                                         const arrow::Array* arrow_array,
                                                         int64_t start, int64_t end,
-                                                        const cctz::time_zone&) const {
-    if (arrow_array->type_id() != arrow::Type::TIMESTAMP) {
-        return Status::InvalidArgument("Expected Arrow TimestampArray, got {}",
-                                       arrow_array->type()->name());
+                                                        const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
     }
-    const auto* timestamp_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
-    if (timestamp_array == nullptr) {
-        return Status::InvalidArgument("Expected Arrow TimestampArray, got {}",
-                                       arrow_array->type()->name());
+    if (arrow_array->type()->id() != arrow::Type::TIMESTAMP) {
+        LOG(WARNING) << "not support convert to timestamptz from arrow type:"
+                     << arrow_array->type()->id();
+        return Status::InternalError("not support convert to timestamptz from arrow type: {}",
+                                     arrow_array->type()->id());
+    }
+    const auto* concrete_array = assert_cast<const arrow::TimestampArray*>(arrow_array);
+    const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
+    // Scale each unit to the microseconds the column stores. NANO is divided rather than refused:
+    // sub-microsecond precision is beyond what any Doris datetime type keeps, and rejecting the
+    // column over a digit would make whole tables unreadable.
+    int64_t multiplier = 1;
+    int64_t divisor = 1;
+    switch (type->unit()) {
+    case arrow::TimeUnit::type::SECOND:
+        multiplier = 1000000;
+        break;
+    case arrow::TimeUnit::type::MILLI:
+        multiplier = 1000;
+        break;
+    case arrow::TimeUnit::type::MICRO:
+        break;
+    case arrow::TimeUnit::type::NANO:
+        divisor = 1000;
+        break;
+    default:
+        LOG(WARNING) << "not support convert to timestamptz from time_unit:" << type->unit();
+        return Status::InvalidArgument("not support convert to timestamptz from time_unit: {}",
+                                       type->unit());
     }
 
-    const auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
-    auto& data = assert_cast<ColumnTimeStampTz&>(column).get_data();
-    for (int64_t row = start; row < end; ++row) {
-        if (timestamp_array->IsNull(row)) {
-            data.push_back(TimestampTzValue());
+    auto& col_data = assert_cast<ColumnTimeStampTz&>(column).get_data();
+    const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
+    const size_t element_size = sizeof(int64_t);
+    for (auto value_i = start; value_i < end; ++value_i) {
+        // One value per row including the null ones: the caller (DataTypeNullableSerDe) has already
+        // taken the validity bitmap and hands the whole range down. The value under a null slot is
+        // whatever the source left there, so it must not be converted -- a garbage epoch would fail
+        // the range check below and take a well-formed batch down with it.
+        if (concrete_array->IsNull(value_i)) {
+            col_data.push_back(TimestampTzValue());
             continue;
         }
-        RETURN_IF_ERROR(append_timestamptz_from_arrow_timestamp(data, timestamp_array->Value(row),
-                                                                timestamp_type->unit()));
+        const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
+        auto value = unaligned_load<int64_t>(raw_byte_ptr);
+        int64_t timestamp_micros = 0;
+        if (__builtin_mul_overflow(value, multiplier, &timestamp_micros)) {
+            return Status::DataQualityError(
+                    "Arrow timestamp {} in unit {} overflows the microsecond range of TIMESTAMPTZ",
+                    value, static_cast<int>(type->unit()));
+        }
+        if (divisor != 1) {
+            // Floor, not truncate: C++ integer division rounds toward zero, which would move a
+            // pre-1970 instant forward by up to one microsecond.
+            int64_t remainder = timestamp_micros % divisor;
+            timestamp_micros /= divisor;
+            if (remainder < 0) {
+                --timestamp_micros;
+            }
+        }
+        RETURN_IF_ERROR(append_timestamptz_from_utc_epoch_micros(col_data, timestamp_micros));
     }
     return Status::OK();
 }
