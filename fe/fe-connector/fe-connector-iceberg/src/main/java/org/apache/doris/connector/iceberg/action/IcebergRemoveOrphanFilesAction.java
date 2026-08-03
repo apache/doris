@@ -375,7 +375,7 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
                     ? names.get(names.size() - 2) + "/" + names.get(names.size() - 1)
                     : names.get(names.size() - 1);
             return new ScanScope(root, Pattern.compile(
-                    "[01]{4}/[01]{4}/[01]{4}/[01]{4}/[01]{4}/"
+                    "[01]{4}/[01]{4}/[01]{4}/[01]{8}/"
                             + Pattern.quote(context) + "/.+"));
         }
 
@@ -393,7 +393,7 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
             }
             String relative = child.path.substring(Math.min(child.path.length(), parent.path.length()));
             relative = relative.startsWith("/") ? relative.substring(1) : relative;
-            // Iceberg's ObjectStoreLocationProvider prefixes five 4-bit hash directories before context.
+            // Iceberg 1.10.1 splits its 20-bit hash into 4/4/4/8-bit directories before context.
             return ownedRelativePath.matcher(relative).matches();
         }
     }

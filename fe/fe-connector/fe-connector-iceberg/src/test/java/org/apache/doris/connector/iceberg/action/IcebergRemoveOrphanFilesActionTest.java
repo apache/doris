@@ -228,16 +228,15 @@ public class IcebergRemoveOrphanFilesActionTest {
                 temp.resolve("lower-precedence-object-path").toUri().toString());
         Files.createDirectories(objectRoot);
         Table objectTable = createTable(temp.resolve("object-metadata"), objectProperties);
-        Path ownOrphan = createOldFile(objectRoot.resolve(
-                "0000/0001/0010/0011/0100/" + temp.getFileName() + "/object-metadata/own.parquet"));
-        Path neighborFile = createOldFile(objectRoot.resolve(
-                "0000/0001/0010/0011/0100/" + temp.getFileName() + "/neighbor/live.parquet"));
+        String ownLocation = objectTable.locationProvider().newDataLocation("own.parquet");
+        Path ownOrphan = createOldFile(Path.of(java.net.URI.create(ownLocation)));
+        Table neighborTable = createTable(temp.resolve("neighbor"), objectProperties);
+        String neighborLocation = neighborTable.locationProvider().newDataLocation("live.parquet");
+        Path neighborFile = createOldFile(Path.of(java.net.URI.create(neighborLocation)));
         Assertions.assertTrue(IcebergRemoveOrphanFilesAction.isOwnedObjectStorePath(
-                "s3://bucket/shared/0000/0001/0010/0011/0100/db/table/file.parquet",
-                "s3://bucket/shared", "s3://bucket/warehouse/db/table"));
+                ownLocation, objectRoot.toUri().toString(), objectTable.location()));
         Assertions.assertFalse(IcebergRemoveOrphanFilesAction.isOwnedObjectStorePath(
-                "s3://bucket/shared/0000/0001/0010/0011/0100/db/neighbor/file.parquet",
-                "s3://bucket/shared", "s3://bucket/warehouse/db/table"));
+                neighborLocation, objectRoot.toUri().toString(), objectTable.location()));
 
         Path folderRoot = temp.resolve("folder-data");
         Table folderTable = createTable(temp.resolve("folder-metadata"),
