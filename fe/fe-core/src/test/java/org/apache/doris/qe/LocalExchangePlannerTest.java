@@ -544,8 +544,9 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
     public void testStreamingAggAfterRepeatUsesPassthrough() throws Exception {
         // Repeat expands grouping sets into consecutive blocks. A passthrough local
         // exchange above Repeat distributes those blocks among streaming aggregation
-        // instances without hashing every expanded row.
-        setupLocalShuffleSession(null);
+        // instances without hashing every expanded row. Force two-phase aggregation
+        // so the lower Repeat-adjacent aggregation is a streaming preaggregation.
+        setupLocalShuffleSession(sv -> sv.setAggPhase(2));
         assertPlanShape(
                 "select k1, k2, count(*) from test.t1 group by grouping sets((k1), (k1, k2))",
                 anyTree(
@@ -589,11 +590,10 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
     @Test
     public void testMixedPlanWithPoolingScan() throws Exception {
         // Pooling: grouping-sets sub-query JOINed and re-aggregated.  Probe side
-        // hashes the inner agg output for the join, while Repeat→StreamingAgg uses
-        // PASSTHROUGH; the build side comes through LE(PASS_TO_ONE) over an
-        // inter-fragment Exchange.
+        // wraps the inner agg/Repeat with LE(LOCAL_HASH) over LE(PASSTHROUGH); build
+        // side comes through LE(PASS_TO_ONE) over an inter-fragment Exchange.
         //   Agg → HashJoin
-        //           ← LE(LOCAL_HASH) → Agg → LE(PASSTHROUGH) → Repeat → scan(t1)
+        //           ← Agg → LE(LOCAL_HASH) → LE(PASSTHROUGH) → Repeat → scan(t1)
         //           ← LE(PASS_TO_ONE) → Exchange → scan(t2)
         setupLocalShuffleSession(null);
         assertPlanShape(
@@ -602,8 +602,8 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
                 anyTree(
                         agg(
                                 hashJoin(
-                                        localExchange(LOCAL_HASH,
-                                                agg(
+                                        agg(
+                                                localExchange(LOCAL_HASH,
                                                         localExchange(PT,
                                                                 anyTree(olapScan("t1"))))),
                                         localExchange(PASS_TO_ONE_LE,
