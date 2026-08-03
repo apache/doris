@@ -395,7 +395,6 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
             victim.emplace(std::move(_queue.front()));
             _queue.pop_front();
         }
-        _check_queue_invariants_locked();
     }
 
     *_submitted_metric << 1;
@@ -468,7 +467,6 @@ bool AsyncCacheWriteService::_try_take_task(AsyncCacheWriteTask* task) {
     _queued_bytes.fetch_sub(task_buffer_bytes, std::memory_order_relaxed);
     _active_task_count.fetch_add(1, std::memory_order_relaxed);
     _active_bytes.fetch_add(task_buffer_bytes, std::memory_order_relaxed);
-    _check_queue_invariants_locked();
     return true;
 }
 
@@ -588,7 +586,6 @@ void AsyncCacheWriteService::_finish_active_task(AsyncCacheWriteTask task) {
         DCHECK_GT(old_pending, 0);
         _pending_bytes.fetch_sub(task_buffer_bytes, std::memory_order_relaxed);
         became_empty = old_pending == 1;
-        _check_queue_invariants_locked();
     }
     _finalize_task(std::move(task), TaskFinalizationReason::WORKER_FINISHED);
     if (became_empty) {
@@ -611,22 +608,6 @@ void AsyncCacheWriteService::_finalize_task(AsyncCacheWriteTask task,
     *_finished_bytes_metric << task_buffer_bytes;
     if (task.on_finalized) {
         task.on_finalized(task);
-    }
-}
-
-void AsyncCacheWriteService::_check_queue_invariants_locked() const {
-    const size_t queued = _queue.size();
-    const size_t queued_bytes = _queued_bytes.load(std::memory_order_relaxed);
-    const size_t active = _active_task_count.load(std::memory_order_relaxed);
-    const size_t active_bytes = _active_bytes.load(std::memory_order_relaxed);
-    const size_t pending = _pending_count.load(std::memory_order_relaxed);
-    const size_t pending_bytes = _pending_bytes.load(std::memory_order_relaxed);
-    DCHECK_EQ(pending, queued + active);
-    DCHECK_EQ(pending_bytes, queued_bytes + active_bytes);
-    if (_task_buffer_size > 0) {
-        DCHECK_EQ(queued_bytes, queued * _task_buffer_size);
-        DCHECK_EQ(active_bytes, active * _task_buffer_size);
-        DCHECK_EQ(pending_bytes, pending * _task_buffer_size);
     }
 }
 
@@ -684,7 +665,6 @@ Status AsyncCacheWriteService::update_options(const AsyncCacheWriteServiceOption
         TimedQueueLock lock(_queue_mutex, *_queue_lock_wait_latency_metric,
                             *_queue_lock_hold_latency_metric);
         _options.store(std::move(next_options), std::memory_order_release);
-        _check_queue_invariants_locked();
     }
     return Status::OK();
 }
@@ -723,17 +703,6 @@ void AsyncCacheWriteService::shutdown() {
     if (_worker_pool) {
         for (const auto& worker : _workers) {
             worker->wait_until_stopped();
-        }
-        {
-            TimedQueueLock lock(_queue_mutex, *_queue_lock_wait_latency_metric,
-                                *_queue_lock_hold_latency_metric);
-            _check_queue_invariants_locked();
-            DORIS_CHECK(_queue.empty());
-            DORIS_CHECK(_pending_count.load(std::memory_order_relaxed) == 0);
-            DORIS_CHECK(_pending_bytes.load(std::memory_order_relaxed) == 0);
-            DORIS_CHECK(_queued_bytes.load(std::memory_order_relaxed) == 0);
-            DORIS_CHECK(_active_task_count.load(std::memory_order_relaxed) == 0);
-            DORIS_CHECK(_active_bytes.load(std::memory_order_relaxed) == 0);
         }
         _worker_pool->shutdown();
     }

@@ -25,33 +25,48 @@
 #include <vector>
 
 #include "io/cache/block_file_cache.h"
+#include "runtime/thread_context.h"
 #include "util/time.h"
 
 namespace doris::io {
 namespace {
 
 std::shared_ptr<InflightWriteBufferEntry> make_entry(uint64_t epoch, size_t offset = 0,
-                                                     size_t size = 4096) {
-    return std::make_shared<InflightWriteBufferEntry>(nullptr, offset, size, MonotonicMicros(),
-                                                      epoch);
+                                                     size_t size = 4096,
+                                                     size_t buffer_capacity = 4096) {
+    DORIS_CHECK(size <= buffer_capacity);
+    static auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::CACHE,
+                                                           "InflightWriteBufferIndexTest");
+    AsyncCacheWriteBufferPtr buffer;
+    {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+        buffer.reset(new AsyncCacheWriteBuffer(buffer_capacity, tracker));
+    }
+    return std::make_shared<InflightWriteBufferEntry>(std::move(buffer), offset, size,
+                                                      MonotonicMicros(), epoch);
 }
 
 TEST(InflightWriteBufferIndexTest, InsertLookupAndConditionalRemove) {
     InflightWriteBufferIndex index(8, "inflight_index_basic_test");
     const auto hash = BlockFileCache::hash("basic");
-    auto entry = make_entry(7);
+    auto entry = make_entry(7, 0, 1024, 4096);
     const int64_t lock_wait_count = index._lock_wait_latency_metric->count();
     const int64_t lock_hold_count = index._lock_hold_latency_metric->count();
 
     EXPECT_EQ(index.insert_if_absent(hash, 0, entry), nullptr);
-    EXPECT_EQ(index.size(), 1);
+    EXPECT_EQ(index.count(), 1);
+    EXPECT_EQ(index.buffer_bytes(), 4096);
+    EXPECT_EQ(index._count_metric->get_value(), 1);
+    EXPECT_EQ(index._buffer_bytes_metric->get_value(), 4096);
     EXPECT_EQ(index.lookup(hash, 0, 7), entry);
 
-    auto unexpected = make_entry(7);
+    auto unexpected = make_entry(7, 0, 1024, 8192);
     EXPECT_FALSE(index.remove_if(hash, 0, unexpected));
+    EXPECT_EQ(index.buffer_bytes(), 4096);
     EXPECT_EQ(index.lookup(hash, 0, 7), entry);
     EXPECT_TRUE(index.remove_if(hash, 0, entry));
-    EXPECT_EQ(index.size(), 0);
+    EXPECT_EQ(index.count(), 0);
+    EXPECT_EQ(index.buffer_bytes(), 0);
     EXPECT_EQ(index.lookup(hash, 0, 7), nullptr);
     EXPECT_EQ(index._lock_wait_latency_metric->count() - lock_wait_count, 6);
     EXPECT_EQ(index._lock_hold_latency_metric->count() - lock_hold_count, 6);
@@ -79,19 +94,23 @@ TEST(InflightWriteBufferIndexTest, NewEpochReplacesOldWithoutOldCallbackDeleting
     InflightWriteBufferIndex index(8, "inflight_index_epoch_test");
     const auto hash = BlockFileCache::hash("epoch");
     auto old_entry = make_entry(10);
-    auto new_entry = make_entry(11);
+    auto new_entry = make_entry(11, 0, 4096, 8192);
     ASSERT_EQ(index.insert_if_absent(hash, 0, old_entry), nullptr);
+    EXPECT_EQ(index.buffer_bytes(), 4096);
 
     EXPECT_EQ(index.lookup(hash, 0, 11), nullptr);
-    EXPECT_EQ(index.size(), 0);
+    EXPECT_EQ(index.count(), 0);
+    EXPECT_EQ(index.buffer_bytes(), 0);
     ASSERT_EQ(index.insert_if_absent(hash, 0, old_entry), nullptr);
     EXPECT_EQ(index.insert_if_absent(hash, 0, new_entry), nullptr);
-    EXPECT_EQ(index.size(), 1);
+    EXPECT_EQ(index.count(), 1);
+    EXPECT_EQ(index.buffer_bytes(), 8192);
     EXPECT_FALSE(index.remove_if(hash, 0, old_entry));
     EXPECT_EQ(index.lookup(hash, 0, 11), new_entry);
 
-    auto stale_candidate = make_entry(10);
+    auto stale_candidate = make_entry(10, 0, 4096, 16384);
     EXPECT_EQ(index.insert_if_absent(hash, 0, stale_candidate), new_entry);
+    EXPECT_EQ(index.buffer_bytes(), 8192);
     EXPECT_EQ(index.lookup(hash, 0, 11), new_entry);
 }
 
@@ -120,9 +139,10 @@ TEST(InflightWriteBufferIndexTest, ConcurrentInsertPublishesExactlyOneEntry) {
     }
 
     EXPECT_EQ(inserted_count.load(std::memory_order_relaxed), 1);
-    EXPECT_EQ(index.size(), 1);
+    EXPECT_EQ(index.count(), 1);
     auto published = index.lookup(hash, 0, 20);
     ASSERT_NE(published, nullptr);
+    EXPECT_EQ(index.buffer_bytes(), published->buffer->size());
     EXPECT_TRUE(std::find(candidates.begin(), candidates.end(), published) != candidates.end());
 }
 
@@ -130,7 +150,7 @@ TEST(InflightWriteBufferIndexTest, ConcurrentNewEpochReplacementSurvivesOldRemov
     InflightWriteBufferIndex index(16, "inflight_index_concurrent_replace_test");
     const auto hash = BlockFileCache::hash("concurrent_replace");
     auto old_entry = make_entry(30);
-    auto new_entry = make_entry(31);
+    auto new_entry = make_entry(31, 0, 4096, 8192);
     ASSERT_EQ(index.insert_if_absent(hash, 0, old_entry), nullptr);
 
     std::atomic<bool> start {false};
@@ -154,7 +174,8 @@ TEST(InflightWriteBufferIndexTest, ConcurrentNewEpochReplacementSurvivesOldRemov
         thread.join();
     }
 
-    EXPECT_EQ(index.size(), 1);
+    EXPECT_EQ(index.count(), 1);
+    EXPECT_EQ(index.buffer_bytes(), 8192);
     EXPECT_EQ(index.lookup(hash, 0, 31), new_entry);
     EXPECT_FALSE(index.remove_if(hash, 0, old_entry));
     EXPECT_EQ(index.lookup(hash, 0, 31), new_entry);
