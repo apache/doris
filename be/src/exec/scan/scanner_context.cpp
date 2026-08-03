@@ -40,6 +40,7 @@
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "exec/scan/task_executor/task_executor.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -123,6 +124,7 @@ Status ScannerContext::init() {
     if (auto* task_executor_scheduler =
                 dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
         std::shared_ptr<TaskExecutor> task_executor = task_executor_scheduler->task_executor();
+        _task_executor = task_executor;
         TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
         _task_handle = DORIS_TRY(task_executor->create_task(
                 task_id, []() { return 0.0; },
@@ -187,11 +189,11 @@ ScannerContext::~ScannerContext() {
     block.reset();
     DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     if (_task_handle) {
-        if (auto* task_executor_scheduler =
-                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
-            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        if (auto task_executor = _task_executor.lock()) {
+            static_cast<void>(task_executor->remove_task(_task_handle));
         }
         _task_handle = nullptr;
+        _task_executor.reset();
     }
 }
 
@@ -389,11 +391,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
     }
     _tasks_queue.clear();
     if (_task_handle) {
-        if (auto* task_executor_scheduler =
-                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
-            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        if (auto task_executor = _task_executor.lock()) {
+            static_cast<void>(task_executor->remove_task(_task_handle));
         }
         _task_handle = nullptr;
+        _task_executor.reset();
     }
     // TODO yiguolei, call mark close to scanners
     if (state->enable_profile()) {
