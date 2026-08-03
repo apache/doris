@@ -324,14 +324,14 @@ public class IcebergWritePlanProviderTest {
     @Test
     public void branchWriteAllowsCurrentRequiredFieldWithInitialDefault() {
         InMemoryCatalog catalog = freshCatalog();
-        Table table = unpartitionedUnsortedTable(catalog);
+        Table table = formatVersionThreeTable(catalog);
         table.newAppend().commit();
         table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
         table.updateSchema().addRequiredColumn(
                 "required_value", Types.IntegerType.get(), Literal.of(7)).commit();
 
         IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
-                table, "db1.t2", Optional.of("old_schema"), false, false);
+                table, "db1.tv3", Optional.of("old_schema"), false, false);
 
         Assertions.assertNull(writeContext.getSchema().findField("required_value"));
         Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
