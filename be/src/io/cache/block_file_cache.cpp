@@ -55,6 +55,7 @@
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
+#include "util/mem_info.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
@@ -552,11 +553,12 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
             _cache_base_path);
     // BlockFileCache is the configuration boundary for a newly created per-disk service. Pass a
     // value snapshot so AsyncCacheWriteService does not need to know where its settings came from.
-    AsyncCacheWriteServiceOptions async_write_options {
-            .worker_count = static_cast<size_t>(config::async_file_cache_write_workers_per_disk),
-            .max_pending_bytes =
-                    static_cast<size_t>(config::async_file_cache_write_max_pending_bytes_per_disk),
-    };
+    AsyncCacheWriteServiceOptions async_write_options;
+    async_write_options.worker_count =
+            static_cast<size_t>(config::async_file_cache_write_workers_per_disk);
+    RETURN_IF_ERROR(resolve_async_file_cache_write_max_pending_bytes_per_disk(
+            config::async_file_cache_write_max_pending_bytes_per_disk, MemInfo::mem_limit(),
+            &async_write_options.max_pending_bytes));
     _async_write_service =
             std::make_unique<AsyncCacheWriteService>(this, std::move(async_write_options));
     // Do not create persistent per-disk workers while async writeback is disabled. The config
