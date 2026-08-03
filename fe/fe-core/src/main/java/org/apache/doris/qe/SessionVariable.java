@@ -545,8 +545,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MINIDUMP_PATH = "minidump_path";
 
-    public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
-
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
     public static final String MEMO_LOGICAL_ROW_COUNT_AGGREGATION_POLICY = "memo_logical_row_count_aggregation_policy";
@@ -2565,8 +2563,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
 
-    @VarAttrDef.VarAttr(name = PLAN_NEREIDS_DUMP)
-    public boolean planNereidsDump = false;
+    // Internal state, not a session variable: it is turned on only by MinidumpUtils while replaying
+    // a minidump file (PLAY '<dumpfile>'), where tables and statistics come from the dump instead of
+    // the catalog. It is intentionally not settable through SET, not forwarded and not serialized.
+    private boolean planNereidsDump = false;
 
     // If set to true, all query will be executed without returning result
     @VarAttrDef.VarAttr(name = DRY_RUN_QUERY, needForward = true)
