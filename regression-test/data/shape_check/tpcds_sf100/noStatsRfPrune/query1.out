@@ -18,7 +18,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk)) otherCondition=((cast(ctr_total_return as DECIMALV3(38, 5)) > (avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2)))
+------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk)) otherCondition=((cast(ctr_total_return as DECIMALV3(38, 5)) > (avg(ctr_total_return) * 1.2)))
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = ctr1.ctr_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ctr_store_sk]
 ------------------PhysicalProject
