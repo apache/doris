@@ -78,6 +78,30 @@ INSERT INTO lake_pk VALUES
     (3, 'lp3-hot'),
     (4, 'lp4-hot');
 
+-- Three keys out of nine, so the tail reaches some buckets and not others --
+-- which is the whole point of this table. Key 10 is new here, so it also lands
+-- in a bucket the lake already holds rows for and must be added to that bucket
+-- rather than replacing anything in it.
+INSERT INTO lake_pk_multi VALUES
+    (2, 'm2-hot'),
+    (10, 'm10-hot');
+
+-- 20260101 gets a tail, 20260102 keeps none, and 20260103 is created here --
+-- after tiering stopped -- so the lake never sees it.
+INSERT INTO lake_pk_part VALUES
+    (1, 'pp1a-hot', '20260101');
+
+INSERT INTO lake_pk_part VALUES
+    (5, 'pp3a', '20260103');
+
+-- Deletions of rows the lake holds. They are the case a suppression set has to
+-- cover but a merge of surviving rows cannot: the key is gone from the tail's
+-- own result, and the lake row it removes would otherwise stay.
 SET 'execution.runtime-mode' = 'batch';
 DELETE FROM lake_pk WHERE id = 1;
+DELETE FROM lake_pk_multi WHERE id = 7;
+DELETE FROM lake_pk_part WHERE id = 2 AND dt = '20260101';
 SET 'execution.runtime-mode' = 'streaming';
+
+-- lake_pk_cold gets nothing: it is the fixture for a primary-key table the lake
+-- already holds in full, where planning must wrap no split and read no tail.

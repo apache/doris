@@ -106,6 +106,9 @@ lake_cold
 lake_log
 lake_part
 lake_pk
+lake_pk_cold
+lake_pk_multi
+lake_pk_part
 lake_types
 log_basic
 log_empty
