@@ -952,6 +952,55 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertTrue(cols.isEmpty(), "no identity column resolves -> empty list -> empty TSortInfo");
     }
 
+    @Test
+    public void planWriteRejectsSortOrderEvolutionAfterPhysicalShaping() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t2");
+        Table plannedTable = unpartitionedUnsortedTable(catalog);
+        RecordingConnectorContext ctx = contextWithStorage();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = plannedTable;
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
+        String boundMetadataIdentity = provider.getWriteMetadataIdentity(session, tableHandle);
+        Assertions.assertNull(provider.getWriteSortColumns(session, tableHandle),
+                "the physical plan must be shaped as unsorted at S0");
+
+        catalog.loadTable(id).replaceSortOrder().asc("name").commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planWrite(session,
+                        new WriteHandle(tableHandle).boundWriteMetadataIdentity(boundMetadataIdentity)));
+        Assertions.assertTrue(ex.getMessage().contains("write metadata changed"),
+                "a post-bind sort-order change must fail before files can be labeled with the refreshed order");
+    }
+
+    @Test
+    public void planWriteRejectsPartitionFieldRenameAfterStaticOverwriteBinding() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table plannedTable = catalog.createTable(id, SCHEMA,
+                PartitionSpec.builderFor(SCHEMA).identity("id").build());
+        RecordingConnectorContext ctx = contextWithStorage();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = plannedTable;
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t1");
+        String boundMetadataIdentity = provider.getWriteMetadataIdentity(session, tableHandle);
+
+        catalog.loadTable(id).updateSpec().renameField("id", "renamed_id").commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planWrite(session, new WriteHandle(tableHandle)
+                        .overwrite(true)
+                        .writeContext(Collections.singletonMap("id", "7"))
+                        .boundWriteMetadataIdentity(boundMetadataIdentity)));
+        Assertions.assertTrue(ex.getMessage().contains("write metadata changed"),
+                "a post-bind partition-field rename must fail before the stale static spec reaches commit");
+    }
+
     // ───────────────────────────── getWritePartitioning (connector declares, ② C3b-core) ─────────────────────────────
     //
     // WHY: post-flip the iceberg merge-write distribution (DistributionSpecMerge) is built fe-core-side, but
@@ -1492,6 +1541,7 @@ public class IcebergWritePlanProviderTest {
         private boolean requireMergeCardinalityCheck;
         private List<ConnectorColumn> columns = Collections.emptyList();
         private List<ConnectorColumn> boundTargetColumns;
+        private String boundWriteMetadataIdentity;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -1510,6 +1560,16 @@ public class IcebergWritePlanProviderTest {
         WriteHandle boundTargetColumns(List<ConnectorColumn> v) {
             this.boundTargetColumns = v;
             return this;
+        }
+
+        WriteHandle boundWriteMetadataIdentity(String v) {
+            this.boundWriteMetadataIdentity = v;
+            return this;
+        }
+
+        @Override
+        public String getBoundWriteMetadataIdentity() {
+            return boundWriteMetadataIdentity;
         }
 
         @Override

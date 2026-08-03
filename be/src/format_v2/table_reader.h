@@ -1237,12 +1237,14 @@ protected:
             // only when a required descendant can consume them. This avoids scratch proportional
             // to all array entries for the common all-required schema.
             const NullMap* descendant_parent_null_map_ptr = nullptr;
-            if (_requires_collection_parent_null_map(nullable_parent_null_map, nested_column,
-                                                     array_type->get_nested_type())) {
-                descendant_parent_null_map_ptr = _project_collection_parent_null_map(
-                        nullptr, nullable_parent_null_map, array_column.size(),
-                        array_column.get_offsets(), nested_column->size(),
-                        &descendant_parent_null_map);
+            if (_requires_collection_parent_null_map(
+                        nullable_parent_null_map, nested_column, array_type->get_nested_type(),
+                        array_column.size(), array_column.get_offsets())) {
+                descendant_parent_null_map_ptr =
+                        _project_collection_parent_null_map_for_hidden_entries(
+                                nullptr, nullable_parent_null_map, array_column.size(),
+                                array_column.get_offsets(), nested_column->size(),
+                                &descendant_parent_null_map);
             }
             RETURN_IF_ERROR(_align_column_nullability(&nested_column, array_type->get_nested_type(),
                                                       descendant_parent_null_map_ptr));
@@ -1256,13 +1258,17 @@ protected:
             NullMap descendant_parent_null_map;
             const NullMap* descendant_parent_null_map_ptr = nullptr;
             if (_requires_collection_parent_null_map(nullable_parent_null_map, key_column,
-                                                     map_type->get_key_type()) ||
+                                                     map_type->get_key_type(), map_column.size(),
+                                                     map_column.get_offsets()) ||
                 _requires_collection_parent_null_map(nullable_parent_null_map, value_column,
-                                                     map_type->get_value_type())) {
+                                                     map_type->get_value_type(), map_column.size(),
+                                                     map_column.get_offsets())) {
                 // Keys and values share offsets, so one projected mask safely covers both streams.
-                descendant_parent_null_map_ptr = _project_collection_parent_null_map(
-                        nullptr, nullable_parent_null_map, map_column.size(),
-                        map_column.get_offsets(), key_column->size(), &descendant_parent_null_map);
+                descendant_parent_null_map_ptr =
+                        _project_collection_parent_null_map_for_hidden_entries(
+                                nullptr, nullable_parent_null_map, map_column.size(),
+                                map_column.get_offsets(), key_column->size(),
+                                &descendant_parent_null_map);
             }
             RETURN_IF_ERROR(_align_column_nullability(&key_column, map_type->get_key_type(),
                                                       descendant_parent_null_map_ptr));
@@ -1658,26 +1664,49 @@ protected:
     }
 
     template <typename Offsets>
-    static const NullMap* _project_collection_parent_null_map(
-            const NullMap* container_null_map, const NullMap* ancestor_null_map, const size_t rows,
-            const Offsets& offsets, const size_t child_rows, NullMap* const projected_null_map) {
+    static bool _parent_null_map_hides_collection_entries(const NullMap* container_null_map,
+                                                          const NullMap* ancestor_null_map,
+                                                          const size_t rows,
+                                                          const Offsets& offsets) {
         if (container_null_map == nullptr && ancestor_null_map == nullptr) {
-            return nullptr;
+            return false;
         }
         DORIS_CHECK(container_null_map == nullptr || container_null_map->size() == rows);
         DORIS_CHECK(ancestor_null_map == nullptr || ancestor_null_map->size() == rows);
         DORIS_CHECK(offsets.size() == rows);
-        bool has_hidden_row = false;
+        size_t begin = 0;
         for (size_t row = 0; row < rows; ++row) {
-            if ((container_null_map != nullptr && (*container_null_map)[row]) ||
-                (ancestor_null_map != nullptr && (*ancestor_null_map)[row])) {
-                has_hidden_row = true;
-                break;
+            const size_t end = offsets[row];
+            const bool hidden = (container_null_map != nullptr && (*container_null_map)[row]) ||
+                                (ancestor_null_map != nullptr && (*ancestor_null_map)[row]);
+            // A hidden collection row protects descendants only when its offset span is nonempty.
+            if (hidden && end > begin) {
+                return true;
             }
+            begin = end;
         }
-        if (!has_hidden_row) {
+        return false;
+    }
+
+    template <typename Offsets>
+    static bool _requires_collection_parent_null_map(const NullMap* parent_null_map,
+                                                     const ColumnPtr& column,
+                                                     const DataTypePtr& table_type,
+                                                     const size_t rows, const Offsets& offsets) {
+        if (!_parent_null_map_hides_collection_entries(nullptr, parent_null_map, rows, offsets)) {
+            return false;
+        }
+        return _requires_parent_null_map_for_alignment(column, table_type);
+    }
+
+    template <typename Offsets>
+    static const NullMap* _project_collection_parent_null_map_for_hidden_entries(
+            const NullMap* container_null_map, const NullMap* ancestor_null_map, const size_t rows,
+            const Offsets& offsets, const size_t child_rows, NullMap* const projected_null_map) {
+        if (!_parent_null_map_hides_collection_entries(container_null_map, ancestor_null_map, rows,
+                                                       offsets)) {
             // Nullable collection wrappers expose a null-map even when every row is present; avoid
-            // allocating entry-coordinate scratch proportional to a potentially huge collection.
+            // allocating entry-coordinate scratch unless a hidden row owns physical entries.
             return nullptr;
         }
         projected_null_map->resize(child_rows);
@@ -1818,9 +1847,10 @@ protected:
         // storage invariant, so add it only at the materialization boundary.
         element_mapping.table_type = make_nullable(element_mapping.table_type);
         NullMap descendant_parent_null_map;
-        const NullMap* descendant_parent_null_map_ptr = _project_collection_parent_null_map(
-                parent_null_map, nullable_parent_null_map, rows, file_array->get_offsets(),
-                nested_column->size(), &descendant_parent_null_map);
+        const NullMap* descendant_parent_null_map_ptr =
+                _project_collection_parent_null_map_for_hidden_entries(
+                        parent_null_map, nullable_parent_null_map, rows, file_array->get_offsets(),
+                        nested_column->size(), &descendant_parent_null_map);
         RETURN_IF_ERROR(_materialize_present_child_mapping_column(
                 element_mapping, nested_column, nested_column->size(), &nested_column,
                 descendant_parent_null_map_ptr));
@@ -1872,9 +1902,10 @@ protected:
         ColumnPtr value_column = file_map->get_values_ptr();
         DORIS_CHECK(key_column->size() == value_column->size());
         NullMap descendant_parent_null_map;
-        const NullMap* descendant_parent_null_map_ptr = _project_collection_parent_null_map(
-                parent_null_map, nullable_parent_null_map, rows, file_map->get_offsets(),
-                key_column->size(), &descendant_parent_null_map);
+        const NullMap* descendant_parent_null_map_ptr =
+                _project_collection_parent_null_map_for_hidden_entries(
+                        parent_null_map, nullable_parent_null_map, rows, file_map->get_offsets(),
+                        key_column->size(), &descendant_parent_null_map);
 
         const ColumnMapping* key_mapping = nullptr;
         const ColumnMapping* value_mapping = nullptr;

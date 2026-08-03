@@ -128,6 +128,16 @@ public interface ConnectorWritePlanProvider {
     }
 
     /**
+     * Returns an opaque identity for metadata that shapes the physical write plan. The engine captures it
+     * while binding the sink and returns it through {@link ConnectorWriteHandle}; connectors can reject the
+     * write if a later metadata refresh would make that physical plan stale. Default: {@code null} when the
+     * connector has no such metadata fence.
+     */
+    default String getWriteMetadataIdentity(ConnectorSession session, ConnectorTableHandle tableHandle) {
+        return null;
+    }
+
+    /**
      * Declares the target's write-time partitioning, in an engine-neutral form, so the engine can reproduce
      * the connector's write distribution (the iceberg merge-write {@code DistributionSpecMerge}) without
      * importing the connector's native partition-spec types. The engine resolves each

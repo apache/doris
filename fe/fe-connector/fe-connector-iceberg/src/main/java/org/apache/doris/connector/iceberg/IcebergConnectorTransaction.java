@@ -750,9 +750,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         }
 
         List<Expression> predicates = new ArrayList<>();
+        Set<String> unmatchedFields = new HashSet<>(staticPartitions.keySet());
         for (PartitionField field : spec.fields()) {
             String partitionColName = field.name();
             if (staticPartitions.containsKey(partitionColName)) {
+                unmatchedFields.remove(partitionColName);
                 String partitionValueStr = staticPartitions.get(partitionColName);
                 Types.NestedField sourceField = schema.findField(field.sourceId());
                 if (sourceField == null) {
@@ -769,8 +771,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             }
         }
 
-        if (predicates.isEmpty()) {
-            return Expressions.alwaysTrue();
+        // A stale nonempty static spec must never widen into an always-true full-table overwrite.
+        if (!unmatchedFields.isEmpty()) {
+            throw new DorisConnectorException("Static partition field does not match the current Iceberg spec: "
+                    + unmatchedFields);
         }
         Expression result = predicates.get(0);
         for (int i = 1; i < predicates.size(); i++) {

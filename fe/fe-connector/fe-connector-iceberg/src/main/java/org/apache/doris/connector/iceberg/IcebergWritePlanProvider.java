@@ -175,6 +175,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
+        validateBoundWriteMetadata(table, handle);
         validateBoundWriteColumns(table, handle, writeContext.getWriteOperation());
 
         // commit-bridge supply (S4 part 2): read the non-equality delete supply the scan seam accumulated into the
@@ -271,6 +272,19 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry "
                         + "the statement with the latest schema");
             }
+        }
+    }
+
+    private void validateBoundWriteMetadata(Table table, ConnectorWriteHandle handle) {
+        String boundIdentity = handle.getBoundWriteMetadataIdentity();
+        if (boundIdentity == null) {
+            return;
+        }
+        // The FE sort/distribution and Iceberg file metadata must come from one generation; otherwise
+        // beginWrite's refresh can silently stamp files with a sort order or partition spec they did not use.
+        if (!boundIdentity.equals(writeMetadataIdentity(table))) {
+            throw new DorisConnectorException(
+                    "Iceberg write metadata changed after the write was bound; retry the statement");
         }
     }
 
@@ -400,6 +414,39 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             }
         }
         return result;
+    }
+
+    @Override
+    public String getWriteMetadataIdentity(ConnectorSession session, ConnectorTableHandle tableHandle) {
+        return writeMetadataIdentity(resolveTable(session, (IcebergTableHandle) tableHandle));
+    }
+
+    private static String writeMetadataIdentity(Table table) {
+        StringBuilder identity = new StringBuilder();
+        SortOrder sortOrder = table.sortOrder();
+        appendMetadataToken(identity, "sort");
+        appendMetadataToken(identity, sortOrder.orderId());
+        for (SortField field : sortOrder.fields()) {
+            appendMetadataToken(identity, field.sourceId());
+            appendMetadataToken(identity, field.transform());
+            appendMetadataToken(identity, field.direction());
+            appendMetadataToken(identity, field.nullOrder());
+        }
+        PartitionSpec spec = table.spec();
+        appendMetadataToken(identity, "spec");
+        appendMetadataToken(identity, spec.specId());
+        for (PartitionField field : spec.fields()) {
+            appendMetadataToken(identity, field.sourceId());
+            appendMetadataToken(identity, field.fieldId());
+            appendMetadataToken(identity, field.name());
+            appendMetadataToken(identity, field.transform());
+        }
+        return identity.toString();
+    }
+
+    private static void appendMetadataToken(StringBuilder identity, Object value) {
+        String token = String.valueOf(value);
+        identity.append(token.length()).append(':').append(token);
     }
 
     @Override

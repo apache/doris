@@ -145,6 +145,20 @@ public class PluginDrivenTableSinkTest {
     }
 
     @Test
+    public void bindDataSinkThreadsBoundWriteMetadataIdentityToHandle() throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
+        String metadataIdentity = "sort-generation-3/spec-generation-7";
+
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                Collections.emptyList(), null, WriteOperation.INSERT, false, metadataIdentity);
+        sink.bindDataSink(Optional.empty());
+
+        Assert.assertEquals(metadataIdentity, provider.seenHandle.getBoundWriteMetadataIdentity());
+    }
+
+    @Test
     public void bindDataSinkThreadsBranchNameToHandle() throws AnalysisException {
         // WHY: INSERT INTO t@branch carries the target branch on the PluginDrivenInsertCommandContext;
         // bindDataSink must thread it onto the write handle so a versioned-table connector (iceberg)

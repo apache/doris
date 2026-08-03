@@ -661,6 +661,26 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void overwriteStaticPartitionRejectsUnmatchedPartitionField() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec,
+                props("write.format.default", "parquet"));
+        table.updateSpec().renameField("region", "renamed_region").commit();
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(Collections.singletonMap("region", "us")));
+
+        DorisConnectorException ex = Assertions.assertThrows(
+                DorisConnectorException.class, txn::commit);
+        Assertions.assertTrue(ex.getMessage().contains("does not match"),
+                "a nonempty stale spec must never degrade to an always-true overwrite filter");
+    }
+
+    @Test
     public void deleteWritesRowDeltaDeleteFiles() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");

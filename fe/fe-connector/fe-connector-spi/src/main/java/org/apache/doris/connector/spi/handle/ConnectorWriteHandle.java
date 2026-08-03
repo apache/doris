@@ -96,6 +96,11 @@ public interface ConnectorWriteHandle {
         return null;
     }
 
+    /** Metadata identity captured when the engine bound the physical write plan, or {@code null}. */
+    default String getBoundWriteMetadataIdentity() {
+        return null;
+    }
+
     /**
      * Whether the statement behind this write is a SQL {@code MERGE INTO} whose cardinality rule the sink
      * must enforce: a target row matched by more than one source row is an error, and the connector's BE

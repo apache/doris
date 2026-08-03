@@ -1047,7 +1047,7 @@ public:
     using TableReader::_materialize_mapping_column;
     using TableReader::_materialize_present_child_mapping_column;
     using TableReader::_materialize_struct_mapping_column;
-    using TableReader::_project_collection_parent_null_map;
+    using TableReader::_project_collection_parent_null_map_for_hidden_entries;
     using TableReader::_requires_collection_parent_null_map;
     using TableReader::_requires_parent_null_map_for_alignment;
 };
@@ -6493,9 +6493,52 @@ TEST(TableReaderTest, CollectionParentMaskFastPathSkipsEntryScratchForClearMasks
     ColumnArray::Offsets64 offsets {500000, 1000000};
     NullMap projected_null_map;
 
-    const auto* result = TableReaderCastTestHelper::_project_collection_parent_null_map(
+    const auto* result =
+            TableReaderCastTestHelper::_project_collection_parent_null_map_for_hidden_entries(
             &container_null_map, &ancestor_null_map, 2, offsets, offsets.back(),
             &projected_null_map);
+
+    EXPECT_EQ(nullptr, result);
+    EXPECT_TRUE(projected_null_map.empty());
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeArrayWhenOnlyEmptyRowIsHidden) {
+    constexpr size_t entries = 500000;
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    ColumnPtr nullable_values =
+            ColumnNullable::create(std::move(values), std::move(value_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {0, entries};
+    NullMap projected_null_map;
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_values, std::make_shared<DataTypeInt32>(), 2, offsets));
+    const auto* result =
+            TableReaderCastTestHelper::_project_collection_parent_null_map_for_hidden_entries(
+                    nullptr, &parent_null_map, 2, offsets, entries, &projected_null_map);
+
+    EXPECT_EQ(nullptr, result);
+    EXPECT_TRUE(projected_null_map.empty());
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeMapWhenOnlyEmptyRowIsHidden) {
+    constexpr size_t entries = 500000;
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    ColumnPtr nullable_values =
+            ColumnNullable::create(std::move(values), std::move(value_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {0, entries};
+    NullMap projected_null_map;
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_values, std::make_shared<DataTypeInt32>(), 2, offsets));
+    const auto* result =
+            TableReaderCastTestHelper::_project_collection_parent_null_map_for_hidden_entries(
+                    nullptr, &parent_null_map, 2, offsets, entries, &projected_null_map);
 
     EXPECT_EQ(nullptr, result);
     EXPECT_TRUE(projected_null_map.empty());

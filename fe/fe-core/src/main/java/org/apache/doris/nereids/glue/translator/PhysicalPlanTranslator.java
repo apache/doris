@@ -646,11 +646,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
+        String boundWriteMetadataIdentity =
+                writePlanProvider.getWriteMetadataIdentity(connSession, providerTableHandle);
 
         // writeSortInfo == null: a row-level DML has no engine-resolved write sort (MERGE's sort lives in the
         // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
         return new PluginDrivenTableSink(targetTable, writePlanProvider, connSession,
-                providerTableHandle, connectorColumns, null, writeOperation, requireMergeCardinalityCheck);
+                providerTableHandle, connectorColumns, connectorColumns, null, writeOperation,
+                requireMergeCardinalityCheck, boundWriteMetadataIdentity);
     }
 
     @Override
@@ -720,6 +723,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
 
+        // Capture the connector generation before physical shaping so a refresh at beginWrite cannot
+        // silently relabel files with a different sort order or partition spec.
+        String boundWriteMetadataIdentity =
+                writePlanProvider.getWriteMetadataIdentity(connSession, providerTableHandle);
+
         // The connector declares its write-sort columns (e.g. an iceberg WRITE ORDERED BY) as positions
         // into the sink's full-schema output; the engine resolves them to bound slots and builds the
         // TSortInfo here (the connector's planWrite has no bound exprs). Empty for connectors with no
@@ -738,7 +746,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // retain the complete generation captured by BindSink instead of comparing that subset.
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
                 writePlanProvider, connSession, providerTableHandle, connectorColumns,
-                boundTargetColumns, writeSortInfo, writeOperation, false);
+                boundTargetColumns, writeSortInfo, writeOperation, false,
+                boundWriteMetadataIdentity);
         rootFragment.setSink(providerSink);
         return rootFragment;
     }

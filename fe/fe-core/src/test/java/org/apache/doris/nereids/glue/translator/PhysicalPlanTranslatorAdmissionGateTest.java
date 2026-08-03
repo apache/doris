@@ -49,6 +49,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.EnumSet;
@@ -154,6 +155,33 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
     @Test
     public void staticPartitionInsertKeepsSortColumnInFullOutput() {
         assertWriteSortUsesBoundOutputColumn(ImmutableList.of(A, C), B);
+    }
+
+    @Test
+    public void insertCapturesWriteMetadataIdentityBeforePhysicalShaping() {
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        PlanFragment childFragment = Mockito.mock(PlanFragment.class);
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        Mockito.when(provider.getWriteMetadataIdentity(Mockito.any(), Mockito.any()))
+                .thenReturn("sort-3/spec-7");
+        PluginDrivenExternalTable table = pluginTable(EnumSet.of(WriteOperation.INSERT), provider);
+
+        @SuppressWarnings("unchecked")
+        PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
+        Mockito.doReturn(mockChild(childFragment)).when(sink).child();
+        Mockito.doReturn(table).when(sink).getTargetTable();
+        Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn(false).when(sink).isRewrite();
+
+        new PhysicalPlanTranslator(context, null).visitPhysicalConnectorTableSink(sink, context);
+
+        PluginDrivenTableSink pluginSink = capturePluginSink(childFragment);
+        Assertions.assertEquals("sort-3/spec-7",
+                Deencapsulation.getField(pluginSink, "boundWriteMetadataIdentity"));
+        // Capture before sort shaping so a generation change cannot pair an old physical sort with a new fence.
+        InOrder inOrder = Mockito.inOrder(provider);
+        inOrder.verify(provider).getWriteMetadataIdentity(Mockito.any(), Mockito.any());
+        inOrder.verify(provider).getWriteSortColumns(Mockito.any(), Mockito.any(), Mockito.anyList());
     }
 
     // ==================== helpers ====================
