@@ -32,6 +32,7 @@
 
 #include "common/metrics/metrics.h"
 #include "common/status.h"
+#include "storage/data_dir_sweep_policy.h"
 #include "storage/olap_common.h"
 
 namespace doris {
@@ -141,7 +142,10 @@ public:
                                  (double)_disk_capacity_bytes;
     }
 
-    // Move tablet to trash.
+    // Apply the explicit sweep policy to a tablet path.
+    Status gc_tablet_path(const std::string& tablet_path, TabletPathGcMode mode);
+
+    // Move the tablet path according to the configured trash retention policy.
     Status move_to_trash(const std::string& tablet_path);
 
     static Status delete_tablet_parent_path_if_empty(const std::string& tablet_path);
@@ -157,6 +161,8 @@ private:
     // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
     // process will log fatal.
     Status _check_incompatible_old_format_tablet();
+
+    Status _move_tablet_path_to_trash(const std::string& tablet_path);
 
     int _path_gc_step {0};
 
