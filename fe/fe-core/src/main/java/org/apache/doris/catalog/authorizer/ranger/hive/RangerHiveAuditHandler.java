@@ -239,9 +239,14 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
         }
     }
 
-    public void flushAudit() {
-        for (AuthzAuditEvent auditEvent : auditEvents) {
-            if (deniedExists && auditEvent.getAccessResult() != 0) { // if deny exists, skip logging for allowed results
+    public synchronized void flushAudit() {
+        Collection<AuthzAuditEvent> eventsToFlush = new ArrayList<>(auditEvents);
+        boolean deniedExistsForEvents = deniedExists;
+        auditEvents.clear();
+        deniedExists = false;
+        for (AuthzAuditEvent auditEvent : eventsToFlush) {
+            // If a deny exists, skip logging allowed results from the same drained batch.
+            if (deniedExistsForEvents && auditEvent.getAccessResult() != 0) {
                 continue;
             }
 
@@ -249,7 +254,7 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
         }
     }
 
-    private void addAuthzAuditEvent(AuthzAuditEvent auditEvent) {
+    private synchronized void addAuthzAuditEvent(AuthzAuditEvent auditEvent) {
         if (auditEvent != null) {
             auditEvents.add(auditEvent);
 

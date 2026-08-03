@@ -32,6 +32,8 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 public class AccessControllerManagerTest {
 
     private boolean originalSkipCatalogPrivCheck;
@@ -191,6 +193,63 @@ public class AccessControllerManagerTest {
             Assert.assertFalse(accessControllerManager.checkCtlPriv(
                     userIdentity, "not_exist_catalog", PrivPredicate.SELECT));
         }
+    }
+
+    @Test
+    public void testDryRunClosesTemporaryAccessController() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogAccessController temporaryAccessController = Mockito.mock(CatalogAccessController.class);
+        AccessControllerFactory factory = Mockito.mock(AccessControllerFactory.class);
+        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+        ConcurrentHashMap<String, AccessControllerFactory> factories =
+                Deencapsulation.getField(accessControllerManager, "accessControllerFactoriesCache");
+        factories.put("test-controller", factory);
+        Mockito.when(factory.createAccessController(ImmutableMap.of())).thenReturn(temporaryAccessController);
+
+        accessControllerManager.createAccessController(
+                "test_catalog", "test-controller", ImmutableMap.of(), true);
+
+        Mockito.verify(temporaryAccessController).close();
+        Assert.assertFalse(accessControllerManager.checkIfAccessControllerExist("test_catalog"));
+    }
+
+    @Test
+    public void testRemoveClosesRegisteredAccessController() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogAccessController registeredAccessController = Mockito.mock(CatalogAccessController.class);
+        AccessControllerFactory factory = Mockito.mock(AccessControllerFactory.class);
+        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+        ConcurrentHashMap<String, AccessControllerFactory> factories =
+                Deencapsulation.getField(accessControllerManager, "accessControllerFactoriesCache");
+        factories.put("test-controller", factory);
+        Mockito.when(factory.createAccessController(ImmutableMap.of())).thenReturn(registeredAccessController);
+
+        accessControllerManager.createAccessController(
+                "test_catalog", "test-controller", ImmutableMap.of(), false);
+        accessControllerManager.removeAccessController("test_catalog");
+
+        Mockito.verify(registeredAccessController).close();
+        Assert.assertFalse(accessControllerManager.checkIfAccessControllerExist("test_catalog"));
+    }
+
+    @Test
+    public void testRemoveContinuesWhenAccessControllerCloseFails() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogAccessController registeredAccessController = Mockito.mock(CatalogAccessController.class);
+        AccessControllerFactory factory = Mockito.mock(AccessControllerFactory.class);
+        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+        ConcurrentHashMap<String, AccessControllerFactory> factories =
+                Deencapsulation.getField(accessControllerManager, "accessControllerFactoriesCache");
+        factories.put("test-controller", factory);
+        Mockito.when(factory.createAccessController(ImmutableMap.of())).thenReturn(registeredAccessController);
+        Mockito.doThrow(new RuntimeException("plugin cleanup failure")).when(registeredAccessController).close();
+
+        accessControllerManager.createAccessController(
+                "test_catalog", "test-controller", ImmutableMap.of(), false);
+        accessControllerManager.removeAccessController("test_catalog");
+
+        Mockito.verify(registeredAccessController).close();
+        Assert.assertFalse(accessControllerManager.checkIfAccessControllerExist("test_catalog"));
     }
 
     private AccessControllerManager createAccessControllerManager(CatalogAccessController defaultAccessController) {

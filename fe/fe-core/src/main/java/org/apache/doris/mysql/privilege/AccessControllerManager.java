@@ -148,7 +148,9 @@ public class AccessControllerManager {
         String pluginIdentifier = getPluginIdentifierForAccessController(acFactoryClassName);
         CatalogAccessController accessController = accessControllerFactoriesCache.get(pluginIdentifier)
                 .createAccessController(prop);
-        if (!isDryRun) {
+        if (isDryRun) {
+            accessController.close();
+        } else {
             ctlToCtlAccessController.put(ctl, accessController);
             LOG.info("create access controller {} for catalog {}", acFactoryClassName, ctl);
         }
@@ -172,8 +174,15 @@ public class AccessControllerManager {
         if (StringUtils.isBlank(ctl)) {
             return;
         }
-        if (ctlToCtlAccessController.containsKey(ctl)) {
-            ctlToCtlAccessController.remove(ctl);
+        CatalogAccessController accessController = ctlToCtlAccessController.remove(ctl);
+        if (accessController != null) {
+            try {
+                accessController.close();
+            } catch (RuntimeException e) {
+                // Access-controller plugins are external code. A faulty cleanup must not prevent the catalog
+                // lifecycle from releasing its own resources.
+                LOG.warn("Failed to close access controller for catalog {}", ctl, e);
+            }
         }
         LOG.info("remove access controller for catalog {}", ctl);
     }

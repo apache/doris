@@ -202,7 +202,7 @@ public class CatalogFactory {
             return catalog;
         } finally {
             if (!creationFinished) {
-                catalog.onClose();
+                catalog.onCreateFailure();
             }
         }
     }

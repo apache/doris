@@ -1519,8 +1519,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onClose() {
-        super.onClose();
+    protected void closeResources() {
+        super.closeResources();
         if (connector != null) {
             try {
                 connector.close();

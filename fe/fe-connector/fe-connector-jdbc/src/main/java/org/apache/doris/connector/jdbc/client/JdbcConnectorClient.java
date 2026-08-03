@@ -179,12 +179,21 @@ public abstract class JdbcConnectorClient implements Closeable {
             default:
                 throw new DorisConnectorException("Unsupported JDBC DB type: " + dbType);
         }
-        client.initializeClassLoader(driverUrl);
-        String sanitizedUrl = urlSanitizer.apply(jdbcUrl);
-        client.initializeDataSource(sanitizedUrl, user, password, driverClass,
-                poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime);
-        client.postInitialize();
-        return client;
+        try {
+            client.initializeClassLoader(driverUrl);
+            String sanitizedUrl = urlSanitizer.apply(jdbcUrl);
+            client.initializeDataSource(sanitizedUrl, user, password, driverClass,
+                    poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime);
+            client.postInitialize();
+            return client;
+        } catch (RuntimeException | Error e) {
+            try {
+                client.close();
+            } catch (RuntimeException | Error closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
+            throw e;
+        }
     }
 
     protected JdbcConnectorClient(

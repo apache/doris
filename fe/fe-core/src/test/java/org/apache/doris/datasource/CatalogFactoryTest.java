@@ -18,20 +18,47 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.io.IOException;
+import java.util.HashMap;
+
 public class CatalogFactoryTest {
 
     @Test
     public void testCloseCatalogWhenCreateValidationFails() throws Exception {
-        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Connector connector = Mockito.mock(Connector.class);
+        PluginDrivenExternalCatalog catalog = Mockito.spy(new PluginDrivenExternalCatalog(
+                1L, "failed_catalog", null, new HashMap<>(), "", connector));
         Mockito.doThrow(new DdlException("validation failed")).when(catalog).checkWhenCreating();
 
-        Assert.assertThrows(DdlException.class, () -> CatalogFactory.finishCatalogCreation(catalog, false));
+        DdlException exception = Assert.assertThrows(
+                DdlException.class, () -> CatalogFactory.finishCatalogCreation(catalog, false));
 
-        Mockito.verify(catalog).onClose();
+        Assert.assertTrue(exception.getMessage().endsWith("validation failed"));
+        Mockito.verify(connector).close();
+    }
+
+    @Test
+    public void testPreserveValidationFailureWhenCleanupFails() throws Exception {
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.doThrow(new IOException("cleanup failed")).when(connector).close();
+        PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                2L, "failed_catalog", null, new HashMap<>(), "", connector) {
+            @Override
+            public void checkWhenCreating() throws DdlException {
+                throw new DdlException("primary validation failure");
+            }
+        };
+
+        DdlException exception = Assert.assertThrows(
+                DdlException.class, () -> CatalogFactory.finishCatalogCreation(catalog, false));
+
+        Assert.assertTrue(exception.getMessage().endsWith("primary validation failure"));
     }
 }

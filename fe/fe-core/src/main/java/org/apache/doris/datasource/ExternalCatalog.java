@@ -849,8 +849,21 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void onClose() {
+    public final void onClose() {
         removeAccessController();
+        closeResources();
+    }
+
+    @Override
+    public final void onCreateFailure() {
+        try {
+            closeResources();
+        } catch (Throwable t) {
+            LOG.warn("Failed to close resources for unregistered catalog {}", name, t);
+        }
+    }
+
+    protected void closeResources() {
         if (threadPoolWithPreAuth != null) {
             ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
         }

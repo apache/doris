@@ -252,7 +252,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             if (nameToCatalog.containsKey(catalog.getName())) {
                 // Close the already-constructed catalog to release connector resources.
-                catalog.onClose();
+                catalog.onCreateFailure();
                 if (ifNotExists) {
                     LOG.warn("Catalog {} is already exist.", catalogName);
                     return;

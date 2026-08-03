@@ -17,17 +17,17 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import java.util.TimerTask;
+import org.junit.Test;
+import org.mockito.Mockito;
 
-public class RangerHiveAuditLogFlusher extends TimerTask {
-    private RangerHiveAuditHandler auditHandler;
+public class RangerHiveAuditLogFlusherTest {
 
-    public RangerHiveAuditLogFlusher(RangerHiveAuditHandler auditHandler) {
-        this.auditHandler = auditHandler;
-    }
+    @Test
+    public void testRunFlushesOnceAndReturns() {
+        RangerHiveAuditHandler auditHandler = Mockito.mock(RangerHiveAuditHandler.class);
 
-    @Override
-    public void run() {
-        this.auditHandler.flushAudit();
+        new RangerHiveAuditLogFlusher(auditHandler).run();
+
+        Mockito.verify(auditHandler).flushAudit();
     }
 }
