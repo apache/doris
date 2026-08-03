@@ -34,6 +34,7 @@ import org.mockito.Mockito;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -399,12 +400,14 @@ class AzureObjStorageExtensionTest {
     void uploadPart_acceptsLegacyResidualBlockLength() throws Exception {
         com.azure.storage.blob.specialized.BlockBlobClient blockClient =
                 Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
-        int legacyDecodedLength = Base64.getDecoder().decode("AQAAAA==").length;
+        List<String> stagedBlockIds = new ArrayList<>(Collections.singletonList("AQAAAA=="));
         Mockito.doAnswer(invocation -> {
             String blockId = invocation.getArgument(0);
-            if (Base64.getDecoder().decode(blockId).length != legacyDecodedLength) {
+            int requiredDecodedLength = Base64.getDecoder().decode(stagedBlockIds.get(0)).length;
+            if (Base64.getDecoder().decode(blockId).length != requiredDecodedLength) {
                 throw new IllegalStateException("Azure would reject a different block ID length");
             }
+            stagedBlockIds.add(blockId);
             return null;
         }).when(blockClient).stageBlock(
                 Mockito.anyString(), Mockito.any(java.io.InputStream.class), Mockito.anyLong());
@@ -420,7 +423,7 @@ class AzureObjStorageExtensionTest {
                 "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
                 "new-upload-id", 1, RequestBody.of(new ByteArrayInputStream(new byte[]{1}), 1));
 
-        Assertions.assertEquals(legacyDecodedLength, Base64.getDecoder().decode(result.etag()).length);
+        Assertions.assertEquals(Arrays.asList("AQAAAA==", result.etag()), stagedBlockIds);
     }
 
     @Test
