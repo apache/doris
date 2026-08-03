@@ -70,7 +70,7 @@ suite("test_disable_root_variant_match", "p0") {
 
     test {
         sql """
-            SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id
+            SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id
             FROM test_disable_root_variant_match_tbl
             WHERE response_body MATCH_ANY 'doris'
                 OR response MATCH_ANY 'doris'
