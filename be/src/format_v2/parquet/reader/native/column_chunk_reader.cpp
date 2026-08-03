@@ -681,6 +681,12 @@ void remap_nullable_conversion_failures(IColumn::Filter* conversion_failure_null
     DORIS_CHECK_EQ(source, 0);
 }
 
+Status decode_prepared_nullable_values(IColumn& column, const DataTypeSerDe& serde,
+                                       Decoder& decoder, const ParquetDecodeContext& context,
+                                       ParquetMaterializationState& state,
+                                       const NullMap& selected_nulls,
+                                       int64_t* materialization_time);
+
 Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& serde,
                                        Decoder& decoder, const ParquetDecodeContext& context,
                                        ParquetMaterializationState& state,
@@ -722,6 +728,16 @@ Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& ser
     DORIS_CHECK_EQ(selection.total_values, select_vector.num_values() - select_vector.num_nulls());
     DORIS_CHECK_EQ(selected_nulls.size(),
                    select_vector.num_values() - select_vector.num_filtered());
+    return decode_prepared_nullable_values(column, serde, decoder, context, state, selected_nulls,
+                                           materialization_time);
+}
+
+Status decode_prepared_nullable_values(IColumn& column, const DataTypeSerDe& serde,
+                                       Decoder& decoder, const ParquetDecodeContext& context,
+                                       ParquetMaterializationState& state,
+                                       const NullMap& selected_nulls,
+                                       int64_t* materialization_time) {
+    auto& selection = state.selection;
 
     const size_t old_size = column.size();
     SCOPED_RAW_TIMER(materialization_time);
@@ -1732,6 +1748,49 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
     }
     RETURN_IF_ERROR(status);
     _remaining_num_values -= select_vector.num_values();
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::supports_fused_nullable_selection(
+        IColumn& column) const {
+    return visit_nullable_expandable_column(column, [](auto&) {});
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_fused_nullable_values(
+        MutableColumnPtr& doris_column, const DataTypeSerDe& serde, ParquetDecodeContext& context,
+        ParquetMaterializationState& state, size_t num_values, size_t num_nulls,
+        const NullMap& selected_nulls) {
+    if (num_values == 0) {
+        return Status::OK();
+    }
+    SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
+    DORIS_CHECK_GT(num_nulls, 0);
+    const size_t physical_values = num_values - num_nulls;
+    DORIS_CHECK_EQ(state.selection.total_values, physical_values);
+    DORIS_CHECK_LE(state.selection.selected_values, selected_nulls.size());
+    if (UNLIKELY(_empty_value_section && physical_values != 0)) {
+        return Status::Corruption(
+                "Parquet definition levels require {} values from an empty value section",
+                physical_values);
+    }
+    if (UNLIKELY((doris_column->is_column_dictionary() || context.dictionary_index_only) &&
+                 !_has_dict && physical_values != 0)) {
+        return Status::IOError("Not dictionary coded");
+    }
+    if (UNLIKELY(_remaining_num_values < num_values)) {
+        return Status::IOError("Decode too many values in current page");
+    }
+    RETURN_IF_ERROR(translate_value_encoding(_current_encoding, &context.encoding));
+
+    ++_chunk_statistics.hybrid_selection_batches;
+    const auto status = decode_prepared_nullable_values(*doris_column, serde, *_page_decoder,
+                                                        context, state, selected_nulls,
+                                                        &_chunk_statistics.materialization_time);
+    _chunk_statistics.hybrid_selection_ranges += state.selection.ranges.size();
+    RETURN_IF_ERROR(status);
+    _remaining_num_values -= num_values;
     return Status::OK();
 }
 

@@ -432,6 +432,7 @@ private:
     std::vector<uint16_t> _null_run_lengths;
     std::unordered_set<size_t> _ancestor_null_indices;
     std::vector<uint8_t> _nested_filter_map_data;
+    NullMap _fused_nullable_selection_nulls;
     NullMap _fixed_width_predicate_nulls;
     IColumn::Filter _fixed_width_predicate_matches;
     IColumn::Filter _fixed_width_predicate_conversion_nulls;

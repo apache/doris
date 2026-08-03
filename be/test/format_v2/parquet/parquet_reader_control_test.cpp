@@ -27,6 +27,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
@@ -184,6 +185,79 @@ TEST(SelectionVectorTest, IdentitySelectionDoesNotMaterializeFilter) {
     const uint8_t* filter = reinterpret_cast<const uint8_t*>(1);
     ASSERT_TRUE(selection.materialize_filter(4, 4, &filter).ok());
     EXPECT_EQ(filter, nullptr);
+}
+
+TEST(NativeNullableSelectionTest, BuildsPhysicalRangesAndSelectedNullsInOnePass) {
+    using native::FilterMap;
+
+    const std::vector<uint16_t> null_runs {2, 1, 3, 2, 2};
+    const std::vector<uint8_t> filter_data {1, 0, 1, 1, 0, 1, 1, 1, 0, 1};
+    FilterMap filter;
+    ASSERT_TRUE(filter.init(filter_data.data(), filter_data.size(), false).ok());
+    ParquetSelection selection;
+    NullMap output_nulls {1};
+    NullMap selected_nulls;
+    size_t num_filtered = 0;
+
+    ASSERT_TRUE(native::build_filtered_nullable_selection(null_runs, filter_data.size(), 3,
+                                                          &output_nulls, &filter, 0, &selection,
+                                                          &selected_nulls, &num_filtered)
+                        .ok());
+
+    EXPECT_EQ(selection.total_values, 7);
+    EXPECT_EQ(selection.selected_values, 4);
+    ASSERT_EQ(selection.ranges.size(), 4);
+    EXPECT_EQ(selection.ranges[0].first, 0);
+    EXPECT_EQ(selection.ranges[0].count, 1);
+    EXPECT_EQ(selection.ranges[1].first, 2);
+    EXPECT_EQ(selection.ranges[1].count, 1);
+    EXPECT_EQ(selection.ranges[2].first, 4);
+    EXPECT_EQ(selection.ranges[2].count, 1);
+    EXPECT_EQ(selection.ranges[3].first, 6);
+    EXPECT_EQ(selection.ranges[3].count, 1);
+    EXPECT_EQ(selected_nulls, (NullMap {0, 1, 0, 0, 1, 1, 0}));
+    EXPECT_EQ(output_nulls, (NullMap {1, 0, 1, 0, 0, 1, 1, 0}));
+    EXPECT_EQ(num_filtered, 3);
+}
+
+TEST(NativeNullableSelectionTest, UsesDirectPhysicalCoordinatesWithoutNulls) {
+    using native::FilterMap;
+
+    const std::vector<uint16_t> no_nulls {10};
+    const std::vector<uint8_t> filter_data {1, 1, 0, 1, 0, 0, 1, 1, 1, 0};
+    FilterMap filter;
+    ASSERT_TRUE(filter.init(filter_data.data(), filter_data.size(), false).ok());
+    ParquetSelection selection;
+    NullMap output_nulls;
+    NullMap selected_nulls;
+    size_t num_filtered = 0;
+
+    ASSERT_TRUE(native::build_filtered_nullable_selection(no_nulls, filter_data.size(), 0,
+                                                          &output_nulls, &filter, 0, &selection,
+                                                          &selected_nulls, &num_filtered)
+                        .ok());
+
+    EXPECT_EQ(selection.total_values, 10);
+    EXPECT_EQ(selection.selected_values, 6);
+    ASSERT_EQ(selection.ranges.size(), 3);
+    EXPECT_EQ(selection.ranges[0].first, 0);
+    EXPECT_EQ(selection.ranges[0].count, 2);
+    EXPECT_EQ(selection.ranges[1].first, 3);
+    EXPECT_EQ(selection.ranges[1].count, 1);
+    EXPECT_EQ(selection.ranges[2].first, 6);
+    EXPECT_EQ(selection.ranges[2].count, 3);
+    EXPECT_EQ(selected_nulls, (NullMap {0, 0, 0, 0, 0, 0}));
+    EXPECT_EQ(output_nulls, selected_nulls);
+    EXPECT_EQ(num_filtered, 4);
+}
+
+TEST(NativeNullableSelectionTest, EnablesFusionOnlyForMateriallyFragmentedNullableBatches) {
+    EXPECT_FALSE(native::should_use_fused_nullable_selection(65536, 0, 3));
+    EXPECT_FALSE(native::should_use_fused_nullable_selection(65536, 655, 1311));
+    EXPECT_FALSE(native::should_use_fused_nullable_selection(65536, 32768, 3));
+    EXPECT_FALSE(native::should_use_fused_nullable_selection(512, 256, 512));
+    EXPECT_TRUE(native::should_use_fused_nullable_selection(65536, 6553, 13107));
+    EXPECT_TRUE(native::should_use_fused_nullable_selection(65536, 32768, 65536));
 }
 
 TEST(NativeNestedSelectionTest, BuildsSelectionAndCompactsSurvivingParentLevels) {
