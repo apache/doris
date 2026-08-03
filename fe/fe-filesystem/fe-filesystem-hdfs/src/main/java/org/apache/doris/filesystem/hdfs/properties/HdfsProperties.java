@@ -17,9 +17,9 @@
 
 package org.apache.doris.filesystem.hdfs.properties;
 
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -40,37 +40,6 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private static final Set<String> SUPPORT_SCHEMA = ImmutableSet.of("hdfs", "viewfs");
 
-    @ConnectorProperty(names = {"hdfs.authentication.type", "hadoop.security.authentication"},
-            required = false,
-            description = "The authentication type of HDFS. The default value is 'none'.")
-    private String hdfsAuthenticationType = "simple";
-
-    @ConnectorProperty(names = {"hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal"},
-            required = false,
-            description = "The principal of the kerberos authentication.")
-    private String hdfsKerberosPrincipal = "";
-
-    @ConnectorProperty(names = {"hdfs.authentication.kerberos.keytab", "hadoop.kerberos.keytab"},
-            required = false,
-            description = "The keytab of the kerberos authentication.")
-    private String hdfsKerberosKeytab = "";
-
-    @ConnectorProperty(names = {"hadoop.username"},
-            required = false,
-            description = "The username of Hadoop. Doris will user this user to access HDFS")
-    private String hadoopUsername = "";
-
-    @ConnectorProperty(names = {"hdfs.impersonation.enabled"},
-            required = false,
-            supported = false,
-            description = "Whether to enable the impersonation of HDFS.")
-    private boolean hdfsImpersonationEnabled = false;
-
-    @ConnectorProperty(names = {"ipc.client.fallback-to-simple-auth-allowed"},
-            required = false,
-            description = "Whether to allow fallback to simple authentication.")
-    private String allowFallbackToSimpleAuth = "";
-
     @ConnectorProperty(names = {"fs.defaultFS"}, required = false, description = "")
     private String fsDefaultFS = "";
 
@@ -81,17 +50,39 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private Map<String, String> userOverriddenHdfsConfig;
 
+    private String dfsNameServices = "";
+
     public HdfsProperties(Map<String, String> origProps) {
         super(origProps);
     }
 
     @Override
-    protected void checkRequiredProperties() {
-        super.checkRequiredProperties();
-        if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType) && (Strings.isNullOrEmpty(hdfsKerberosPrincipal)
-                || Strings.isNullOrEmpty(hdfsKerberosKeytab))) {
-            throw new IllegalArgumentException("HDFS authentication type is kerberos, "
-                    + "but principal or keytab is not set.");
+    public String providerName() {
+        return "HDFS";
+    }
+
+    @Override
+    public FileSystemType type() {
+        return FileSystemType.HDFS;
+    }
+
+    @Override
+    public Set<String> getSupportedSchemes() {
+        return SUPPORT_SCHEMA;
+    }
+
+    @Override
+    public String validateAndNormalizeUri(String uri) {
+        return HdfsPropertiesUtils.convertUrlToFilePath(uri, dfsNameServices, fsDefaultFS, SUPPORT_SCHEMA);
+    }
+
+    @Override
+    public String validateAndGetUri(Map<String, String> loadProperties) {
+        try {
+            return HdfsPropertiesUtils.validateAndGetUri(loadProperties, dfsNameServices, fsDefaultFS,
+                    SUPPORT_SCHEMA);
+        } catch (UserException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
         }
     }
 
@@ -126,20 +117,8 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (StringUtils.isNotBlank(fsDefaultFS)) {
             props.put(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
         }
-        if (StringUtils.isNotBlank(allowFallbackToSimpleAuth)) {
-            props.put("ipc.client.fallback-to-simple-auth-allowed", allowFallbackToSimpleAuth);
-        } else {
-            props.put("ipc.client.fallback-to-simple-auth-allowed", "true");
-        }
-        props.put("hdfs.security.authentication", hdfsAuthenticationType);
-        if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
-            props.put("hadoop.security.authentication", "kerberos");
-            props.put("hadoop.kerberos.principal", hdfsKerberosPrincipal);
-            props.put("hadoop.kerberos.keytab", hdfsKerberosKeytab);
-        }
-        if (StringUtils.isNotBlank(hadoopUsername)) {
-            props.put("hadoop.username", hadoopUsername);
-        }
+        applyAuthBackendConfig(props);
+        this.dfsNameServices = props.getOrDefault("dfs.nameservices", "");
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = props.getOrDefault(HDFS_DEFAULT_FS_NAME, "");
         }

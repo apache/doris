@@ -17,56 +17,39 @@
 
 package org.apache.doris.connector.api;
 
-import java.util.Collections;
-import java.util.Map;
 import java.util.Objects;
 
 /**
  * Result of a connector connectivity test.
  *
  * <p>Connectors return this from {@link Connector#testConnection} to report
- * whether the data source is reachable. Individual sub-components (e.g.,
- * metastore, object storage) can report separate results via
- * {@link #getComponentResults()}.</p>
+ * whether the data source is reachable. A connector that probes several
+ * sub-components (e.g. metastore plus object storage) reports the first
+ * failure it hits, in {@link #getMessage()}.</p>
  */
 public class ConnectorTestResult {
 
     private final boolean success;
     private final String message;
-    private final Map<String, ConnectorTestResult> componentResults;
 
-    private ConnectorTestResult(boolean success, String message,
-            Map<String, ConnectorTestResult> componentResults) {
+    private ConnectorTestResult(boolean success, String message) {
         this.success = success;
         this.message = message;
-        this.componentResults = componentResults != null
-                ? Collections.unmodifiableMap(componentResults)
-                : Collections.emptyMap();
     }
 
     /** Creates a successful test result. */
     public static ConnectorTestResult success() {
-        return new ConnectorTestResult(true, "OK", null);
+        return new ConnectorTestResult(true, "OK");
     }
 
     /** Creates a successful test result with a message. */
     public static ConnectorTestResult success(String message) {
-        return new ConnectorTestResult(true, message, null);
+        return new ConnectorTestResult(true, message);
     }
 
     /** Creates a failed test result. */
     public static ConnectorTestResult failure(String message) {
-        return new ConnectorTestResult(false, message, null);
-    }
-
-    /** Creates a test result with sub-component results. */
-    public static ConnectorTestResult withComponents(
-            Map<String, ConnectorTestResult> componentResults) {
-        boolean allSuccess = componentResults.values().stream()
-                .allMatch(ConnectorTestResult::isSuccess);
-        return new ConnectorTestResult(allSuccess,
-                allSuccess ? "All components OK" : "Some components failed",
-                componentResults);
+        return new ConnectorTestResult(false, message);
     }
 
     public boolean isSuccess() {
@@ -77,24 +60,9 @@ public class ConnectorTestResult {
         return message;
     }
 
-    /** Per-component results (e.g., "metastore" → OK, "storage" → FAIL). */
-    public Map<String, ConnectorTestResult> getComponentResults() {
-        return componentResults;
-    }
-
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(success ? "SUCCESS" : "FAILURE").append(": ").append(message);
-        if (!componentResults.isEmpty()) {
-            sb.append(" [");
-            componentResults.forEach((name, result) ->
-                    sb.append(name).append("=").append(result.isSuccess() ? "OK" : "FAIL")
-                            .append(", "));
-            sb.setLength(sb.length() - 2);
-            sb.append("]");
-        }
-        return sb.toString();
+        return (success ? "SUCCESS" : "FAILURE") + ": " + message;
     }
 
     @Override

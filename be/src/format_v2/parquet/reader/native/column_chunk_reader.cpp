@@ -50,6 +50,7 @@
 #include "util/bit_util.h"
 #include "util/block_compression.h"
 #include "util/cpu_info.h"
+#include "util/simd/parquet_kernels.h"
 #include "util/unaligned.h"
 
 namespace cctz {
@@ -603,6 +604,13 @@ void expand_nullable_pod_values(ColumnType& column, size_t old_size, size_t comp
     auto& data = column.get_data();
     DORIS_CHECK_EQ(data.size(), old_size + compact_values);
     data.resize(old_size + selected_nulls.size());
+    if constexpr (sizeof(typename ColumnType::value_type) == 4 ||
+                  sizeof(typename ColumnType::value_type) == 8) {
+        simd::expand_nullable_values(reinterpret_cast<uint8_t*>(data.data() + old_size),
+                                     compact_values, selected_nulls.data(), selected_nulls.size(),
+                                     sizeof(typename ColumnType::value_type));
+        return;
+    }
     size_t source = compact_values;
     for (size_t output = selected_nulls.size(); output > 0;) {
         --output;
@@ -750,21 +758,42 @@ Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& ser
     return Status::OK();
 }
 
-class FixedWidthPredicateConsumer final : public ParquetFixedValueConsumer {
+class FixedWidthPredicateConsumer final : public ParquetFixedValueConsumer,
+                                          public ParquetLogicalValueConsumer {
 public:
     FixedWidthPredicateConsumer(const VExprSPtrs& conjuncts, DataTypePtr data_type, int column_id,
-                                IColumn::Filter* matches, IColumn* projected_column)
+                                IColumn::Filter* matches, IColumn* projected_column,
+                                IColumn::Filter* conversion_nulls = nullptr)
             : _conjuncts(conjuncts),
               _data_type(std::move(data_type)),
               _column_id(column_id),
               _matches(matches),
-              _projected_column(projected_column) {
+              _projected_column(projected_column),
+              _conversion_nulls(conversion_nulls) {
         DORIS_CHECK(_matches != nullptr);
     }
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        return consume(values, num_values, value_width, nullptr);
+    }
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width,
+                   const uint8_t* conversion_nulls) override {
         const size_t old_size = _matches->size();
         _matches->resize_fill(old_size + num_values, 1);
+        if (_conversion_nulls != nullptr) {
+            const size_t old_null_size = _conversion_nulls->size();
+            _conversion_nulls->resize_fill(old_null_size + num_values, 0);
+            if (conversion_nulls != nullptr) {
+                std::memcpy(_conversion_nulls->data() + old_null_size, conversion_nulls,
+                            num_values);
+            }
+        }
+        if (conversion_nulls != nullptr) {
+            for (size_t row = 0; row < num_values; ++row) {
+                _matches->data()[old_size + row] = conversion_nulls[row] == 0 ? 1 : 0;
+            }
+        }
         for (const auto& conjunct : _conjuncts) {
             RETURN_IF_ERROR(conjunct->execute_on_raw_fixed_values(values, num_values, value_width,
                                                                   _data_type, _column_id,
@@ -796,6 +825,85 @@ private:
     int _column_id;
     IColumn::Filter* _matches;
     IColumn* _projected_column;
+    IColumn::Filter* _conversion_nulls;
+};
+
+class BinaryPredicateConsumer final : public ParquetFixedValueConsumer,
+                                      public ParquetBinaryValueConsumer {
+public:
+    BinaryPredicateConsumer(const VExprSPtrs& conjuncts, DataTypePtr data_type, int column_id,
+                            IColumn::Filter* matches, IColumn* projected_column,
+                            std::vector<StringRef>* refs, std::vector<StringRef>* projected_refs)
+            : _conjuncts(conjuncts),
+              _data_type(std::move(data_type)),
+              _column_id(column_id),
+              _matches(matches),
+              _projected_column(projected_column),
+              _refs(refs),
+              _projected_refs(projected_refs) {
+        DORIS_CHECK(_matches != nullptr);
+        DORIS_CHECK(_refs != nullptr);
+        DORIS_CHECK(_projected_refs != nullptr);
+    }
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        _refs->resize(num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            (*_refs)[row] = StringRef(reinterpret_cast<const char*>(values + row * value_width),
+                                      value_width);
+        }
+        return consume(_refs->data(), _refs->size());
+    }
+
+    Status consume_plain_byte_array(
+            const char* encoded_data, const uint32_t* payload_offsets,
+            const uint32_t* value_offsets, size_t num_values,
+            const std::vector<ParquetSelectionRange>& value_spans) override {
+        _refs->resize(num_values);
+        size_t covered = 0;
+        for (const auto& span : value_spans) {
+            DORIS_CHECK_EQ(span.first, covered);
+            for (size_t row = span.first; row < span.first + span.count; ++row) {
+                (*_refs)[row] = StringRef(encoded_data + payload_offsets[row],
+                                          value_offsets[row + 1] - value_offsets[row]);
+            }
+            covered += span.count;
+        }
+        DORIS_CHECK_EQ(covered, num_values);
+        return consume(_refs->data(), _refs->size());
+    }
+
+    Status consume(const StringRef* values, size_t num_values) override {
+        const size_t old_size = _matches->size();
+        _matches->resize_fill(old_size + num_values, 1);
+        for (const auto& conjunct : _conjuncts) {
+            RETURN_IF_ERROR(conjunct->execute_on_raw_binary_values(
+                    values, num_values, _data_type, _column_id, _matches->data() + old_size));
+        }
+        if (_projected_column != nullptr) {
+            _projected_refs->clear();
+            _projected_refs->reserve(num_values);
+            for (size_t row = 0; row < num_values; ++row) {
+                if ((*_matches)[old_size + row] != 0) {
+                    _projected_refs->push_back(values[row]);
+                }
+            }
+            if (!_projected_refs->empty()) {
+                _projected_column->insert_many_strings(_projected_refs->data(),
+                                                       _projected_refs->size());
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    const VExprSPtrs& _conjuncts;
+    DataTypePtr _data_type;
+    int _column_id;
+    IColumn::Filter* _matches;
+    IColumn* _projected_column;
+    std::vector<StringRef>* _refs;
+    std::vector<StringRef>* _projected_refs;
 };
 
 } // namespace
@@ -836,7 +944,6 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     _state = INITIALIZED;
-    RETURN_IF_ERROR(_parse_first_page_header());
     return Status::OK();
 }
 
@@ -900,30 +1007,56 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::read_levels(
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_parse_first_page_header() {
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_ensure_dictionary_page_loaded() {
+    if (_dict_checked) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_state == INITIALIZED);
     while (true) {
         RETURN_IF_ERROR(_page_reader->parse_page_header());
         const tparquet::PageHeader* header = nullptr;
         RETURN_IF_ERROR(_page_reader->get_page_header(&header));
         if (header->type == tparquet::PageType::DATA_PAGE ||
             header->type == tparquet::PageType::DATA_PAGE_V2) {
-            _state = INITIALIZED;
-            return parse_page_header();
+            if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+                if (header->type == tparquet::PageType::DATA_PAGE &&
+                    _page_reader->has_active_offset_index()) {
+                    // V1 nested pages expose row boundaries only in repetition levels, so an
+                    // indexed seek must not skip the first page before those levels are decoded.
+                    _page_reader->discard_offset_index();
+                    _offset_index = nullptr;
+                }
+            }
+            _dict_checked = true;
+            return Status::OK();
         }
         if (header->type != tparquet::PageType::DICTIONARY_PAGE) {
             RETURN_IF_ERROR(_page_reader->skip_auxiliary_page());
-            _state = INITIALIZED;
             continue;
         }
-        // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
-        // so we should parse the directory page in next_page()
         RETURN_IF_ERROR(_decode_dict_page());
-        // parse the real first data page
         RETURN_IF_ERROR(_page_reader->dict_next_page());
-        _state = INITIALIZED;
-        // A dictionary is the only non-data page with decoder state. Any following index or
-        // extension pages are skipped by the same pre-data loop.
+        // A nested V1 chunk must inspect its first data-page type before indexed seeking can skip
+        // that page; dictionary discovery alone is not enough to make the OffsetIndex trustworthy.
     }
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_dictionary_page(bool* has_dict) {
+    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    *has_dict = _has_dict;
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ensure_first_data_page_parsed() {
+    if (_first_data_page_parsed) {
+        return Status::OK();
+    }
+    // OffsetIndex row bounds are untrusted until page zero has been reconciled and its declared
+    // cardinality checked, so no indexed skip may observe them before this one-time parse.
+    return parse_page_header();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -931,6 +1064,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (_state == HEADER_PARSED || _state == DATA_LOADED) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
     const tparquet::PageHeader* header = nullptr;
     while (true) {
         RETURN_IF_ERROR(_page_reader->parse_page_header());
@@ -996,12 +1130,19 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (!active_offset_index) {
         _chunk_parsed_values += _remaining_num_values;
     }
+    _first_data_page_parsed = true;
     _state = HEADER_PARSED;
     return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
+    if constexpr (OFFSET_INDEX) {
+        RETURN_IF_ERROR(ensure_first_data_page_parsed());
+    } else {
+        // Load dictionary state before advancing can jump past the physical dictionary page.
+        RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    }
     // Level parsing advances _page_data past the allocation base, so retain explicit ownership
     // state instead of inferring whether current decoders still reference decompressed storage.
     _page_uses_decompress_buf = false;
@@ -1014,8 +1155,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
         _decompress_release_pending = false;
         _decompress_release_threshold = std::numeric_limits<size_t>::max();
     }
-    _state = INITIALIZED;
     RETURN_IF_ERROR(_page_reader->next_page());
+    _state = INITIALIZED;
     return Status::OK();
 }
 
@@ -1596,40 +1737,107 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_fixed_width_values(
-        const VExprSPtrs& conjuncts, int column_id) const {
-    if (conjuncts.empty() ||
-        !supports_raw_fixed_filter_encoding(_current_encoding, _metadata.type)) {
+        const VExprSPtrs& conjuncts, int column_id, const DataTypeSerDe* serde,
+        const ParquetDecodeContext* decode_context) const {
+    if (conjuncts.empty()) {
         return false;
     }
+    const auto is_null_map_predicate = [&](const auto& conjunct) {
+        return conjunct != nullptr &&
+               conjunct->can_execute_on_null_map(_field_schema->data_type, column_id);
+    };
+    const bool all_null_map_predicates = std::ranges::all_of(conjuncts, is_null_map_predicate);
     const auto primitive_type = remove_nullable(_field_schema->data_type)->get_primitive_type();
-    const bool has_identity_width =
-            (_metadata.type == tparquet::Type::INT32 && primitive_type == TYPE_INT) ||
-            (_metadata.type == tparquet::Type::INT64 && primitive_type == TYPE_BIGINT) ||
+    const bool decimal_scale_matches =
+            decode_context != nullptr &&
+            decode_context->decimal_scale == remove_nullable(_field_schema->data_type)->get_scale();
+    // Equal byte width and scale are insufficient when the file precision exceeds the target:
+    // bypassing SerDe would skip the target-precision overflow/null check.
+    const bool decimal_metadata_fits =
+            decode_context != nullptr &&
+            decode_context->logical_type == ParquetLogicalType::DECIMAL &&
+            decode_context->decimal_precision >= 0 &&
+            decode_context->decimal_precision <=
+                    remove_nullable(_field_schema->data_type)->get_precision();
+    const bool has_identity_value =
+            (_metadata.type == tparquet::Type::BOOLEAN && primitive_type == TYPE_BOOLEAN) ||
+            (_metadata.type == tparquet::Type::INT32 &&
+             (primitive_type == TYPE_INT || (primitive_type == TYPE_DECIMAL32 &&
+                                             decimal_scale_matches && decimal_metadata_fits))) ||
+            (_metadata.type == tparquet::Type::INT64 &&
+             (primitive_type == TYPE_BIGINT || (primitive_type == TYPE_DECIMAL64 &&
+                                                decimal_scale_matches && decimal_metadata_fits))) ||
             (_metadata.type == tparquet::Type::FLOAT && primitive_type == TYPE_FLOAT) ||
             (_metadata.type == tparquet::Type::DOUBLE && primitive_type == TYPE_DOUBLE);
-    if (!has_identity_width) {
-        // Raw predicates consume the physical Parquet width. Logical conversions such as UINT32
-        // to BIGINT must stay on the typed path or a four-byte value is interpreted as eight bytes.
+    const bool has_infallible_identity_value = has_identity_value &&
+                                               primitive_type != TYPE_DECIMAL32 &&
+                                               primitive_type != TYPE_DECIMAL64;
+    if (has_identity_value &&
+        supports_raw_fixed_filter_encoding(_current_encoding, _metadata.type)) {
+        return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return conjunct != nullptr && (conjunct->can_execute_on_raw_fixed_values(
+                                                   _field_schema->data_type, column_id) ||
+                                           is_null_map_predicate(conjunct));
+        });
+    }
+    const bool encoding_supports_raw_values =
+            supports_raw_fixed_filter_encoding(_current_encoding, _metadata.type) ||
+            supports_raw_binary_filter_encoding(_current_encoding, _metadata.type);
+    const bool can_convert_logical_values = serde != nullptr && decode_context != nullptr &&
+                                            encoding_supports_raw_values &&
+                                            serde->supports_parquet_raw_predicate(*decode_context);
+    if (all_null_map_predicates) {
+        const bool has_identity_binary =
+                (_metadata.type == tparquet::Type::BYTE_ARRAY ||
+                 _metadata.type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) &&
+                (is_string_type(primitive_type) || primitive_type == TYPE_VARBINARY);
+        // Dictionary definition levels are insufficient for logical types whose dictionary entry
+        // conversion can fail (for example an invalid DATE). Use the level-only path only for
+        // infallible identity payloads, or decode PLAIN values through SerDe so strict/error and
+        // synthetic NULL semantics remain identical to ordinary materialization.
+        return has_infallible_identity_value || has_identity_binary || can_convert_logical_values;
+    }
+    if (can_convert_logical_values) {
+        return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return conjunct != nullptr && (conjunct->can_execute_on_raw_fixed_values(
+                                                   _field_schema->data_type, column_id) ||
+                                           is_null_map_predicate(conjunct));
+        });
+    }
+    if (supports_raw_binary_filter_encoding(_current_encoding, _metadata.type)) {
+        return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return conjunct != nullptr && (conjunct->can_execute_on_raw_binary_values(
+                                                   _field_schema->data_type, column_id) ||
+                                           is_null_map_predicate(conjunct));
+        });
+    }
+    if (!supports_raw_fixed_filter_encoding(_current_encoding, _metadata.type)) {
         return false;
     }
-    return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
-        return conjunct != nullptr &&
-               conjunct->can_execute_on_raw_fixed_values(_field_schema->data_type, column_id);
-    });
+    return false;
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values(
         const VExprSPtrs& conjuncts, int column_id, ColumnSelectVector& select_vector,
         NullMap* selected_nulls, IColumn::Filter* physical_matches, IColumn* projected_column,
-        IColumn::Filter* row_filter, bool* used_filter) {
+        IColumn::Filter* physical_conversion_nulls, IColumn::Filter* row_filter,
+        const DataTypeSerDe& serde, const ParquetDecodeContext& decode_context,
+        bool enable_strict_mode, bool* used_filter, DirectPredicateExecutionKind* execution_kind) {
     DORIS_CHECK(selected_nulls != nullptr);
     DORIS_CHECK(physical_matches != nullptr);
+    DORIS_CHECK(physical_conversion_nulls != nullptr);
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK(execution_kind != nullptr);
     *used_filter = false;
+    *execution_kind = DirectPredicateExecutionKind::NONE;
     row_filter->clear();
-    if (!can_filter_fixed_width_values(conjuncts, column_id)) {
+    ParquetDecodeContext page_decode_context = decode_context;
+    // Direct filtering can be the first value operation on a page, so its SerDe dispatch must not
+    // depend on materialize_values() having synchronized the page encoding first.
+    RETURN_IF_ERROR(translate_value_encoding(_current_encoding, &page_decode_context.encoding));
+    if (!can_filter_fixed_width_values(conjuncts, column_id, &serde, &page_decode_context)) {
         return Status::OK();
     }
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
@@ -1682,30 +1890,319 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
                 selection.total_values);
     }
 
+    VExprSPtrs raw_conjuncts;
+    VExprSPtrs null_map_conjuncts;
+    for (const auto& conjunct : conjuncts) {
+        if (conjunct->can_execute_on_null_map(_field_schema->data_type, column_id)) {
+            null_map_conjuncts.push_back(conjunct);
+        } else {
+            raw_conjuncts.push_back(conjunct);
+        }
+    }
     physical_matches->clear();
+    physical_conversion_nulls->clear();
     if (selection.selected_values == 0) {
         RETURN_IF_ERROR(_page_decoder->skip_values(selection.total_values));
+        *execution_kind = DirectPredicateExecutionKind::DEFINITION_LEVEL;
+    } else if (raw_conjuncts.empty()) {
+        if (serde.supports_parquet_raw_predicate(page_decode_context)) {
+            // Definition levels alone cannot distinguish a present payload that permissive SerDe
+            // conversion turns into NULL (or a strict conversion error). Decode only the selected
+            // payloads through the same conversion kernel before evaluating IS NULL/IS NOT NULL.
+            SelectedDecodeSource selected_source(*_page_decoder, selection);
+            FixedWidthPredicateConsumer consumer(raw_conjuncts, _field_schema->data_type, column_id,
+                                                 physical_matches, projected_column,
+                                                 physical_conversion_nulls);
+            RETURN_IF_ERROR(serde.read_parquet_raw_predicate(selected_source, page_decode_context,
+                                                             selection.selected_values,
+                                                             enable_strict_mode, consumer));
+            // Conversion is needed only to refine the logical null map; no value predicate ran.
+            *execution_kind = DirectPredicateExecutionKind::DEFINITION_LEVEL;
+        } else {
+            RETURN_IF_ERROR(_page_decoder->skip_values(selection.total_values));
+            physical_matches->resize_fill(selection.selected_values, 1);
+            *execution_kind = DirectPredicateExecutionKind::DEFINITION_LEVEL;
+        }
     } else {
-        FixedWidthPredicateConsumer consumer(conjuncts, _field_schema->data_type, column_id,
-                                             physical_matches, projected_column);
-        RETURN_IF_ERROR(_page_decoder->decode_selected_fixed_values(selection, consumer));
+        const bool all_raw_binary = std::ranges::all_of(raw_conjuncts, [&](const auto& conjunct) {
+            return conjunct->can_execute_on_raw_binary_values(_field_schema->data_type, column_id);
+        });
+        const bool all_raw_fixed = std::ranges::all_of(raw_conjuncts, [&](const auto& conjunct) {
+            return conjunct->can_execute_on_raw_fixed_values(_field_schema->data_type, column_id);
+        });
+        if (all_raw_binary &&
+            supports_raw_binary_filter_encoding(_current_encoding, _metadata.type)) {
+            BinaryPredicateConsumer consumer(raw_conjuncts, _field_schema->data_type, column_id,
+                                             physical_matches, projected_column,
+                                             &_binary_predicate_refs, &_binary_projected_refs);
+            if (_metadata.type == tparquet::Type::BYTE_ARRAY) {
+                RETURN_IF_ERROR(_page_decoder->decode_selected_binary_values(selection, consumer));
+            } else {
+                RETURN_IF_ERROR(_page_decoder->decode_selected_fixed_values(selection, consumer));
+            }
+            *execution_kind = DirectPredicateExecutionKind::RAW_BINARY;
+        } else if (all_raw_fixed && serde.supports_parquet_raw_predicate(page_decode_context)) {
+            // Type conversion is fused between the decoder and predicate sink. Conversion-null
+            // bits travel beside the POD batch, preserving permissive scan semantics without an
+            // intermediate nullable IColumn.
+            SelectedDecodeSource selected_source(*_page_decoder, selection);
+            FixedWidthPredicateConsumer consumer(raw_conjuncts, _field_schema->data_type, column_id,
+                                                 physical_matches, projected_column,
+                                                 physical_conversion_nulls);
+            RETURN_IF_ERROR(serde.read_parquet_raw_predicate(selected_source, page_decode_context,
+                                                             selection.selected_values,
+                                                             enable_strict_mode, consumer));
+            *execution_kind = DirectPredicateExecutionKind::CONVERTED_FIXED;
+        } else {
+            FixedWidthPredicateConsumer consumer(raw_conjuncts, _field_schema->data_type, column_id,
+                                                 physical_matches, projected_column);
+            RETURN_IF_ERROR(_page_decoder->decode_selected_fixed_values(selection, consumer));
+            *execution_kind = DirectPredicateExecutionKind::RAW_FIXED;
+        }
         DORIS_CHECK_EQ(physical_matches->size(), selection.selected_values);
     }
 
+    const bool raw_null_match = std::ranges::all_of(raw_conjuncts, [](const auto& conjunct) {
+        return conjunct->raw_predicate_result_for_null();
+    });
     row_filter->reserve(selected_nulls->size());
     size_t physical_row = 0;
-    for (const uint8_t is_null : *selected_nulls) {
-        row_filter->push_back(is_null != 0 ? 0 : (*physical_matches)[physical_row++]);
+    for (size_t logical_row = 0; logical_row < selected_nulls->size(); ++logical_row) {
+        uint8_t& is_null = (*selected_nulls)[logical_row];
+        if (is_null != 0) {
+            row_filter->push_back(raw_null_match ? 1 : 0);
+        } else {
+            if (!physical_conversion_nulls->empty() &&
+                (*physical_conversion_nulls)[physical_row] != 0) {
+                is_null = 1;
+                row_filter->push_back(raw_null_match ? 1 : 0);
+                ++physical_row;
+                continue;
+            }
+            row_filter->push_back((*physical_matches)[physical_row++]);
+        }
     }
     DORIS_CHECK_EQ(physical_row, physical_matches->size());
+    for (const auto& conjunct : null_map_conjuncts) {
+        RETURN_IF_ERROR(conjunct->execute_on_null_map(
+                selected_nulls->data(), selected_nulls->size(), _field_schema->data_type, column_id,
+                row_filter->data()));
+    }
     // Commit logical progress only after both the raw comparison and NULL remapping succeed.
     _remaining_num_values -= select_vector.num_values();
     *used_filter = true;
     return Status::OK();
 }
 
+namespace {
+
+template <typename ColumnType>
+bool try_filter_and_project_dictionary_values(
+        const IColumn* typed_dictionary, IColumn* projected_values,
+        const std::vector<uint32_t>& selected_dictionary_indices,
+        const NullMap& nullable_selection_nulls, const IColumn::Filter& dictionary_filter,
+        IColumn::Filter* row_filter, size_t* survivor_count) {
+    if (typed_dictionary == nullptr || projected_values == nullptr) {
+        return false;
+    }
+    const auto* dictionary = check_and_get_column<ColumnType>(*typed_dictionary);
+    auto* projected = check_and_get_column<ColumnType>(*projected_values);
+    if (dictionary == nullptr || projected == nullptr) {
+        return false;
+    }
+
+    const auto& dictionary_data = dictionary->get_data();
+    auto& projected_data = projected->get_data();
+    projected_data.reserve(projected_data.size() + selected_dictionary_indices.size());
+    row_filter->reserve(row_filter->size() + nullable_selection_nulls.size());
+    size_t physical_row = 0;
+    size_t survivors = 0;
+    for (const uint8_t is_null : nullable_selection_nulls) {
+        bool keep = false;
+        if (is_null == 0) {
+            const uint32_t dictionary_id = selected_dictionary_indices[physical_row++];
+            // The decoder validates the complete id batch first, preserving atomic output while
+            // allowing this hot gather loop to use unchecked dictionary lookups.
+            keep = dictionary_filter[dictionary_id] != 0;
+            if (keep) {
+                projected_data.push_back(dictionary_data[dictionary_id]);
+                ++survivors;
+            }
+        }
+        row_filter->push_back(keep ? 1 : 0);
+    }
+    DORIS_CHECK_EQ(physical_row, selected_dictionary_indices.size());
+    *survivor_count = survivors;
+    return true;
+}
+
+bool try_filter_and_project_fixed_width_dictionary(
+        const IColumn* typed_dictionary, IColumn* projected_values,
+        const std::vector<uint32_t>& selected_dictionary_indices,
+        const NullMap& nullable_selection_nulls, const IColumn::Filter& dictionary_filter,
+        IColumn::Filter* row_filter, size_t* survivor_count) {
+#define TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnType)                                       \
+    if (try_filter_and_project_dictionary_values<ColumnType>(                               \
+                typed_dictionary, projected_values, selected_dictionary_indices,            \
+                nullable_selection_nulls, dictionary_filter, row_filter, survivor_count)) { \
+        return true;                                                                        \
+    }
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnUInt8)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt8)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt16)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt128)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnFloat32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnFloat64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDate)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDateTime)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDateV2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDateTimeV2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnTimeV2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnTimeStampTz)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnIPv4)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnIPv6)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnOffset32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnOffset64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal128V2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal128V3)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal256)
+#undef TRY_FIXED_WIDTH_DICTIONARY_COLUMN
+    return false;
+}
+
+} // namespace
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices(
+        const IColumn::Filter& dictionary_filter, ColumnSelectVector& select_vector,
+        const IColumn* typed_dictionary, IColumn* projected_values,
+        ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter, size_t* survivor_count,
+        bool* projected_directly, bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(survivor_count != nullptr);
+    DORIS_CHECK(projected_directly != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK((typed_dictionary == nullptr) == (projected_values == nullptr));
+    *projected_directly = false;
+    *used_filter = false;
+    // The top-level reader clears once and owns the final compact filter. Every fully validated
+    // page fragment appends here so page/range boundaries never require intermediate copies.
+    *survivor_count = 0;
+    if (_current_encoding != tparquet::Encoding::RLE_DICTIONARY || _page_decoder == nullptr ||
+        !_page_decoder->has_dictionary()) {
+        return Status::OK();
+    }
+    if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
+        return Status::IOError("Decode too many values in current page");
+    }
+    if (UNLIKELY(dictionary_filter.size() != _page_decoder->dictionary_size())) {
+        return Status::Corruption("Parquet predicate dictionary has {} entries, expected {}",
+                                  dictionary_filter.size(), _page_decoder->dictionary_size());
+    }
+
+    ParquetSelection selection;
+    _nullable_selection_nulls.clear();
+    _nullable_selection_nulls.reserve(select_vector.num_values() - select_vector.num_filtered());
+    size_t physical_cursor = 0;
+    auto build_selection = [&]<bool HAS_FILTER>() {
+        ColumnSelectVector::DataReadType read_type;
+        while (const size_t run_length = select_vector.get_next_run<HAS_FILTER>(&read_type)) {
+            switch (read_type) {
+            case ColumnSelectVector::CONTENT:
+                if (!selection.ranges.empty() &&
+                    selection.ranges.back().first + selection.ranges.back().count ==
+                            physical_cursor) {
+                    selection.ranges.back().count += run_length;
+                } else {
+                    selection.ranges.push_back({.first = physical_cursor, .count = run_length});
+                }
+                selection.selected_values += run_length;
+                _nullable_selection_nulls.resize_fill(_nullable_selection_nulls.size() + run_length,
+                                                      0);
+                physical_cursor += run_length;
+                break;
+            case ColumnSelectVector::NULL_DATA:
+                _nullable_selection_nulls.resize_fill(_nullable_selection_nulls.size() + run_length,
+                                                      1);
+                break;
+            case ColumnSelectVector::FILTERED_CONTENT:
+                physical_cursor += run_length;
+                break;
+            case ColumnSelectVector::FILTERED_NULL:
+                break;
+            }
+        }
+    };
+    if (select_vector.has_filter()) {
+        build_selection.template operator()<true>();
+    } else {
+        build_selection.template operator()<false>();
+    }
+    selection.total_values = physical_cursor;
+    DORIS_CHECK_EQ(selection.total_values, select_vector.num_values() - select_vector.num_nulls());
+    DORIS_CHECK_EQ(_nullable_selection_nulls.size(),
+                   select_vector.num_values() - select_vector.num_filtered());
+    if (UNLIKELY(_empty_value_section && selection.total_values != 0)) {
+        return Status::Corruption(
+                "Parquet definition levels require {} values from an empty value section",
+                selection.total_values);
+    }
+
+    _selected_dictionary_indices.clear();
+    if (selection.selected_values == 0) {
+        RETURN_IF_ERROR(_page_decoder->skip_values(selection.total_values));
+    } else {
+        SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
+        RETURN_IF_ERROR(_page_decoder->decode_selected_dictionary_indices(
+                selection, &_selected_dictionary_indices));
+    }
+    DORIS_CHECK_EQ(_selected_dictionary_indices.size(), selection.selected_values);
+
+    const bool direct_fixed_width_projection = try_filter_and_project_fixed_width_dictionary(
+            typed_dictionary, projected_values, _selected_dictionary_indices,
+            _nullable_selection_nulls, dictionary_filter, row_filter, survivor_count);
+    auto* matched =
+            matched_dictionary_ids == nullptr ? nullptr : &matched_dictionary_ids->get_data();
+    if (!direct_fixed_width_projection && matched != nullptr) {
+        matched->reserve(matched->size() + selection.selected_values);
+    }
+    if (!direct_fixed_width_projection) {
+        row_filter->reserve(row_filter->size() + _nullable_selection_nulls.size());
+        size_t physical_row = 0;
+        size_t survivors = 0;
+        for (const uint8_t is_null : _nullable_selection_nulls) {
+            bool keep = false;
+            if (is_null == 0) {
+                const uint32_t dictionary_id = _selected_dictionary_indices[physical_row++];
+                // The complete id batch was validated before this loop, so unchecked bitmap access
+                // cannot leak partial output for a corrupt page.
+                keep = dictionary_filter[dictionary_id] != 0;
+                if (keep && matched != nullptr) {
+                    matched->push_back(cast_set<int32_t>(dictionary_id));
+                }
+                survivors += keep;
+            }
+            row_filter->push_back(keep ? 1 : 0);
+        }
+        DORIS_CHECK_EQ(physical_row, _selected_dictionary_indices.size());
+        *survivor_count = survivors;
+    }
+    // Commit page progress only after every external dictionary id has been validated.
+    _remaining_num_values -= select_vector.num_values();
+    *projected_directly = direct_fixed_width_projection;
+    *used_filter = true;
+    return Status::OK();
+}
+
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::seek_to_nested_row(size_t left_row) {
+    if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+        RETURN_IF_ERROR(ensure_first_data_page_parsed());
+    }
     if constexpr (OFFSET_INDEX) {
         if (_page_reader->has_active_offset_index()) {
             while (true) {

@@ -62,7 +62,7 @@ using Value = float;
 using Weight = float;
 using Index = size_t;
 
-const size_t kHighWater = 40000;
+constexpr size_t K_HIGH_WATER = 40000;
 
 class Centroid {
 public:
@@ -126,7 +126,7 @@ class TDigest {
         TDigestComparator() = default;
 
         bool operator()(const TDigest* left, const TDigest* right) const {
-            return left->totalSize() > right->totalSize();
+            return left->total_size() > right->total_size();
         }
     };
     using TDigestQueue =
@@ -137,19 +137,19 @@ public:
 
     explicit TDigest(Value compression) : TDigest(compression, 0) {}
 
-    TDigest(Value compression, Index bufferSize) : TDigest(compression, bufferSize, 0) {}
+    TDigest(Value compression, Index buffer_size) : TDigest(compression, buffer_size, 0) {}
 
-    TDigest(Value compression, Index unmergedSize, Index mergedSize)
+    TDigest(Value compression, Index unmerged_size, Index merged_size)
             : _compression(compression),
-              _max_processed(processedSize(mergedSize, compression)),
-              _max_unprocessed(unprocessedSize(unmergedSize, compression)) {
+              _max_processed(processed_size(merged_size, compression)),
+              _max_unprocessed(unprocessed_size(unmerged_size, compression)) {
         _processed.reserve(_max_processed);
         _unprocessed.reserve(_max_unprocessed + 1);
     }
 
     TDigest(std::vector<Centroid>&& processed, std::vector<Centroid>&& unprocessed,
-            Value compression, Index unmergedSize, Index mergedSize)
-            : TDigest(compression, unmergedSize, mergedSize) {
+            Value compression, Index unmerged_size, Index merged_size)
+            : TDigest(compression, unmerged_size, merged_size) {
         _processed = std::move(processed);
         _unprocessed = std::move(unprocessed);
 
@@ -159,7 +159,7 @@ public:
             _min = std::min(_min, _processed[0].mean());
             _max = std::max(_max, (_processed.cend() - 1)->mean());
         }
-        updateCumulative();
+        _update_cumulative();
     }
 
     static Weight weight(std::vector<Centroid>& centroids) noexcept {
@@ -188,11 +188,11 @@ public:
             : TDigest(std::move(o._processed), std::move(o._unprocessed), o._compression,
                       o._max_unprocessed, o._max_processed) {}
 
-    static inline Index processedSize(Index size, Value compression) noexcept {
+    static inline Index processed_size(Index size, Value compression) noexcept {
         return (size == 0) ? static_cast<Index>(2 * std::ceil(compression)) : size;
     }
 
-    static inline Index unprocessedSize(Index size, Value compression) noexcept {
+    static inline Index unprocessed_size(Index size, Value compression) noexcept {
         return (size == 0) ? static_cast<Index>(8 * std::ceil(compression)) : size;
     }
 
@@ -206,15 +206,15 @@ public:
 
     const std::vector<Centroid>& unprocessed() const { return _unprocessed; }
 
-    Index maxUnprocessed() const { return _max_unprocessed; }
+    Index max_unprocessed() const { return _max_unprocessed; }
 
-    Index maxProcessed() const { return _max_processed; }
+    Index max_processed() const { return _max_processed; }
 
     void add(std::vector<const TDigest*> digests) { add(digests.cbegin(), digests.cend()); }
 
     // merge in a vector of tdigests in the most efficient manner possible
     // in constant space
-    // works for any value of kHighWater
+    // works for any value of K_HIGH_WATER
     void add(std::vector<const TDigest*>::const_iterator iter,
              std::vector<const TDigest*>::const_iterator end) {
         if (iter != end) {
@@ -226,48 +226,48 @@ public:
             std::vector<const TDigest*> batch;
             batch.reserve(size);
 
-            size_t totalSize = 0;
+            size_t total_size = 0;
             while (!pq.empty()) {
                 const auto* td = pq.top();
                 batch.push_back(td);
                 pq.pop();
-                totalSize += td->totalSize();
-                if (totalSize >= kHighWater || pq.empty()) {
-                    mergeProcessed(batch);
-                    mergeUnprocessed(batch);
-                    processIfNecessary();
+                total_size += td->total_size();
+                if (total_size >= K_HIGH_WATER || pq.empty()) {
+                    _merge_processed(batch);
+                    _merge_unprocessed(batch);
+                    _process_if_necessary();
                     batch.clear();
-                    totalSize = 0;
+                    total_size = 0;
                 }
             }
-            updateCumulative();
+            _update_cumulative();
         }
     }
 
-    Weight processedWeight() const { return _processed_weight; }
+    Weight processed_weight() const { return _processed_weight; }
 
-    Weight unprocessedWeight() const { return _unprocessed_weight; }
+    Weight unprocessed_weight() const { return _unprocessed_weight; }
 
-    bool haveUnprocessed() const { return _unprocessed.size() > 0; }
+    bool have_unprocessed() const { return _unprocessed.size() > 0; }
 
-    size_t totalSize() const { return _processed.size() + _unprocessed.size(); }
+    size_t total_size() const { return _processed.size() + _unprocessed.size(); }
 
-    long totalWeight() const { return static_cast<long>(_processed_weight + _unprocessed_weight); }
+    long total_weight() const { return static_cast<long>(_processed_weight + _unprocessed_weight); }
 
     // return the cdf on the t-digest
     Value cdf(Value x) {
-        if (haveUnprocessed() || isDirty()) {
-            process();
+        if (have_unprocessed() || is_dirty()) {
+            _process();
         }
-        return cdfProcessed(x);
+        return cdf_processed(x);
     }
 
-    bool isDirty() {
+    bool is_dirty() {
         return _processed.size() > _max_processed || _unprocessed.size() > _max_unprocessed;
     }
 
     // return the cdf on the processed values
-    Value cdfProcessed(Value x) const {
+    Value cdf_processed(Value x) const {
         VLOG_CRITICAL << "cdf value " << x;
         VLOG_CRITICAL << "processed size " << _processed.size();
         if (_processed.size() == 0) {
@@ -306,13 +306,13 @@ public:
             }
 
             // check for the left tail
-            if (x <= mean(0)) {
+            if (x <= _mean(0)) {
                 VLOG_CRITICAL << "left tail "
-                              << " _min " << _min << " mean(0) " << mean(0) << " x " << x;
+                              << " _min " << _min << " mean(0) " << _mean(0) << " x " << x;
 
                 // note that this is different than mean(0) > _min ... this guarantees interpolation works
-                if (mean(0) - _min > 0) {
-                    return static_cast<Value>((x - _min) / (mean(0) - _min) * weight(0) /
+                if (_mean(0) - _min > 0) {
+                    return static_cast<Value>((x - _min) / (_mean(0) - _min) * _weight(0) /
                                               _processed_weight / 2.0);
                 } else {
                     return 0;
@@ -320,13 +320,13 @@ public:
             }
 
             // and the right tail
-            if (x >= mean(n - 1)) {
+            if (x >= _mean(n - 1)) {
                 VLOG_CRITICAL << "right tail"
-                              << " _max " << _max << " mean(n - 1) " << mean(n - 1) << " x " << x;
+                              << " _max " << _max << " mean(n - 1) " << _mean(n - 1) << " x " << x;
 
-                if (_max - mean(n - 1) > 0) {
-                    return static_cast<Value>(1.0 - (_max - x) / (_max - mean(n - 1)) *
-                                                            weight(n - 1) / _processed_weight /
+                if (_max - _mean(n - 1) > 0) {
+                    return static_cast<Value>(1.0 - (_max - x) / (_max - _mean(n - 1)) *
+                                                            _weight(n - 1) / _processed_weight /
                                                             2.0);
                 } else {
                     return 1;
@@ -345,21 +345,78 @@ public:
             VLOG_CRITICAL << "middle "
                           << " z1 " << z1 << " z2 " << z2 << " x " << x;
 
-            return weightedAverage(_cumulative[i - 1], z2, _cumulative[i], z1) / _processed_weight;
+            return _weighted_average(_cumulative[i - 1], z2, _cumulative[i], z1) /
+                   _processed_weight;
         }
     }
 
     // this returns a quantile on the t-digest
     Value quantile(Value q) {
-        if (haveUnprocessed() || isDirty()) {
-            process();
+        if (have_unprocessed() || is_dirty()) {
+            _process();
         }
-        return quantileProcessed(q);
+        return quantile_processed(q);
+    }
+
+    void quantiles(const double* quantile_levels, const size_t* permutation, size_t size,
+                   double* result) {
+        if (size == 0) {
+            return;
+        }
+        if (have_unprocessed() || is_dirty()) {
+            _process();
+        }
+
+        if (_processed.empty()) {
+            std::fill(result, result + size, NAN);
+            return;
+        }
+
+        if (_processed.size() == 1) {
+            std::fill(result, result + size, static_cast<double>(_mean(0)));
+            return;
+        }
+
+        const auto n = _processed.size();
+        size_t cumulative_index = 0;
+        for (size_t result_index = 0; result_index < size; ++result_index) {
+            const size_t level_index = permutation[result_index];
+            const auto q = static_cast<Value>(quantile_levels[level_index]);
+            DCHECK_GE(q, 0);
+            DCHECK_LE(q, 1);
+
+            const auto index = q * _processed_weight;
+            if (index <= _weight(0) / 2.0) {
+                DCHECK_GT(_weight(0), 0);
+                result[level_index] =
+                        static_cast<Value>(_min + 2.0 * index / _weight(0) * (_mean(0) - _min));
+                continue;
+            }
+
+            while (cumulative_index < _cumulative.size() && _cumulative[cumulative_index] < index) {
+                ++cumulative_index;
+            }
+
+            if (cumulative_index > 0 && cumulative_index + 1 < _cumulative.size()) {
+                auto z1 = index - _cumulative[cumulative_index - 1];
+                auto z2 = _cumulative[cumulative_index] - index;
+                result[level_index] = static_cast<double>(_weighted_average(
+                        _mean(cumulative_index - 1), z2, _mean(cumulative_index), z1));
+                continue;
+            }
+
+            DCHECK_LE(index, _processed_weight);
+            DCHECK_GE(index, _processed_weight - _weight(n - 1) / 2.0);
+            auto z1 = static_cast<Value>(index - _processed_weight - _weight(n - 1) / 2.0);
+            auto z2 = static_cast<Value>(_weight(n - 1) / 2 - z1);
+            result[level_index] =
+                    static_cast<double>(_weighted_average(_mean(n - 1), z1, _max, z2));
+        }
     }
 
     // this returns a quantile on the currently processed values without changing the t-digest
     // the value will not represent the unprocessed values
-    Value quantileProcessed(Value q) const {
+    Value quantile_processed(Value q) const {
         if (q < 0 || q > 1) {
             VLOG_CRITICAL << "q should be in [0,1], got " << q;
             return NAN;
@@ -371,7 +428,7 @@ public:
         } else if (_processed.size() == 1) {
             // with one data point, all quantiles lead to Rome
 
-            return mean(0);
+            return _mean(0);
         }
 
         // we know that there are at least two sorted now
@@ -381,9 +438,9 @@ public:
         const auto index = q * _processed_weight;
 
         // at the boundaries, we return _min or _max
-        if (index <= weight(0) / 2.0) {
-            DCHECK_GT(weight(0), 0);
-            return static_cast<Value>(_min + 2.0 * index / weight(0) * (mean(0) - _min));
+        if (index <= _weight(0) / 2.0) {
+            DCHECK_GT(_weight(0), 0);
+            return static_cast<Value>(_min + 2.0 * index / _weight(0) * (_mean(0) - _min));
         }
 
         auto iter = std::lower_bound(_cumulative.cbegin(), _cumulative.cend(), index);
@@ -394,22 +451,22 @@ public:
             auto z1 = index - *(iter - 1);
             auto z2 = *(iter)-index;
             // VLOG_CRITICAL << "z2 " << z2 << " index " << index << " z1 " << z1;
-            return weightedAverage(mean(i - 1), z2, mean(i), z1);
+            return _weighted_average(_mean(i - 1), z2, _mean(i), z1);
         }
 
         DCHECK_LE(index, _processed_weight);
-        DCHECK_GE(index, _processed_weight - weight(n - 1) / 2.0);
+        DCHECK_GE(index, _processed_weight - _weight(n - 1) / 2.0);
 
-        auto z1 = static_cast<Value>(index - _processed_weight - weight(n - 1) / 2.0);
-        auto z2 = static_cast<Value>(weight(n - 1) / 2 - z1);
-        return weightedAverage(mean(n - 1), z1, _max, z2);
+        auto z1 = static_cast<Value>(index - _processed_weight - _weight(n - 1) / 2.0);
+        auto z2 = static_cast<Value>(_weight(n - 1) / 2 - z1);
+        return _weighted_average(_mean(n - 1), z1, _max, z2);
     }
 
     Value compression() const { return _compression; }
 
     void add(Value x) { add(x, 1); }
 
-    void compress() { process(); }
+    void compress() { _process(); }
 
     // add a single centroid to the unprocessed vector, processing previously unprocessed sorted if our limit has
     // been reached.
@@ -419,7 +476,7 @@ public:
         }
         _unprocessed.emplace_back(x, w);
         _unprocessed_weight += w;
-        processIfNecessary();
+        _process_if_necessary();
         return true;
     }
 
@@ -433,7 +490,7 @@ public:
                 _unprocessed.push_back(*(iter++));
             }
             if (_unprocessed.size() >= _max_unprocessed) {
-                process();
+                _process();
             }
         }
     }
@@ -541,7 +598,9 @@ private:
 
     Value _min = std::numeric_limits<Value>::max();
 
-    Value _max = std::numeric_limits<Value>::min();
+    // min() is the smallest positive value, so use lowest() for all-negative input,
+    // e.g. {-3, -2, -1} must set _max to -1.
+    Value _max = std::numeric_limits<Value>::lowest();
 
     Index _max_processed;
 
@@ -558,13 +617,13 @@ private:
     std::vector<Weight> _cumulative;
 
     // return mean of i-th centroid
-    Value mean(int64_t i) const noexcept { return _processed[i].mean(); }
+    Value _mean(int64_t i) const noexcept { return _processed[i].mean(); }
 
     // return weight of i-th centroid
-    Weight weight(int64_t i) const noexcept { return _processed[i].weight(); }
+    Weight _weight(int64_t i) const noexcept { return _processed[i].weight(); }
 
     // append all unprocessed centroids into current unprocessed vector
-    void mergeUnprocessed(const std::vector<const TDigest*>& tdigests) {
+    void _merge_unprocessed(const std::vector<const TDigest*>& tdigests) {
         if (tdigests.size() == 0) {
             return;
         }
@@ -583,7 +642,7 @@ private:
     }
 
     // merge all processed centroids together into a single sorted vector
-    void mergeProcessed(const std::vector<const TDigest*>& tdigests) {
+    void _merge_processed(const std::vector<const TDigest*>& tdigests) {
         if (tdigests.size() == 0) {
             return;
         }
@@ -627,21 +686,21 @@ private:
         }
     }
 
-    void processIfNecessary() {
-        if (isDirty()) {
-            process();
+    void _process_if_necessary() {
+        if (is_dirty()) {
+            _process();
         }
     }
 
-    void updateCumulative() {
+    void _update_cumulative() {
         const auto n = _processed.size();
         _cumulative.clear();
         _cumulative.reserve(n + 1);
         Weight previous = 0.0;
         for (Index i = 0; i < n; i++) {
-            Weight current = weight(i);
-            auto halfCurrent = static_cast<Weight>(current / 2.0);
-            _cumulative.push_back(previous + halfCurrent);
+            Weight current = _weight(i);
+            auto half_current = static_cast<Weight>(current / 2.0);
+            _cumulative.push_back(previous + half_current);
             previous = previous + current;
         }
         _cumulative.push_back(previous);
@@ -649,7 +708,7 @@ private:
 
     // merges _unprocessed centroids and _processed centroids together and processes them
     // when complete, _unprocessed will be empty and _processed will have at most _max_processed centroids
-    void process() {
+    void _process() {
         CentroidComparator cc;
         // select percentile_approx(lo_orderkey,0.5) from lineorder;
         // have test pdqsort and RadixSort, find here pdqsort performance is better when data is struct Centroid
@@ -665,20 +724,20 @@ private:
         _processed.clear();
 
         _processed.push_back(_unprocessed[0]);
-        Weight wSoFar = _unprocessed[0].weight();
-        Weight wLimit = _processed_weight * integratedQ(1.0);
+        Weight w_so_far = _unprocessed[0].weight();
+        Weight w_limit = _processed_weight * _integrated_q(1.0);
 
         auto end = _unprocessed.end();
         for (auto iter = _unprocessed.cbegin() + 1; iter < end; iter++) {
             const auto& centroid = *iter;
-            Weight projectedW = wSoFar + centroid.weight();
-            if (projectedW <= wLimit) {
-                wSoFar = projectedW;
+            Weight projected_w = w_so_far + centroid.weight();
+            if (projected_w <= w_limit) {
+                w_so_far = projected_w;
                 (_processed.end() - 1)->add(centroid);
             } else {
-                auto k1 = integratedLocation(wSoFar / _processed_weight);
-                wLimit = _processed_weight * integratedQ(static_cast<Value>(k1 + 1.0));
-                wSoFar += centroid.weight();
+                auto k1 = _integrated_location(w_so_far / _processed_weight);
+                w_limit = _processed_weight * _integrated_q(static_cast<Value>(k1 + 1.0));
+                w_so_far += centroid.weight();
                 _processed.emplace_back(centroid);
             }
         }
@@ -687,34 +746,34 @@ private:
         VLOG_CRITICAL << "new _min " << _min;
         _max = std::max(_max, (_processed.cend() - 1)->mean());
         VLOG_CRITICAL << "new _max " << _max;
-        updateCumulative();
+        _update_cumulative();
     }
 
-    size_t checkWeights(const std::vector<Centroid>& sorted, Value total) {
-        size_t badWeight = 0;
+    size_t _check_weights(const std::vector<Centroid>& sorted, Value total) {
+        size_t bad_weight = 0;
         auto k1 = 0.0;
         auto q = 0.0;
         for (auto iter = sorted.cbegin(); iter != sorted.cend(); iter++) {
             auto w = iter->weight();
             auto dq = w / total;
-            auto k2 = integratedLocation(static_cast<Value>(q + dq));
+            auto k2 = _integrated_location(static_cast<Value>(q + dq));
             if (k2 - k1 > 1 && w != 1) {
                 VLOG_CRITICAL << "Oversize centroid at " << std::distance(sorted.cbegin(), iter)
                               << " k1 " << k1 << " k2 " << k2 << " dk " << (k2 - k1) << " w " << w
                               << " q " << q;
-                badWeight++;
+                bad_weight++;
             }
             if (k2 - k1 > 1.5 && w != 1) {
                 VLOG_CRITICAL << "Egregiously Oversize centroid at "
                               << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 "
                               << k2 << " dk " << (k2 - k1) << " w " << w << " q " << q;
-                badWeight++;
+                bad_weight++;
             }
             q += dq;
             k1 = k2;
         }
 
-        return badWeight;
+        return bad_weight;
     }
 
     /**
@@ -734,23 +793,23 @@ private:
     * @param q The quantile scale value to be mapped.
     * @return The centroid scale value corresponding to q.
     */
-    Value integratedLocation(Value q) const {
+    Value _integrated_location(Value q) const {
         return static_cast<Value>(_compression * (std::asin(2.0 * q - 1.0) + M_PI / 2) / M_PI);
     }
 
-    Value integratedQ(Value k) const {
+    Value _integrated_q(Value k) const {
         return static_cast<Value>(
                 (std::sin(std::min(k, _compression) * M_PI / _compression - M_PI / 2) + 1) / 2);
     }
 
     /**
-     * Same as {@link #weightedAverageSorted(Value, Value, Value, Value)} but flips
+     * Same as {@link #_weighted_average_sorted(Value, Value, Value, Value)} but flips
      * the order of the variables if <code>x2</code> is greater than
      * <code>x1</code>.
     */
-    static Value weightedAverage(Value x1, Value w1, Value x2, Value w2) {
-        return (x1 <= x2) ? weightedAverageSorted(x1, w1, x2, w2)
-                          : weightedAverageSorted(x2, w2, x1, w1);
+    static Value _weighted_average(Value x1, Value w1, Value x2, Value w2) {
+        return (x1 <= x2) ? _weighted_average_sorted(x1, w1, x2, w2)
+                          : _weighted_average_sorted(x2, w2, x1, w1);
     }
 
     /**
@@ -760,13 +819,13 @@ private:
     * and is guaranteed to return a number between <code>x1</code> and
     * <code>x2</code>.
     */
-    static Value weightedAverageSorted(Value x1, Value w1, Value x2, Value w2) {
+    static Value _weighted_average_sorted(Value x1, Value w1, Value x2, Value w2) {
         DCHECK_LE(x1, x2);
         const Value x = (x1 * w1 + x2 * w2) / (w1 + w2);
         return std::max(x1, std::min(x, x2));
     }
 
-    static Value interpolate(Value x, Value x0, Value x1) { return (x - x0) / (x1 - x0); }
+    static Value _interpolate(Value x, Value x0, Value x1) { return (x - x0) / (x1 - x0); }
 
     /**
     * Computes an interpolated value of a quantile that is between two sorted.
@@ -774,18 +833,18 @@ private:
     * Index is the quantile desired multiplied by the total number of samples - 1.
     *
     * @param index              Denormalized quantile desired
-    * @param previousIndex      The denormalized quantile corresponding to the center of the previous centroid.
-    * @param nextIndex          The denormalized quantile corresponding to the center of the following centroid.
-    * @param previousMean       The mean of the previous centroid.
-    * @param nextMean           The mean of the following centroid.
+    * @param previous_index     The denormalized quantile corresponding to the center of the previous centroid.
+    * @param next_index         The denormalized quantile corresponding to the center of the following centroid.
+    * @param previous_mean      The mean of the previous centroid.
+    * @param next_mean          The mean of the following centroid.
     * @return  The interpolated mean.
     */
-    static Value quantile(Value index, Value previousIndex, Value nextIndex, Value previousMean,
-                          Value nextMean) {
-        const auto delta = nextIndex - previousIndex;
-        const auto previousWeight = (nextIndex - index) / delta;
-        const auto nextWeight = (index - previousIndex) / delta;
-        return previousMean * previousWeight + nextMean * nextWeight;
+    static Value _quantile(Value index, Value previous_index, Value next_index, Value previous_mean,
+                           Value next_mean) {
+        const auto delta = next_index - previous_index;
+        const auto previous_weight = (next_index - index) / delta;
+        const auto next_weight = (index - previous_index) / delta;
+        return previous_mean * previous_weight + next_mean * next_weight;
     }
 };
 } // namespace doris

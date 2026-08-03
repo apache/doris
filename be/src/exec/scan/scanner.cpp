@@ -19,8 +19,6 @@
 
 #include <glog/logging.h>
 
-#include <iterator>
-
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
@@ -162,11 +160,8 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                     DCHECK(block->rows() == 0);
                     break;
                 }
-                // Some scanners apply owned predicates before returning the block. Account the
-                // materialized input, not only survivors, so the per-turn progress bound remains
-                // effective for highly selective predicates.
-                _num_rows_read += _last_block_rows_read(*block);
-                _num_byte_read += _last_block_bytes_read(*block);
+                _num_rows_read += block->rows();
+                _num_byte_read += block->allocated_bytes();
             }
 
             // 2. Filter the output block finally.
@@ -215,41 +210,50 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     if (rows == 0) {
         return Status::OK();
     }
-    Block input_block = *origin_block;
 
-    std::vector<int> result_column_ids;
-    for (auto& projections : _intermediate_projections) {
-        result_column_ids.resize(projections.size());
-        for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+    {
+        Block input_block = *origin_block;
+
+        std::vector<int> result_column_ids;
+        for (auto& projections : _intermediate_projections) {
+            result_column_ids.resize(projections.size());
+            for (int i = 0; i < projections.size(); i++) {
+                RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+            }
+            input_block.shuffle_columns(result_column_ids);
         }
-        input_block.shuffle_columns(result_column_ids);
+
+        DCHECK_EQ(rows, input_block.rows());
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                output_block, *_output_row_descriptor);
+        auto& mutable_columns = scoped_mutable_block.mutable_columns();
+        DCHECK_EQ(mutable_columns.size(), _projections.size());
+        Columns shared_columns(mutable_columns.size());
+
+        for (int i = 0; i < mutable_columns.size(); ++i) {
+            ColumnPtr column_ptr;
+            RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
+            column_ptr = column_ptr->convert_to_full_column_if_const();
+            if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
+            }
+            if (column_ptr->is_exclusive()) {
+                mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
+            } else {
+                shared_columns[i] = std::move(column_ptr);
+            }
+        }
+
+        scoped_mutable_block.restore();
+        for (int i = 0; i < shared_columns.size(); ++i) {
+            if (shared_columns[i]) {
+                output_block->replace_by_position(i, std::move(shared_columns[i]));
+            }
+        }
     }
 
-    DCHECK_EQ(rows, input_block.rows());
-    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
-            output_block, *_output_row_descriptor);
-    auto& mutable_block = scoped_mutable_block.mutable_block();
-
-    auto& mutable_columns = mutable_block.mutable_columns();
-
-    DCHECK_EQ(mutable_columns.size(), _projections.size());
-
-    for (int i = 0; i < mutable_columns.size(); ++i) {
-        ColumnPtr column_ptr;
-        RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
-        column_ptr = column_ptr->convert_to_full_column_if_const();
-        if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
-        }
-        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
-    }
-
-    scoped_mutable_block.restore();
-
-    // origin columns was moved into output_block, so we need to set origin_block to empty columns
-    auto empty_columns = origin_block->clone_empty_columns();
-    origin_block->set_columns(std::move(empty_columns));
+    origin_block->clear_column_data(
+            _local_state->_parent->row_descriptor().num_materialized_slots());
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
@@ -261,9 +265,7 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     }
     DCHECK(_applied_rf_num < _total_rf_num);
     int arrived_rf_num = 0;
-    VExprContextSPtrs arrived_conjuncts;
-    RETURN_IF_ERROR(_local_state->update_late_arrival_runtime_filter(
-            _state, _applied_rf_num, arrived_rf_num, arrived_conjuncts));
+    RETURN_IF_ERROR(_local_state->update_late_arrival_runtime_filter(_state, arrived_rf_num));
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;
@@ -273,9 +275,6 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     // avoid conjunct destroy in used by storage layer
     _conjuncts.clear();
     RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
-    _late_arrival_rf_conjuncts.insert(_late_arrival_rf_conjuncts.end(),
-                                      std::make_move_iterator(arrived_conjuncts.begin()),
-                                      std::make_move_iterator(arrived_conjuncts.end()));
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }

@@ -20,14 +20,15 @@ package org.apache.doris.connector.api;
 import java.util.Objects;
 
 /**
- * Basic table-level statistics. Use {@link #UNKNOWN} when statistics
- * are unavailable.
+ * Basic table-level statistics.
+ *
+ * <p>A connector that has no statistics at all returns {@code Optional.empty()} from
+ * {@link ConnectorStatisticsOps#getTableStatistics} — that, not a sentinel instance, is how
+ * "unavailable" is expressed. Returning a present value with an individual field set to -1 is
+ * still allowed and means "this one number is unknown" (e.g. hive knows the total size but not
+ * the row count).</p>
  */
 public final class ConnectorTableStatistics {
-
-    /** Sentinel value indicating statistics are not available. */
-    public static final ConnectorTableStatistics UNKNOWN =
-            new ConnectorTableStatistics(-1, -1);
 
     private final long rowCount;
     private final long dataSize;

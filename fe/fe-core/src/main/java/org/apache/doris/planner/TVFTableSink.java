@@ -24,7 +24,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -108,17 +108,17 @@ public class TVFTableSink extends DataSink {
         TFileType fileType = getFileType(tvfName);
         tSink.setFileType(fileType);
 
-        // --- 2. Parse storage/connection properties (reuse read-side StorageProperties) ---
+        // --- 2. Parse storage/connection properties (reuse read-side storage adapter) ---
         Map<String, String> backendConnectProps;
         if (tvfName.equals("local")) {
-            // Local TVF: pass properties as-is (same as LocalProperties.getBackendConfigProperties)
+            // Local TVF: pass properties as-is (same as the local backend config map)
             backendConnectProps = new java.util.HashMap<>(propsCopy);
         } else {
-            // S3/HDFS: use StorageProperties to normalize connection property keys
+            // S3/HDFS: use the storage adapter to normalize connection property keys
             // (e.g. "s3.endpoint" -> "AWS_ENDPOINT", "hadoop.username" -> hadoop config)
             try {
-                StorageProperties storageProps = StorageProperties.createPrimary(propsCopy);
-                backendConnectProps = storageProps.getBackendConfigProperties();
+                StorageAdapter storageAdapter = StorageAdapter.of(propsCopy);
+                backendConnectProps = storageAdapter.getBackendConfigProperties();
             } catch (Exception e) {
                 throw new AnalysisException("Failed to parse storage properties: " + e.getMessage(), e);
             }

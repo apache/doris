@@ -38,20 +38,47 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class PaimonColumnValue implements ColumnValue {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonColumnValue.class);
+    private static final Map<String, String> DORIS_TIME_ZONE_ALIASES;
+
+    static {
+        Map<String, String> aliases = new HashMap<>(ZoneId.SHORT_IDS);
+        // The scanner cannot depend on FE's TimeUtils, so keep its accepted aliases and CST
+        // interpretation identical at this JNI boundary.
+        aliases.put("CST", "Asia/Shanghai");
+        aliases.put("PRC", "Asia/Shanghai");
+        aliases.put("UTC", "UTC");
+        aliases.put("GMT", "UTC");
+        DORIS_TIME_ZONE_ALIASES = Collections.unmodifiableMap(aliases);
+    }
+
     private int idx;
     private DataGetters record;
     private ColumnType dorisType;
     private DataType dataType;
-    private String timeZone;
+    private ZoneId timeZone;
+    // Keep these caches lazy so scalar columns do not pay for complex-type reuse bookkeeping.
+    private List<PaimonColumnValue> arrayValues;
+    private List<PaimonColumnValue> mapKeys;
+    private List<PaimonColumnValue> mapValues;
+    private List<PaimonColumnValue> structValues;
 
     public PaimonColumnValue() {
     }
 
     public PaimonColumnValue(DataGetters record, int idx, ColumnType columnType, DataType dataType, String timeZone) {
+        this(record, idx, columnType, dataType, resolveTimeZone(timeZone));
+    }
+
+    private PaimonColumnValue(
+            DataGetters record, int idx, ColumnType columnType, DataType dataType, ZoneId timeZone) {
         this.idx = idx;
         this.record = record;
         this.dorisType = columnType;
@@ -70,7 +97,7 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     public void setTimeZone(String timeZone) {
-        this.timeZone = timeZone;
+        this.timeZone = resolveTimeZone(timeZone);
     }
 
     @Override
@@ -142,8 +169,8 @@ public class PaimonColumnValue implements ColumnValue {
     public LocalDateTime getDateTime() {
         Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
         if (dataType instanceof LocalZonedTimestampType) {
-            return ts.toLocalDateTime().atZone(ZoneId.of("UTC"))
-                    .withZoneSameInstant(ZoneId.of(timeZone)).toLocalDateTime();
+            // Paimon stores TIMESTAMP_LTZ as an epoch instant, so convert it directly in the cached session zone.
+            return LocalDateTime.ofInstant(ts.toInstant(), timeZone);
         } else {
             return ts.toLocalDateTime();
         }
@@ -152,15 +179,18 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public LocalDateTime getTimeStampTz() {
         Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
-        LocalDateTime v = ts.toInstant()
-                .atZone(ZoneId.of("UTC"))
-                .toLocalDateTime();
-        return v;
+        // Timestamp's local representation is identical to converting its epoch instant in UTC.
+        return ts.toLocalDateTime();
     }
 
     @Override
     public boolean isNull() {
-        return record.isNullAt(idx);
+        boolean isNull = record.isNullAt(idx);
+        if (isNull) {
+            // A null complex value has no live descendants; release wrappers retained by its prior row.
+            clearChildCaches();
+        }
+        return isNull;
     }
 
     @Override
@@ -171,37 +201,99 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public void unpackArray(List<ColumnValue> values) {
         InternalArray recordArray = record.getArray(idx);
-        for (int i = 0; i < recordArray.size(); i++) {
-            PaimonColumnValue arrayColumnValue = new PaimonColumnValue((DataGetters) recordArray, i,
-                    dorisType.getChildTypes().get(0), ((ArrayType) dataType).getElementType(), timeZone);
-            values.add(arrayColumnValue);
+        if (arrayValues == null) {
+            arrayValues = new ArrayList<>();
         }
+        ColumnType elementDorisType = dorisType.getChildTypes().get(0);
+        DataType elementPaimonType = ((ArrayType) dataType).getElementType();
+        for (int i = 0; i < recordArray.size(); i++) {
+            values.add(reuseColumnValue(arrayValues, i, (DataGetters) recordArray, i,
+                    elementDorisType, elementPaimonType));
+        }
+        trimCache(arrayValues, recordArray.size());
     }
 
     @Override
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
         InternalMap map = record.getMap(idx);
+        if (mapKeys == null) {
+            mapKeys = new ArrayList<>();
+            mapValues = new ArrayList<>();
+        }
         InternalArray key = map.keyArray();
+        ColumnType keyDorisType = dorisType.getChildTypes().get(0);
+        DataType keyPaimonType = ((MapType) dataType).getKeyType();
         for (int i = 0; i < key.size(); i++) {
-            PaimonColumnValue keyColumnValue = new PaimonColumnValue((DataGetters) key, i,
-                    dorisType.getChildTypes().get(0), ((MapType) dataType).getKeyType(), timeZone);
-            keys.add(keyColumnValue);
+            keys.add(reuseColumnValue(mapKeys, i, (DataGetters) key, i,
+                    keyDorisType, keyPaimonType));
         }
+        trimCache(mapKeys, key.size());
         InternalArray value = map.valueArray();
+        ColumnType valueDorisType = dorisType.getChildTypes().get(1);
+        DataType valuePaimonType = ((MapType) dataType).getValueType();
         for (int i = 0; i < value.size(); i++) {
-            PaimonColumnValue valueColumnValue = new PaimonColumnValue((DataGetters) value, i,
-                    dorisType.getChildTypes().get(1), ((MapType) dataType).getValueType(), timeZone);
-            values.add(valueColumnValue);
+            values.add(reuseColumnValue(mapValues, i, (DataGetters) value, i,
+                    valueDorisType, valuePaimonType));
         }
+        trimCache(mapValues, value.size());
     }
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-        // todo: support pruned struct fields
-        InternalRow row = record.getRow(idx, structFieldIndex.size());
-        for (int i : structFieldIndex) {
-            values.add(new PaimonColumnValue(row, i, dorisType.getChildTypes().get(i),
-                    ((RowType) dataType).getFields().get(i).type(), timeZone));
+        RowType rowType = (RowType) dataType;
+        // Projection entries are original child indexes, so the binary row must keep the full RowType arity.
+        InternalRow row = record.getRow(idx, rowType.getFieldCount());
+        if (structValues == null) {
+            structValues = new ArrayList<>();
         }
+        for (int i : structFieldIndex) {
+            values.add(reuseColumnValue(structValues, i, row, i, dorisType.getChildTypes().get(i),
+                    rowType.getFields().get(i).type()));
+        }
+    }
+
+    private PaimonColumnValue reuseColumnValue(
+            List<PaimonColumnValue> cache, int cacheIndex, DataGetters childRecord, int childIndex,
+            ColumnType childDorisType, DataType childPaimonType) {
+        while (cache.size() <= cacheIndex) {
+            cache.add(null);
+        }
+        PaimonColumnValue value = cache.get(cacheIndex);
+        if (value == null) {
+            value = new PaimonColumnValue(
+                    childRecord, childIndex, childDorisType, childPaimonType, timeZone);
+            cache.set(cacheIndex, value);
+        } else {
+            // VectorColumn consumes unpacked values synchronously, before this parent advances to another value.
+            value.reset(childRecord, childIndex, childDorisType, childPaimonType, timeZone);
+        }
+        return value;
+    }
+
+    private void reset(
+            DataGetters record, int idx, ColumnType dorisType, DataType dataType, ZoneId timeZone) {
+        this.record = record;
+        this.idx = idx;
+        this.dorisType = dorisType;
+        this.dataType = dataType;
+        this.timeZone = timeZone;
+    }
+
+    private static ZoneId resolveTimeZone(String timeZone) {
+        return ZoneId.of(timeZone, DORIS_TIME_ZONE_ALIASES);
+    }
+
+    private static void trimCache(List<PaimonColumnValue> cache, int liveSize) {
+        if (cache.size() > liveSize) {
+            // Retain only wrappers addressable by the current container, not its historical maximum.
+            cache.subList(liveSize, cache.size()).clear();
+        }
+    }
+
+    private void clearChildCaches() {
+        arrayValues = null;
+        mapKeys = null;
+        mapValues = null;
+        structValues = null;
     }
 }
