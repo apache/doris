@@ -21,60 +21,41 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.util.List;
-import java.util.UUID;
 
-public class CreateEncryptKeyTest {
-    private static String runningDir = "fe/mocked/CreateEncryptKeyTest/" + UUID.randomUUID().toString() + "/";
+public class CreateEncryptKeyTest extends TestWithFeService {
 
-    @BeforeClass
-    public static void setup() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
+    @Override
+    protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-    }
-
-    @AfterClass
-    public static void teardown() {
-        File file = new File("fe/mocked/CreateEncryptKeyTest/");
-        file.delete();
     }
 
     @Test
     public void test() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        Env.getCurrentEnv().getWorkloadGroupMgr().createNormalWorkloadGroupForUT();
 
         // create database db1
         String createDbStmtStr = "create database db1;";
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, createDbStmtStr);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(ctx, stmtExecutor);
-        }
+        createDatabaseWithSql(createDbStmtStr);
 
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         Database db = Env.getCurrentInternalCatalog().getDbNullable("db1");
-        Assert.assertNotNull(db);
+        Assertions.assertNotNull(db);
 
         String createFuncStr = "create encryptkey db1.my_key as \"beijing\";";
 
@@ -83,22 +64,22 @@ public class CreateEncryptKeyTest {
         createFunctionStmt.run(ctx, stmtExecutor);
 
         List<EncryptKey> encryptKeys = db.getEncryptKeys();
-        Assert.assertEquals(1, encryptKeys.size());
-        Assert.assertEquals("beijing", encryptKeys.get(0).getKeyString());
+        Assertions.assertEquals(1, encryptKeys.size());
+        Assertions.assertEquals("beijing", encryptKeys.get(0).getKeyString());
 
         String queryStr = "SELECT HEX(AES_ENCRYPT(\"Doris is Great\", key db1.my_key));";
         ctx.getState().reset();
         stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
-        Assert.assertNotEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
+        Assertions.assertNotEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
         Planner planner = stmtExecutor.planner();
-        Assert.assertEquals(1, planner.getFragments().size());
+        Assertions.assertEquals(1, planner.getFragments().size());
         PlanFragment fragment = planner.getFragments().get(0);
-        Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
+        Assertions.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
         UnionNode unionNode =  (UnionNode) fragment.getPlanRoot();
         List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "materializedConstExprLists");
-        Assert.assertEquals(1, constExprLists.size());
-        Assert.assertEquals(1, constExprLists.get(0).size());
-        Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
+        Assertions.assertEquals(1, constExprLists.size());
+        Assertions.assertEquals(1, constExprLists.get(0).size());
+        Assertions.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
     }
 }

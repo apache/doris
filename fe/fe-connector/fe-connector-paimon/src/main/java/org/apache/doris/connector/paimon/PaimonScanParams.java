@@ -103,6 +103,12 @@ public final class PaimonScanParams {
     private static final Set<String> PAIMON_READER_SYSTEM_TABLES = ImmutableSet.of(
             "audit_log", "binlog", "row_tracking");
 
+    // Not a capability the user selects but a property of where the snapshot is resolved: these five
+    // pick it inside the BE reader rather than reading what the FE planned. See
+    // resolvesSnapshotOnBackend for the per-table call chain.
+    private static final Set<String> BACKEND_SNAPSHOT_SYSTEM_TABLES = ImmutableSet.of(
+            "files", "partitions", "manifests", "statistics", "table_indexes");
+
     private static final Set<String> OPTIONS_SYSTEM_TABLES = ImmutableSet.of(
             // A system table may advertise OPTIONS only when every row-producing stage observes
             // the selected snapshot; files and buckets still consult latest metadata internally.
@@ -414,6 +420,27 @@ public final class PaimonScanParams {
         // Range support and reader requirements are independent capabilities. File-backed system
         // tables can honor INCR while still using Doris' native reader.
         return PAIMON_READER_SYSTEM_TABLES.contains(systemTableType.toLowerCase());
+    }
+
+    /**
+     * The system tables whose rows are not fixed by what the FE planned: the FE only sends marker
+     * splits and the snapshot is picked inside the BE reader. Two shapes, both honoring
+     * {@code scan.snapshot-id}:
+     * <ul>
+     *   <li>{@code $files} / {@code $partitions} re-plan the base table on the BE
+     *       ({@code FilesTable.FilesRead#createReader} -&gt; {@code DataTableScan#plan()},
+     *       {@code PartitionsTable.PartitionsRead#createReader} -&gt;
+     *       {@code newScan().listPartitionEntries()});</li>
+     *   <li>{@code $manifests} / {@code $table_indexes} / {@code $statistics} resolve it directly
+     *       ({@code TimeTravelUtil#tryTravelOrLatest}, reached from {@code ManifestsTable},
+     *       {@code TableIndexesTable} and {@code AbstractFileStoreTable#statistics}).</li>
+     * </ul>
+     * All five have a fixed row type, so pinning the catalog's snapshot for them cannot rewind the
+     * BE schema. Consumed by {@code PaimonScanPlanProvider}, which hands the BE a catalog-less table
+     * and therefore has to do on the FE what the catalog would have done inside the BE reader.
+     */
+    public static boolean resolvesSnapshotOnBackend(String systemTableType) {
+        return BACKEND_SNAPSHOT_SYSTEM_TABLES.contains(systemTableType.toLowerCase());
     }
 
     /**

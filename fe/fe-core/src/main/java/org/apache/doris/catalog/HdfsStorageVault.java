@@ -32,7 +32,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -70,8 +69,9 @@ public class HdfsStorageVault extends StorageVault {
         public static String HADOOP_FS_NAME = "fs.defaultFS";
         public static String VAULT_PATH_PREFIX = "path_prefix";
         public static String HADOOP_USER_NAME = AuthenticationConfig.HADOOP_USER_NAME;
-        public static String HADOOP_SECURITY_AUTHENTICATION =
-                CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION;
+        // Literal of hadoop's CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, inlined
+        // so fe-core carries no org.apache.hadoop import for a plain configuration-key string.
+        public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
         public static String HADOOP_KERBEROS_KEYTAB = AuthenticationConfig.HADOOP_KERBEROS_KEYTAB;
         public static String HADOOP_KERBEROS_PRINCIPAL = AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL;
     }

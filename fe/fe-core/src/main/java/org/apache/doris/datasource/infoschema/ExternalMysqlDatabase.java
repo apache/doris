@@ -22,7 +22,6 @@ import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.log.InitDatabaseLog.Type;
 
 import com.google.common.collect.Lists;
 
@@ -36,7 +35,7 @@ public class ExternalMysqlDatabase extends ExternalDatabase {
      * @param dbId The id of this database.
      */
     public ExternalMysqlDatabase(ExternalCatalog extCatalog, long dbId) {
-        super(extCatalog, dbId, MysqlDb.DATABASE_NAME, MysqlDb.DATABASE_NAME, Type.INFO_SCHEMA_DB);
+        super(extCatalog, dbId, MysqlDb.DATABASE_NAME, MysqlDb.DATABASE_NAME);
     }
 
     public static List<String> listTableNames() {
