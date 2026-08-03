@@ -18,6 +18,8 @@
 suite("test_colocate_mapping_constraint") {
     sql """ DROP TABLE IF EXISTS test_colocate_mapping_constraint_left """
     sql """ DROP TABLE IF EXISTS test_colocate_mapping_constraint_right """
+    sql """ DROP TABLE IF EXISTS test_colocate_mapping_composite_left """
+    sql """ DROP TABLE IF EXISTS test_colocate_mapping_composite_right """
 
     sql """
         CREATE TABLE test_colocate_mapping_constraint_left (
@@ -70,14 +72,61 @@ suite("test_colocate_mapping_constraint") {
         ADD CONSTRAINT right_mapping_2
         COLOCATE MAPPING mapping_2 (d2) DETERMINES DISTRIBUTION KEY (k2) NOT ENFORCED
     """
+    sql """
+        CREATE TABLE test_colocate_mapping_composite_left (
+            k1 INT,
+            k2 INT,
+            d1 INT,
+            d2 INT,
+            extra_col INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1, k2) BUCKETS 4
+        PROPERTIES (
+            "replication_num" = "1",
+            "colocate_with" = "test_colocate_mapping_composite_group"
+        )
+    """
+    sql """
+        CREATE TABLE test_colocate_mapping_composite_right (
+            k1 INT,
+            k2 INT,
+            d1 INT,
+            d2 INT,
+            extra_col INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1, k2) BUCKETS 4
+        PROPERTIES (
+            "replication_num" = "1",
+            "colocate_with" = "test_colocate_mapping_composite_group"
+        )
+    """
+    sql """
+        ALTER TABLE test_colocate_mapping_composite_left
+        ADD CONSTRAINT composite_left_mapping
+        COLOCATE MAPPING composite_mapping (d1, d2)
+        DETERMINES DISTRIBUTION KEY (k1) NOT ENFORCED
+    """
+    sql """
+        ALTER TABLE test_colocate_mapping_composite_right
+        ADD CONSTRAINT composite_right_mapping
+        COLOCATE MAPPING composite_mapping (d1, d2)
+        DETERMINES DISTRIBUTION KEY (k1) NOT ENFORCED
+    """
 
     sql """ INSERT INTO test_colocate_mapping_constraint_left VALUES
             (1, 10, 100, 1000, 7), (2, 20, 200, 2000, 8) """
     sql """ INSERT INTO test_colocate_mapping_constraint_right VALUES
             (1, 10, 100, 1000, 7), (2, 20, 200, 2000, 9) """
+    sql """ INSERT INTO test_colocate_mapping_composite_left VALUES
+            (1, 10, 100, 1000, 7), (2, 20, 200, 2000, 8) """
+    sql """ INSERT INTO test_colocate_mapping_composite_right VALUES
+            (1, 10, 100, 1000, 7), (2, 20, 200, 2000, 9) """
     sql """ SYNC """
 
     waitForColocateGroupStable("test_colocate_mapping_constraint_group")
+    waitForColocateGroupStable("test_colocate_mapping_composite_group")
 
     sql """ SET auto_broadcast_join_threshold = -1 """
     sql """ SET broadcast_row_count_limit = 0 """
@@ -272,6 +321,28 @@ suite("test_colocate_mapping_constraint") {
     explain {
         sql """ SELECT *
                 FROM (
+                    SELECT d1, d2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY d1, d2
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.d2 = r.d2 """
+        notContains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT d1, d2, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_composite_left
+                    GROUP BY d1, d2, k2
+                ) l
+                JOIN test_colocate_mapping_composite_right r
+                  ON l.d1 = r.d1 AND l.d2 = r.d2 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM (
                     SELECT k2, d1, SUM(extra_col) AS sum_extra
                     FROM test_colocate_mapping_constraint_left
                     GROUP BY k2, d1
@@ -457,6 +528,41 @@ suite("test_colocate_mapping_constraint") {
                   ON l.aggregate_d1 = r.d1 AND l.aggregate_d2 = r.d2 """
         contains "COLOCATE"
     }
+    // Multiple mappings can replace every distribution key in Aggregate Group By.
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT d1, d2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY d1, d2
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.d2 = r.d2 """
+        contains "COLOCATE"
+    }
+    // A composite mapping determinant must be complete.
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT d1, d2, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_composite_left
+                    GROUP BY d1, d2, k2
+                ) l
+                JOIN test_colocate_mapping_composite_right r
+                  ON l.d1 = r.d1 AND l.d2 = r.d2 AND l.k2 = r.k2 """
+        contains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT d1, k2, MAX(d2) AS d2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_composite_left
+                    GROUP BY d1, k2
+                ) l
+                JOIN test_colocate_mapping_composite_right r
+                  ON l.d1 = r.d1 AND l.d2 = r.d2 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
     // Distinct Aggregate can preserve locality when the selected physical path does not redistribute data.
     explain {
         sql """ SELECT *
@@ -543,6 +649,35 @@ suite("test_colocate_mapping_constraint") {
                   ON l.d1_expression = r.d1 AND l.k2 = r.k2 """
         notContains "COLOCATE"
     }
+    // A redistribution before Aggregate cuts the storage bucket locality.
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT d1, k2, SUM(extra_col) AS sum_extra
+                    FROM (
+                        SELECT d1, k2, extra_col
+                        FROM test_colocate_mapping_constraint_left
+                        ORDER BY extra_col
+                        LIMIT 10
+                    ) ordered_l
+                    GROUP BY d1, k2
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
+    // Removing the determinant from Aggregate output prevents the parent Join proof.
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY d1, k2
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.sum_extra = r.d1 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
     explain {
         sql """ SELECT *
                 FROM (
@@ -551,6 +686,22 @@ suite("test_colocate_mapping_constraint") {
                     UNION ALL
                     SELECT k1, k2, d1
                     FROM test_colocate_mapping_constraint_left
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
+    // Union does not merge the natural mapping locality of Aggregate branches.
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT d1, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY d1, k2
+                    UNION ALL
+                    SELECT d1, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY d1, k2
                 ) l
                 JOIN test_colocate_mapping_constraint_right r
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """

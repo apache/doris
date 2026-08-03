@@ -367,7 +367,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (union.getConstantExprsList().isEmpty()) {
             // translate requestPropertyFromParent to other children's request.
             DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
-            if (distributionRequestFromParent instanceof DistributionSpecHash) {
+            if (distributionRequestFromParent instanceof DistributionSpecHash
+                    && ((DistributionSpecHash) distributionRequestFromParent).getShuffleType()
+                            != ShuffleType.COLOCATE_MAPPING_REQUIRE) {
                 DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
                 addRequestPropertyToChildren(downgradeRequireWhenBucketShuffleNotAllowed(
                         createHashRequestAccordingToParent(union, distributionSpecHash, context)));
