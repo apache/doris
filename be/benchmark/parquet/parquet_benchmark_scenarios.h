@@ -37,6 +37,7 @@ enum class Encoding {
 enum class ValueType { INT32, INT64, FLOAT, DOUBLE, BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY };
 enum class Pattern { CLUSTERED, ALTERNATING };
 enum class Projection { PREDICATE_ONLY, PREDICATE_PROJECTED };
+enum class SelectionOperation { RESIZE_IDENTITY, ROW_FILTER, CASCADE_FILTER };
 enum class ReaderOperation {
     OPEN_TO_FIRST_BLOCK,
     FULL_SCAN,
@@ -80,6 +81,12 @@ struct KernelScenario {
     Pattern pattern;
     size_t dictionary_entries;
     NestedSelectionImplementation nested_implementation = NestedSelectionImplementation::FUSED;
+};
+
+struct SelectionScenario {
+    SelectionOperation operation;
+    int selectivity_percent;
+    Pattern pattern;
 };
 
 struct SelectionRange {
@@ -150,6 +157,20 @@ inline std::vector<KernelScenario> kernel_scenarios() {
                  {NestedSelectionImplementation::LEGACY, NestedSelectionImplementation::FUSED}) {
                 scenarios.push_back({Kernel::NESTED_SELECTION, ValueType::INT32, selectivity, 10,
                                      pattern, 256, implementation});
+            }
+        }
+    }
+    return scenarios;
+}
+
+inline std::vector<SelectionScenario> selection_scenarios() {
+    std::vector<SelectionScenario> scenarios {
+            {SelectionOperation::RESIZE_IDENTITY, 100, Pattern::CLUSTERED}};
+    for (const auto operation :
+         {SelectionOperation::ROW_FILTER, SelectionOperation::CASCADE_FILTER}) {
+        for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
+            for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                scenarios.push_back({operation, selectivity, pattern});
             }
         }
     }
@@ -345,6 +366,18 @@ inline std::string to_string(Pattern value) {
 
 inline std::string to_string(Projection value) {
     return value == Projection::PREDICATE_ONLY ? "predicate_only" : "predicate_projected";
+}
+
+inline std::string to_string(SelectionOperation value) {
+    switch (value) {
+    case SelectionOperation::RESIZE_IDENTITY:
+        return "resize_identity";
+    case SelectionOperation::ROW_FILTER:
+        return "row_filter";
+    case SelectionOperation::CASCADE_FILTER:
+        return "cascade_filter";
+    }
+    return "unknown";
 }
 
 inline std::string to_string(ReaderOperation value) {

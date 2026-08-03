@@ -22,6 +22,7 @@
 #include <array>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
@@ -808,10 +809,12 @@ TEST(ExprZonemapFilterTest, DirectInPredicateMaterializesStringSetForZonemap) {
     direct_in_expr.add_child(slot);
     ASSERT_TRUE(direct_in_expr._materialize_for_zonemap_filter().ok());
 
-    EXPECT_TRUE(direct_in_expr._zonemap_materialized);
-    EXPECT_EQ(2, direct_in_expr._seg_filter_values.size());
-    EXPECT_EQ(Field::create_field<TYPE_STRING>("aaa"), direct_in_expr._seg_filter_min);
-    EXPECT_EQ(Field::create_field<TYPE_STRING>("zzz"), direct_in_expr._seg_filter_max);
+    EXPECT_TRUE(direct_in_expr._pruning_state->zonemap_materialized);
+    EXPECT_EQ(2, direct_in_expr._pruning_state->seg_filter_values.size());
+    EXPECT_EQ(Field::create_field<TYPE_STRING>("aaa"),
+              direct_in_expr._pruning_state->seg_filter_min);
+    EXPECT_EQ(Field::create_field<TYPE_STRING>("zzz"),
+              direct_in_expr._pruning_state->seg_filter_max);
 }
 
 TEST(ExprZonemapFilterTest, DirectInPredicateMaterializesZonemapValuesDuringPrepare) {
@@ -840,11 +843,34 @@ TEST(ExprZonemapFilterTest, DirectInPredicateMaterializesZonemapValuesDuringPrep
     VExprContext context(direct_in_expr);
     ASSERT_TRUE(context.prepare(&runtime_state, row_desc).ok());
 
-    EXPECT_TRUE(direct_in_expr->_zonemap_materialized);
+    EXPECT_TRUE(direct_in_expr->_pruning_state->zonemap_materialized);
     EXPECT_TRUE(direct_in_expr->can_evaluate_zonemap_filter());
-    EXPECT_EQ(2, direct_in_expr->_seg_filter_values.size());
-    EXPECT_EQ(int_field(1), direct_in_expr->_seg_filter_min);
-    EXPECT_EQ(int_field(30), direct_in_expr->_seg_filter_max);
+    EXPECT_EQ(2, direct_in_expr->_pruning_state->seg_filter_values.size());
+    EXPECT_EQ(int_field(1), direct_in_expr->_pruning_state->seg_filter_min);
+    EXPECT_EQ(int_field(30), direct_in_expr->_pruning_state->seg_filter_max);
+}
+
+TEST(ExprZonemapFilterTest, DirectInPredicateDeepCloneReusesMaterializedPruningState) {
+    auto type = int_type();
+    std::shared_ptr<HybridSetBase> filter(create_set(PrimitiveType::TYPE_INT, false));
+    int32_t low_value = 1;
+    int32_t high_value = 30;
+    filter->insert(&low_value);
+    filter->insert(&high_value);
+
+    auto direct_in_expr =
+            std::make_shared<VDirectInPredicate>(make_in_predicate_node(false, 1), filter, true);
+    direct_in_expr->add_child(make_slot(0, type));
+    ASSERT_TRUE(direct_in_expr->_materialize_for_zonemap_filter().ok());
+
+    VExprSPtr cloned_expr;
+    ASSERT_TRUE(direct_in_expr->deep_clone(&cloned_expr).ok());
+    auto cloned_direct_in = std::dynamic_pointer_cast<VDirectInPredicate>(cloned_expr);
+    ASSERT_NE(cloned_direct_in, nullptr);
+    EXPECT_EQ(direct_in_expr->_pruning_state, cloned_direct_in->_pruning_state);
+    EXPECT_TRUE(cloned_direct_in->can_evaluate_zonemap_filter());
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, cloned_direct_in->evaluate_zonemap_filter(
+                                                     make_context(make_int_zonemap(10, 20), type)));
 }
 
 TEST(ExprZonemapFilterTest, DirectInPredicateRewritesStringSetToInPredicate) {
@@ -873,7 +899,7 @@ TEST(ExprZonemapFilterTest, DirectInPredicateSkipsMaterializationWhenSetTypeDiff
     direct_in_expr.add_child(slot);
 
     ASSERT_TRUE(direct_in_expr._materialize_for_zonemap_filter().ok());
-    EXPECT_FALSE(direct_in_expr._zonemap_materialized);
+    EXPECT_FALSE(direct_in_expr._pruning_state->zonemap_materialized);
     VExprSPtr in_expr;
     EXPECT_FALSE(direct_in_expr.get_slot_in_expr(in_expr));
 }

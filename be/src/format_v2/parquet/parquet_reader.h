@@ -60,6 +60,10 @@ public:
 
     Status open(std::shared_ptr<format::FileScanRequest> request) override;
 
+    bool supports_scan_request_refresh() const override { return true; }
+
+    Status queue_scan_request(std::shared_ptr<format::FileScanRequest> request) override;
+
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
 
     Status get_aggregate_result(const format::FileAggregateRequest& request,

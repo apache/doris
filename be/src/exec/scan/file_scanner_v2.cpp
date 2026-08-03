@@ -432,6 +432,12 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
         }
 
         {
+            if (_table_reader_rf_num != _applied_rf_num) {
+                VExprContextSPtrs refreshed_conjuncts;
+                RETURN_IF_ERROR(_build_table_conjuncts(&refreshed_conjuncts));
+                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(std::move(refreshed_conjuncts)));
+                _table_reader_rf_num = _applied_rf_num;
+            }
             if (_should_run_adaptive_batch_size()) {
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
@@ -539,6 +545,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         }
         COUNTER_UPDATE(_file_counter, 1);
         _has_prepared_split = true;
+        _table_reader_rf_num = _applied_rf_num;
         *eos = false;
         return Status::OK();
     }
