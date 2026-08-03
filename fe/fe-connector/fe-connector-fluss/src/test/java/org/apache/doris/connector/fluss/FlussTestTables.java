@@ -40,7 +40,7 @@ import java.util.Map;
 final class FlussTestTables {
 
     /** Ids a fixture does not care about; a real cluster assigns its own. */
-    private static final long TABLE_ID = 1L;
+    static final long TABLE_ID = 1L;
     private static final int SCHEMA_ID = 1;
 
     private FlussTestTables() {
