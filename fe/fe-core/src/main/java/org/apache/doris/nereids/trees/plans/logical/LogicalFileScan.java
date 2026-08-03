@@ -165,7 +165,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             }
             if (table instanceof PaimonSysExternalTable) {
                 return Optional.of(ImmutableList.copyOf(
-                        ((PaimonSysExternalTable) table).getFullSchema(scanParams.get())));
+                        ((PaimonSysExternalTable) table).getFullSchema(
+                                scanParams.get(), relationSnapshot)));
             }
         }
         return captureRelationSchema(table, relationSnapshot);

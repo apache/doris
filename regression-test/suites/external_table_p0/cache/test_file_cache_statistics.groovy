@@ -48,6 +48,15 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
         return;
     }
 
+    sql """set enable_file_cache=true"""
+    sql """set disable_file_cache=false"""
+    // This case measures BlockFileCache counters, so upper caches and parallel LIMIT cancellation
+    // must not satisfy or stop the repeated read before it reaches the cache layer under test.
+    sql """set enable_sql_cache=false"""
+    sql """set enable_hive_sql_cache=false"""
+    sql """set enable_parquet_file_page_cache=false"""
+    sql """set parallel_pipeline_task_num=1"""
+
     // Check backend configuration prerequisites
     // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent
     // to testing with multiple backends having identical configurations, but simpler in logic.
@@ -111,7 +120,6 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
         }
     }
 
-    sql """set global enable_file_cache=true"""
     sql """drop catalog if exists ${catalog_name} """
 
     sql """CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -122,10 +130,15 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
 
     sql """switch ${catalog_name}"""
 
+    // Pin every repeated read to one partition file instead of racing six scan ranges under LIMIT 1.
+    String querySql = """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
+            where nation='cn' and city='beijing'
+            and l_orderkey=1 and l_partkey=1534 limit 1;"""
+
     // load the table into file cache
-    sql """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table where l_orderkey=1 and l_partkey=1534 limit 1;"""
+    sql querySql
     // do it twice to make sure the table block could hit the cache
-    order_qt_1 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table where l_orderkey=1 and l_partkey=1534 limit 1;"""
+    order_qt_1 querySql
 
     def fileCacheBackgroundMonitorIntervalMsResult = sql """show backend config like 'file_cache_background_monitor_interval_ms';"""
     logger.info("file_cache_background_monitor_interval_ms configuration: " + fileCacheBackgroundMonitorIntervalMsResult)
@@ -266,8 +279,7 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
     // and against the rare case where the just-cached block was evicted (re-querying re-caches and
     // re-hits it). The inner re-query is a plain sql (not an order_qt), so the golden .out is
     // unaffected. On a working build this typically succeeds on the first re-query.
-    order_qt_2 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
-        where l_orderkey=1 and l_partkey=1534 limit 1;"""
+    order_qt_2 querySql
 
     double updatedHitCounts = initialHitCounts
     double updatedReadCounts = initialReadCounts
@@ -277,8 +289,7 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
                 .pollInterval(1, TimeUnit.SECONDS)
                 .until {
                     // re-run the query each poll so a read+hit is regenerated even if the block was evicted
-                    sql """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
-                        where l_orderkey=1 and l_partkey=1534 limit 1;"""
+                    sql querySql
                     Double h = cacheMetricSum('total_hit_counts')
                     Double r = cacheMetricSum('total_read_counts')
                     if (h != null) { updatedHitCounts = h }
@@ -306,6 +317,5 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
         assertTrue(false, TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG)
     }
     // ===== End Hit and Read Counts Metrics Check =====
-    sql """set global enable_file_cache=false"""
     return true
 }

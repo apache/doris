@@ -38,6 +38,7 @@ import org.apache.paimon.partition.Partition;
 import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -139,8 +140,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
             }
             return executionAuthenticator.execute(() -> {
                 Table table = catalog.getTable(identifier);
-                Map<String, String> tableOptions =
-                        paimonProperties.getTableOptionsForCopy(table.options());
+                Map<String, String> tableOptions = paimonProperties.getTableOptionsForCopy();
+                // This handle is relation-neutral. Runtime validation and CPU-local capping belong
+                // to the final relation copy, where relation options can override physical values.
                 return tableOptions.isEmpty() ? table : table.copy(tableOptions);
             });
         } catch (Exception e) {
@@ -167,14 +169,32 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkProperties() throws DdlException {
-        super.checkProperties();
-        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null),
+        checkProperties(catalogProperty, catalogProperty.getProperties());
+    }
+
+    @Override
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        Map<String, String> candidateProperties = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidateProperties.putAll(updatedProperties);
+        checkProperties(new CatalogProperty(null, candidateProperties), updatedProperties);
+        return true;
+    }
+
+    private void checkProperties(CatalogProperty property, Map<String, String> strictlyValidatedProperties)
+            throws DdlException {
+        super.checkProperties(property);
+        CacheSpec.checkBooleanProperty(property.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null),
                 PAIMON_TABLE_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null),
                 -1L, PAIMON_TABLE_CACHE_TTL_SECOND);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null),
                 0L, PAIMON_TABLE_CACHE_CAPACITY);
-        catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
+        // Validate only newly supplied dynamic options on ALTER. This lets an old image containing
+        // a formerly accepted option survive an unrelated update while still rejecting new writes.
+        PaimonReaderOptions.validateCatalogProperties(strictlyValidatedProperties);
+        property.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
     }
 
     @Override

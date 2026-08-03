@@ -100,6 +100,16 @@ public class TableScanParams {
         return Optional.ofNullable(resolvedMapParams);
     }
 
+    public synchronized void reuseResolvedMapParams(Map<String, String> canonicalParams) {
+        Map<String, String> immutableParams = ImmutableMap.copyOf(canonicalParams);
+        // Aliases sharing one MVCC key must also share its dynamic selector; otherwise the cached
+        // snapshot and the later scan can silently resolve different external snapshots.
+        if (resolvedMapParams != null && !resolvedMapParams.equals(immutableParams)) {
+            throw new IllegalStateException("Conflicting resolved table scan parameters");
+        }
+        resolvedMapParams = immutableParams;
+    }
+
     public synchronized void resetResolvedMapParams() {
         resolvedMapParams = null;
     }

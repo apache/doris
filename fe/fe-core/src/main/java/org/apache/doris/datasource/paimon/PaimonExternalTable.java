@@ -110,7 +110,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public Table getPaimonTable(TableScanParams scanParams) {
         if (scanParams != null && scanParams.isOptions()) {
             Map<String, String> options = scanParams.getMapParams();
-            Table statementTable = getPaimonTable(MvccUtil.getSnapshotFromContext(this));
+            // Resolve the snapshot pinned for this exact alias; another alias of the same table may
+            // carry different relation options and therefore a different statement snapshot.
+            Table statementTable = getPaimonTable(MvccUtil.getSnapshotFromContext(this, null, scanParams));
             Table resolutionTable = PaimonScanParams.usesStatementSnapshot(options)
                     ? statementTable
                     : getBasePaimonTable();
@@ -191,6 +193,19 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                         "Failed to get Paimon snapshot: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
                         e);
             }
+        } else if (scanParams.isPresent() && scanParams.get().isOptions()) {
+            Table baseTable = getBasePaimonTable();
+            Map<String, String> resolvedOptions = scanParams.get().getOrResolveMapParams(
+                    options -> PaimonScanParams.resolveOptions(baseTable, options));
+            Table effectiveTable = PaimonScanParams.applyOptions(baseTable, resolvedOptions);
+            if (PaimonScanParams.hasOnlyReaderOptions(resolvedOptions)) {
+                // Reader tuning cannot change snapshot metadata. Reuse the memoized projection so
+                // a per-query batch-size change does not enumerate every partition again.
+                return PaimonUtils.getLatestSnapshotCacheValue(this);
+            }
+            // The shared latest cache was built from the catalog-scoped handle. Relation options
+            // need their own projection so partition enumeration uses the final safe table copy.
+            return PaimonUtils.loadSnapshotProjection(this, effectiveTable);
         } else if (scanParams.isPresent() && scanParams.get().isBranch()) {
             try {
                 Table baseTable = getBasePaimonTable();
@@ -250,7 +265,13 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public long fetchRowCount() {
         makeSureInitialized();
         long rowCount = 0;
-        List<Split> splits = getBasePaimonTable().newReadBuilder().newScan().plan().splits();
+        // Row-count planning bypasses ScanNode, so build the same CPU-capped disposable handle
+        // here instead of validating the hardware-neutral catalog copy directly.
+        Table effectiveTable = PaimonReaderOptions.runtimeSafeTable(getBasePaimonTable());
+        // Statistics and row-count cache planning run before ScanNode and must not reach an
+        // unsafe manifest executor, even when the foreground relation later supplies an override.
+        PaimonReaderOptions.validateEffectiveTable(effectiveTable);
+        List<Split> splits = effectiveTable.newReadBuilder().newScan().plan().splits();
         for (Split split : splits) {
             rowCount += split.rowCount();
         }
@@ -350,6 +371,58 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
+    public MvccSnapshot loadLatestSnapshotFence() {
+        return new PaimonMvccSnapshot(PaimonUtils.loadLatestSnapshotFence(this));
+    }
+
+    @Override
+    public boolean requiresLatestSnapshotFence(
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
+        return !tableSnapshot.isPresent()
+                && scanParams.isPresent()
+                && scanParams.get().isOptions()
+                && PaimonScanParams.usesStatementSnapshot(scanParams.get().getMapParams());
+    }
+
+    @Override
+    public MvccSnapshot loadSnapshot(
+            Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams,
+            Optional<MvccSnapshot> latestSnapshotFence) {
+        if (latestSnapshotFence.isPresent() && !tableSnapshot.isPresent() && !scanParams.isPresent()) {
+            PaimonSnapshot fence = ((PaimonMvccSnapshot) latestSnapshotFence.get())
+                    .getSnapshotCacheValue().getSnapshot();
+            return new PaimonMvccSnapshot(PaimonUtils.loadSnapshotAtFence(this, fence));
+        }
+        if (!latestSnapshotFence.isPresent()
+                || !requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
+            return loadSnapshot(tableSnapshot, scanParams);
+        }
+        PaimonMvccSnapshot fence = (PaimonMvccSnapshot) latestSnapshotFence.get();
+        PaimonSnapshotCacheValue fenceValue = fence.getSnapshotCacheValue();
+        PaimonSnapshot fenceSnapshot = fenceValue.getSnapshot();
+        long snapshotId = fenceSnapshot.getSnapshotId();
+        TableScanParams params = scanParams.get();
+        Map<String, String> rawOptions = params.getMapParams();
+        params.reuseResolvedMapParams(PaimonScanParams.pinOptionsToSnapshot(
+                rawOptions, snapshotId));
+        if (PaimonScanParams.hasOnlyReaderOptions(rawOptions)) {
+            // Reader tuning cannot change the fenced schema or partition projection. Reusing the
+            // exact value also avoids a live latest lookup caused by the normal OPTIONS path.
+            return new PaimonMvccSnapshot(fenceValue);
+        }
+        if (snapshotId == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
+            // An empty table is a real statement state; reopening a projection after a concurrent
+            // first commit would otherwise turn only the later alias non-empty.
+            return new PaimonMvccSnapshot(fenceValue);
+        }
+        FileStoreTable effectiveTable = PaimonScanParams.applyOptionsWithoutTimeTravel(
+                (FileStoreTable) fenceSnapshot.getTable(), params.getResolvedMapParams().get());
+        return new PaimonMvccSnapshot(
+                PaimonUtils.loadSnapshotAtFence(this, effectiveTable, fenceSnapshot));
+    }
+
+    @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         return getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartitionItem();
     }
@@ -371,7 +444,10 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public List<Column> getFullSchema() {
-        return getFullSchema(MvccUtil.getSnapshotFromContext(this));
+        // Descriptor serialization is table-only and may follow multiple OPTIONS aliases. Keep it
+        // on a validated statement projection rather than falling back to the neutral cache.
+        return getPaimonSchemaCacheValue(
+                MvccUtil.getSnapshotForTableMetadataFromContext(this)).getSchema();
     }
 
     @Override
@@ -395,7 +471,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(getPaimonSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)));
+        return Optional.of(getPaimonSchemaCacheValue(
+                MvccUtil.getSnapshotForTableMetadataFromContext(this)));
     }
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {

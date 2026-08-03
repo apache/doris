@@ -81,6 +81,7 @@ protected:
     virtual Status _close_jni_scanner();
     virtual Status _set_open_scanner_batch_size(size_t batch_size);
     virtual bool supports_batch_size_update_after_open() const { return true; }
+    virtual bool publishes_encoded_schema() const { return false; }
     virtual Status _open_jni_scanner();
     bool _reserve_split_profile_publication();
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }

@@ -536,7 +536,7 @@ public class StatementContextTest {
     }
 
     @Test
-    public void testSelectorFreePaimonOptionsPreloadLatestSnapshotBeforeLock() {
+    public void testPaimonOptionsRelationSkipsLatestSnapshotPreloadBeforeLock() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
         PaimonExternalTable paimonExternalTable = Mockito.mock(PaimonExternalTable.class);
@@ -574,11 +574,12 @@ public class StatementContextTest {
                             ImmutableMap.of("scan.plan-sort-partition", "true"),
                             Collections.emptyList())));
 
-            executePreload(statementContext);
+            ExternalMetadataPreloadResult result = executePreload(statementContext);
 
-            Mockito.verify(paimonExternalTable, Mockito.times(1))
+            org.junit.jupiter.api.Assertions.assertEquals(0, result.getPreloadedTableCount());
+            Mockito.verify(paimonExternalTable, Mockito.never())
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
-            Mockito.verify(paimonExternalTable, Mockito.times(1)).getBaseSchema();
+            Mockito.verify(paimonExternalTable, Mockito.never()).getBaseSchema();
         } finally {
             statementContext.close();
         }
@@ -711,6 +712,33 @@ public class StatementContextTest {
     @SuppressWarnings("unchecked")
     private DatabaseIf<TableIf> mockDatabase() {
         return Mockito.mock(DatabaseIf.class);
+    }
+
+    @Test
+    public void testResetMvccSnapshotsClearsPreloadCompletionButKeepsCandidates() {
+        StatementContext statementContext = new StatementContext();
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(42L);
+        Mockito.when(table.supportsExternalMetadataPreload()).thenReturn(true);
+        statementContext.registerExternalTableForPreload(table, Optional.empty(), Optional.empty());
+        statementContext.setExternalMetadataPreloadResult(
+                ExternalMetadataPreloadResult.executed(1, 1, 1L));
+
+        statementContext.resetMvccSnapshots();
+
+        org.junit.jupiter.api.Assertions.assertFalse(
+                statementContext.getExternalMetadataPreloadResult().isPresent());
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                statementContext.getExternalTablePreloadCandidateCount());
+
+        statementContext.setExternalMetadataPreloadResult(
+                ExternalMetadataPreloadResult.executed(1, 1, 1L));
+        statementContext.resetMvccSnapshots();
+
+        org.junit.jupiter.api.Assertions.assertFalse(
+                statementContext.getExternalMetadataPreloadResult().isPresent());
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                statementContext.getExternalTablePreloadCandidateCount());
     }
 
     private CatalogIf<?> mockCatalog() {

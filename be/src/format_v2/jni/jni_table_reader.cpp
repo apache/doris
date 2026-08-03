@@ -496,11 +496,16 @@ Status JniTableReader::_set_open_scanner_batch_size(size_t batch_size) {
 }
 
 void JniTableReader::_prepare_jni_scanner_schema() {
+    const bool publish_encoded_schema = publishes_encoded_schema();
     std::vector<std::string> required_fields;
     std::vector<std::string> column_types;
+    std::vector<std::string> encoded_column_types;
     std::vector<std::string> replace_types;
     required_fields.reserve(_jni_columns.size());
     column_types.reserve(_jni_columns.size());
+    if (publish_encoded_schema) {
+        encoded_column_types.reserve(_jni_columns.size());
+    }
     replace_types.reserve(_jni_columns.size());
     _jni_block_template.clear();
     _jni_block_template.reserve(_jni_columns.size());
@@ -511,6 +516,10 @@ void JniTableReader::_prepare_jni_scanner_schema() {
         required_fields.push_back(column.java_name);
         column_types.push_back(
                 JniDataBridge::get_jni_type_with_different_string(column.transfer_type));
+        if (publish_encoded_schema) {
+            encoded_column_types.push_back(
+                    JniDataBridge::get_jni_type_with_encoded_struct_fields(column.transfer_type));
+        }
         replace_types.push_back(column.replace_type);
         has_replace_type = has_replace_type || column.replace_type != "not_replace";
         _jni_block_template.insert(
@@ -518,6 +527,14 @@ void JniTableReader::_prepare_jni_scanner_schema() {
     }
     _scanner_params["required_fields"] = join(required_fields, ",");
     _scanner_params["columns_types"] = join(column_types, "#");
+    if (publish_encoded_schema) {
+        // Only Paimon consumes the paired payload. Keeping it capability-gated avoids recursively
+        // encoding nested types for every split of unrelated V2 JNI connectors.
+        _scanner_params["required_fields_base64"] =
+                JniDataBridge::encode_schema_values(required_fields);
+        _scanner_params["columns_types_base64"] =
+                JniDataBridge::encode_schema_values(encoded_column_types);
+    }
     if (has_replace_type) {
         _scanner_params["replace_string"] = join(replace_types, ",");
     }

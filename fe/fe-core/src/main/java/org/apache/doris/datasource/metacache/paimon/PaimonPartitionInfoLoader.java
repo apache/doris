@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.paimon.PaimonPartitionInfo;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
 import org.apache.doris.datasource.paimon.PaimonUtil;
 
 import org.apache.commons.collections4.CollectionUtils;
@@ -44,6 +45,7 @@ public final class PaimonPartitionInfoLoader {
             // maps null and blank strings to the same partition.default-name there, so those
             // specs cannot be used as logical partition identities. PartitionEntry retains the
             // typed BinaryRow and is also bound to the data snapshot represented by this table.
+            PaimonReaderOptions.validateEffectivePlanningTable(snapshotTable);
             List<PartitionEntry> partitionEntries =
                     snapshotTable.newReadBuilder().newScan().listPartitionEntries();
             return PaimonUtil.generatePartitionInfo(snapshotTable, partitionColumns, partitionEntries);

@@ -45,6 +45,71 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testValidateRelationScopedReaderOptions() {
+        PaimonScanParams.validateOptions(ImmutableMap.of(
+                "read.batch-size", "4096",
+                "file-reader-async-threshold", "16 MB",
+                "file-index.read.enabled", "false",
+                "source.split.target-size", "64 MB",
+                "source.split.open-file-cost", "1 MB",
+                "scan.manifest.parallelism", "1",
+                "scan.plan-sort-partition", "true"));
+
+        for (Map<String, String> options : new Map[] {
+                ImmutableMap.of("read.batch-size", "0"),
+                ImmutableMap.of("read.batch-size", "-1"),
+                ImmutableMap.of("read.batch-size", "65537"),
+                ImmutableMap.of("file-reader-async-threshold", "512 KB"),
+                ImmutableMap.of("file-reader-async-threshold", "2 GB")
+        }) {
+            Assert.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(options));
+        }
+    }
+
+    @Test
+    public void testPlanningOptionsDoNotReuseMetadataProjection() {
+        Assert.assertTrue(PaimonScanParams.hasOnlyReaderOptions(ImmutableMap.of(
+                "file-index.read.enabled", "false",
+                "source.split.target-size", "64 MB")));
+        Assert.assertFalse(PaimonScanParams.hasOnlyReaderOptions(
+                ImmutableMap.of("scan.manifest.parallelism", "1")));
+        Assert.assertFalse(PaimonScanParams.hasOnlyReaderOptions(
+                ImmutableMap.of("scan.plan-sort-partition", "true")));
+    }
+
+    @Test
+    public void testManifestParallelismUsesClusterStableBounds() {
+        PaimonScanParams.validateOptions(ImmutableMap.of(
+                "scan.manifest.parallelism", String.valueOf(PaimonReaderOptions.MAX_MANIFEST_PARALLELISM)));
+
+        for (int invalid : new int[] {0, -1, PaimonReaderOptions.MAX_MANIFEST_PARALLELISM + 1}) {
+            IllegalArgumentException exception = Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(ImmutableMap.of(
+                            "scan.manifest.parallelism", String.valueOf(invalid))));
+            Assert.assertTrue(exception.getMessage().contains("scan.manifest.parallelism"));
+        }
+    }
+
+    @Test
+    public void testRelationReaderOptionsAreAppliedWithoutMutatingBaseTable() {
+        Table table = Mockito.mock(Table.class);
+        Table copied = Mockito.mock(Table.class);
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+        Mockito.when(copied.options()).thenReturn(ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB"));
+
+        Assert.assertSame(copied, PaimonScanParams.applyOptions(table, ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB")));
+        Mockito.verify(table).copy(ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB"));
+    }
+
+    @Test
     public void testRejectUnknownAndConflictingOptions() {
         IllegalArgumentException typo = Assert.assertThrows(
                 IllegalArgumentException.class,
@@ -94,10 +159,20 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testPinOptionsValidatesBeforeClearingInheritedState() {
+        IllegalArgumentException unsupported = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonScanParams.pinOptionsToSnapshot(
+                        ImmutableMap.of("scan.bounded.watermark", "1"), 10));
+        Assert.assertTrue(unsupported.getMessage().contains("scan.bounded.watermark"));
+    }
+
+    @Test
     public void testApplyPositionClearsInheritedStartupState() {
         Table table = Mockito.mock(Table.class);
         Table copied = Mockito.mock(Table.class);
         Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+        Mockito.when(copied.options()).thenReturn(Collections.emptyMap());
 
         Assert.assertSame(copied, PaimonScanParams.applyOptions(
                 table, ImmutableMap.of("scan.creation-time-millis", "1000")));
@@ -122,7 +197,9 @@ public class PaimonScanParamsTest {
     @Test
     public void testApplyModeClearsInheritedPositions() {
         Table table = Mockito.mock(Table.class);
-        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(Mockito.mock(Table.class));
+        Table copied = Mockito.mock(Table.class);
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+        Mockito.when(copied.options()).thenReturn(Collections.emptyMap());
 
         PaimonScanParams.applyOptions(table, ImmutableMap.of("scan.mode", "latest"));
 
@@ -141,7 +218,9 @@ public class PaimonScanParamsTest {
     @Test
     public void testIsolationClearsFallbackReadStateKeys() {
         Table table = Mockito.mock(Table.class);
-        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(Mockito.mock(Table.class));
+        Table copied = Mockito.mock(Table.class);
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+        Mockito.when(copied.options()).thenReturn(Collections.emptyMap());
 
         PaimonScanParams.applyOptions(table, ImmutableMap.of("scan.snapshot-id", "1"));
 
@@ -347,6 +426,15 @@ public class PaimonScanParamsTest {
                 baseTable, ImmutableMap.of("scan.mode", "compacted-full"));
 
         Assert.assertEquals("17", resolved.get("scan.snapshot-id"));
+    }
+
+    @Test
+    public void testPlanningOptionsCanBePinnedToStatementSnapshot() {
+        Map<String, String> resolved = PaimonScanParams.pinOptionsToSnapshot(
+                ImmutableMap.of("scan.manifest.parallelism", "1"), 7L);
+
+        Assert.assertEquals("7", resolved.get("scan.snapshot-id"));
+        Assert.assertEquals("1", resolved.get("scan.manifest.parallelism"));
     }
 
     private static boolean containsNull(Map<String, String> options, String key) {
