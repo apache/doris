@@ -472,7 +472,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                             // expressions reference local value columns validated below.
                             // Reuse checkAggWithKeyAndValueSlots: the global condition
                             // check (step 2) accepts foreign key columns.
-                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc);
+                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, outputSlots);
                         } else {
                             preAggStatus = PreAggStatus.off(
                                     String.format("can't turn preAgg on for aggregate function %s", aggFunc));
@@ -488,7 +488,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                             preAggStatus = PreAggStatus.off(
                                     String.format("can't turn preAgg on for aggregate function %s", aggFunc));
                         } else {
-                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc);
+                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, outputSlots);
                         }
                     }
                 }
@@ -514,7 +514,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             return Pair.of(keySlots, valueSlots);
         }
 
-        private PreAggStatus checkAggWithKeyAndValueSlots(AggregateFunction aggFunc) {
+        private PreAggStatus checkAggWithKeyAndValueSlots(AggregateFunction aggFunc, Set<Slot> outputSlots) {
             Expression child = aggFunc.child(0);
             List<Expression> conditionExps = new ArrayList<>();
             List<Expression> returnExps = new ArrayList<>();
@@ -559,6 +559,20 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             } else {
                 // Non-IF/CASE — conditionExps stays empty and returns OFF below.
                 returnExps.add(peelCastForMaxMin(child));
+            }
+
+            // step 1.5: ownership — every return expression must reference only
+            // this scan's own columns. PREAGG ON exposes this scan's partial
+            // (unmerged) rows; under join fan-out a return that references a
+            // foreign value column would then be evaluated once per partial row
+            // and double-counted. So a foreign slot (value or key) in any return
+            // forces this scan OFF — never use a foreign column to justify ON.
+            for (Expression returnExp : returnExps) {
+                if (returnExp instanceof SlotReference && !outputSlots.contains(returnExp)) {
+                    return PreAggStatus.off(
+                            String.format("return expression %s references column not owned by this scan.",
+                                    returnExp.toSql()));
+                }
             }
             if (conditionExps.isEmpty()) {
                 return PreAggStatus.off(
