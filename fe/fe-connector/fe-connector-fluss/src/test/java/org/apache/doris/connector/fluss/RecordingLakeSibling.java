@@ -220,9 +220,16 @@ final class RecordingLakeSibling implements Connector {
         return scanPlanProvider;
     }
 
+    /**
+     * Set false to imitate a sibling that never overrode {@link Connector#ownsHandle} and so inherits the
+     * SPI default. That is what a real connector looks like before it is first used as a sibling, and it is
+     * invisible to a stand-in that always answers correctly.
+     */
+    boolean claimsItsOwnHandles = true;
+
     @Override
     public boolean ownsHandle(ConnectorTableHandle handle) {
-        return handle instanceof Handle;
+        return claimsItsOwnHandles && handle instanceof Handle;
     }
 
     @Override

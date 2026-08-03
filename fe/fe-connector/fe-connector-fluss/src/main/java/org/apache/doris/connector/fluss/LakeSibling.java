@@ -20,6 +20,8 @@ package org.apache.doris.connector.fluss;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -79,5 +81,29 @@ final class LakeSibling {
         String key = "metadata:" + session.getCatalogId() + ":lake";
         return call(sibling, () -> call.apply(session.getStatementScope()
                 .getOrCreateMetadata(key, () -> sibling.getMetadata(session))));
+    }
+
+    /**
+     * Returns {@code handle} after checking the sibling recognizes it as its own, which is what every guard
+     * on this side relies on to tell a lake handle from a fluss one.
+     *
+     * <p>Checked where the handle is born rather than trusted, because {@link Connector#ownsHandle} defaults
+     * to {@code false}: a sibling that does not override it answers "not mine" about handles it just made,
+     * every guard silently fails open, and the first cast throws a ClassCastException naming two connectors
+     * and no cause. That is a real failure mode, not a hypothetical — the paimon connector had no override
+     * until it was first used as a sibling, and no unit test could see it (a hand-written stand-in
+     * implements the method precisely because it has to).
+     *
+     * @throws DorisConnectorException naming the sibling's own class, so the fix is on the reader's screen
+     */
+    static <T extends ConnectorTableHandle> T requireOwned(Connector sibling, T handle) {
+        if (!call(sibling, () -> sibling.ownsHandle(handle))) {
+            throw new DorisConnectorException("The lake connector "
+                    + sibling.getClass().getName() + " does not recognize the table handle it just"
+                    + " produced: it does not implement Connector.ownsHandle, which a connector must do"
+                    + " to be usable as a sibling. Without it the fluss connector cannot tell its handles"
+                    + " apart from its own");
+        }
+        return handle;
     }
 }
