@@ -222,6 +222,11 @@ public:
         _spill_streaming_agg_mem_limit = 1024 * 1024;
     }
     DataDistribution required_data_distribution(RuntimeState* state) const override {
+        // Repeat emits grouping sets as consecutive blocks. Fan them out without hashing every
+        // expanded row before the local streaming preaggregation.
+        if (_child && _child->is_repeat()) {
+            return {TLocalPartitionType::PASSTHROUGH};
+        }
         if (_child && _child->is_hash_join_probe() &&
             state->enable_streaming_agg_hash_join_force_passthrough()) {
             return {TLocalPartitionType::PASSTHROUGH};

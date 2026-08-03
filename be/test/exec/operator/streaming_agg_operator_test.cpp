@@ -28,6 +28,7 @@
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
+#include "exec/operator/repeat_operator.h"
 #include "exec/operator/streaming_aggregation_operator.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
@@ -166,6 +167,13 @@ TEST_F(StreamingAggOperatorTest, require_hash_shuffle_after_non_hash_local_excha
 
     const auto distribution = op->required_data_distribution(state.get());
     EXPECT_EQ(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE, distribution.distribution_type);
+}
+
+TEST_F(StreamingAggOperatorTest, require_passthrough_after_repeat) {
+    EXPECT_TRUE(op->set_child(std::make_shared<RepeatOperatorX>()));
+
+    const auto distribution = op->required_data_distribution(state.get());
+    EXPECT_EQ(TLocalPartitionType::PASSTHROUGH, distribution.distribution_type);
 }
 
 TEST_F(StreamingAggOperatorTest, test2) {

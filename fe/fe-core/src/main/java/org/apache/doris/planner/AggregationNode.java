@@ -310,7 +310,11 @@ public class AggregationNode extends PlanNode {
             }
         } else if (useStreamingPreagg) {
             // StreamingAggOperatorX
-            if (children.get(0) instanceof HashJoinNode
+            // Repeat expands grouping sets before this local preaggregation. Use PASSTHROUGH
+            // to distribute the expanded blocks without hashing every row.
+            if (!needsFinalize && children.get(0) instanceof RepeatNode) {
+                requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            } else if (children.get(0) instanceof HashJoinNode
                     && sessionVariable.enableStreamingAggHashJoinForcePassthrough) {
                 requireChild = LocalExchangeTypeRequire.requirePassthrough();
             } else if (!needsFinalize && !enableLeBeforeAgg) {
