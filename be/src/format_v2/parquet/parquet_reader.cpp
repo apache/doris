@@ -477,6 +477,8 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
 }
 
 Status ParquetReader::queue_scan_request(std::shared_ptr<format::FileScanRequest> request) {
+    SCOPED_TIMER(_parquet_profile.total_time);
+    SCOPED_TIMER(_parquet_profile.refresh_scan_request_time);
     if (_state == nullptr || _state->file_context.native_metadata == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }

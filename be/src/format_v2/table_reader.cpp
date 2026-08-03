@@ -686,6 +686,8 @@ Status TableReader::init(TableReadOptions&& options) {
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PushDownAggTime", table_profile, 1);
         _profile.open_reader_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "OpenReaderTime", table_profile, 1);
+        _profile.refresh_conjuncts_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "RefreshConjunctsTime", table_profile, 1);
         _profile.runtime_filter_partition_prune_timer = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", table_profile, 1);
         _profile.runtime_filter_partition_pruned_range_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -703,6 +705,8 @@ Status TableReader::init(TableReadOptions&& options) {
                 _scanner_profile, "FileReaderCreateColumnMapperTime", file_reader_profile, 1);
         _profile.file_reader_open_timer = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "FileReaderOpenTime", file_reader_profile, 1);
+        _profile.file_reader_refresh_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderRefreshScanRequestTime", file_reader_profile, 1);
         _profile.file_reader_get_block_timer = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "FileReaderGetBlockTime", file_reader_profile, 1);
         _profile.file_reader_aggregate_timer = ADD_CHILD_TIMER_WITH_LEVEL(
@@ -813,6 +817,8 @@ bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest
 } // namespace
 
 Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.refresh_conjuncts_timer);
     _conjuncts = std::move(conjuncts);
     if (_data_reader.reader == nullptr) {
         // The split is prepared but its physical reader has not opened yet. open_reader() will use
@@ -835,8 +841,10 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     RETURN_IF_ERROR(refreshed_mapper->create_scan_request(
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
             _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
+    // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
+    // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
-        _push_down_count_columns->empty()) {
+        _push_down_count_columns->empty() && _all_runtime_filters_applied_for_split) {
         for (const auto& column : refreshed_request->non_predicate_columns) {
             refreshed_request->count_star_placeholder_columns.push_back(column.column_id());
         }
@@ -858,7 +866,11 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
         _condition_cache_ctx = nullptr;
         _data_reader.reader->set_condition_cache_context(nullptr);
     }
-    RETURN_IF_ERROR(_data_reader.reader->queue_scan_request(refreshed_request));
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_refresh_timer);
+        RETURN_IF_ERROR(_data_reader.reader->queue_scan_request(refreshed_request));
+    }
     _file_scan_request = std::move(refreshed_request);
     return Status::OK();
 }

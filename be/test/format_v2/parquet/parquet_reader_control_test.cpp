@@ -275,6 +275,21 @@ TEST(SelectionVectorTest, BulkCompactionSupportsBothFilterCoordinates) {
     EXPECT_TRUE(selection.verify(2, 6).ok());
 }
 
+TEST(SelectionVectorTest, BatchResetRetainsMaterializedScratchHighWaterMark) {
+    SelectionVector selection(6);
+    ASSERT_NE(selection.data(), nullptr);
+    const uint8_t first_filter[] = {0, 1, 1, 0, 1, 0};
+    ASSERT_EQ(selection.compact_with_row_filter(first_filter, 6), 3);
+
+    selection.resize(6);
+    const uint8_t second_filter[] = {0, 0, 0, 0, 0, 1};
+    ASSERT_EQ(selection.compact_with_row_filter(second_filter, 6), 1);
+    EXPECT_EQ(selection.get_index(0), 5);
+    // Positions beyond the logical result remain reusable scratch. Clearing and resizing the
+    // owned vector would value-initialize this slot on every scanner batch.
+    EXPECT_EQ(selection.get_index(5), 5);
+}
+
 TEST(ParquetColumnReaderControlTest, BaseSelectUsesSkipReadRanges) {
     CursorColumnReader reader;
     SelectionVector selection(3);
@@ -347,8 +362,15 @@ TEST(ParquetColumnReaderControlTest, PendingRequestActivatesOnlyAtRowGroupBounda
     EXPECT_EQ(scheduler._active_request, initial);
 
     scheduler._has_current_row_group = false;
+    scheduler._predicate_survival_ratio = 0.5;
+    scheduler._predicate_batch_sequence = 3;
+    scheduler._predicate_runtime_stats.emplace(1, detail::AdaptivePredicateStats {});
     scheduler.activate_pending_scan_request_at_row_group_boundary();
     EXPECT_EQ(scheduler._active_request, refreshed);
+    EXPECT_TRUE(scheduler._remaining_plans_need_replanning);
+    EXPECT_EQ(scheduler._predicate_survival_ratio, -1);
+    EXPECT_EQ(scheduler._predicate_batch_sequence, 0);
+    EXPECT_TRUE(scheduler._predicate_runtime_stats.empty());
 }
 
 TEST(ParquetColumnReaderControlTest, PendingOutputDrainsBeforePageCrossingSample) {

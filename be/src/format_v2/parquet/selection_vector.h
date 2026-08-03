@@ -75,7 +75,8 @@ public:
     void resize(size_t count) {
         // Identity is the overwhelmingly common initial state. Keep it implicit until a caller
         // actually changes an index, avoiding one write per source row for every scanner batch.
-        _owned.clear();
+        // Scanner batches repeatedly reuse this object. Retaining the initialized high-water mark
+        // avoids value-initializing the entire scratch vector before every sparse compaction.
         _data = nullptr;
         _size = count;
         _identity = true;
@@ -210,7 +211,9 @@ private:
         if (_data != nullptr) {
             return;
         }
-        _owned.resize(_size);
+        if (_owned.size() < _size) {
+            _owned.resize(_size);
+        }
         _data = _owned.data();
         for (size_t idx = 0; idx < _size; ++idx) {
             _data[idx] = static_cast<Index>(idx);
@@ -222,8 +225,28 @@ private:
         DORIS_CHECK(count <= _size);
         Index* source = _data;
         if (_data == nullptr) {
-            _owned.resize(_size);
+            if (_owned.size() < _size) {
+                _owned.resize(_size);
+            }
             _data = _owned.data();
+            // An implicit identity maps both filter coordinate systems to the same position.
+            // Specialize this first compaction so split batches do not pay source/coordinate
+            // branches for every row after already avoiding identity materialization.
+            size_t output = 0;
+            while (output < count && filter[output] != 0) {
+                _data[output] = static_cast<Index>(output);
+                ++output;
+            }
+            bool remains_identity = true;
+            for (size_t position = output; position < count; ++position) {
+                if (filter[position] != 0) {
+                    _data[output++] = static_cast<Index>(position);
+                    remains_identity = false;
+                }
+            }
+            _identity = remains_identity;
+            ++_generation;
+            return output;
         }
         size_t output = 0;
         bool remains_identity = true;

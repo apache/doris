@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -80,6 +81,29 @@ size_t compact_with_selection_filter(Selection* selection, const uint8_t* filter
     }
 }
 
+inline std::vector<format::parquet::SelectionVector::Index> expected_selection_rows(
+        const SelectionScenario& scenario, const std::vector<uint8_t>& row_filter,
+        const std::vector<uint8_t>& first_filter, const std::vector<uint8_t>& selection_filter) {
+    std::vector<format::parquet::SelectionVector::Index> rows(SELECTION_ROWS);
+    std::iota(rows.begin(), rows.end(), 0);
+    if (scenario.operation == SelectionOperation::RESIZE_IDENTITY) {
+        return rows;
+    }
+    if (scenario.operation == SelectionOperation::ROW_FILTER) {
+        std::erase_if(rows, [&](const auto row) { return row_filter[row] == 0; });
+        return rows;
+    }
+    std::erase_if(rows, [&](const auto row) { return first_filter[row] == 0; });
+    std::vector<format::parquet::SelectionVector::Index> cascaded;
+    cascaded.reserve(rows.size());
+    for (size_t position = 0; position < rows.size(); ++position) {
+        if (selection_filter[position] != 0) {
+            cascaded.push_back(rows[position]);
+        }
+    }
+    return cascaded;
+}
+
 inline void run_selection(benchmark::State& state, const SelectionScenario& scenario) {
     format::parquet::SelectionVector selection;
     const auto row_filter =
@@ -90,13 +114,8 @@ inline void run_selection(benchmark::State& state, const SelectionScenario& scen
             static_cast<size_t>(std::count(first_filter.begin(), first_filter.end(), uint8_t {1}));
     const auto selection_filter =
             make_filter(first_selected, scenario.selectivity_percent, scenario.pattern);
-    const auto& final_filter =
-            scenario.operation == SelectionOperation::ROW_FILTER ? row_filter : selection_filter;
-    const size_t expected_selected =
-            scenario.operation == SelectionOperation::RESIZE_IDENTITY
-                    ? SELECTION_ROWS
-                    : static_cast<size_t>(
-                              std::count(final_filter.begin(), final_filter.end(), uint8_t {1}));
+    const auto expected_rows =
+            expected_selection_rows(scenario, row_filter, first_filter, selection_filter);
 
     size_t selected_rows = 0;
     for (auto _ : state) {
@@ -118,8 +137,12 @@ inline void run_selection(benchmark::State& state, const SelectionScenario& scen
         benchmark::DoNotOptimize(selected_rows);
         benchmark::ClobberMemory();
     }
-    if (selected_rows != expected_selected) {
-        state.SkipWithError("selection compaction produced an unexpected row count");
+    bool selection_matches = selected_rows == expected_rows.size();
+    for (size_t position = 0; selection_matches && position < selected_rows; ++position) {
+        selection_matches = selection.get_index(position) == expected_rows[position];
+    }
+    if (!selection_matches) {
+        state.SkipWithError("selection compaction produced unexpected row indices");
         return;
     }
 

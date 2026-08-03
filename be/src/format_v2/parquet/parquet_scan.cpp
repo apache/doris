@@ -843,6 +843,7 @@ void ParquetScanScheduler::set_plan(RowGroupScanPlan plan) {
     _row_group_plans = std::move(plan.row_groups);
     _condition_cache_filtered_rows = 0;
     _predicate_filtered_rows = 0;
+    _remaining_plans_need_replanning = false;
     reset();
 }
 
@@ -917,6 +918,17 @@ void ParquetScanScheduler::activate_pending_scan_request_at_row_group_boundary()
     // only after they are gone; the refreshed request may promote a lazy column to a predicate.
     _active_request = std::move(_pending_request);
     _predicate_schedule_request = nullptr;
+    // Footer plans and adaptive ordering describe the previous predicate snapshot. Reusing either
+    // after a late runtime filter would miss pruning or bias the new predicate order with stale data.
+    _remaining_plans_need_replanning = true;
+    _predicate_schedule = {};
+    _predicate_positions_scratch.clear();
+    _predicate_indices_by_position_scratch.clear();
+    _materialized_predicate_positions_scratch.clear();
+    _ordered_predicate_positions_scratch.clear();
+    _predicate_runtime_stats.clear();
+    _predicate_batch_sequence = 0;
+    _predicate_survival_ratio = -1;
 }
 
 void ParquetScanScheduler::reset_current_row_group() {
@@ -1064,6 +1076,27 @@ Status ParquetScanScheduler::open_next_row_group(
         file_context.reset_random_access_ranges();
         _current_merge_range_active = false;
         ParquetPruningStats deferred_stats;
+        if (_remaining_plans_need_replanning) {
+            // A refreshed projection may require different dictionary, Bloom, or page-index
+            // metadata. Preserve already-safe selected ranges, but rebuild every request-shaped
+            // artifact before opening this row group.
+            candidate_plan.expensive_pruning_pending = true;
+            candidate_plan.page_skip_plans.clear();
+            candidate_plan.offset_indexes.clear();
+            const std::vector<int> candidate {candidate_plan.row_group_id};
+            std::vector<int> footer_selected;
+            RETURN_IF_ERROR(select_row_groups_by_metadata(
+                    file_context.native_metadata->to_thrift(), file_schema, request, &candidate,
+                    &footer_selected, _enable_bloom_filter, &deferred_stats, _timezone,
+                    _runtime_state, &file_context, _scan_profile.column_reader_profile,
+                    ParquetMetadataProbeMode::FOOTER_ONLY));
+            if (footer_selected.empty()) {
+                if (_parquet_profile != nullptr) {
+                    _parquet_profile->update_deferred_pruning_stats(deferred_stats, false);
+                }
+                continue;
+            }
+        }
         bool selected = false;
         RETURN_IF_ERROR(finalize_native_row_group_read_plan(
                 *file_context.native_metadata, file_schema, request, _enable_bloom_filter,

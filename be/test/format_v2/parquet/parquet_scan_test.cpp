@@ -2284,6 +2284,49 @@ TEST_F(ParquetScanTest, NoRequestedColumnsReturnsRowsOnlyAcrossRowGroups) {
     EXPECT_EQ(total_rows, 6);
 }
 
+TEST_F(ParquetScanTest, LateRequestReplansUnopenedRowGroupsWithFooterStatistics) {
+    write_int_pair_parquet_file(_file_path, 2);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(2);
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto initial = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder initial_builder(initial.get());
+    ASSERT_TRUE(initial_builder.add_non_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(initial_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(reader->open(initial).ok());
+
+    Block first_block = build_file_block(schema);
+    size_t first_rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&first_block, &first_rows, &eof).ok());
+    ASSERT_EQ(first_rows, 2);
+    EXPECT_EQ(int32_data_column(*first_block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {1, 2}));
+
+    auto refreshed = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder refreshed_builder(refreshed.get());
+    ASSERT_TRUE(refreshed_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(refreshed_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    refreshed->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 4));
+    ASSERT_TRUE(reader->queue_scan_request(refreshed).ok());
+
+    Block refreshed_block = build_file_block(schema);
+    size_t refreshed_rows = 0;
+    ASSERT_TRUE(reader->get_block(&refreshed_block, &refreshed_rows, &eof).ok());
+    ASSERT_EQ(refreshed_rows, 2);
+    EXPECT_EQ(int32_data_column(*refreshed_block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {5, 6}));
+    // The middle row group is rejected from footer statistics before any data page is decoded.
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 4);
+    EXPECT_EQ(counter_value(profile, "RowGroupsFilteredByMinMax"), 1);
+    EXPECT_NE(profile.get_counter("RefreshScanRequestTime"), nullptr);
+}
+
 TEST_F(ParquetScanTest, PredicateColumnsFilterRoundByRound) {
     write_int_pair_parquet_file(_file_path, 6, false);
     RuntimeProfile profile("profile");
@@ -3235,9 +3278,9 @@ TEST_F(ParquetScanTest, DictionaryFiltersAreBuiltFromEachReaderSnapshot) {
     EXPECT_EQ(changed_predicate.scores, std::vector<int32_t>({40, 50, 60}));
     EXPECT_EQ(changed_predicate.typed_compare_columns, 1);
 
-    write_dictionary_int_pair_parquet_file(_file_path, {1, 2, 7, 8, 9, 10});
+    write_dictionary_int_pair_parquet_file(_file_path, {7, 1, 8, 2, 9, 3});
     const auto changed_dictionary = scan(2);
-    EXPECT_EQ(changed_dictionary.scores, std::vector<int32_t>({30, 40, 50, 60}));
+    EXPECT_EQ(changed_dictionary.scores, std::vector<int32_t>({10, 30, 50, 60}));
     EXPECT_EQ(changed_dictionary.typed_compare_columns, 1);
 }
 

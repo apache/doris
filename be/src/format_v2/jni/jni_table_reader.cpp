@@ -79,6 +79,10 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
 
 Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     if (_scanner_opened) {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.refresh_conjuncts_timer);
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_refresh_timer);
         RowDescriptor row_desc;
         for (const auto& conjunct : conjuncts) {
             // JNI readers bypass TableReader::open_reader(), so a late predicate would otherwise

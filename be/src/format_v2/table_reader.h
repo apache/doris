@@ -116,6 +116,7 @@ struct ReadProfile {
     RuntimeProfile::Counter* create_reader_timer = nullptr;
     RuntimeProfile::Counter* pushdown_agg_timer = nullptr;
     RuntimeProfile::Counter* open_reader_timer = nullptr;
+    RuntimeProfile::Counter* refresh_conjuncts_timer = nullptr;
     RuntimeProfile::Counter* runtime_filter_partition_prune_timer = nullptr;
     RuntimeProfile::Counter* runtime_filter_partition_pruned_range_counter = nullptr;
     RuntimeProfile::Counter* close_timer = nullptr;
@@ -124,6 +125,7 @@ struct ReadProfile {
     RuntimeProfile::Counter* file_reader_schema_timer = nullptr;
     RuntimeProfile::Counter* file_reader_mapper_timer = nullptr;
     RuntimeProfile::Counter* file_reader_open_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_refresh_timer = nullptr;
     RuntimeProfile::Counter* file_reader_get_block_timer = nullptr;
     RuntimeProfile::Counter* file_reader_aggregate_timer = nullptr;
     RuntimeProfile::Counter* file_reader_close_timer = nullptr;
@@ -457,8 +459,11 @@ protected:
         // marker is independent of aggregate eligibility: with position deletes, for example,
         // metadata COUNT must fall back to reading rows, but an arbitrary unsupported TIME_MILLIS
         // placeholder still must not be validated or decoded merely to carry the surviving count.
+        // Pending runtime filters may later target this retained slot, so placeholder values are
+        // safe only after every filter for the split has arrived.
         if (_push_down_agg_type == TPushAggOp::type::COUNT &&
-            _push_down_count_columns.has_value() && _push_down_count_columns->empty()) {
+            _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
+            _all_runtime_filters_applied_for_split) {
             file_request->count_star_placeholder_columns.reserve(
                     file_request->non_predicate_columns.size());
             for (const auto& column : file_request->non_predicate_columns) {

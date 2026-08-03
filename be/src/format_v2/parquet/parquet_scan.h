@@ -314,6 +314,7 @@ private:
     const format::FileScanRequest* _predicate_schedule_request = nullptr;
     std::shared_ptr<format::FileScanRequest> _active_request;
     std::shared_ptr<format::FileScanRequest> _pending_request;
+    bool _remaining_plans_need_replanning = false;
     detail::PredicateConjunctSchedule _predicate_schedule;
     std::vector<size_t> _predicate_positions_scratch;
     std::unordered_map<size_t, size_t> _predicate_indices_by_position_scratch;

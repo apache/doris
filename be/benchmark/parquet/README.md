@@ -21,6 +21,12 @@ List only the Parquet cases:
 be/output/lib/benchmark_test --benchmark_list_tests | grep '^Parquet'
 ```
 
+List the split-local runtime-filter expression lifecycle cases:
+
+```shell
+be/output/lib/benchmark_test --benchmark_list_tests | grep '^FileScannerExpr/'
+```
+
 ## Decoder cases
 
 `ParquetDecoder` measures the native decoder with data generation and encoder setup outside the
@@ -127,3 +133,21 @@ be/output/lib/benchmark_test \
 Every result reports throughput plus `raw_rows`, `selected_rows`, `fixture_bytes`, `ns/raw_row`,
 and (when at least one row survives) `ns/selected_row`. Keep CPU frequency, build type, compiler,
 machine placement, and benchmark filters fixed when comparing two commits.
+
+## Runtime-filter expression lifecycle cases
+
+`FileScannerExpr` measures only the repeated deep-clone, prepare, and open work for an already
+prepared direct-IN runtime filter. Four cardinalities sweep 128 through 65,536 set values, with
+shared-state and forced-rematerialization implementations registered in the same binary. Set
+construction and the original fragment-level prepare/open are outside the timed region.
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^FileScannerExpr/direct_in_clone_prepare_open/' \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true
+```
+
+These cases do not execute `FileScannerV2`, schedule splits, or read Parquet files. They isolate the
+expression lifecycle visible in scanner profiles so it can be compared without I/O noise.

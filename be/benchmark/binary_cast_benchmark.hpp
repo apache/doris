@@ -21,7 +21,7 @@
 #include <random>
 #include <vector>
 
-#include "util/binary_cast.hpp"
+#include "core/binary_cast.hpp"
 
 namespace doris {
 
