@@ -22,6 +22,8 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.fluss.metadata.DataLakeFormat;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
+import org.apache.fluss.types.DataType;
+import org.apache.fluss.types.RowType;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -46,8 +48,12 @@ import java.util.Objects;
  * a union read gets its catalog configuration. Nothing else in Doris supplies it — the Doris catalog is
  * configured with fluss bootstrap servers only.
  *
- * <p>The column schema is deliberately NOT here. It is the one part that a statement re-reads through
- * {@link FlussStatementScope}, so the handle stays a small, serializable identity object.
+ * <p>The column schema is deliberately NOT here — with one exception. It is the one part that a
+ * statement re-reads through {@link FlussStatementScope}, so the handle stays a small, serializable
+ * identity object; {@link #getKeyColumnTypes()} carries the types of the primary-key and partition-key
+ * columns alone, because planning has to reason about those by type (see its javadoc) and re-reading
+ * the whole schema for them would both cost a round trip and risk answering from a different schema
+ * version than the rest of this handle describes.
  */
 public class FlussTableHandle implements ConnectorTableHandle {
 
@@ -66,11 +72,12 @@ public class FlussTableHandle implements ConnectorTableHandle {
     /** The lake format's fluss name ({@code "paimon"}), or {@code null} when the table declares none. */
     private final String dataLakeFormat;
     private final Map<String, String> properties;
+    private final Map<String, DataType> keyColumnTypes;
 
     public FlussTableHandle(String databaseName, String tableName, long tableId, int schemaId,
             boolean hasPrimaryKey, List<String> primaryKeys, List<String> bucketKeys, int bucketCount,
             List<String> partitionKeys, boolean dataLakeEnabled, String dataLakeFormat,
-            Map<String, String> properties) {
+            Map<String, String> properties, Map<String, DataType> keyColumnTypes) {
         this.databaseName = Objects.requireNonNull(databaseName, "databaseName");
         this.tableName = Objects.requireNonNull(tableName, "tableName");
         this.tableId = tableId;
@@ -85,6 +92,9 @@ public class FlussTableHandle implements ConnectorTableHandle {
         this.properties = properties == null
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(new LinkedHashMap<>(properties));
+        this.keyColumnTypes = keyColumnTypes == null
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(keyColumnTypes));
     }
 
     /** Snapshots {@code tableInfo} into a handle. */
@@ -103,7 +113,26 @@ public class FlussTableHandle implements ConnectorTableHandle {
                 tableInfo.getPartitionKeys(),
                 tableInfo.getTableConfig().isDataLakeEnabled(),
                 lakeFormat == null ? null : lakeFormat.toString(),
-                tableInfo.getProperties().toMap());
+                tableInfo.getProperties().toMap(),
+                keyColumnTypes(tableInfo));
+    }
+
+    /**
+     * The types of the columns that are part of the primary key or of the partition key, taken from the
+     * same {@link TableInfo} as every other field here.
+     */
+    private static Map<String, DataType> keyColumnTypes(TableInfo tableInfo) {
+        RowType rowType = tableInfo.getRowType();
+        Map<String, DataType> types = new LinkedHashMap<>();
+        List<String> keyColumns = new ArrayList<>(tableInfo.getPrimaryKeys());
+        keyColumns.addAll(tableInfo.getPartitionKeys());
+        for (String column : keyColumns) {
+            int index = rowType.getFieldIndex(column);
+            if (index >= 0) {
+                types.put(column, rowType.getTypeAt(index));
+            }
+        }
+        return types;
     }
 
     public TablePath toTablePath() {
@@ -160,6 +189,30 @@ public class FlussTableHandle implements ConnectorTableHandle {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    /**
+     * The fluss types of the primary-key and partition-key columns, by column name.
+     *
+     * <p>Split planning needs these two, and only these two, by type. A primary-key table read as the
+     * union of its lake and its log tail identifies rows across the two halves BY KEY, so a key column
+     * whose values do not compare exactly the same way on both sides (a float, a timestamp Doris rounds)
+     * cannot be read that way at all. A partition column is matched the same way one level up: a lake
+     * split is bound to a fluss partition by comparing the rendered partition values, which is only
+     * sound for a type both sides render identically.
+     *
+     * <p>Everything else about the schema stays out of the handle — the point is not "some of the
+     * schema", it is the columns whose type decides how the table can be PLANNED.
+     */
+    public Map<String, DataType> getKeyColumnTypes() {
+        return keyColumnTypes;
+    }
+
+    /** The primary-key columns that are not partition columns — what a bucket's rows are keyed by. */
+    public List<String> getPhysicalPrimaryKeys() {
+        List<String> physical = new ArrayList<>(primaryKeys);
+        physical.removeAll(partitionKeys);
+        return Collections.unmodifiableList(physical);
     }
 
     /**

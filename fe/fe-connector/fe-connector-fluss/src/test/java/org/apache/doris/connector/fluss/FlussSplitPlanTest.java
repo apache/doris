@@ -34,6 +34,7 @@ import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.ResolvedPartitionSpec;
 import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TablePath;
+import org.apache.fluss.types.DataType;
 import org.apache.fluss.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +48,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Split planning driven entirely off recorded admin answers, which is the point: the states worth
@@ -352,16 +354,13 @@ public class FlussSplitPlanTest {
     // ------------------------------------------- tiered primary-key tables: read from fluss alone
 
     /**
-     * Merging a primary-key table's lake with its change log is not implemented, and what replaces it is
-     * NOT the "whatever has not been tiered away" fallback a log table would get: fluss keeps such a table's
-     * state in full, so its kv snapshot plus the log after it is every row. The lake is not consulted at all
-     * — a plan that quietly asked it would produce these same ranges, so the calls are asserted too, and the
-     * sibling factory fails loud on its own if planning ever tries to build one.
+     * A primary-key table whose tiering has never committed is read from fluss alone, and what replaces the
+     * union is NOT the "whatever has not been tiered away" fallback a log table would get: fluss keeps such
+     * a table's state in full, so its kv snapshot plus the log after it is every row.
      */
     @Test
-    public void tieredPrimaryKeyTableIsReadFromFlussAlone() {
+    public void tieredPrimaryKeyTableWithoutALakeSnapshotIsReadFromFlussAlone() {
         registerTieredPkTable(2);
-        adminOps.readableLakeSnapshot = new LakeSnapshot(7L, Collections.emptyMap());
         kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
         latestOffsets(null, 12L, 25L);
 
@@ -370,8 +369,6 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(2, ranges.size());
         assertPkRange(ranges.get(0), 0, 4L, 10L, 12L);
         assertPkRange(ranges.get(1), 1, 5L, 20L, 25L);
-        Assertions.assertTrue(adminOps.calls.stream().noneMatch(c -> c.startsWith("getReadableLakeSnapshot")),
-                adminOps.calls.toString());
     }
 
     /**
@@ -393,23 +390,21 @@ public class FlussSplitPlanTest {
 
     /**
      * {@code required} is what a regression test sets so that it cannot pass without the lake having been
-     * read. No primary-key table can satisfy it today, so it fails loud instead of falling back — and it does
-     * so whether or not tiering has committed anything, because waiting for that commit would not help.
+     * read, so a primary-key table whose tiering has not committed fails loud rather than falling back —
+     * the same answer a log table gets, for the same reason.
      */
     @Test
-    public void requiredModeRefusesATieredPrimaryKeyTable() {
+    public void requiredModeRefusesAPrimaryKeyTableWithNothingInItsLake() {
         registerTieredPkTable(2);
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
-        Assertions.assertTrue(e.getMessage().contains("not implemented yet"), e.getMessage());
-        Assertions.assertTrue(adminOps.calls.stream().noneMatch(c -> c.startsWith("getReadableLakeSnapshot")),
-                adminOps.calls.toString());
+        Assertions.assertTrue(e.getMessage().contains("no readable lake snapshot yet"), e.getMessage());
     }
 
     /**
      * The plan's own account of not having read the lake. Nothing else in the plan of a tiered primary-key
-     * table distinguishes it from one that was read as a union, which is what the follow-up work will do.
+     * table distinguishes it from one that was read as a union.
      */
     @Test
     public void explainShowsATieredPrimaryKeyTableWasReadWithoutItsLake() {
@@ -422,9 +417,8 @@ public class FlussSplitPlanTest {
         StringBuilder output = new StringBuilder();
         provider.appendExplainInfo(output, "", Collections.emptyMap());
 
-        Assertions.assertEquals(
-                "flussScan: unionRead=no, lakeSplits=0, logRanges=0, pkRanges=1, mode=auto\n",
-                output.toString());
+        Assertions.assertEquals("flussScan: unionRead=no, lakeSplits=0, suppressedLakeSplits=0,"
+                + " logRanges=0, pkRanges=1, pkTailRanges=0, mode=auto\n", output.toString());
     }
 
 
@@ -640,8 +634,8 @@ public class FlussSplitPlanTest {
         provider.appendExplainInfo(output, "", Collections.emptyMap());
 
         Assertions.assertEquals(
-                "flussScan: unionRead=yes, lakeSplits=3, logRanges=1, pkRanges=0, mode=auto\n",
-                output.toString());
+                "flussScan: unionRead=yes, lakeSplits=3, suppressedLakeSplits=0, logRanges=1,"
+                + " pkRanges=0, pkTailRanges=0, mode=auto\n", output.toString());
     }
 
     /** Nothing in the lake means the log holds the whole table, so the fluss-only read IS complete. */
@@ -678,7 +672,494 @@ public class FlussSplitPlanTest {
                 adminOps.calls.toString());
     }
 
+    // ------------------------------------------- union read of a primary-key table: lake + log tail
+
+    /**
+     * The shape of the whole arrangement, in one plan. Bucket 0 has been tiered and has written more
+     * since, so its lake split is bound to the tail that supersedes part of it AND the tail is planned as
+     * its own range — the lake split only hides rows, it never produces the new ones. Bucket 1 has been
+     * tiered and written nothing since, so its lake split is passed through untouched and fluss
+     * contributes nothing at all.
+     */
+    @Test
+    public void bucketWithATailBindsItToItsLakeSplitsAndPlansTheTailOnce() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, 200L));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 105L, 200L);
+        earliestOffsets(null, 0L, 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0),
+                RecordingLakeSibling.LakeRange.inBucket(1));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(3, ranges.size());
+        assertSuppressed(ranges.get(0), 0, 100L, 105L);
+        Assertions.assertTrue(ranges.get(1) instanceof RecordingLakeSibling.LakeRange,
+                "bucket 1 has no tail and must be passed through: " + ranges.get(1));
+        assertTailRange(ranges.get(2), 0, 100L, 105L);
+    }
+
+    /**
+     * The suppressing tail and the range that produces the tail's rows must be the SAME window. Any gap
+     * between them is a wrong answer in one direction or the other: a suppression window wider than the
+     * produced one hides rows nothing brings back, a narrower one lets a superseded row through beside
+     * its replacement.
+     */
+    @Test
+    public void theSuppressedWindowIsExactlyTheWindowTheTailRangeReads() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 130L);
+        earliestOffsets(null, 7L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        FlussSuppressedLakeRange.Tail tail = ((FlussSuppressedLakeRange) ranges.get(0)).getTail();
+        Map<String, String> tailRange = ranges.get(1).getProperties();
+        Assertions.assertEquals(String.valueOf(tail.getStartOffset()),
+                tailRange.get("fluss.log_start_offset"));
+        Assertions.assertEquals(String.valueOf(tail.getStopOffset()),
+                tailRange.get("fluss.log_stop_offset"));
+    }
+
+    /**
+     * A bucket the lake has never seen is read whole from fluss, exactly as it would be with no lake at
+     * all — and nothing of it can be suppressed, because the lake holds none of it.
+     */
+    @Test
+    public void bucketTheLakeHasNeverSeenIsReadWholeFromFluss() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, null));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 100L, 25L);
+        earliestOffsets(null, 0L, 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        Assertions.assertTrue(ranges.get(0) instanceof RecordingLakeSibling.LakeRange, "bucket 0 is tiered"
+                + " up to where its log ends and must be passed through: " + ranges.get(0));
+        assertPkRange(ranges.get(1), 1, 5L, 20L, 25L);
+    }
+
+    /**
+     * The tail of one bucket must not be bound to another bucket's split. Bucket-blind binding still
+     * produces a plausible plan — every split suppressed by SOME tail — and returns wrong rows: the keys
+     * of bucket 0's tail say nothing about the rows of bucket 1.
+     */
+    @Test
+    public void eachBucketsSplitsAreBoundToThatBucketsTail() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, 200L));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 105L, 250L);
+        earliestOffsets(null, 0L, 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(1),
+                RecordingLakeSibling.LakeRange.inBucket(0));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        assertSuppressed(ranges.get(0), 1, 200L, 250L);
+        assertSuppressed(ranges.get(1), 0, 100L, 105L);
+    }
+
+    /** The same, one level up: a partition's splits are bound to the tails of THAT partition's buckets. */
+    @Test
+    public void eachPartitionsSplitsAreBoundToThatPartitionsTails() {
+        registerPartitionedPkLakeTable(1, "20260101", "20260102");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(
+                new long[] {100L}, new long[] {700L}));
+        kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
+        kvSnapshots("20260102", new long[] {2L}, new long[] {20L});
+        latestOffsets("20260101", 105L);
+        latestOffsets("20260102", 750L);
+        earliestOffsets("20260101", 0L);
+        earliestOffsets("20260102", 0L);
+        lakeSplits(
+                RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "20260102")),
+                RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "20260101")));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        assertSuppressed(ranges.get(0), 0, 700L, 750L);
+        assertSuppressed(ranges.get(1), 0, 100L, 105L);
+    }
+
+    /**
+     * A lake split of a partition this scan does not read from fluss — one fluss has dropped, or one the
+     * engine pruned away — has no tail to be bound to and is passed through. It cannot be dropped either:
+     * partition pruning removes the fluss half of a partition, not the predicate that pruned it.
+     */
+    @Test
+    public void lakeSplitOfAPartitionThisScanDoesNotReadIsPassedThrough() {
+        registerPartitionedPkLakeTable(1, "20260101");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L}));
+        kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
+        latestOffsets("20260101", 105L);
+        earliestOffsets("20260101", 0L);
+        lakeSplits(
+                RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "20251231")));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertTrue(ranges.get(0) instanceof RecordingLakeSibling.LakeRange, ranges.toString());
+        assertTailRange(ranges.get(1), 0, 100L, 105L);
+    }
+
+    /**
+     * The bucket a split holds is the one fact this connector cannot work out for itself, and an older
+     * paimon plugin does not report it. Reading that absence as "this bucket has no tail" would return
+     * every superseded row a second time, so it is an error instead.
+     */
+    @Test
+    public void lakeSplitThatDoesNotSayWhichBucketItHoldsIsRefused() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 105L);
+        earliestOffsets(null, 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.withoutABucket());
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, catalog()));
+        Assertions.assertTrue(e.getMessage().contains("paimon.bucket"), e.getMessage());
+    }
+
+    /** A lake table bucketed differently from the fluss table cannot be matched to it bucket by bucket. */
+    @Test
+    public void lakeSplitInABucketThisTableDoesNotHaveIsRefused() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, 200L));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 105L, 205L);
+        earliestOffsets(null, 0L, 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(7));
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, catalog()));
+        Assertions.assertTrue(e.getMessage().contains("bucketed alike"), e.getMessage());
+    }
+
+    /**
+     * The lake holding data for a bucket fluss has no tiering offset for means the two disagree about what
+     * has been tiered. Passing the split through would return that bucket's rows twice — once from the
+     * lake, once from the {@code PK_FULL} range the missing offset produces.
+     */
+    @Test
+    public void lakeSplitOfABucketFlussRecordsNoTieringOffsetForIsRefused() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, null));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 105L, 25L);
+        earliestOffsets(null, 0L, 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(1));
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, catalog()));
+        Assertions.assertTrue(e.getMessage().contains("metadata disagrees"), e.getMessage());
+    }
+
+    /**
+     * Fluss deletes old log segments on a timer that does not wait for tiering, so the beginning of a tail
+     * can be gone. There is nowhere else to read it from — the lake's copy stops exactly where the missing
+     * tail begins — so {@code auto} gives up the lake half rather than return fewer rows than the table
+     * holds, and says so in EXPLAIN.
+     */
+    @Test
+    public void tailTheLogNoLongerHoldsGivesUpTheLakeHalf() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, 200L));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 105L, 205L);
+        earliestOffsets(null, 0L, 201L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+
+        List<ConnectorScanRange> ranges =
+                provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        Assertions.assertEquals(2, ranges.size());
+        assertPkRange(ranges.get(0), 0, 4L, 10L, 105L);
+        assertPkRange(ranges.get(1), 1, 5L, 20L, 205L);
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+        Assertions.assertTrue(output.toString().contains("unionRead=no"), output.toString());
+        Assertions.assertTrue(output.toString().contains("degraded=tail-truncated"), output.toString());
+    }
+
+    /** A bucket fluss will not report an earliest offset for is not "fine", it is unverifiable. */
+    @Test
+    public void tailThatCannotBeVerifiedGivesUpTheLakeHalf() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 105L);
+        adminOps.earliestOffsetsByPartition.put(null, Collections.emptyMap());
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(1, ranges.size());
+        assertPkRange(ranges.get(0), 0, 4L, 10L, 105L);
+    }
+
+    /**
+     * What replaces the lake half is the very read {@code disabled} asks for outright, down to the ranges.
+     * That is what makes it safe to give up so late: a primary-key table read from fluss alone is the whole
+     * table.
+     */
+    @Test
+    public void whatReplacesTheLakeHalfIsTheReadDisabledModeAsksForOutright() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, 200L));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 105L, 205L);
+        earliestOffsets(null, 104L, 0L);
+
+        List<Map<String, String>> degraded = rangeProperties(plan(PK_TABLE, catalog()));
+        List<Map<String, String>> disabled = rangeProperties(
+                plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "disabled")));
+
+        Assertions.assertEquals(disabled, degraded);
+    }
+
+    /** Under {@code required} the same truncated tail is an error: there is nothing to fall back to. */
+    @Test
+    public void requiredModeRefusesATailTheLogNoLongerHolds() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 105L);
+        earliestOffsets(null, 101L);
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
+        Assertions.assertTrue(e.getMessage().contains("the log now starts at 101"), e.getMessage());
+    }
+
+    /**
+     * A key column Doris cannot compare exactly is a permanent property of the table, so it is settled
+     * before anything is asked of the lake — that is what lets the answer be the same at plan-translation
+     * time, when the key columns are kept in the scan's tuple, as it is here.
+     */
+    @Test
+    public void keyColumnThatCannotBeComparedExactlyGivesUpTheLakeHalf() {
+        registerPkLakeTableKeyedBy(DataTypes.DOUBLE());
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 105L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+
+        List<ConnectorScanRange> ranges =
+                provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        Assertions.assertEquals(1, ranges.size());
+        assertPkRange(ranges.get(0), 0, 4L, 10L, 105L);
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+        Assertions.assertTrue(output.toString().contains("degraded=key-type"), output.toString());
+        // Settled without asking the lake anything at all.
+        Assertions.assertTrue(adminOps.calls.stream().noneMatch(c -> c.startsWith("getReadableLakeSnapshot")),
+                adminOps.calls.toString());
+    }
+
+    @Test
+    public void requiredModeRefusesAKeyColumnThatCannotBeComparedExactly() {
+        registerPkLakeTableKeyedBy(DataTypes.DOUBLE());
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
+        Assertions.assertTrue(e.getMessage().contains("primary-key column 'id'"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("floating-point"), e.getMessage());
+    }
+
+    /**
+     * A lake split is matched to a fluss partition by comparing rendered partition values, so a partition
+     * column of a type the two sides may spell differently is refused the same way. Fluss itself allows
+     * such a column — INT, DATE, BOOLEAN are all legal partition keys — so this is not a case the schema
+     * makes impossible.
+     */
+    @Test
+    public void partitionColumnThatMayNotRenderAlikeGivesUpTheLakeHalf() {
+        registerPartitionedPkLakeTable(1, DataTypes.INT(), "20260101");
+        kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
+        latestOffsets("20260101", 105L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+
+        List<ConnectorScanRange> ranges =
+                provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        Assertions.assertEquals(1, ranges.size());
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+        Assertions.assertTrue(output.toString().contains("degraded=partition-type"), output.toString());
+    }
+
+    @Test
+    public void requiredModeRefusesAPartitionColumnThatMayNotRenderAlike() {
+        registerPartitionedPkLakeTable(1, DataTypes.INT(), "20260101");
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
+        Assertions.assertTrue(e.getMessage().contains("partition column 'dt'"), e.getMessage());
+    }
+
+    /**
+     * The kv snapshots are read for every partition even when the lake half turns out to cover it, because
+     * the fallback needs them and reading them after the offsets would leave a bucket bounded by an offset
+     * older than the snapshot it is read from. The order is the assertion.
+     */
+    @Test
+    public void snapshotsAreReadBeforeTheOffsetsEvenWhenTheLakeCoversEverything() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 105L);
+        earliestOffsets(null, 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0));
+
+        plan(PK_TABLE, catalog());
+
+        int snapshotCall = indexOfCall("getLatestKvSnapshots");
+        int latestCall = indexOfCall("listOffsets(db.pk_tbl, [0], LatestSpec)");
+        int earliestCall = indexOfCall("listOffsets(db.pk_tbl, [0], EarliestSpec)");
+        Assertions.assertTrue(snapshotCall >= 0 && snapshotCall < latestCall, adminOps.calls.toString());
+        Assertions.assertTrue(latestCall < earliestCall, adminOps.calls.toString());
+    }
+
+    /** EXPLAIN accounts for all three parts, so a regression test can tell which of them did the work. */
+    @Test
+    public void explainCountsTheSuppressedSplitsAndTheTailsApart() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, 200L));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 105L, 200L);
+        earliestOffsets(null, 0L, 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0),
+                RecordingLakeSibling.LakeRange.inBucket(0),
+                RecordingLakeSibling.LakeRange.inBucket(1));
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+
+        Assertions.assertEquals("flussScan: unionRead=yes, lakeSplits=3, suppressedLakeSplits=2,"
+                + " logRanges=0, pkRanges=0, pkTailRanges=1, mode=auto\n", output.toString());
+    }
+
+    // ------------------------------------------- the key columns BE has to read either way
+
+    /**
+     * BE identifies the rows a tail supersedes by their keys, so those columns have to be read whether or
+     * not the query asked for them. The engine keeps them in the scan's tuple on the strength of this
+     * answer; the projection above the scan drops them again before the user sees a row.
+     */
+    @Test
+    public void unionReadKeepsTheKeyColumnsInTheScan() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+
+        Assertions.assertEquals(Collections.singleton("id"), mustReadColumns(PK_TABLE, catalog()));
+    }
+
+    /** Only the physical key: a partition column is the same for every row of a bucket. */
+    @Test
+    public void thePartitionColumnsAreNotPartOfTheKeyBeMustRead() {
+        registerPartitionedPkLakeTable(1, "20260101");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L}));
+
+        Assertions.assertEquals(Collections.singleton("id"), mustReadColumns(PK_TABLE, catalog()));
+    }
+
+    /**
+     * Nothing else keeps a column it was not asked for. Each of these reads is served by one scanner that
+     * needs no key at all, so keeping one would be a column read for nobody — and, for a log table, would
+     * pull the lake snapshot's round trip forward into plan translation for nothing.
+     */
+    @Test
+    public void everyOtherReadKeepsNothing() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(1L, 1L));
+        Assertions.assertEquals(Collections.emptySet(), mustReadColumns(LOG_TABLE, catalog()));
+        Assertions.assertTrue(adminOps.calls.isEmpty(), adminOps.calls.toString());
+
+        registerPkTable(PK_TABLE, 1);
+        Assertions.assertEquals(Collections.emptySet(), mustReadColumns(PK_TABLE, catalog()));
+
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        Assertions.assertEquals(Collections.emptySet(),
+                mustReadColumns(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "disabled")));
+
+        registerPkLakeTableKeyedBy(DataTypes.DOUBLE());
+        Assertions.assertEquals(Collections.emptySet(), mustReadColumns(PK_TABLE, catalog()));
+    }
+
+    /**
+     * The engine asks for the key columns while translating the plan and plans the ranges later, and the
+     * two answers must come from ONE resolution. Were they resolved twice, a snapshot committed in between
+     * could make the first say "no lake" (so the key columns are pruned away) and the second say "lake",
+     * leaving BE to look for a key column that is not in its projection.
+     */
+    @Test
+    public void bothQuestionsAreAnsweredByTheSameResolution() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 105L);
+        earliestOffsets(null, 0L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+
+        provider.getMustReadColumns(session, handle(PK_TABLE));
+        provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        Assertions.assertEquals(1,
+                adminOps.calls.stream().filter(c -> c.startsWith("getReadableLakeSnapshot")).count(),
+                adminOps.calls.toString());
+    }
+
     // ---------------------------------------------------------------- what BE and EXPLAIN receive
+
+    /**
+     * What BE needs to suppress by key, and only on the read that suppresses: the key columns by name (the
+     * types travel as ordinary slot descriptors, because the columns are ordinary projected columns) and
+     * the ceiling on how much tail it may hold while doing it.
+     */
+    @Test
+    public void primaryKeyUnionTellsBeWhichColumnsTheKeyIsMadeOf() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+
+        Map<String, String> props = nodeProperties(PK_TABLE, catalog());
+
+        Assertions.assertEquals("id", props.get("fluss.union.pk_names"));
+        Assertions.assertEquals("2000000", props.get("fluss.union.max_tail_rows"));
+    }
+
+    @Test
+    public void theTailCeilingIsTheOneTheCatalogDeclares() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+
+        Map<String, String> props = nodeProperties(PK_TABLE,
+                catalog(FlussConnectorProperties.UNION_READ_MAX_TAIL_ROWS, "500"));
+
+        Assertions.assertEquals("500", props.get("fluss.union.max_tail_rows"));
+    }
+
+    /** A read that suppresses nothing must not describe a key: there is no reader on the far side. */
+    @Test
+    public void readThatSuppressesNothingSendsNoKey() {
+        registerLakeTable(1);
+        lakeSnapshotAt(7L, offsets(1L));
+
+        Map<String, String> props = nodeProperties(LOG_TABLE, catalog());
+
+        Assertions.assertFalse(props.containsKey("fluss.union.pk_names"), props.toString());
+        Assertions.assertFalse(props.containsKey("fluss.union.max_tail_rows"), props.toString());
+    }
 
     @Test
     public void scanLevelParamsCarryTheClientConfigAndTableIdentity() {
@@ -729,8 +1210,8 @@ public class FlussSplitPlanTest {
         provider.appendExplainInfo(output, "  ", Collections.emptyMap());
 
         Assertions.assertEquals(
-                "  flussScan: unionRead=no, lakeSplits=0, logRanges=2, pkRanges=0, mode=auto\n",
-                output.toString());
+                "  flussScan: unionRead=no, lakeSplits=0, suppressedLakeSplits=0, logRanges=2,"
+                + " pkRanges=0, pkTailRanges=0, mode=auto\n", output.toString());
     }
 
     /**
@@ -750,8 +1231,8 @@ public class FlussSplitPlanTest {
         provider.appendExplainInfo(output, "", Collections.emptyMap());
 
         Assertions.assertEquals(
-                "flussScan: unionRead=no, lakeSplits=0, logRanges=0, pkRanges=2, mode=auto\n",
-                output.toString());
+                "flussScan: unionRead=no, lakeSplits=0, suppressedLakeSplits=0, logRanges=0,"
+                + " pkRanges=2, pkTailRanges=0, mode=auto\n", output.toString());
     }
 
     @Test
@@ -807,6 +1288,11 @@ public class FlussSplitPlanTest {
     private Map<String, String> nodeProperties(TablePath tablePath, Map<String, String> catalogProperties) {
         return new FlussScanPlanProvider(adminOps, catalogProperties, this::lakeSibling).getScanNodeProperties(
                 session, handle(tablePath), Collections.emptyList(), Optional.empty());
+    }
+
+    private Set<String> mustReadColumns(TablePath tablePath, Map<String, String> catalogProperties) {
+        return new FlussScanPlanProvider(adminOps, catalogProperties, this::lakeSibling)
+                .getMustReadColumns(session, handle(tablePath));
     }
 
     private static ConnectorScanRequest request(ConnectorTableHandle handle, List<String> requiredPartitions) {
@@ -913,11 +1399,24 @@ public class FlussSplitPlanTest {
 
     /** Latest offsets for buckets 0..n-1 of {@code partitionName} ({@code null} = unpartitioned). */
     private void latestOffsets(String partitionName, long... offsets) {
+        adminOps.latestOffsetsByPartition.put(partitionName, byBucket(offsets));
+    }
+
+    /**
+     * Earliest offsets for buckets 0..n-1 — how far back fluss can still serve. Only a union read of a
+     * primary-key table asks for these, which is why the log-table fixtures do not set them: a test that
+     * needed them and did not say so gets an error from the recorder, not a default.
+     */
+    private void earliestOffsets(String partitionName, long... offsets) {
+        adminOps.earliestOffsetsByPartition.put(partitionName, byBucket(offsets));
+    }
+
+    private static Map<Integer, Long> byBucket(long... offsets) {
         Map<Integer, Long> byBucket = new LinkedHashMap<>();
         for (int bucket = 0; bucket < offsets.length; bucket++) {
             byBucket.put(bucket, offsets[bucket]);
         }
-        adminOps.latestOffsetsByPartition.put(partitionName, byBucket);
+        return byBucket;
     }
 
     private static void assertLogRange(ConnectorScanRange range, int bucket, long start, long stop) {
@@ -1004,6 +1503,93 @@ public class FlussSplitPlanTest {
             }
         }
         return offsets;
+    }
+
+    /** The exact splits the sibling's scan planner returns, in order. */
+    private void lakeSplits(RecordingLakeSibling.LakeRange... splits) {
+        sibling().lakeRanges = new ArrayList<>(Arrays.asList(splits));
+    }
+
+    /** Lake offsets for buckets 0..n-1 of each partition, partition ids 100, 101, ... in order. */
+    private static Map<TableBucket, Long> partitionedOffsets(long[]... byPartition) {
+        Map<TableBucket, Long> offsets = new HashMap<>();
+        for (int partition = 0; partition < byPartition.length; partition++) {
+            for (int bucket = 0; bucket < byPartition[partition].length; bucket++) {
+                offsets.put(new TableBucket(FlussTestTables.TABLE_ID, 100L + partition, bucket),
+                        byPartition[partition][bucket]);
+            }
+        }
+        return offsets;
+    }
+
+    /**
+     * A primary-key table tiered into a lake whose lake IS read. The same table as
+     * {@link #registerTieredPkTable}, but declaring that reaching the sibling is expected — the other
+     * fixture keeps that guard on, for the tests that assert the lake was never consulted.
+     */
+    private void registerPkLakeTable(int buckets) {
+        registerTieredPkTable(buckets);
+        siblingExpected = true;
+    }
+
+    /** The same, keyed by a column of {@code keyType} — for the types a union read cannot compare. */
+    private void registerPkLakeTableKeyedBy(DataType keyType) {
+        adminOps.tableInfos.put(PK_TABLE, FlussTestTables.builder(PK_TABLE)
+                .column("id", keyType.copy(false))
+                .column("v", DataTypes.STRING())
+                .primaryKey("id")
+                .buckets(1, "id")
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.metastore", "filesystem")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
+                .build());
+        siblingExpected = true;
+    }
+
+    /** A partitioned primary-key lake table, partitioned by a STRING {@code dt}. */
+    private void registerPartitionedPkLakeTable(int buckets, String... partitionValues) {
+        registerPartitionedPkLakeTable(buckets, DataTypes.STRING(), partitionValues);
+    }
+
+    private void registerPartitionedPkLakeTable(int buckets, DataType partitionType,
+            String... partitionValues) {
+        adminOps.tableInfos.put(PK_TABLE, FlussTestTables.builder(PK_TABLE)
+                .column("id", DataTypes.INT().copy(false))
+                .column("dt", partitionType.copy(false))
+                .primaryKey("id", "dt")
+                .partitionedBy("dt")
+                .buckets(buckets, "id")
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.metastore", "filesystem")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
+                .build());
+        List<PartitionInfo> partitions = new ArrayList<>();
+        for (int i = 0; i < partitionValues.length; i++) {
+            partitions.add(new PartitionInfo(100L + i,
+                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null));
+        }
+        adminOps.partitionsByTable.put(PK_TABLE, partitions);
+        siblingExpected = true;
+    }
+
+    /** A lake split bound to the tail of {@code bucket} over {@code [start, stop)}. */
+    private static void assertSuppressed(ConnectorScanRange range, int bucket, long start, long stop) {
+        Assertions.assertTrue(range instanceof FlussSuppressedLakeRange,
+                "expected a suppressed lake split but got " + range);
+        FlussSuppressedLakeRange.Tail tail = ((FlussSuppressedLakeRange) range).getTail();
+        Assertions.assertEquals(bucket, tail.getBucketId());
+        Assertions.assertEquals(start, tail.getStartOffset());
+        Assertions.assertEquals(stop, tail.getStopOffset());
+    }
+
+    private static void assertTailRange(ConnectorScanRange range, int bucket, long start, long stop) {
+        Map<String, String> props = range.getProperties();
+        Assertions.assertEquals("PK_TAIL", props.get("fluss.range_type"));
+        Assertions.assertEquals(String.valueOf(bucket), props.get("fluss.bucket_id"));
+        Assertions.assertEquals(String.valueOf(start), props.get("fluss.log_start_offset"));
+        Assertions.assertEquals(String.valueOf(stop), props.get("fluss.log_stop_offset"));
     }
 
     /** {@code count} ranges for the sibling's scan planner to return as the lake half. */

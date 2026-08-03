@@ -58,6 +58,23 @@ public final class FlussConnectorProperties {
     public static final String UNION_READ_MODE = "fluss.union_read.mode";
 
     /**
+     * Optional. How many log-tail rows one bucket of a primary-key table may contribute to a union read.
+     *
+     * <p>Doris-only. Reading a primary-key table's lake together with its log tail holds that tail in BE
+     * memory — once as the set of keys that suppress lake rows, once as the rows the tail itself
+     * contributes — so an unbounded tail is an unbounded allocation inside a process that serves every
+     * other query too. Fluss's own engines have no such limit (Flink's tiering reader accumulates the
+     * tail on the heap and lets the task manager die and restart if it does not fit), which is exactly
+     * the difference: BE has no restart to fall back on. A tail is by design the data written within one
+     * {@code table.datalake.freshness} period, so the default is far above any healthy table; hitting it
+     * means tiering has stalled, and the error says so.
+     */
+    public static final String UNION_READ_MAX_TAIL_ROWS = "fluss.union_read.max_tail_rows";
+
+    /** Default {@link #UNION_READ_MAX_TAIL_ROWS}: two million rows per bucket. */
+    public static final long DEFAULT_MAX_TAIL_ROWS = 2_000_000L;
+
+    /**
      * Optional. Whether a fluss BINARY/BYTES column reads as Doris VARBINARY instead of STRING.
      *
      * <p>Unprefixed on purpose: this is the engine-wide catalog property
@@ -109,6 +126,7 @@ public final class FlussConnectorProperties {
     public static void validate(Map<String, String> properties) {
         validateBootstrapServers(bootstrapServers(properties));
         unionReadMode(properties);
+        maxTailRows(properties);
     }
 
     /** The declared bootstrap servers, or the empty string when the property is absent. */
@@ -121,6 +139,30 @@ public final class FlussConnectorProperties {
     public static UnionReadMode unionReadMode(Map<String, String> properties) {
         String value = properties.get(UNION_READ_MODE);
         return value == null ? UnionReadMode.AUTO : UnionReadMode.parse(value);
+    }
+
+    /**
+     * The declared per-bucket tail ceiling, {@link #DEFAULT_MAX_TAIL_ROWS} when the property is absent.
+     * Zero and negative values are rejected rather than read as "no limit": a user who wants no ceiling
+     * has no way to say so, which is the point.
+     */
+    public static long maxTailRows(Map<String, String> properties) {
+        String value = properties.get(UNION_READ_MAX_TAIL_ROWS);
+        if (value == null) {
+            return DEFAULT_MAX_TAIL_ROWS;
+        }
+        long rows;
+        try {
+            rows = Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid value '" + value + "' for property '"
+                    + UNION_READ_MAX_TAIL_ROWS + "'; expected a positive number of rows");
+        }
+        if (rows <= 0) {
+            throw new IllegalArgumentException("Invalid value '" + value + "' for property '"
+                    + UNION_READ_MAX_TAIL_ROWS + "'; expected a positive number of rows");
+        }
+        return rows;
     }
 
     /** The type-mapping switches this catalog declares; both default to off. */
@@ -155,7 +197,7 @@ public final class FlussConnectorProperties {
 
     /** Whether {@code key} configures Doris's own behaviour and must not reach the fluss client. */
     private static boolean isDorisOnly(String key) {
-        return UNION_READ_MODE.equals(key);
+        return UNION_READ_MODE.equals(key) || UNION_READ_MAX_TAIL_ROWS.equals(key);
     }
 
     private static void validateBootstrapServers(String value) {
