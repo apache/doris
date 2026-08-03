@@ -212,6 +212,54 @@ public class LancePredicateConverterTest {
     }
 
     @Test
+    public void testNullableNullSafeEqualityPreservesTwoValuedSemantics() {
+        Expr nullableNullSafeEqual = new BinaryPredicate(BinaryPredicate.Operator.EQ_FOR_NULL,
+                new SlotRef(null, "label"), new StringLiteral("ready"));
+
+        LancePredicateConverter.ConversionResult nullableResult =
+                converter.convert(Collections.singletonList(nullableNullSafeEqual));
+
+        ExtendedExpression nullableEnvelope = Assertions.assertDoesNotThrow(
+                () -> ExtendedExpression.parseFrom(nullableResult.getSubstraitFilter()));
+        String nullableExpression = nullableEnvelope.toString();
+        Assertions.assertTrue(nullableExpression.contains("and:bool"));
+        Assertions.assertTrue(nullableExpression.contains("is_not_null:any"));
+        Assertions.assertTrue(nullableExpression.contains("equal:any_any"));
+        io.substrait.proto.Expression.ScalarFunction nullableRoot = nullableEnvelope
+                .getReferredExpr(0).getExpression().getScalarFunction();
+        Assertions.assertEquals(2, nullableRoot.getArgumentsCount());
+        Assertions.assertEquals(1, nullableRoot.getArguments(0).getValue()
+                .getScalarFunction().getArgumentsCount());
+        Assertions.assertEquals(2, nullableRoot.getArguments(1).getValue()
+                .getScalarFunction().getArgumentsCount());
+
+        Expr requiredNullSafeEqual = new BinaryPredicate(BinaryPredicate.Operator.EQ_FOR_NULL,
+                new SlotRef(null, "row_id"), new IntLiteral(1));
+        LancePredicateConverter.ConversionResult requiredResult =
+                converter.convert(Collections.singletonList(requiredNullSafeEqual));
+        ExtendedExpression requiredEnvelope = Assertions.assertDoesNotThrow(
+                () -> ExtendedExpression.parseFrom(requiredResult.getSubstraitFilter()));
+        Assertions.assertFalse(requiredEnvelope.toString().contains("is_not_null:any"));
+        Assertions.assertEquals(2, requiredEnvelope.getReferredExpr(0).getExpression()
+                .getScalarFunction().getArgumentsCount());
+    }
+
+    @Test
+    public void testNullableNullSafeEqualityInBooleanCompositions() {
+        Expr nullSafeEqual = new BinaryPredicate(BinaryPredicate.Operator.EQ_FOR_NULL,
+                new SlotRef(null, "label"), new StringLiteral("ready"));
+        Expr comparison = new BinaryPredicate(BinaryPredicate.Operator.GT,
+                new SlotRef(null, "row_id"), new IntLiteral(1));
+
+        assertNullSafeEqualityComposition(new CompoundPredicate(
+                CompoundPredicate.Operator.NOT, nullSafeEqual, null));
+        assertNullSafeEqualityComposition(new CompoundPredicate(
+                CompoundPredicate.Operator.AND, nullSafeEqual, comparison));
+        assertNullSafeEqualityComposition(new CompoundPredicate(
+                CompoundPredicate.Operator.OR, nullSafeEqual, comparison));
+    }
+
+    @Test
     public void testSpecialIdentifierUsesSchemaOrdinal() {
         Expr predicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
                 new SlotRef(null, "event-type"), new StringLiteral("ready"));
@@ -416,6 +464,18 @@ public class LancePredicateConverterTest {
             default:
                 Assertions.fail("Unexpected integer bit width: " + bitWidth);
         }
+        Assertions.assertEquals(1, result.getPushedConjuncts().size());
+    }
+
+    private void assertNullSafeEqualityComposition(Expr predicate) {
+        LancePredicateConverter.ConversionResult result =
+                converter.convert(Collections.singletonList(predicate));
+
+        ExtendedExpression envelope = Assertions.assertDoesNotThrow(
+                () -> ExtendedExpression.parseFrom(result.getSubstraitFilter()));
+        String expression = envelope.toString();
+        Assertions.assertTrue(expression.contains("is_not_null:any"));
+        Assertions.assertTrue(expression.contains("equal:any_any"));
         Assertions.assertEquals(1, result.getPushedConjuncts().size());
     }
 

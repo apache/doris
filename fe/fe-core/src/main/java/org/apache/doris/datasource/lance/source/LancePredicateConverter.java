@@ -187,7 +187,14 @@ public class LancePredicateConverter {
             default:
                 return Optional.empty();
         }
-        return Optional.of(comparisonFunction(function, fieldReference, value.get()));
+        Expression comparison = comparisonFunction(function, fieldReference, value.get());
+        if (operator == BinaryPredicate.Operator.EQ_FOR_NULL && field.field.isNullable()) {
+            // Null-safe equality returns FALSE, rather than NULL, for a NULL field. Preserve that
+            // two-valued result when this expression is nested under NOT, AND, or OR.
+            return Optional.of(booleanFunction("and:bool", Arrays.asList(
+                    comparisonFunction("is_not_null:any", fieldReference), comparison)));
+        }
+        return Optional.of(comparison);
     }
 
     private Optional<Expression> convertCompound(CompoundPredicate predicate) {

@@ -915,12 +915,21 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
                 st.to_protobuf(result->mutable_status());
                 return;
             }
+            DORIS_CHECK_EQ(col_names.size(), col_types.size());
             result->set_column_nums(col_names.size());
             for (const auto& col_name : col_names) {
                 result->add_column_names(col_name);
             }
             for (const auto& col_type : col_types) {
-                col_type->to_protobuf(result->add_column_types());
+                DORIS_CHECK(col_type != nullptr);
+                PTypeDesc* type_desc = result->add_column_types();
+                if (col_type->get_primitive_type() == INVALID_TYPE) {
+                    PTypeNode* node = type_desc->add_types();
+                    node->set_type(TTypeNodeType::SCALAR);
+                    node->mutable_scalar_type()->set_type(TPrimitiveType::UNSUPPORTED);
+                } else {
+                    col_type->to_protobuf(type_desc);
+                }
             }
             st.to_protobuf(result->mutable_status());
             return;

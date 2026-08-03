@@ -17,6 +17,7 @@
 
 #include "format_v2/table/lance_reader.h"
 
+#include <arrow/type.h>
 #include <lance/lance.h>
 
 #include <algorithm>
@@ -514,23 +515,59 @@ TEST(LanceTableReaderSchemaTest, FetchesSchemaWithoutFragmentIdsOrScanInitializa
 
     const auto row_id = std::find(column_names.begin(), column_names.end(), "row_id");
     ASSERT_NE(column_names.end(), row_id);
-    EXPECT_EQ(TYPE_BIGINT,
-              column_types[static_cast<size_t>(std::distance(column_names.begin(), row_id))]
-                      ->get_primitive_type());
+    const auto row_id_idx = static_cast<size_t>(std::distance(column_names.begin(), row_id));
+    ASSERT_NE(nullptr, column_types[row_id_idx]);
+    EXPECT_EQ(TYPE_BIGINT, column_types[row_id_idx]->get_primitive_type());
 
     const auto embedding = std::find(column_names.begin(), column_names.end(), "embedding");
     ASSERT_NE(column_names.end(), embedding);
-    EXPECT_EQ(TYPE_ARRAY,
-              column_types[static_cast<size_t>(std::distance(column_names.begin(), embedding))]
-                      ->get_primitive_type());
+    const auto embedding_idx =
+            static_cast<size_t>(std::distance(column_names.begin(), embedding));
+    ASSERT_NE(nullptr, column_types[embedding_idx]);
+    EXPECT_EQ(TYPE_ARRAY, column_types[embedding_idx]->get_primitive_type());
 
     const auto binary_value = std::find(column_names.begin(), column_names.end(), "binary_value");
     ASSERT_NE(column_names.end(), binary_value);
-    const auto binary_type = remove_nullable(
-            column_types[static_cast<size_t>(std::distance(column_names.begin(), binary_value))]);
+    const auto binary_idx =
+            static_cast<size_t>(std::distance(column_names.begin(), binary_value));
+    ASSERT_NE(nullptr, column_types[binary_idx]);
+    const auto binary_type = remove_nullable(column_types[binary_idx]);
     ASSERT_EQ(TYPE_VARBINARY, binary_type->get_primitive_type());
     EXPECT_EQ(std::numeric_limits<int32_t>::max(),
               assert_cast<const DataTypeVarbinary&>(*binary_type).len());
+}
+
+TEST(LanceTableReaderSchemaTest, PreservesUnsupportedFieldsAndExtensionSemantics) {
+    const auto extension_metadata = arrow::KeyValueMetadata::Make(
+            {"ARROW:extension:name"}, {"doris.test.extension"});
+    const auto extension_item =
+            arrow::field("item", arrow::float32())->WithMetadata(extension_metadata);
+    const auto arrow_schema = arrow::schema({
+            arrow::field("row_id", arrow::int64()),
+            arrow::field("duration", arrow::duration(arrow::TimeUnit::MILLI)),
+            arrow::field("json", arrow::utf8())->WithMetadata(extension_metadata),
+            arrow::field("dictionary", arrow::dictionary(arrow::int16(), arrow::utf8())),
+            arrow::field("nested_extension", arrow::list(extension_item)),
+            arrow::field("name", arrow::utf8()),
+    });
+
+    std::vector<std::string> column_names;
+    std::vector<DataTypePtr> column_types;
+    ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
+
+    EXPECT_EQ((std::vector<std::string> {"row_id", "duration", "json", "dictionary",
+                                         "nested_extension", "name"}),
+              column_names);
+    ASSERT_EQ(column_names.size(), column_types.size());
+    for (const auto& column_type : column_types) {
+        ASSERT_NE(nullptr, column_type);
+    }
+    EXPECT_EQ(TYPE_BIGINT, column_types[0]->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[1]->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[2]->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[3]->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[4]->get_primitive_type());
+    EXPECT_EQ(TYPE_STRING, column_types[5]->get_primitive_type());
 }
 
 TEST(LanceTableReaderScanTest, ReadsLatestSnapshotWithoutFragmentIds) {

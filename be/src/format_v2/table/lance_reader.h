@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -35,7 +36,18 @@ struct LanceBatch;
 struct LanceDataset;
 struct LanceScanner;
 
+namespace arrow {
+class Schema;
+} // namespace arrow
+
 namespace doris::format::lance {
+
+// Convert every top-level field without discarding unsupported columns. Malformed schemas still
+// return an error and leave both output vectors unchanged. DataTypeNothing is the local sentinel
+// for a valid Arrow field whose logical type Doris does not support.
+Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow_schema,
+                                     std::vector<std::string>* column_names,
+                                     std::vector<DataTypePtr>* column_types);
 
 // A FORMAT_LANCE table reader. Unlike file formats such as Parquet, a Lance split is not a
 // physical-file range. It either selects fragments from a fixed snapshot or scans the whole

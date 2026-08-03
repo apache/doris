@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
 
@@ -49,6 +50,7 @@ struct LanceBatchDeleter {
 };
 
 constexpr std::string_view DISTANCE_COLUMN = "_distance";
+constexpr std::string_view ARROW_EXTENSION_NAME = "ARROW:extension:name";
 
 size_t vector_element_width(TVectorElementType::type type) {
     switch (type) {
@@ -94,8 +96,25 @@ int arrow_time_precision(arrow::TimeUnit::type unit) {
     return 6;
 }
 
-Status arrow_type_to_doris_type(const std::shared_ptr<arrow::DataType>& arrow_type,
-                                DataTypePtr* doris_type) {
+Status check_arrow_field_semantics(const std::shared_ptr<arrow::Field>& field) {
+    if (field->HasMetadata()) {
+        const auto extension_name = field->metadata()->Get(ARROW_EXTENSION_NAME);
+        if (extension_name.ok() && !extension_name.ValueUnsafe().empty()) {
+            return Status::NotSupported("unsupported Lance Arrow extension type '{}' for field '{}'",
+                                        extension_name.ValueUnsafe(), field->name());
+        }
+    }
+    if (field->type()->id() == arrow::Type::DICTIONARY) {
+        return Status::NotSupported("unsupported Lance Arrow dictionary type for field '{}': {}",
+                                    field->name(), field->type()->ToString());
+    }
+    return Status::OK();
+}
+
+Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
+                                 DataTypePtr* doris_type) {
+    RETURN_IF_ERROR(check_arrow_field_semantics(field));
+    const auto& arrow_type = field->type();
     const auto nullable_primitive = [&](PrimitiveType type, int precision = 0, int scale = 0,
                                         int len = -1) {
         *doris_type =
@@ -162,16 +181,17 @@ Status arrow_type_to_doris_type(const std::shared_ptr<arrow::DataType>& arrow_ty
     case arrow::Type::FIXED_SIZE_LIST: {
         const auto list = std::static_pointer_cast<arrow::BaseListType>(arrow_type);
         DataTypePtr value_type;
-        RETURN_IF_ERROR(arrow_type_to_doris_type(list->value_type(), &value_type));
+        RETURN_IF_ERROR(arrow_field_to_doris_type(list->value_field(), &value_type));
         *doris_type = make_nullable(std::make_shared<DataTypeArray>(value_type));
         return Status::OK();
     }
     case arrow::Type::MAP: {
         const auto map = std::static_pointer_cast<arrow::MapType>(arrow_type);
+        RETURN_IF_ERROR(check_arrow_field_semantics(map->value_field()));
         DataTypePtr key_type;
         DataTypePtr item_type;
-        RETURN_IF_ERROR(arrow_type_to_doris_type(map->key_type(), &key_type));
-        RETURN_IF_ERROR(arrow_type_to_doris_type(map->item_type(), &item_type));
+        RETURN_IF_ERROR(arrow_field_to_doris_type(map->key_field(), &key_type));
+        RETURN_IF_ERROR(arrow_field_to_doris_type(map->item_field(), &item_type));
         *doris_type = make_nullable(std::make_shared<DataTypeMap>(key_type, item_type));
         return Status::OK();
     }
@@ -181,11 +201,11 @@ Status arrow_type_to_doris_type(const std::shared_ptr<arrow::DataType>& arrow_ty
         Strings field_names;
         field_types.reserve(struct_type->num_fields());
         field_names.reserve(struct_type->num_fields());
-        for (const auto& field : struct_type->fields()) {
+        for (const auto& child : struct_type->fields()) {
             DataTypePtr field_type;
-            RETURN_IF_ERROR(arrow_type_to_doris_type(field->type(), &field_type));
+            RETURN_IF_ERROR(arrow_field_to_doris_type(child, &field_type));
             field_types.emplace_back(std::move(field_type));
-            field_names.emplace_back(field->name());
+            field_names.emplace_back(child->name());
         }
         *doris_type = make_nullable(std::make_shared<DataTypeStruct>(field_types, field_names));
         return Status::OK();
@@ -196,6 +216,39 @@ Status arrow_type_to_doris_type(const std::shared_ptr<arrow::DataType>& arrow_ty
 }
 
 } // namespace
+
+Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow_schema,
+                                     std::vector<std::string>* column_names,
+                                     std::vector<DataTypePtr>* column_types) {
+    DORIS_CHECK(arrow_schema != nullptr);
+    DORIS_CHECK(column_names != nullptr);
+    DORIS_CHECK(column_types != nullptr);
+
+    std::vector<std::string> parsed_names;
+    std::vector<DataTypePtr> parsed_types;
+    parsed_names.reserve(arrow_schema->num_fields());
+    parsed_types.reserve(arrow_schema->num_fields());
+    std::unordered_set<std::string> unique_names;
+    unique_names.reserve(arrow_schema->num_fields());
+    for (const auto& field : arrow_schema->fields()) {
+        if (!unique_names.emplace(field->name()).second) {
+            return Status::InvalidArgument("duplicate Lance schema column: {}", field->name());
+        }
+        DataTypePtr doris_type;
+        const auto type_status = arrow_field_to_doris_type(field, &doris_type);
+        if (type_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
+            parsed_types.emplace_back(std::make_shared<DataTypeNothing>());
+        } else {
+            RETURN_IF_ERROR(type_status);
+            DORIS_CHECK(doris_type != nullptr);
+            parsed_types.emplace_back(std::move(doris_type));
+        }
+        parsed_names.emplace_back(field->name());
+    }
+    *column_names = std::move(parsed_names);
+    *column_types = std::move(parsed_types);
+    return Status::OK();
+}
 
 LanceTableReader::~LanceTableReader() {
     static_cast<void>(close());
@@ -240,25 +293,8 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
                                      imported_schema.status().message());
     }
 
-    const auto schema = std::move(imported_schema).ValueUnsafe();
-    std::vector<std::string> parsed_names;
-    std::vector<DataTypePtr> parsed_types;
-    parsed_names.reserve(schema->num_fields());
-    parsed_types.reserve(schema->num_fields());
-    std::unordered_set<std::string> unique_names;
-    unique_names.reserve(schema->num_fields());
-    for (const auto& field : schema->fields()) {
-        if (!unique_names.emplace(field->name()).second) {
-            return Status::InvalidArgument("duplicate Lance schema column: {}", field->name());
-        }
-        DataTypePtr doris_type;
-        RETURN_IF_ERROR(arrow_type_to_doris_type(field->type(), &doris_type));
-        parsed_names.emplace_back(field->name());
-        parsed_types.emplace_back(std::move(doris_type));
-    }
-    *column_names = std::move(parsed_names);
-    *column_types = std::move(parsed_types);
-    return Status::OK();
+    return convert_arrow_schema_to_doris(std::move(imported_schema).ValueUnsafe(), column_names,
+                                         column_types);
 }
 
 Status LanceTableReader::init(TableReadOptions&& options) {

@@ -34,6 +34,10 @@ import org.apache.doris.datasource.lance.LanceTypeConverter;
 import org.apache.doris.datasource.lance.LanceVectorQuery;
 import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -47,6 +51,7 @@ import org.apache.doris.thrift.TSearchVector;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchParams;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import org.apache.arrow.vector.types.pojo.Field;
 
@@ -74,6 +79,8 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
     private static final String REFINE_FACTOR = "refine_factor";
     private static final String EF = "ef";
     private static final String USE_INDEX = "use_index";
+    private static final String FULLY_QUALIFIED_TABLE_NAME_ERROR =
+            "'table' must be a fully qualified catalog.database.table name";
     private static final long UINT32_MAX = 0xFFFF_FFFFL;
     private static final Set<String> PROPERTIES = ImmutableSet.of(
             TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER,
@@ -211,14 +218,22 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
         return value.trim();
     }
 
-    private static TableName parseTableName(String value) throws AnalysisException {
-        String[] names = value.split("\\.", -1);
-        if (names.length != 3 || names[0].isEmpty() || names[1].isEmpty()
-                || names[2].isEmpty()) {
-            throw new AnalysisException("'table' must be a fully qualified "
-                    + "catalog.database.table name");
+    @VisibleForTesting
+    static TableName parseTableName(String value) throws AnalysisException {
+        Expression expression;
+        try {
+            expression = new NereidsParser().parseExpression(value);
+        } catch (ParseException e) {
+            throw new AnalysisException(FULLY_QUALIFIED_TABLE_NAME_ERROR, e);
         }
-        return new TableName(names[0], names[1], names[2]);
+        if (!(expression instanceof UnboundSlot)) {
+            throw new AnalysisException(FULLY_QUALIFIED_TABLE_NAME_ERROR);
+        }
+        List<String> names = ((UnboundSlot) expression).getNameParts();
+        if (names.size() != 3) {
+            throw new AnalysisException(FULLY_QUALIFIED_TABLE_NAME_ERROR);
+        }
+        return new TableName(names.get(0), names.get(1), names.get(2));
     }
 
     private static void checkSelectPrivilege(TableName tableName) throws AnalysisException {
