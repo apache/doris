@@ -1129,17 +1129,21 @@ public class OlapTableSink extends DataSink {
 
         final long fakeTabletId = 0;
         SystemInfoService clusterInfo = Env.getCurrentSystemInfo();
-        List<Long> aliveBe = clusterInfo.getAllBackendIds(true);
-        if (aliveBe.isEmpty()) {
+        List<Long> availableBeIds = clusterInfo.getBackendsByCurrentCluster().values().stream()
+                .filter(Backend::isLoadAvailable)
+                .filter(backend -> !backend.isDecommissioned() && !backend.isDecommissioning())
+                .map(Backend::getId)
+                .collect(Collectors.toList());
+        if (availableBeIds.isEmpty()) {
             throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, "no available BE in cluster");
         }
         for (int i = 0; i < table.getIndexNumber(); i++) {
             // only one fake tablet here
-            Long[] nodes = aliveBe.toArray(new Long[0]);
+            Long[] nodes = availableBeIds.toArray(new Long[0]);
             Random random = new SecureRandom();
             int nodeIndex = random.nextInt(nodes.length);
             if (singleReplicaLoad) {
-                List<Long> slaveBe = aliveBe;
+                List<Long> slaveBe = new ArrayList<>(availableBeIds);
                 locationParam.addToTablets(new TTabletLocation(fakeTabletId,
                         Arrays.asList(nodes[nodeIndex])));
 
