@@ -284,7 +284,9 @@ public class CatalogProperty {
         if (hadoopProperties == null) {
             synchronized (this) {
                 if (hadoopProperties == null) {
-                    hadoopProperties = new HashMap<>();
+                    // Publish the volatile cache only after construction because readers skip this
+                    // lock once it is non-null and must never observe a map still being mutated.
+                    Map<String, String> result = new HashMap<>();
                     Map<StorageProperties.Type, StorageProperties> storageMap = getStoragePropertiesMap();
 
                     for (StorageProperties sp : storageMap.values()) {
@@ -294,12 +296,13 @@ public class CatalogProperty {
                                 String key = entry.getKey();
                                 String value = entry.getValue();
                                 if (value != null) {
-                                    hadoopProperties.put(key, value);
+                                    result.put(key, value);
                                 }
                             });
                         }
                     }
-                    StorageProperties.setCombinedFsCacheKey(hadoopProperties, storageMap.values());
+                    StorageProperties.setCombinedFsCacheKey(result, storageMap.values());
+                    hadoopProperties = result;
                 }
             }
         }
