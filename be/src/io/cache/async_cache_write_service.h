@@ -94,6 +94,12 @@ struct AsyncCacheWriteServiceOptions {
     size_t max_pending_bytes {1};
 };
 
+/// Resolve the configured per-disk pending-byte limit. A positive value is used unchanged; -1
+/// selects max(512 MiB, 1% of `be_mem_limit`). Config validation rejects every other value.
+Status resolve_async_file_cache_write_max_pending_bytes_per_disk(int64_t configured_bytes,
+                                                                 int64_t be_mem_limit,
+                                                                 size_t* resolved_bytes);
+
 /// Owns the bounded async-write queue and workers for one BlockFileCache (one cache disk).
 ///
 /// The referenced cache must outlive this service. Shutdown stops new producers, waits registered

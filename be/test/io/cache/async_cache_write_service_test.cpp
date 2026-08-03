@@ -36,6 +36,7 @@
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_test_common.h"
 #include "util/defer_op.h"
+#include "util/mem_info.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -115,6 +116,31 @@ protected:
 private:
     std::vector<fs::path> _paths;
 };
+
+TEST(AsyncCacheWriteConfigTest, ResolveMaxPendingBytesPerDisk) {
+    constexpr int64_t kMiB = 1024 * 1024;
+    constexpr int64_t kGiB = 1024 * kMiB;
+
+    size_t resolved_bytes = 0;
+    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes_per_disk(123 * kMiB, 100 * kGiB,
+                                                                          &resolved_bytes)
+                        .ok());
+    EXPECT_EQ(resolved_bytes, 123 * kMiB);
+    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes_per_disk(-1, 32 * kGiB,
+                                                                          &resolved_bytes)
+                        .ok());
+    EXPECT_EQ(resolved_bytes, 512 * kMiB);
+    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes_per_disk(-1, 100 * kGiB,
+                                                                          &resolved_bytes)
+                        .ok());
+    EXPECT_EQ(resolved_bytes, 1 * kGiB);
+    EXPECT_FALSE(resolve_async_file_cache_write_max_pending_bytes_per_disk(0, 100 * kGiB,
+                                                                           &resolved_bytes)
+                         .ok());
+    EXPECT_FALSE(resolve_async_file_cache_write_max_pending_bytes_per_disk(-2, 100 * kGiB,
+                                                                           &resolved_bytes)
+                         .ok());
+}
 
 TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEntry) {
     auto cache = create_cache("async_write_service_single_task");
@@ -1608,6 +1634,7 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     }};
 
     ASSERT_TRUE(config::set_config("enable_async_file_cache_write", "false").ok());
+    ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes_per_disk", "-1").ok());
     fs::remove_all(path, error);
     fs::create_directories(path);
     ASSERT_TRUE(factory->create_file_cache(path.string(), async_write_cache_settings()).ok());
@@ -1615,6 +1642,11 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     ASSERT_NE(cache, nullptr);
     wait_until_cache_ready(*cache);
     ASSERT_FALSE(cache->async_write_service()->_started.load(std::memory_order_acquire));
+    size_t auto_max_pending_bytes = 0;
+    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes_per_disk(-1, MemInfo::mem_limit(),
+                                                                          &auto_max_pending_bytes)
+                        .ok());
+    EXPECT_EQ(cache->async_write_service()->options().max_pending_bytes, auto_max_pending_bytes);
     AsyncCacheWriteBufferPtr disabled_buffer;
     ASSERT_TRUE(cache->async_write_service()->allocate_tracked_buffer(4096, &disabled_buffer).ok());
     AsyncCacheWriteTask disabled_task {
@@ -1631,7 +1663,7 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     EXPECT_EQ(cache->async_write_service()->pending_count(), 0);
 
     const int32_t new_workers = old_workers == 1 ? 2 : 1;
-    const int64_t new_max_pending_bytes = old_max_pending_bytes + 4096;
+    constexpr int64_t new_max_pending_bytes = 64 * 1024 * 1024 + 4096;
     ASSERT_TRUE(config::set_config("async_file_cache_write_workers_per_disk",
                                    std::to_string(new_workers))
                         .ok());
@@ -1644,6 +1676,9 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     EXPECT_TRUE(cache->async_write_service()->_started.load(std::memory_order_acquire));
     EXPECT_EQ(updated.worker_count, new_workers);
     EXPECT_EQ(updated.max_pending_bytes, new_max_pending_bytes);
+
+    ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes_per_disk", "-1").ok());
+    EXPECT_EQ(cache->async_write_service()->options().max_pending_bytes, auto_max_pending_bytes);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, ShutdownWaitsForConcurrentReplacementAndDrains) {
