@@ -75,6 +75,20 @@ taskset -c 8 be/output/lib/benchmark_test \
 # Repeat fused as B2, then legacy as A2, changing only --benchmark_out.
 ```
 
+## Selection compaction cases
+
+`ParquetSelection` isolates the selection-vector paths used after raw and expression predicate
+evaluation. It covers implicit identity initialization, a filter indexed by source row, and a
+second compact filter applied after an earlier predicate has already made the selection sparse.
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetSelection/(resize_identity|row_filter|cascade_filter)/' \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true
+```
+
 ## Local reader cases
 
 `ParquetReader` measures local open-to-first-block, full scan, predicate scan, complex residual

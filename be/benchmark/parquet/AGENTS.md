@@ -6,15 +6,17 @@ benchmark system described in the design document.
 
 ## What exists today
 
-The benchmark binary registers three groups:
+The benchmark binary registers four groups:
 
 - `ParquetDecoder`: native page decoder benchmarks using in-memory encoded pages.
 - `ParquetKernel`: isolated SIMD-sensitive decode and predicate kernels.
+- `ParquetSelection`: isolated selection initialization and predicate compaction paths.
 - `ParquetReader`: local-file benchmarks that call the format V2 Parquet reader directly.
 
 The relevant files are:
 
 - `benchmark_parquet_decoder.hpp`: deterministic page construction and decoder registration.
+- `benchmark_parquet_selection.hpp`: selection initialization and compaction registration.
 - `benchmark_parquet_reader.hpp`: deterministic local Parquet fixtures and reader registration.
 - `parquet_benchmark_scenarios.h`: scenario definitions and the selected matrix.
 - `README.md`: short human-oriented build and invocation examples.
@@ -37,13 +39,16 @@ List all Parquet cases and verify the expected registration counts:
 
 ```shell
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -E '^Parquet(Decoder|Kernel|Reader)/'
+  | grep -E '^Parquet(Decoder|Kernel|Selection|Reader)/'
 
 be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetDecoder/'  # currently 228
 
 be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetKernel/'   # currently 92
+
+be/output/lib/benchmark_test --benchmark_list_tests \
+  | grep -c '^ParquetSelection/' # currently 25
 
 be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetReader/'   # currently 167
@@ -69,6 +74,12 @@ be/output/lib/benchmark_test \
   --benchmark_filter='^ParquetKernel/' \
   --benchmark_min_time=0.001s \
   --benchmark_out=parquet-kernel-smoke.json \
+  --benchmark_out_format=json
+
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetSelection/' \
+  --benchmark_min_time=0.001s \
+  --benchmark_out=parquet-selection-smoke.json \
   --benchmark_out_format=json
 
 be/output/lib/benchmark_test \
@@ -127,6 +138,12 @@ rates with both placement patterns, 0% through 100% raw-predicate selectivities,
 50% nested parent-row selectivities with both placement patterns. Nested selection registers the
 legacy and fused implementations in the same binary and validates both against an independent
 source-level oracle before timing.
+
+`ParquetSelection` contains 25 cases that isolate the selection-vector work used by Parquet
+predicate evaluation. It measures identity initialization, one raw-row filter, and two successive
+filters. The filter matrix covers 0%, 1%, 10%, 50%, 90%, and 100% selectivity with clustered and
+alternating matches. These cases include `SelectionVector::resize()` in the timed region because
+initializing a new batch is part of the production predicate path.
 
 `ParquetReader` deliberately uses a single-variable matrix rather than a Cartesian product. After
 deduplication it contains 167 cases covering:
@@ -302,10 +319,10 @@ be simulated by silently changing the local reader benchmark.
 
 ## Current validation record
 
-The current expected registration counts are 228 decoder, 92 kernel, and 167 reader cases. A smoke
-run is an execution record only, not a reviewed performance baseline, because repetitions, host
-isolation, warmups, cache control, `perf` data, variance, and before/after comparison are not
-collected.
+The current expected registration counts are 228 decoder, 92 kernel, 25 selection, and 167 reader
+cases. A smoke run is an execution record only, not a reviewed performance baseline, because
+repetitions, host isolation, warmups, cache control, `perf` data, variance, and before/after
+comparison are not collected.
 
 ## Rules for extending the suite
 

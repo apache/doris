@@ -47,6 +47,7 @@
 #include "parquet/benchmark_parquet_decoder.hpp"
 #include "parquet/benchmark_parquet_kernels.hpp"
 #include "parquet/benchmark_parquet_reader.hpp"
+#include "parquet/benchmark_parquet_selection.hpp"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
