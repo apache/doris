@@ -19,8 +19,12 @@
 -- it, they never write. __FLUSS_BOOTSTRAP_SERVERS__ is substituted by
 -- scripts/run-init-sql.sh.
 --
--- Tables backed by the data lake are added together with the tiering service
--- when union read lands; everything here is fluss-only.
+-- This is the first of two scripts. Everything a lake table should hold in
+-- PAIMON is written here; init-lake-tail.sql then writes the rows that must
+-- stay in the fluss log. scripts/run-init-sql.sh stops the tiering service in
+-- between, which is what freezes the split -- otherwise the tail would drift
+-- into the lake at the next tiering round and every assertion about how the
+-- two halves divide would decay into "it depends when you ran it".
 
 SET 'table.dml-sync' = 'true';
 SET 'parallelism.default' = '2';
@@ -307,3 +311,159 @@ INSERT INTO pk_part VALUES
 SET 'execution.runtime-mode' = 'batch';
 DELETE FROM pk_part WHERE id = 4 AND dt = '20260102';
 SET 'execution.runtime-mode' = 'streaming';
+
+-- ===========================================================================
+-- Lake tables. 'table.datalake.enabled' makes the fluss coordinator create a
+-- matching paimon table and lets the tiering service move data into it; the
+-- lake settings themselves (warehouse, metastore) come from the cluster config
+-- and are copied into each table's properties, which is where the Doris
+-- connector reads them from.
+--
+-- Freshness is the lag the tiering service is asked to keep. Three minutes by
+-- default, which every environment start would then have to wait out.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- lake_log: the ordinary union-read fixture. Three buckets and only two rows in
+-- the tail, so at least one bucket is fully tiered and must contribute no log
+-- range at all, while the others resume where the lake stops.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_log (
+    id INT,
+    name STRING,
+    price DECIMAL(10, 2)
+) COMMENT 'fluss log table tiered into paimon'
+WITH (
+    'bucket.num' = '3',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_log VALUES
+    (1, 'lake1', CAST(1.10 AS DECIMAL(10, 2))),
+    (2, 'lake2', CAST(2.20 AS DECIMAL(10, 2))),
+    (3, 'lake3', CAST(3.30 AS DECIMAL(10, 2))),
+    (4, 'lake4', CAST(4.40 AS DECIMAL(10, 2)));
+
+-- ---------------------------------------------------------------------------
+-- lake_cold: written once and never again, so after the tiering service has
+-- caught up the lake holds the whole table and planning must emit no log range
+-- whatsoever. One bucket, so "no log range" is an exact number and not a range.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_cold (
+    id INT,
+    name STRING
+) WITH (
+    'bucket.num' = '1',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_cold VALUES
+    (1, 'cold1'),
+    (2, 'cold2'),
+    (3, 'cold3');
+
+-- ---------------------------------------------------------------------------
+-- lake_types: the type-parity fixture. The connector's fluss->Doris mapping is
+-- required to equal fluss->paimon->Doris, so that the table and its $lake
+-- sibling present one schema and not two; this is the only place that identity
+-- is checked against the real paimon connector instead of by reading both
+-- mappings side by side. One bucket keeps the split between the two halves
+-- exact: everything here is tiered, the all-NULL row stays in the log.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_types (
+    id INT,
+    f_boolean BOOLEAN,
+    f_tinyint TINYINT,
+    f_smallint SMALLINT,
+    f_int INT,
+    f_bigint BIGINT,
+    f_float FLOAT,
+    f_double DOUBLE,
+    f_decimal DECIMAL(20, 4),
+    f_char CHAR(5),
+    f_string STRING,
+    f_binary BINARY(3),
+    f_bytes BYTES,
+    f_date DATE,
+    f_timestamp TIMESTAMP(6),
+    f_timestamp_ltz TIMESTAMP_LTZ(3),
+    f_array ARRAY<INT>,
+    f_map MAP<STRING, INT>,
+    f_row ROW<r_int INT, r_string STRING>
+) WITH (
+    'bucket.num' = '1',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_types VALUES
+    (
+        1,
+        TRUE,
+        CAST(1 AS TINYINT),
+        CAST(2 AS SMALLINT),
+        3,
+        CAST(4 AS BIGINT),
+        CAST(1.5 AS FLOAT),
+        CAST(2.5 AS DOUBLE),
+        CAST(123.4567 AS DECIMAL(20, 4)),
+        CAST('char1' AS CHAR(5)),
+        'string1',
+        CAST(X'010203' AS BINARY(3)),
+        CAST(X'0a0b' AS BYTES),
+        DATE '2026-01-01',
+        TIMESTAMP '2026-01-01 01:02:03.456789',
+        CAST(TIMESTAMP '2026-01-01 01:02:03.456' AS TIMESTAMP_LTZ(3)),
+        ARRAY[1, 2, 3],
+        MAP['k1', 1, 'k2', 2],
+        CAST(ROW(1, 'nested1') AS ROW<r_int INT, r_string STRING>)
+    );
+
+-- ---------------------------------------------------------------------------
+-- lake_part: partitioned lake table. The tail goes into one partition only, so
+-- the other one is served entirely from the lake -- the two halves have to be
+-- stitched per (partition, bucket) and not per table.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_part (
+    id INT,
+    name STRING,
+    dt STRING
+) PARTITIONED BY (dt)
+WITH (
+    'bucket.num' = '1',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_part VALUES
+    (1, 'lp1a', '20260101'),
+    (2, 'lp1b', '20260101'),
+    (3, 'lp2a', '20260102');
+
+-- ---------------------------------------------------------------------------
+-- lake_pk: primary-key table tiered into paimon. Merging a lake with a change
+-- log BY KEY is not implemented, so the connector refuses this table unless the
+-- lake is switched off -- the fixture exists to pin that refusal, to check that
+-- the fluss-only read still returns the whole table, and to let $lake read the
+-- paimon side directly. Row 2 is updated before tiering, so the lake already
+-- holds a merged view rather than a raw change log.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_pk (
+    id INT NOT NULL,
+    name STRING,
+    PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+    'bucket.num' = '1',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_pk VALUES
+    (1, 'lp1'),
+    (2, 'lp2'),
+    (3, 'lp3');
+
+INSERT INTO lake_pk VALUES
+    (2, 'lp2-lake');
