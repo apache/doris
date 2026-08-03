@@ -166,16 +166,9 @@ public class FloatLiteral extends NumericLiteralExpr {
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
             if (type == Type.FLOAT) {
-                Float fValue = (float) value;
-                if (fValue.equals(Float.POSITIVE_INFINITY)) {
-                    value = Double.POSITIVE_INFINITY;
-                }
-                if (fValue.equals(Float.NEGATIVE_INFINITY)) {
-                    value = Double.NEGATIVE_INFINITY;
-                }
+                return FractionalFormat.getFormatStringValue((float) value);
             }
-            return FractionalFormat.getFormatStringValue(value, type == Type.DOUBLE ? 16 : 7,
-                    type == Type.DOUBLE ? "%.15E" : "%.6E");
+            return FractionalFormat.getFormatStringValue(value);
         }
     }
 
