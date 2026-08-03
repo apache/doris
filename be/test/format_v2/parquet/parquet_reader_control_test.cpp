@@ -180,6 +180,7 @@ TEST(SelectionVectorTest, MaterializedFilterIsReusedUntilSelectionChanges) {
 
 TEST(SelectionVectorTest, IdentitySelectionDoesNotMaterializeFilter) {
     SelectionVector selection(4);
+    EXPECT_FALSE(selection.is_set());
     const uint8_t* filter = reinterpret_cast<const uint8_t*>(1);
     ASSERT_TRUE(selection.materialize_filter(4, 4, &filter).ok());
     EXPECT_EQ(filter, nullptr);
@@ -259,6 +260,36 @@ TEST(NativeNestedSelectionTest, PreservesPriorLevelsAcrossPageContinuation) {
     EXPECT_EQ(definition_levels, (std::vector<level_t> {3, 3, 2}));
 }
 
+TEST(SelectionVectorTest, BulkCompactionSupportsBothFilterCoordinates) {
+    SelectionVector selection(6);
+    const uint8_t row_filter[] = {0, 1, 1, 0, 1, 0};
+    ASSERT_EQ(selection.compact_with_row_filter(row_filter, 6), 3);
+    EXPECT_EQ(selection.get_index(0), 1);
+    EXPECT_EQ(selection.get_index(1), 2);
+    EXPECT_EQ(selection.get_index(2), 4);
+
+    const uint8_t compact_filter[] = {1, 0, 1};
+    ASSERT_EQ(selection.compact_with_selection_filter(compact_filter, 3), 2);
+    EXPECT_EQ(selection.get_index(0), 1);
+    EXPECT_EQ(selection.get_index(1), 4);
+    EXPECT_TRUE(selection.verify(2, 6).ok());
+}
+
+TEST(SelectionVectorTest, BatchResetRetainsMaterializedScratchHighWaterMark) {
+    SelectionVector selection(6);
+    ASSERT_NE(selection.data(), nullptr);
+    const uint8_t first_filter[] = {0, 1, 1, 0, 1, 0};
+    ASSERT_EQ(selection.compact_with_row_filter(first_filter, 6), 3);
+
+    selection.resize(6);
+    const uint8_t second_filter[] = {0, 0, 0, 0, 0, 1};
+    ASSERT_EQ(selection.compact_with_row_filter(second_filter, 6), 1);
+    EXPECT_EQ(selection.get_index(0), 5);
+    // Positions beyond the logical result remain reusable scratch. Clearing and resizing the
+    // owned vector would value-initialize this slot on every scanner batch.
+    EXPECT_EQ(selection.get_index(5), 5);
+}
+
 TEST(ParquetColumnReaderControlTest, BaseSelectUsesSkipReadRanges) {
     CursorColumnReader reader;
     SelectionVector selection(3);
@@ -316,6 +347,30 @@ TEST(ParquetColumnReaderControlTest, SchedulerOrsPageCrossingOncePerBatch) {
     EXPECT_TRUE(scheduler.finish_current_reader_batch_profiles());
     EXPECT_EQ(predicate_ptr->page_crossing_checks(), 1);
     EXPECT_EQ(lazy_ptr->page_crossing_checks(), 1);
+}
+
+TEST(ParquetColumnReaderControlTest, PendingRequestActivatesOnlyAtRowGroupBoundary) {
+    ParquetScanScheduler scheduler;
+    auto initial = std::make_shared<format::FileScanRequest>();
+    auto refreshed = std::make_shared<format::FileScanRequest>();
+    refreshed->predicate_only_columns.push_back(format::LocalColumnId(7));
+
+    scheduler.set_scan_request(initial);
+    scheduler._has_current_row_group = true;
+    scheduler.queue_scan_request(refreshed);
+    scheduler.activate_pending_scan_request_at_row_group_boundary();
+    EXPECT_EQ(scheduler._active_request, initial);
+
+    scheduler._has_current_row_group = false;
+    scheduler._predicate_survival_ratio = 0.5;
+    scheduler._predicate_batch_sequence = 3;
+    scheduler._predicate_runtime_stats.emplace(1, detail::AdaptivePredicateStats {});
+    scheduler.activate_pending_scan_request_at_row_group_boundary();
+    EXPECT_EQ(scheduler._active_request, refreshed);
+    EXPECT_TRUE(scheduler._remaining_plans_need_replanning);
+    EXPECT_EQ(scheduler._predicate_survival_ratio, -1);
+    EXPECT_EQ(scheduler._predicate_batch_sequence, 0);
+    EXPECT_TRUE(scheduler._predicate_runtime_stats.empty());
 }
 
 TEST(ParquetColumnReaderControlTest, PendingOutputDrainsBeforePageCrossingSample) {

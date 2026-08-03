@@ -77,6 +77,23 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
     return _open_jni_scanner();
 }
 
+Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+    if (_scanner_opened) {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.refresh_conjuncts_timer);
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_refresh_timer);
+        RowDescriptor row_desc;
+        for (const auto& conjunct : conjuncts) {
+            // JNI readers bypass TableReader::open_reader(), so a late predicate would otherwise
+            // replace the active snapshot without initializing its executable function state.
+            RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(conjunct->open(_runtime_state));
+        }
+    }
+    return TableReader::refresh_conjuncts(std::move(conjuncts));
+}
+
 Status JniTableReader::get_block(Block* output_block, bool* eos) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.exec_timer);

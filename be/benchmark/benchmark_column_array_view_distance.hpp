@@ -264,7 +264,7 @@ BENCHMARK(ArrayView_Distance_Const_Plain_Flat)->Unit(benchmark::kNanosecond);
 // ============================================================
 
 static ColumnPtr wrap_nullable_for_dist(const ColumnPtr& col) {
-    return ColumnNullable::create(col->assume_mutable(), ColumnUInt8::create(col->size(), 0));
+    return ColumnNullable::create(col->assert_mutable(), ColumnUInt8::create(col->size(), 0));
 }
 
 static void Handwritten_Distance_Nullable_Plain(benchmark::State& state) {

@@ -19,7 +19,7 @@
 
 #include <string>
 
-#include "util/bitmap_value.h"
+#include "core/value/bitmap_value.h"
 
 using Roaring64Map = doris::detail::Roaring64Map;
 
