@@ -267,8 +267,8 @@ public:
     // workers on the same per-tablet sync lock, denying admission to unrelated
     // keys. The registry, keyed by (cache_key, version), lets the first arriving
     // runtime own the fan-out while later identical runtimes wait on the SAME
-    // completion latch under their own deadlines. It lives here because this
-    // cache object is the one BE-global thing every runtime already shares.
+    // completion latch. It lives here because this cache object is the one
+    // BE-global thing every runtime already shares.
     struct PresyncFlight {
         // The same shared pieces a private fan-out uses (see
         // _presync_cloud_delta_tablets); sharing the struct just widens who may
@@ -311,10 +311,11 @@ public:
         // Interested waiters (owner included), guarded by _presync_flights_lock.
         // The registry entry is reaped only once the fan-out has DRAINED (latch
         // at 0): either by the last waiter to leave (its leave_flight Defer) or,
-        // if every waiter left before the fan-out drained (a timed-out tombstone),
-        // by the final task that drives the latch to 0 when it observes zero
-        // waiters. A last leaver that leaves while tasks still run keeps the entry
-        // as a tombstone and sets `abandoned` so not-yet-started tasks skip.
+        // if every waiter left before the fan-out drained (an owner that unwound
+        // mid-submit), by the final task that drives the latch to 0 when it
+        // observes zero waiters. A last leaver that leaves while tasks still run
+        // keeps the entry as a tombstone and sets `abandoned` so not-yet-started
+        // tasks skip.
         int waiters = 0;
 
         // The query-cache MemTracker and the estimated retained bytes make_flight
@@ -412,13 +413,8 @@ class QueryCacheRuntime {
 public:
     // `cache` is injectable for tests; production callers pass nullptr and the
     // global instance is used.
-    // Takes the param BY VALUE and moves it into `_param`, so a caller that no
-    // longer needs its copy (the fragment-context gate builds a mutated
-    // `runtime_param` solely to pass here) can `std::move` it in and avoid a second
-    // O(tablets) deep copy of TQueryCacheParam; an lvalue caller (the tests) still
-    // copies exactly once, as before.
-    explicit QueryCacheRuntime(TQueryCacheParam param, QueryCache* cache = nullptr)
-            : _param(std::move(param)), _cache(cache != nullptr ? cache : QueryCache::instance()) {}
+    explicit QueryCacheRuntime(const TQueryCacheParam& param, QueryCache* cache = nullptr)
+            : _param(param), _cache(cache != nullptr ? cache : QueryCache::instance()) {}
 
     QueryCache* cache() const { return _cache; }
 
@@ -426,46 +422,6 @@ public:
     // the query cache. Called while building the operator tree (single
     // threaded, before any local state init), so no locking is needed.
     void disable_for_binlog_scan() { _binlog_scan = true; }
-
-    // BE-side mirror of the FE incremental knob gates (QueryCacheNormalizer.
-    // computeAllowIncremental): freshness tolerance defeats an incremental merge
-    // for every table (the delta capture is version-exact by design, forcing the
-    // un-warmed reads the query chose to skip), and prefer-cached-rowset does so
-    // for every non-merge-on-write index (a MOW read is version-exact regardless
-    // of the knob, see CloudTablet::capture_consistent_versions_unlocked). A
-    // same-version FE already clears allow_incremental in these cases, making
-    // this re-derivation a no-op; it exists for the rolling-upgrade window where
-    // an older FE without the knob gates still sets allow_incremental while a
-    // knob is active. Intent, not correctness: the merged entry such a query
-    // would produce is version-exact either way; the gate preserves the knob's
-    // "skip un-warmed reads" promise. With the optional is_merge_on_write field
-    // absent (that same older FE), prefer suppresses MOW too, the conservative
-    // direction. Pure so the truth table is unit-testable; the caller (the
-    // fragment context, which has the session variables) applies it cloud-only,
-    // since both knobs are inert on local storage.
-    static bool cloud_knobs_suppress_incremental(bool freshness_tolerance_active,
-                                                 bool prefer_cached_rowset_active,
-                                                 bool is_merge_on_write) {
-        return freshness_tolerance_active || (prefer_cached_rowset_active && !is_merge_on_write);
-    }
-
-    // The whole gate as a pure function, so the wiring (cloud-only, gated by the
-    // FE's request and the table type) is unit-testable without standing up a
-    // fragment and constructing operators: returns the effective
-    // allow_incremental. The fragment context passes config::is_cloud_mode() and
-    // its session variables. The gate is a no-op off cloud (the knobs are inert
-    // on local storage) and only ever clears a request, never grants one.
-    static bool gate_allow_incremental_for_cloud_knobs(bool requested_allow_incremental,
-                                                       bool is_merge_on_write, bool cloud_mode,
-                                                       bool freshness_tolerance_active,
-                                                       bool prefer_cached_rowset_active) {
-        if (cloud_mode && requested_allow_incremental &&
-            cloud_knobs_suppress_incremental(freshness_tolerance_active,
-                                             prefer_cached_rowset_active, is_merge_on_write)) {
-            return false;
-        }
-        return requested_allow_incremental;
-    }
 
     // Idempotent: the first call for a given instance (identified by the cache
     // key derived from its scan ranges) makes the decision, later calls return
@@ -483,7 +439,7 @@ public:
     }
 
     // Exercise the cloud presync fan-out (a private static) directly, so unit
-    // tests can assert the <= 0 skip-launch and the engine-stopped bail without
+    // tests can assert the engine-stopped bail and the fallback paths without
     // standing up a full fragment. The default null cache skips the single-
     // flight registry (a private, uncoalesced fan-out), which is exactly what
     // these early-path tests need.
@@ -528,9 +484,9 @@ private:
     // tablet_delta consumes the result here and does not sync again. Concurrent
     // identical runtimes are coalesced through the cache's single-flight
     // registry keyed by (cache_key, current_version): the first arrival owns
-    // the fan-out, later ones wait on the same completion latch under their own
-    // deadlines (a null `cache` skips coalescing, test-only). The number of
-    // decisions that may block in the fan-out wait at once is soft-capped
+    // the fan-out, later ones wait on the same completion latch (a null `cache`
+    // skips coalescing, test-only). The number of decisions that may block in
+    // the fan-out wait at once is soft-capped
     // (config::query_cache_max_concurrent_decision_sync) so a meta-service brownout
     // cannot park the whole light admission pool; a decision arriving over the cap
     // returns every tablet as "cloud decision sync at capacity" and recomputes in

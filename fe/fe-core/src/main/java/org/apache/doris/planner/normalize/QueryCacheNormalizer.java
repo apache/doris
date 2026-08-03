@@ -247,8 +247,8 @@ public class QueryCacheNormalizer implements Normalizer {
     // Whether the cloud warmed-read knobs suppress incremental merge for this query.
     // Pure and mode-parameterized (see the call site for why): only cloud mode honors
     // freshness-tolerance / prefer-cached-rowset, so in shared-nothing mode they are
-    // inert and never suppress. Mirrors the BE gate
-    // QueryCacheRuntime::cloud_knobs_suppress_incremental, plus the cloud-mode guard.
+    // inert and never suppress. This FE decision is authoritative: the BE applies no
+    // further gate on allow_incremental.
     @VisibleForTesting
     public static boolean cloudKnobsSuppressIncremental(boolean cloudMode,
             long queryFreshnessToleranceMs, boolean enablePreferCachedRowset,

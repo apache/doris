@@ -38,7 +38,6 @@ DEFINE_Int64(tablet_cache_shards, "16");
 DEFINE_mInt32(tablet_sync_interval_s, "1800");
 DEFINE_mInt32(init_scanner_sync_rowsets_parallelism, "10");
 DEFINE_mInt32(sync_rowsets_slow_threshold_ms, "1000");
-DEFINE_mInt32(query_cache_decision_sync_timeout_ms, "2000");
 DEFINE_Int32(query_cache_delta_sync_thread, "16");
 DEFINE_Int32(query_cache_delta_sync_max_pending_tasks, "2048");
 DEFINE_mInt32(query_cache_max_concurrent_decision_sync, "32");

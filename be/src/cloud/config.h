@@ -70,22 +70,6 @@ DECLARE_mInt32(tablet_sync_interval_s);
 // parallelism for scanner init where may issue RPCs to sync rowset meta from MS
 DECLARE_mInt32(init_scanner_sync_rowsets_parallelism);
 DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
-// Fast-fail budget (ms) for the query-cache incremental-merge decision's
-// pre-sync rowset fan-out. That decision runs in operator init on a bounded
-// query-admission thread pool (the BE light_work_pool, contractually "must be
-// light, not locked"), so a meta-service brownout that stalls the sync must not
-// hold that thread for the full RPC retry budget (tens of seconds): sustained,
-// it would exhaust the pool and reject query admission cluster-wide. When the
-// fan-out does not finish within this budget the decision abandons the wait and
-// falls back to one full recompute (the scan node's own async sync still brings
-// the view up for the actual scan). A healthy sync is milliseconds, far under
-// this, so it only trips under real meta-service degradation and leaves the
-// steady-state incremental path unchanged. A value <= 0 disables cloud
-// incremental merge outright: the decision skips the pre-sync fan-out entirely
-// (launching nothing) and falls every scanned tablet back to a full recompute,
-// a fail-safe rather than a useful setting. Cloud only.
-DECLARE_mInt32(query_cache_decision_sync_timeout_ms);
-
 // The dedicated, bounded thread pool that runs the query-cache incremental
 // decision's per-tablet rowset pre-sync (CloudStorageEngine owns it, created at
 // construction and drained in stop()). It is deliberately NOT the shared
@@ -103,8 +87,8 @@ DECLARE_Int32(query_cache_delta_sync_max_pending_tasks);
 // decision-sync wait at the same time. That wait runs on brpc's light work pool
 // (query admission; "must be light, not locked"), and single-flight coalesces only
 // IDENTICAL cache keys, so under a meta-service brownout a wave of DISTINCT stale
-// keys could otherwise park every light-pool worker for the full decision-sync
-// timeout and starve unrelated fragment admission (the paired scan and cache-source
+// keys could otherwise park every light-pool worker for the whole brownout
+// and starve unrelated fragment admission (the paired scan and cache-source
 // operators can each park one on a first-call race, so the pressure is per operator,
 // not just per query). The effective bound is the smaller of this value and half the
 // ACTUAL light-pool width (the configured brpc_light_work_pool_threads, or

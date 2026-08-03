@@ -128,7 +128,7 @@ CloudStorageEngine::CloudStorageEngine(const EngineOptions& options)
     // onto the query's critical path and, worse, could hand the fan-out a submit that
     // enqueued a task yet returned an error at zero live threads. A fixed pool sized
     // up front keeps submit_func pure enqueue (it never creates a thread, so it never
-    // blocks), so the fast-fail budget is spent on the sync RPCs rather than on
+    // blocks), so the wait is spent on the sync RPCs rather than on
     // spawning threads. The cost is a fixed set of mostly-idle workers on every cloud
     // BE even when this opt-in feature is unused; that steady footprint is the
     // deliberate trade for predictable, non-blocking admission.

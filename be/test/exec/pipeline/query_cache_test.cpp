@@ -419,36 +419,7 @@ TEST_F(QueryCacheTest, runtime_decision_hit) {
               fallback_before);
 }
 
-// (c) query_cache_decision_sync_timeout_ms <= 0 disables cloud incremental
-// merge: the presync must spawn NO sync work and fall every scanned tablet back.
-// No storage engine is installed, so the <= 0 guard returning cleanly (before
-// to_cloud()) is itself proof nothing launched -- any launch would have
-// dereferenced the absent engine. The sync-point counter double-confirms zero
-// sync_rowsets calls.
-TEST_F(QueryCacheTest, presync_skips_launch_when_timeout_non_positive) {
-    auto* sp = SyncPoint::get_instance();
-    sp->enable_processing();
-    std::atomic<int> sync_calls {0};
-    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
-                      [&](auto&&) { sync_calls.fetch_add(1); });
-    Defer sp_defer {[sp] {
-        sp->disable_processing();
-        sp->clear_all_call_backs();
-    }};
-
-    auto saved = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms = 0;
-    Defer cfg_defer {[&] { config::query_cache_decision_sync_timeout_ms = saved; }};
-
-    auto scan_ranges = make_scan_ranges(101, "100");
-    auto reasons = QueryCacheRuntime::presync_cloud_delta_tablets_for_test(scan_ranges, 100);
-
-    ASSERT_EQ(reasons.count(101), 1);
-    EXPECT_EQ(reasons[101], "cloud incremental sync disabled");
-    EXPECT_EQ(sync_calls.load(), 0);
-}
-
-// (a) A stopped engine must bail before launching: positive budget, but
+// A stopped engine must bail before launching:
 // stopped() is true, so no sync_rowsets runs and every tablet falls back. The
 // stopped() check precedes the pool access, so an un-opened engine's null pool
 // is never touched.
@@ -468,10 +439,6 @@ TEST_F(QueryCacheTest, presync_bails_when_engine_stopped) {
         sp->clear_all_call_backs();
     }};
 
-    auto saved = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms = 2000; // positive: would launch if not stopped.
-    Defer cfg_defer {[&] { config::query_cache_decision_sync_timeout_ms = saved; }};
-
     auto scan_ranges = make_scan_ranges(42, "100");
     auto reasons = QueryCacheRuntime::presync_cloud_delta_tablets_for_test(scan_ranges, 100);
 
@@ -480,7 +447,7 @@ TEST_F(QueryCacheTest, presync_bails_when_engine_stopped) {
     EXPECT_EQ(sync_calls.load(), 0);
 }
 
-// (finding 1) is_cloud_mode() can flip true on a live LOCAL deployment (the
+// is_cloud_mode() can flip true on a live LOCAL deployment (the
 // mutable cloud_unique_id), leaving a local StorageEngine installed. Reaching
 // the fan-out then must degrade gracefully, not abort in the hard CHECK inside
 // to_cloud(): the engine-type dynamic_cast fails, so every tablet falls back
@@ -503,11 +470,6 @@ TEST_F(QueryCacheTest, presync_falls_back_on_non_cloud_engine) {
         sp->disable_processing();
         sp->clear_all_call_backs();
     }};
-
-    auto saved = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms =
-            2000; // positive: would launch on a cloud engine.
-    Defer cfg_defer {[&] { config::query_cache_decision_sync_timeout_ms = saved; }};
 
     auto scan_ranges = make_scan_ranges(42, "100");
     auto reasons = QueryCacheRuntime::presync_cloud_delta_tablets_for_test(scan_ranges, 100);
@@ -549,10 +511,6 @@ TEST_F(QueryCacheTest, presync_falls_back_when_pool_rejects_submit) {
         sp->clear_all_call_backs();
     }};
 
-    auto saved = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms = 2000; // positive: a healthy pool would launch.
-    Defer cfg_defer {[&] { config::query_cache_decision_sync_timeout_ms = saved; }};
-
     auto scan_ranges = make_scan_ranges(42, "100");
     scan_ranges.push_back(make_scan_ranges(43, "100").front());
     auto reasons = QueryCacheRuntime::presync_cloud_delta_tablets_for_test(scan_ranges, 100);
@@ -593,14 +551,9 @@ TEST_F(QueryCacheTest, presync_over_concurrency_cap_falls_back) {
         sp->clear_all_call_backs();
     }};
 
-    auto saved_timeout = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms = 2000; // positive: a healthy pool would launch.
     auto saved_cap = config::query_cache_max_concurrent_decision_sync;
     config::query_cache_max_concurrent_decision_sync = 1;
-    Defer cfg_defer {[&] {
-        config::query_cache_decision_sync_timeout_ms = saved_timeout;
-        config::query_cache_max_concurrent_decision_sync = saved_cap;
-    }};
+    Defer cfg_defer {[&] { config::query_cache_max_concurrent_decision_sync = saved_cap; }};
 
     // Simulate the single slot already held by one parked waiter.
     QueryCacheRuntime::presync_active_waiters_for_test().store(1, std::memory_order_release);
@@ -649,15 +602,12 @@ TEST_F(QueryCacheTest, presync_cap_clamps_to_configured_light_pool_width) {
         sp->clear_all_call_backs();
     }};
 
-    auto saved_timeout = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms = 2000; // positive: a healthy pool would launch.
     auto saved_cap = config::query_cache_max_concurrent_decision_sync;
     auto saved_pool = config::brpc_light_work_pool_threads;
     // A 16-thread pool caps effective waiters at 8, below the untouched config of 32.
     config::brpc_light_work_pool_threads = 16;
     config::query_cache_max_concurrent_decision_sync = 32;
     Defer cfg_defer {[&] {
-        config::query_cache_decision_sync_timeout_ms = saved_timeout;
         config::query_cache_max_concurrent_decision_sync = saved_cap;
         config::brpc_light_work_pool_threads = saved_pool;
     }};
@@ -680,7 +630,7 @@ TEST_F(QueryCacheTest, presync_cap_clamps_to_configured_light_pool_width) {
 
 TEST_F(QueryCacheTest, presync_single_thread_light_pool_never_parks_sole_worker) {
     // A 1-thread light pool floors the width-derived cap (1/2) to 0, so NO decision-sync
-    // waiter may be admitted: parking the only worker for the timeout would starve all
+    // waiter may be admitted: parking the only worker for the whole sync would starve all
     // unrelated fragment admission. Every stale query falls back immediately, even with
     // the counter at 0. Pre-fix (max(1, width/2)) the cap was 1, so the first waiter was
     // admitted and parked the sole worker.
@@ -703,14 +653,11 @@ TEST_F(QueryCacheTest, presync_single_thread_light_pool_never_parks_sole_worker)
         sp->clear_all_call_backs();
     }};
 
-    auto saved_timeout = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms = 2000;
     auto saved_cap = config::query_cache_max_concurrent_decision_sync;
     auto saved_pool = config::brpc_light_work_pool_threads;
     config::brpc_light_work_pool_threads = 1; // width/2 floors to 0 -> admit nobody
     config::query_cache_max_concurrent_decision_sync = 32;
     Defer cfg_defer {[&] {
-        config::query_cache_decision_sync_timeout_ms = saved_timeout;
         config::query_cache_max_concurrent_decision_sync = saved_cap;
         config::brpc_light_work_pool_threads = saved_pool;
     }};
@@ -729,63 +676,6 @@ TEST_F(QueryCacheTest, presync_single_thread_light_pool_never_parks_sole_worker)
     EXPECT_EQ(sync_calls.load(), 0);
     // The rejected fetch_add was immediately backed out, so the counter is left at 0.
     EXPECT_EQ(QueryCacheRuntime::presync_active_waiters_for_test().load(), 0);
-}
-
-// The BE-side mirror of the FE incremental knob gates, applied where the
-// fragment context creates the shared runtime. A same-version FE already
-// cleared allow_incremental in these cases; the mirror exists for the
-// rolling-upgrade window where an older FE without the knob gates still
-// requests incremental while a knob is active. The truth table is the FE
-// gate's, verbatim: freshness suppresses for every table type, prefer-cached
-// only for non-merge-on-write (a MOW read is version-exact regardless of the
-// knob), no active knob suppresses nothing.
-TEST_F(QueryCacheTest, cloud_knobs_suppress_incremental_truth_table) {
-    // Freshness tolerance active: suppresses regardless of the other inputs.
-    EXPECT_TRUE(QueryCacheRuntime::cloud_knobs_suppress_incremental(true, false, false));
-    EXPECT_TRUE(QueryCacheRuntime::cloud_knobs_suppress_incremental(true, false, true));
-    EXPECT_TRUE(QueryCacheRuntime::cloud_knobs_suppress_incremental(true, true, false));
-    EXPECT_TRUE(QueryCacheRuntime::cloud_knobs_suppress_incremental(true, true, true));
-    // Prefer-cached-rowset active: suppresses only non-MOW.
-    EXPECT_TRUE(QueryCacheRuntime::cloud_knobs_suppress_incremental(false, true, false));
-    EXPECT_FALSE(QueryCacheRuntime::cloud_knobs_suppress_incremental(false, true, true));
-    // No knob active: never suppresses.
-    EXPECT_FALSE(QueryCacheRuntime::cloud_knobs_suppress_incremental(false, false, false));
-    EXPECT_FALSE(QueryCacheRuntime::cloud_knobs_suppress_incremental(false, false, true));
-}
-
-// The whole gate the fragment context applies at runtime creation, as a pure
-// function. Covers the two wrappers the truth table above does not: the
-// cloud-only guard, and that the gate only ever clears an FE request (never
-// grants one). The fragment context's own call site is trivial wiring on top of
-// this (it passes config::is_cloud_mode() and the session getters).
-TEST_F(QueryCacheTest, gate_allow_incremental_for_cloud_knobs) {
-    // Cloud + a suppressing knob (freshness) + FE requested it: cleared. This is
-    // the rolling-upgrade case an older FE without the gates produces.
-    EXPECT_FALSE(QueryCacheRuntime::gate_allow_incremental_for_cloud_knobs(
-            /*requested=*/true, /*is_mow=*/false, /*cloud=*/true, /*freshness=*/true,
-            /*prefer=*/false));
-    // Same knob, but LOCAL storage: the knobs are inert, so the gate must not
-    // fire (local incremental keeps working under an inert freshness setting).
-    EXPECT_TRUE(QueryCacheRuntime::gate_allow_incremental_for_cloud_knobs(
-            /*requested=*/true, /*is_mow=*/false, /*cloud=*/false, /*freshness=*/true,
-            /*prefer=*/false));
-    // Cloud + prefer-cached, but the index is MOW: prefer does not apply to MOW,
-    // so the request survives (the MOW read is version-exact regardless).
-    EXPECT_TRUE(QueryCacheRuntime::gate_allow_incremental_for_cloud_knobs(
-            /*requested=*/true, /*is_mow=*/true, /*cloud=*/true, /*freshness=*/false,
-            /*prefer=*/true));
-    // The gate never grants: FE did not request incremental, so a knob (or its
-    // absence) leaves it off.
-    EXPECT_FALSE(QueryCacheRuntime::gate_allow_incremental_for_cloud_knobs(
-            /*requested=*/false, /*is_mow=*/false, /*cloud=*/true, /*freshness=*/true,
-            /*prefer=*/false));
-    EXPECT_FALSE(QueryCacheRuntime::gate_allow_incremental_for_cloud_knobs(
-            /*requested=*/false, /*is_mow=*/false, /*cloud=*/true, /*freshness=*/false,
-            /*prefer=*/false));
-    // Cloud, request set, but no knob active: passes through untouched.
-    EXPECT_TRUE(QueryCacheRuntime::gate_allow_incremental_for_cloud_knobs(
-            /*requested=*/true, /*is_mow=*/false, /*cloud=*/true, /*freshness=*/false,
-            /*prefer=*/false));
 }
 
 TEST_F(QueryCacheTest, runtime_decision_force_refresh) {
@@ -1536,9 +1426,9 @@ protected:
     void TearDown() override {
         // Drain the dedicated delta-sync pool BEFORE tearing anything down: a
         // task's publish_slot reap now touches _cache->_presync_flights_lock (the
-        // round-2 tombstone reap), so a worker that resumes after _cache is freed
-        // would use-after-free the registry lock (the 200ms cushions the tests add
-        // do not guarantee a descheduled worker finished). wait() blocks while the
+        // zero-waiter tombstone reap), so a worker that resumes after _cache is
+        // freed would use-after-free the registry lock (a sleep-based cushion
+        // would not guarantee a descheduled worker finished). wait() blocks while the
         // cache, engine, and SyncPoint callbacks are all still alive; a task's
         // remaining publish_slot work triggers no SyncPoint callback, so waiting
         // with the callbacks still installed is safe. Only then clear callbacks and
@@ -1842,8 +1732,8 @@ TEST_F(QueryCacheCloudIncrementalTest, presync_tablet_load_failure_falls_back) {
     // consume that reason and fall back WITHOUT retrying the cache-miss load on
     // the admission thread: during a brownout (the one situation where this
     // load fails slowly) a capture-side retry would repeat the slow RPC on the
-    // bounded admission pool, outside the fast-fail deadline. This exercises
-    // the one pre-sync branch the other cloud tests never reach: they all load
+    // bounded admission pool. This exercises the one pre-sync branch the other
+    // cloud tests never reach: they all load
     // the tablet successfully before syncing.
     std::atomic<int> meta_loads {0};
     _sp->set_call_back("CloudMetaMgr::get_tablet_meta", [&meta_loads](auto&& args) {
@@ -1959,8 +1849,8 @@ TEST_F(QueryCacheCloudIncrementalTest, capture_site_get_tablet_is_cache_only_on_
     // With no recorded presync reason, _capture_tablet_delta's capture-site
     // get_tablet must be cache-only (force_use_only_cached=true): a miss becomes
     // an immediate fallback instead of a synchronous meta-service reload on this
-    // light admission thread (the very blocking window the presync fast-fail
-    // budget caps, which a plain reload would reopen after the fact). Both
+    // light admission thread (the very blocking window the presync exists to
+    // keep off this thread, which a plain reload would reopen after the fact). Both
     // callbacks below serve a valid tablet, so a regression to a plain get_tablet
     // would SUCCEED the reload and fail this test on the load count rather than
     // crash, keeping the revert a clean red.
@@ -2204,7 +2094,7 @@ TEST_F(QueryCacheCloudIncrementalTest, pool_rejection_skips_admission_tablet_loa
     // decision must consume the recorded "not scheduled" reason BEFORE touching
     // the tablet: the capture loop's get_tablet would otherwise take the
     // synchronous cache-miss meta-service load on the admission thread -- the
-    // blocking window the fast-fail budget exists to cap -- to fetch a tablet
+    // blocking window the presync exists to absorb -- to fetch a tablet
     // whose decision is already a known fallback. The meta-load counter proves
     // the admission path stayed load-free; a regression in the consumption
     // order shows up twice (a nonzero count, and the weaker "tablet not found"
@@ -2360,470 +2250,6 @@ TEST_F(QueryCacheCloudIncrementalTest, presync_single_flight_coalesces_and_unrel
 }
 
 TEST_F(QueryCacheCloudIncrementalTest,
-       presync_single_flight_last_leaver_keeps_tombstone_reaped_on_drain) {
-    // Two coalesced waiters expire their OWN deadlines while the shared decision
-    // sync is parked on a slow meta service. Three properties:
-    //  (1) The FIRST leaver must NOT abandon/erase -- a timed-out waiter cannot
-    //      cancel work the still-waiting sibling is entitled to.
-    //  (2) The LAST leaver, seeing the fan-out still un-drained (task parked),
-    //      marks the flight abandoned but KEEPS the registry entry as a
-    //      tombstone. Erasing on timeout would let the next identical query
-    //      become a fresh owner and submit a DUPLICATE fan-out during the very
-    //      brownout single-flight exists to smooth.
-    //  (3) The tombstone is reaped only once the fan-out DRAINS: after the parked
-    //      task returns (latch hits 0), a later identical arrival joins the
-    //      drained flight, reuses its settled slots, and erases it on leave.
-    // To observe the intermediate "first left, second still waiting" state the two
-    // waiters are given DETERMINISTIC per-runtime deadlines via the
-    // ..._presync_cloud_delta_tablets.deadline_ms test seam (below): the owner gets
-    // 2000ms, the follower 4000ms. Because the follower cannot even start until the
-    // owner's task is already parked (its sync_fanout_start is strictly later), the
-    // owner's deadline (t_owner + 2000) is ALWAYS earlier than the follower's
-    // (t_follower + 4000 >= t_owner + 4000), so the owner times out first by
-    // construction -- no wall-clock staggering, and no CI deschedule can invert the
-    // order. The 2000ms owner deadline also gives the follower the suite's standard
-    // 2000ms of scheduling headroom to REGISTER while the owner is still waiting
-    // (the two-waiter overlap the intermediate assertions observe) -- the same
-    // headroom every other parked-coalescing test gets from the 2000ms default
-    // timeout, so this test is not the flakiest link. (The prior versions staggered
-    // starts by a fixed 500ms sleep, then used 500/1000ms deadlines whose 500ms
-    // registration window was tighter than the suite convention.)
-    int32_t saved_timeout = config::query_cache_decision_sync_timeout_ms;
-    // Kept > 0 so the early enable check passes; the per-runtime seam overrides the
-    // actual deadline for both waiters, so this nominal value is otherwise unused here.
-    config::query_cache_decision_sync_timeout_ms = 2000;
-    Defer restore_timeout {[&] { config::query_cache_decision_sync_timeout_ms = saved_timeout; }};
-
-    _sp->set_call_back("CloudMetaMgr::get_tablet_meta", [](auto&& args) {
-        TTabletSchema schema;
-        schema.keys_type = TKeysType::DUP_KEYS;
-        auto meta = std::make_shared<TabletMeta>(1, 2, kTabletId, 15674, 4, 5, schema, 6,
-                                                 std::unordered_map<uint32_t, uint32_t> {{7, 8}},
-                                                 UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                 TCompressionType::LZ4F, 0, false);
-        meta->set_tablet_state(TABLET_RUNNING);
-        *try_any_cast<TabletMetaSharedPtr*>(args[1]) = std::move(meta);
-        try_any_cast_ret<Status>(args)->second = true;
-    });
-    std::mutex mu;
-    std::atomic<int> syncs {0};
-    std::atomic<bool> gate_open {false};
-    std::atomic<bool> gated_sync_parked {false};
-    std::atomic<bool> gated_sync_returned {false};
-    _sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& args) {
-        auto* tablet = try_any_cast<CloudTablet*>(args[0]);
-        auto* ret = try_any_cast_ret<Status>(args);
-        ret->second = true;
-        if (syncs.fetch_add(1) == 0) {
-            std::lock_guard<std::mutex> lk(mu);
-            install_rowsets(tablet, {{0, 50}});
-            return;
-        }
-        gated_sync_parked = true;
-        while (!gate_open.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        // On release the parked decision sync completes the view to the queried
-        // version, so the later reaping arrival can go INCREMENTAL off the
-        // settled slot -- proving the reuse path, not just the erase.
-        {
-            std::lock_guard<std::mutex> lk(mu);
-            install_rowsets(tablet, {{51, 100}});
-        }
-        gated_sync_returned = true;
-    });
-
-    auto ranges = make_scan_ranges(kTabletId, "100");
-    auto param = make_cache_param(kTabletId);
-    param.__set_allow_incremental(true);
-    std::string key;
-    int64_t version = 0;
-    EXPECT_TRUE(QueryCache::build_cache_key(ranges, param, &key, &version).ok());
-    insert_entry(_cache.get(), key, 50, 0);
-    QueryCacheRuntime runtime_a(param, _cache.get());
-    QueryCacheRuntime runtime_b(param, _cache.get());
-
-    // Deterministic deadlines by coalescing role: the flight owner gets 2000ms and a
-    // joining follower 4000ms, so the owner times out first by construction (see the
-    // header comment), independent of scheduling jitter. runtime_a starts first and
-    // owns the flight; runtime_b joins it.
-    _sp->set_call_back("QueryCacheRuntime::_presync_cloud_delta_tablets.deadline_ms",
-                       [](auto&& args) {
-                           bool is_owner = try_any_cast<bool>(args[0]);
-                           *try_any_cast<int64_t*>(args[1]) = is_owner ? 2000 : 4000;
-                       });
-
-    std::atomic<bool> follower_joined {false};
-    _sp->set_call_back("QueryCacheRuntime::_presync_cloud_delta_tablets.follower_joined",
-                       [&](auto&&) { follower_joined = true; });
-
-    std::shared_ptr<QueryCacheInstanceDecision> d1;
-    std::shared_ptr<QueryCacheInstanceDecision> d2;
-    std::thread t1;
-    std::thread t2;
-    // A fatal ASSERT below returns while a spawned thread is still joinable; its
-    // std::thread destructor would std::terminate the whole UT binary and mask
-    // the real failure. Open the gate (so the parked worker can finish) and join
-    // both on every exit, mirroring race_two_callers.
-    Defer thread_guard {[&] {
-        gate_open = true;
-        if (t1.joinable()) {
-            t1.join();
-        }
-        if (t2.joinable()) {
-            t2.join();
-        }
-    }};
-
-    t1 = std::thread([&] { d1 = runtime_a.get_or_make_decision(ranges); });
-    for (int i = 0; i < 10000 && !gated_sync_parked.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(gated_sync_parked.load());
-
-    // The follower can start as soon as the owner's task has parked: its longer
-    // per-runtime deadline (4000ms vs the owner's 2000ms) guarantees the owner times
-    // out first regardless of when exactly the follower joins, so no start stagger.
-    t2 = std::thread([&] { d2 = runtime_b.get_or_make_decision(ranges); });
-    for (int i = 0; i < 10000 && !follower_joined.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(follower_joined.load());
-
-    // Capture the shared flight while both wait: present, two waiters, not abandoned.
-    std::shared_ptr<QueryCache::PresyncFlight> flight;
-    {
-        std::lock_guard<std::mutex> lk(_cache->_presync_flights_lock);
-        ASSERT_EQ(_cache->_presync_flights.size(), 1);
-        flight = _cache->_presync_flights.begin()->second;
-        EXPECT_EQ(flight->waiters, 2);
-    }
-    EXPECT_FALSE(flight->abandoned->load());
-
-    // The owner times out first (it started ~500ms earlier). As the FIRST leaver
-    // it must NOT abandon or erase: exactly one waiter left, entry still
-    // registered, flag still clear.
-    t1.join();
-    EXPECT_EQ(d1->mode, QueryCacheInstanceDecision::Mode::MISS);
-    EXPECT_EQ(d1->incremental_fallback_reason, "cloud rowset sync timed out");
-    {
-        std::lock_guard<std::mutex> lk(_cache->_presync_flights_lock);
-        EXPECT_EQ(_cache->_presync_flights.size(), 1);
-        EXPECT_EQ(flight->waiters, 1);
-    }
-    EXPECT_FALSE(flight->abandoned->load());
-
-    // The follower times out next. As the LAST leaver, with the fan-out still
-    // parked (un-drained), it marks the flight abandoned but KEEPS the tombstone
-    // -- it is NOT erased on timeout (that is the codex-flagged premature-erase
-    // regression this design fixes).
-    t2.join();
-    EXPECT_EQ(d2->mode, QueryCacheInstanceDecision::Mode::MISS);
-    EXPECT_EQ(d2->incremental_fallback_reason, "cloud rowset sync timed out");
-    EXPECT_TRUE(flight->abandoned->load());
-    {
-        std::lock_guard<std::mutex> lk(_cache->_presync_flights_lock);
-        ASSERT_EQ(_cache->_presync_flights.size(), 1);
-        EXPECT_EQ(_cache->_presync_flights.begin()->second, flight);
-        EXPECT_EQ(flight->waiters, 0);
-    }
-
-    // Release the parked task and let it fully return. As it drives the latch to 0
-    // with ZERO waiters remaining (both timed out into the tombstone above), the
-    // FINAL task reaps the tombstone itself in publish_slot -- no later arrival is
-    // needed (the round-2 reap-by-final-task fix; the round-1 code left this
-    // waiterless tombstone stranded). NOTE: an identical arrival here would NOT
-    // join and reuse the slot -- it would find the registry already reaped by the
-    // final task and re-own, so the two-waiter tombstone's final-task reap is what
-    // this phase proves (join-not-reown is proved by
-    // presync_single_flight_post_timeout_arrival_joins_not_reowns).
-    gate_open = true;
-    for (int i = 0; i < 10000 && !gated_sync_returned.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(gated_sync_returned.load());
-    bool reaped = false;
-    for (int i = 0; i < 10000; ++i) {
-        {
-            std::lock_guard<std::mutex> lk(_cache->_presync_flights_lock);
-            if (_cache->_presync_flights.empty()) {
-                reaped = true;
-                break;
-            }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    EXPECT_TRUE(reaped) << "the final task must reap the waiterless tombstone on drain";
-    EXPECT_EQ(flight->fanout_done->count(), 0u);
-    // The parked task published exactly once (loader + the single decision sync);
-    // no leaver re-submitted a duplicate fan-out.
-    EXPECT_EQ(syncs.load(), 2);
-    // Deterministically drain the callback shell's unwind after its last store, mirroring
-    // decision_sync_timeout_falls_back, before TearDown clears the sync points: pool.wait()
-    // hard-synchronizes the task's exit instead of betting a fixed sleep outlasts it.
-    _engine->query_cache_delta_sync_pool().wait();
-}
-
-TEST_F(QueryCacheCloudIncrementalTest,
-       presync_single_flight_post_timeout_arrival_joins_not_reowns) {
-    // The codex-flagged brownout regression, directly: after every original
-    // waiter times out on a parked (still-running) fan-out, a NEW identical query
-    // must JOIN that draining flight, NOT become a fresh owner and submit a
-    // DUPLICATE fan-out (which would double the bounded-pool pressure wave after
-    // wave during a sustained meta-service brownout). The owner times out while
-    // its single decision sync is parked, leaving an abandoned-but-kept tombstone;
-    // a second runtime then arrives, joins, and adds NO sync of its own -- proven
-    // by the sync-call count staying at loader + the one parked decision sync.
-    int32_t saved_timeout = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms = 500;
-    Defer restore_timeout {[&] { config::query_cache_decision_sync_timeout_ms = saved_timeout; }};
-
-    _sp->set_call_back("CloudMetaMgr::get_tablet_meta", [](auto&& args) {
-        TTabletSchema schema;
-        schema.keys_type = TKeysType::DUP_KEYS;
-        auto meta = std::make_shared<TabletMeta>(1, 2, kTabletId, 15674, 4, 5, schema, 6,
-                                                 std::unordered_map<uint32_t, uint32_t> {{7, 8}},
-                                                 UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                 TCompressionType::LZ4F, 0, false);
-        meta->set_tablet_state(TABLET_RUNNING);
-        *try_any_cast<TabletMetaSharedPtr*>(args[1]) = std::move(meta);
-        try_any_cast_ret<Status>(args)->second = true;
-    });
-    std::mutex mu;
-    std::atomic<int> syncs {0};
-    std::atomic<bool> gate_open {false};
-    std::atomic<bool> gated_sync_parked {false};
-    std::atomic<bool> gated_sync_returned {false};
-    _sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& args) {
-        auto* tablet = try_any_cast<CloudTablet*>(args[0]);
-        auto* ret = try_any_cast_ret<Status>(args);
-        ret->second = true;
-        if (syncs.fetch_add(1) == 0) {
-            std::lock_guard<std::mutex> lk(mu);
-            install_rowsets(tablet, {{0, 50}});
-            return;
-        }
-        gated_sync_parked = true;
-        while (!gate_open.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        {
-            std::lock_guard<std::mutex> lk(mu);
-            install_rowsets(tablet, {{51, 100}});
-        }
-        gated_sync_returned = true;
-    });
-
-    auto ranges = make_scan_ranges(kTabletId, "100");
-    auto param = make_cache_param(kTabletId);
-    param.__set_allow_incremental(true);
-    std::string key;
-    int64_t version = 0;
-    EXPECT_TRUE(QueryCache::build_cache_key(ranges, param, &key, &version).ok());
-    insert_entry(_cache.get(), key, 50, 0);
-    QueryCacheRuntime runtime_owner(param, _cache.get());
-    QueryCacheRuntime runtime_late(param, _cache.get());
-
-    std::atomic<bool> late_joined {false};
-    _sp->set_call_back("QueryCacheRuntime::_presync_cloud_delta_tablets.follower_joined",
-                       [&](auto&&) { late_joined = true; });
-
-    std::shared_ptr<QueryCacheInstanceDecision> d_owner;
-    std::shared_ptr<QueryCacheInstanceDecision> d_late;
-    std::thread t_owner;
-    std::thread t_late;
-    Defer thread_guard {[&] {
-        gate_open = true;
-        if (t_owner.joinable()) {
-            t_owner.join();
-        }
-        if (t_late.joinable()) {
-            t_late.join();
-        }
-    }};
-
-    t_owner = std::thread([&] { d_owner = runtime_owner.get_or_make_decision(ranges); });
-    for (int i = 0; i < 10000 && !gated_sync_parked.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(gated_sync_parked.load());
-
-    // The owner times out while the decision sync is still parked, leaving an
-    // abandoned tombstone (the fan-out is un-drained, so it is NOT erased).
-    t_owner.join();
-    EXPECT_EQ(d_owner->mode, QueryCacheInstanceDecision::Mode::MISS);
-    EXPECT_EQ(d_owner->incremental_fallback_reason, "cloud rowset sync timed out");
-    {
-        std::lock_guard<std::mutex> lk(_cache->_presync_flights_lock);
-        ASSERT_EQ(_cache->_presync_flights.size(), 1);
-        EXPECT_TRUE(_cache->_presync_flights.begin()->second->abandoned->load());
-    }
-
-    // A NEW identical query arrives while the fan-out is still parked. It must
-    // JOIN the tombstone (witnessed by the follower_joined sync point), not
-    // re-own and submit a second fan-out.
-    t_late = std::thread([&] { d_late = runtime_late.get_or_make_decision(ranges); });
-    for (int i = 0; i < 10000 && !late_joined.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(late_joined.load());
-
-    // Release the parked task; the late arrival (waiting on the shared latch)
-    // wakes, reuses the completed view, goes INCREMENTAL, and reaps the flight.
-    gate_open = true;
-    t_late.join();
-    EXPECT_EQ(d_late->mode, QueryCacheInstanceDecision::Mode::INCREMENTAL);
-    // The crux: exactly ONE fan-out ran (loader + the single parked decision
-    // sync). The late arrival added no sync -- it joined instead of re-owning.
-    EXPECT_EQ(syncs.load(), 2);
-    {
-        std::lock_guard<std::mutex> lk(_cache->_presync_flights_lock);
-        EXPECT_TRUE(_cache->_presync_flights.empty());
-    }
-    for (int i = 0; i < 10000 && !gated_sync_returned.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(gated_sync_returned.load());
-    // Drain the task's tail after its last store deterministically (pool.wait() hard-
-    // synchronizes the callback shell's exit) before TearDown clears the sync points.
-    _engine->query_cache_delta_sync_pool().wait();
-}
-
-TEST_F(QueryCacheCloudIncrementalTest,
-       presync_single_flight_tombstone_reaped_on_drain_without_arrival) {
-    // The round-2 tombstone-leak fix: a flight whose sole/last waiter times out
-    // while a task is still parked is KEPT as a tombstone, but once the fan-out
-    // DRAINS it must be reaped by the FINAL task itself, even if NO later
-    // identical query ever arrives to join and reap it. Without this the entry
-    // leaks for the BE lifetime on exactly the brownout path the feature targets.
-    // A single owner times out; the parked task is then released and drains the
-    // latch with ZERO waiters; the registry must end empty with no reaping
-    // arrival. (Pre-fix -- reap only in leave_flight -- this asserts a permanent
-    // leak: the final _presync_flights.empty() never holds.)
-    int32_t saved_timeout = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms = 500;
-    Defer restore_timeout {[&] { config::query_cache_decision_sync_timeout_ms = saved_timeout; }};
-
-    _sp->set_call_back("CloudMetaMgr::get_tablet_meta", [](auto&& args) {
-        TTabletSchema schema;
-        schema.keys_type = TKeysType::DUP_KEYS;
-        auto meta = std::make_shared<TabletMeta>(1, 2, kTabletId, 15674, 4, 5, schema, 6,
-                                                 std::unordered_map<uint32_t, uint32_t> {{7, 8}},
-                                                 UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                 TCompressionType::LZ4F, 0, false);
-        meta->set_tablet_state(TABLET_RUNNING);
-        *try_any_cast<TabletMetaSharedPtr*>(args[1]) = std::move(meta);
-        try_any_cast_ret<Status>(args)->second = true;
-    });
-    std::mutex mu;
-    std::atomic<int> syncs {0};
-    std::atomic<bool> gate_open {false};
-    std::atomic<bool> gated_sync_parked {false};
-    std::atomic<bool> gated_sync_returned {false};
-    _sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& args) {
-        auto* tablet = try_any_cast<CloudTablet*>(args[0]);
-        auto* ret = try_any_cast_ret<Status>(args);
-        ret->second = true;
-        if (syncs.fetch_add(1) == 0) {
-            std::lock_guard<std::mutex> lk(mu);
-            install_rowsets(tablet, {{0, 50}});
-            return;
-        }
-        gated_sync_parked = true;
-        while (!gate_open.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        gated_sync_returned = true;
-    });
-
-    auto ranges = make_scan_ranges(kTabletId, "100");
-    auto param = make_cache_param(kTabletId);
-    param.__set_allow_incremental(true);
-    std::string key;
-    int64_t version = 0;
-    EXPECT_TRUE(QueryCache::build_cache_key(ranges, param, &key, &version).ok());
-    insert_entry(_cache.get(), key, 50, 0);
-    // Baseline the query-cache MemTracker AFTER the cache entry is in (that charge is
-    // a constant offset for the rest of the test). make_flight charges the whole
-    // flight's estimated retained bytes (object + the per_range_reason / tablet_ids /
-    // slot_counted O(tablets) buffers + control blocks + key) to this SAME stable
-    // limiter as ONE lump, and ~PresyncFlight releases exactly that lump, so
-    // consumption must rise while the flight is live and return to EXACTLY this baseline
-    // once the flight is reaped and destroyed -- the balance that proves the charge is
-    // stable and fully refunded. The byte-exact EQ below also
-    // depends on this fixture keeping the query-cache tracker otherwise quiescent
-    // between baseline and assertion (one tiny cache entry, no eviction, no second
-    // flight); do not add cache traffic in between without switching to a tolerance
-    // band.
-    const int64_t qc_mem_baseline =
-            ExecEnv::GetInstance()->query_cache_mem_tracker()->consumption();
-    QueryCacheRuntime runtime_owner(param, _cache.get());
-
-    std::shared_ptr<QueryCacheInstanceDecision> d;
-    std::thread t;
-    Defer thread_guard {[&] {
-        gate_open = true;
-        if (t.joinable()) {
-            t.join();
-        }
-    }};
-
-    t = std::thread([&] { d = runtime_owner.get_or_make_decision(ranges); });
-    for (int i = 0; i < 10000 && !gated_sync_parked.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(gated_sync_parked.load());
-
-    // The owner times out while its task is parked, leaving an abandoned tombstone
-    // with zero waiters and the fan-out not yet drained.
-    t.join();
-    EXPECT_EQ(d->mode, QueryCacheInstanceDecision::Mode::MISS);
-    EXPECT_EQ(d->incremental_fallback_reason, "cloud rowset sync timed out");
-    std::shared_ptr<QueryCache::PresyncFlight> flight;
-    {
-        std::lock_guard<std::mutex> lk(_cache->_presync_flights_lock);
-        ASSERT_EQ(_cache->_presync_flights.size(), 1);
-        flight = _cache->_presync_flights.begin()->second;
-        EXPECT_EQ(flight->waiters, 0);
-    }
-    EXPECT_TRUE(flight->abandoned->load());
-    // The live flight's buffers are charged to the stable query-cache MemTracker.
-    EXPECT_GT(ExecEnv::GetInstance()->query_cache_mem_tracker()->consumption(), qc_mem_baseline)
-            << "the live flight's buffers must be charged to the query-cache MemTracker";
-
-    // Release the parked task; with zero waiters, the FINAL task reaps the
-    // tombstone itself -- no later identical query is ever issued.
-    gate_open = true;
-    for (int i = 0; i < 10000 && !gated_sync_returned.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(gated_sync_returned.load());
-    bool reaped = false;
-    for (int i = 0; i < 10000; ++i) {
-        {
-            std::lock_guard<std::mutex> lk(_cache->_presync_flights_lock);
-            if (_cache->_presync_flights.empty()) {
-                reaped = true;
-                break;
-            }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    EXPECT_TRUE(reaped) << "the final task must reap the drained tombstone with no arrival";
-    // Drain the pool so the parked task's closure (a holder of the flight's shared
-    // pieces) is destroyed, then drop the test's own captured reference. With the
-    // registry entry reaped and no waiters, the flight and all its buffers are now
-    // freed, so the query-cache MemTracker must return to EXACTLY the pre-flight
-    // baseline -- proving the O(tablets) buffers were charged to the stable limiter
-    // and fully released on reap (no leak, no over-release). This also removes the
-    // former unwind cushion: pool.wait() hard-synchronizes the callback shell's exit.
-    _engine->query_cache_delta_sync_pool().wait();
-    flight.reset();
-    EXPECT_EQ(ExecEnv::GetInstance()->query_cache_mem_tracker()->consumption(), qc_mem_baseline)
-            << "reaping the flight must release its charge back to the query-cache MemTracker";
-}
-
-TEST_F(QueryCacheCloudIncrementalTest,
        presync_single_flight_reversed_order_maps_reasons_by_tablet) {
     // The single-flight coalescing hazard the shared slots must survive:
     // build_cache_key sorts tablet ids, so two runtimes whose scan ranges hold
@@ -2832,8 +2258,8 @@ TEST_F(QueryCacheCloudIncrementalTest,
     // that keyed the merged reasons off its OWN (reversed) order would misassign
     // the failed tablet's reason to its sibling, leave the truly failed tablet
     // unreasoned, and so drive a synchronous admission-thread get_tablet for it
-    // outside the fast-fail budget -- the exact brownout stall the presync
-    // exists to avoid. With the reasons keyed off the owner's tablet ids, the
+    // in the decision path -- the exact brownout stall the presync exists to
+    // avoid. With the reasons keyed off the owner's tablet ids, the
     // follower must reach the SAME decision as the owner: MISS, keyed to the
     // failed tablet. (Pre-fix this test fails: the follower's fallback reason is
     // a capture-side one for the sibling, not the owner's sync-failure reason.)
@@ -3075,96 +2501,6 @@ TEST_F(QueryCacheCloudIncrementalTest, presync_single_flight_coalesces_mow_table
         std::lock_guard<std::mutex> lk(_cache->_presync_flights_lock);
         EXPECT_TRUE(_cache->_presync_flights.empty());
     }
-}
-
-TEST_F(QueryCacheCloudIncrementalTest, decision_sync_timeout_falls_back) {
-    // A meta-service brownout: the decision's rowset sync stalls past the
-    // fast-fail budget (query_cache_decision_sync_timeout_ms). The decision must
-    // abandon the wait and fall the query back to a full recompute rather than
-    // hold its (bounded) admission thread for the RPC retry budget. Made
-    // deterministic with a gate that keeps the decision sync blocked until AFTER
-    // the assertion, so the decision's wait_for is guaranteed to expire first;
-    // the test then releases it and waits for the detached sync to fully exit
-    // its callback before teardown, so the callback never runs after the fixture
-    // (and the std::function it runs in) is torn down.
-    int32_t saved_timeout = config::query_cache_decision_sync_timeout_ms;
-    config::query_cache_decision_sync_timeout_ms = 50;
-    Defer restore_timeout {[&] { config::query_cache_decision_sync_timeout_ms = saved_timeout; }};
-
-    std::atomic<bool> release_gate {false};
-    std::atomic<bool> decision_sync_returned {false};
-    _sp->set_call_back("CloudMetaMgr::get_tablet_meta", [](auto&& args) {
-        TTabletSchema schema;
-        schema.keys_type = TKeysType::DUP_KEYS;
-        auto meta = std::make_shared<TabletMeta>(1, 2, kTabletId, 15674, 4, 5, schema, 6,
-                                                 std::unordered_map<uint32_t, uint32_t> {{7, 8}},
-                                                 UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                 TCompressionType::LZ4F, 0, false);
-        meta->set_tablet_state(TABLET_RUNNING);
-        *try_any_cast<TabletMetaSharedPtr*>(args[1]) = std::move(meta);
-        try_any_cast_ret<Status>(args)->second = true;
-    });
-    _sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
-                       [this, &release_gate, &decision_sync_returned](auto&& args) {
-                           auto* tablet = try_any_cast<CloudTablet*>(args[0]);
-                           auto* ret = try_any_cast_ret<Status>(args);
-                           ret->second = true;
-                           if (_sync_calls.fetch_add(1) == 0) {
-                               // Loader sync: install a view that does NOT cover
-                               // query 100, so the decision sync really runs.
-                               install_rowsets(tablet, {{0, 50}});
-                               return;
-                           }
-                           // The decision's sync stalls until the test releases
-                           // the gate (after it has asserted the fast-fail).
-                           while (!release_gate.load()) {
-                               std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                           }
-                           // Last statement: signals the callback body is done,
-                           // so the test can wait for it before teardown.
-                           decision_sync_returned = true;
-                       });
-
-    int64_t fallbacks_before =
-            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
-    int64_t decision_sync_ms_before =
-            DorisMetrics::instance()->query_cache_decision_sync_time_ms->value();
-    auto decision = make_stale_decision();
-    EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
-    EXPECT_EQ(decision->incremental_fallback_reason, "cloud rowset sync timed out");
-    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
-              fallbacks_before + 1);
-    // The timeout path still records the wall time it blocked before giving up
-    // (steady_clock taken before the fan-out, read again after wait_for expires),
-    // so the sync-time counter advances by at least the budget. This is the one
-    // test that proves the metric is wired on the fast-fail path; wait_for is
-    // guaranteed not to return before its duration elapses, so >= budget is not
-    // a timing bet.
-    EXPECT_GE(DorisMetrics::instance()->query_cache_decision_sync_time_ms->value() -
-                      decision_sync_ms_before,
-              config::query_cache_decision_sync_timeout_ms);
-
-    // Release the stalled sync and wait for its callback to fully exit before
-    // teardown clears the sync points (destroying the callback while it runs is
-    // UB). The detached fan-out task reaches its decision sync eventually even
-    // on a slow host, so this converges.
-    release_gate = true;
-    for (int i = 0; i < 2000 && !decision_sync_returned.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(decision_sync_returned.load());
-    // Both syncs ran once the fan-out joined: the loader and the (stalled)
-    // decision sync. The decision just did not wait for the second to finish.
-    EXPECT_EQ(_sync_calls.load(), 2);
-    // The decision deliberately abandons its fan-out future, so there is no
-    // handle to join the detached sync on. This margin covers the microsecond
-    // stack unwind of the callback and its SyncPoint shell after the last store
-    // above, plus the task's tail (releasing a non-last CloudTablet ref -- the
-    // tablet cache still holds one, so nothing is destroyed here -- and the
-    // fork-join bookkeeping). Drain it deterministically with pool.wait(), which hard-
-    // synchronizes the callback shell's exit, rather than betting a fixed sleep outlasts
-    // that tail before TearDown clears the sync points.
-    _engine->query_cache_delta_sync_pool().wait();
 }
 
 } // namespace doris
