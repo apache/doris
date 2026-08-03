@@ -25,8 +25,8 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.catalog.CloudColocatePlacement;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
@@ -101,8 +101,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     // clusterName -> clusterId
     protected Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
 
-    // clusterId -> ComputeGroup
-    protected Map<String, ComputeGroup> computeGroupIdToComputeGroup = new ConcurrentHashMap<>();
+    // clusterId -> CloudComputeGroupMeta
+    protected Map<String, CloudComputeGroupMeta> computeGroupIdToComputeGroup = new ConcurrentHashMap<>();
 
     private final Map<ColocatePlacementKey, ColocatePlacementCache> colocatePlacementCache =
             new ConcurrentHashMap<>();
@@ -262,7 +262,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         clusterNameToId.remove(oldClusterName);
     }
 
-    public ComputeGroup getComputeGroupByName(String computeGroupName) {
+    public CloudComputeGroupMeta getComputeGroupByName(String computeGroupName) {
         // rlock guards the compound name->id->group lookup: writers (add/remove/rename)
         // update both maps under wlock, and the read must observe a consistent snapshot
         // so callers like getPhysicalCluster don't transiently see a virtual group name
@@ -357,7 +357,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         return getCloudClusterIdByName(cluster);
     }
 
-    public ComputeGroup getComputeGroupById(String computeGroupId) {
+    public CloudComputeGroupMeta getComputeGroupById(String computeGroupId) {
         try {
             rlock.lock();
             return computeGroupIdToComputeGroup.get(computeGroupId);
@@ -366,7 +366,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public void addComputeGroup(String computeGroupId, ComputeGroup computeGroup) {
+    public void addComputeGroup(String computeGroupId, CloudComputeGroupMeta computeGroup) {
         LOG.debug("add id {} computeGroupIdToComputeGroup : {} ", computeGroupId, computeGroupIdToComputeGroup);
         try {
             wlock.lock();
@@ -378,8 +378,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public boolean isStandByComputeGroup(String clusterName) {
-        List<ComputeGroup> virtualGroups = getComputeGroups(true);
-        for (ComputeGroup vcg : virtualGroups) {
+        List<CloudComputeGroupMeta> virtualGroups = getComputeGroups(true);
+        for (CloudComputeGroupMeta vcg : virtualGroups) {
             if (vcg.getPolicy().getStandbyComputeGroup().equals(clusterName)) {
                 return true;
             }
@@ -387,7 +387,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         return false;
     }
 
-    public List<ComputeGroup> getComputeGroups(boolean virtual) {
+    public List<CloudComputeGroupMeta> getComputeGroups(boolean virtual) {
         LOG.debug("get virtual {} computeGroupIdToComputeGroup : {} ", virtual, computeGroupIdToComputeGroup);
         try {
             rlock.lock();
@@ -406,7 +406,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     public String ownedByVirtualComputeGroup(String computeGroupName) {
         try {
             rlock.lock();
-            for (ComputeGroup vcg : getComputeGroups(true)) {
+            for (CloudComputeGroupMeta vcg : getComputeGroups(true)) {
                 if (computeGroupName.equals(vcg.getPolicy().getActiveComputeGroup())) {
                     return vcg.getName();
                 }
@@ -435,7 +435,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public void renameVirtualComputeGroup(String computeGroupId, String oldComputeGroupName,
-                                          ComputeGroup newComputeGroup) {
+                                          CloudComputeGroupMeta newComputeGroup) {
         try {
             wlock.lock();
             computeGroupIdToComputeGroup.put(computeGroupId, newComputeGroup);
@@ -589,7 +589,8 @@ public class CloudSystemInfoService extends SystemInfoService {
 
             clusterNameToId.put(clusterName, clusterId);
             // add to computeGroupIdToComputeGroup
-            ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+            CloudComputeGroupMeta cg = new CloudComputeGroupMeta(
+                    clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
             addComputeGroup(clusterId, cg);
 
             List<Backend> be = clusterIdToBackend.get(clusterId);
@@ -687,7 +688,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public static boolean updateFileCacheJobIds(ComputeGroup cg, List<String> jobIds) {
+    public static boolean updateFileCacheJobIds(CloudComputeGroupMeta cg, List<String> jobIds) {
         Cloud.ClusterPolicy policy = Cloud.ClusterPolicy.newBuilder()
                 .setType(Cloud.ClusterPolicy.PolicyType.ActiveStandby)
                 .addAllCacheWarmupJobids(jobIds).build();
@@ -732,7 +733,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
     */
 
-    private void switchActiveStandby(ComputeGroup cg, String active, String standby) {
+    private void switchActiveStandby(CloudComputeGroupMeta cg, String active, String standby) {
         Cloud.ClusterPolicy policy = cg.getPolicy().toPb().toBuilder()
                 .clearStandbyClusterNames()
                 .addStandbyClusterNames(active)
@@ -1075,7 +1076,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public String getPhysicalCluster(String clusterName) {
-        ComputeGroup cg = getComputeGroupByName(clusterName);
+        CloudComputeGroupMeta cg = getComputeGroupByName(clusterName);
         if (cg == null) {
             return clusterName;
         }
@@ -1084,11 +1085,11 @@ public class CloudSystemInfoService extends SystemInfoService {
             return clusterName;
         }
 
-        ComputeGroup.Policy policy = cg.getPolicy();
+        CloudComputeGroupMeta.Policy policy = cg.getPolicy();
         // todo check policy
         String acgName = policy.getActiveComputeGroup();
         if (acgName != null) {
-            ComputeGroup acg = getComputeGroupByName(acgName);
+            CloudComputeGroupMeta acg = getComputeGroupByName(acgName);
             if (acg != null) {
                 if (isComputeGroupAvailable(acgName, policy.getUnhealthyNodeThresholdPercent())) {
                     acg.setUnavailableSince(-1);
@@ -1104,11 +1105,11 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         String scgName = policy.getStandbyComputeGroup();
         if (scgName != null) {
-            ComputeGroup scg = getComputeGroupByName(scgName);
+            CloudComputeGroupMeta scg = getComputeGroupByName(scgName);
             if (scg != null) {
                 if (isComputeGroupAvailable(scgName, policy.getUnhealthyNodeThresholdPercent())) {
                     scg.setUnavailableSince(-1);
-                    ComputeGroup acg = getComputeGroupByName(acgName);
+                    CloudComputeGroupMeta acg = getComputeGroupByName(acgName);
                     if (acg == null || System.currentTimeMillis() - acg.getUnavailableSince()
                             > policy.getFailoverFailureThreshold() * Config.heartbeat_interval_second * 1000) {
                         switchActiveStandby(cg, acgName, scgName);
@@ -1393,7 +1394,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                             clusterId, computeGroupIdToComputeGroup);
                     continue;
                 }
-                ComputeGroup computeGroup = computeGroupIdToComputeGroup.get(clusterId);
+                CloudComputeGroupMeta computeGroup = computeGroupIdToComputeGroup.get(clusterId);
                 if (!needVirtual && computeGroup.isVirtual()) {
                     continue;
                 }
@@ -1436,7 +1437,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         try {
             for (Map.Entry<String, String> nameAndId : clusterNameToId.entrySet()) {
                 String clusterId = nameAndId.getValue();
-                ComputeGroup computeGroup = computeGroupIdToComputeGroup.get(clusterId);
+                CloudComputeGroupMeta computeGroup = computeGroupIdToComputeGroup.get(clusterId);
                 if (computeGroup == null) {
                     LOG.warn("cant find clusterId {} in computeGroupIdToComputeGroup {}",
                             clusterId, computeGroupIdToComputeGroup);
