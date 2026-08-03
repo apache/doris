@@ -895,7 +895,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         //      the ids through a Set and re-emit them in TABLE-schema order (TypeUtil.project), breaking that
         //      contract; scan.project(orderedSchema) preserves the requested order, so we build the schema by
         //      hand from the requested columns.
-        List<String> projectedColumns = requestedLowerNames(columns);
+        List<String> projectedColumns = requestedColumnNames(columns);
         if (!projectedColumns.isEmpty()) {
             Schema metadataSchema = metadataTable.schema();
             List<NestedField> projectedFields = new ArrayList<>(projectedColumns.size());
@@ -1143,7 +1143,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /** Whether the query projects the {@code partition} column (legacy read the tuple's slots). */
     private static boolean isPositionDeletesPartitionColumnRequested(List<ConnectorColumnHandle> columns) {
-        return requestedLowerNames(columns).stream().anyMatch("partition"::equalsIgnoreCase);
+        return requestedColumnNames(columns).stream().anyMatch("partition"::equalsIgnoreCase);
     }
 
     /**
@@ -1600,7 +1600,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * <ul>
      *   <li>{@code file_format_type=jni} — makes the parent default the per-range format to {@code FORMAT_JNI},
      *       which each native range overrides to parquet/orc in {@code populateRangeParams} (mirrors paimon).</li>
-     *   <li>{@code path_partition_keys} — the lowercased, comma-joined identity partition columns, so FE marks
+     *   <li>{@code path_partition_keys} — the case-preserved, comma-joined identity partition columns, so FE marks
      *       those slots as partition columns and excludes them from the file-decode set; without it BE
      *       double-fills the partition columns (decode-from-file AND append-from-path) and DCHECKs (CI #968880).
      *       Emitted only when the table is partitioned (an empty value would split into a single "" key).</li>
@@ -1718,17 +1718,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // pruned-by-requested-columns dict (CI #969249).
         //
         // Row-lineage (format-version >= 3): _row_id / _last_updated_sequence_number are GENERATED BE scan slots
-        // (they reach BE column_names) but are NOT in schema.columns(), so requestedLowerNames — keyed off the
+        // (they reach BE column_names) but are NOT in schema.columns(), so requestedColumnNames — keyed off the
         // iceberg column handles — never carries them. encodeSchemaEvolutionProp(appendRowLineage=true) appends
         // them to the dict root so BE's StructNode children map contains them; else the ParquetReader's
         // unconditional children.at("_row_id") std::out_of_range-SIGABRTs the whole BE.
         //
         // Partition evolution (#65870) needs NO further widening here: a column that a newer spec turns into an
-        // identity partition column — and that older files may still store physically — is declared in
-        // path_partition_keys (unioned over ALL specs, see IcebergPartitionUtils.getIdentityPartitionColumns), so
-        // FileQueryScanNode.classifyColumn categorizes it PARTITION_KEY, i.e. a NON-file slot filled from
-        // columns_from_path. BE resolves through this dict only the slots it decodes FROM the file, so such a
-        // column is never looked up in it whether or not the query projects it.
+        // identity partition column is declared in path_partition_keys (unioned over ALL specs, see
+        // IcebergPartitionUtils.getIdentityPartitionColumns). BE still resolves that slot through this dict to
+        // decide whether an older file stores it physically or columns_from_path should fill it, so the dict name
+        // must byte-match the case-preserved slot. Both the requested-column path and the full-schema paths below
+        // now preserve that top-level case.
         boolean enableVarbinary = catalogProps.isEnableMappingVarbinary();
         boolean enableTimestampTz = catalogProps.isEnableMappingTimestampTz();
         if (!systemTable) {
@@ -1759,7 +1759,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         enableVarbinary, enableTimestampTz);
             } else {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), requestedLowerNames(columns),
+                        table, table.schema(), requestedColumnNames(columns),
                         appendRowLineage, enableVarbinary, enableTimestampTz);
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
@@ -1797,7 +1797,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table metadataTable = MetadataTableUtils.createMetadataTableInstance(
                     table, MetadataTableType.POSITION_DELETES);
             props.put(SCHEMA_EVOLUTION_PROP, IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                    metadataTable, metadataTable.schema(), requestedLowerNames(columns), false,
+                    metadataTable, metadataTable.schema(), requestedColumnNames(columns), false,
                     enableVarbinary, enableTimestampTz));
         }
         // Pushed-predicate EXPLAIN prop (explain gap): serialize the iceberg Expression form of each pushed
@@ -1831,13 +1831,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * The lowercased names of the requested (pruned) columns — the authoritative Doris scan slots the field-id
+     * The case-preserved names of the requested (pruned) columns — the authoritative Doris scan slots the field-id
      * dictionary keys its {@code -1} entry off (so its top-level names == the BE scan-slot names BY
      * CONSTRUCTION; CI #969249). The names come straight from the {@link IcebergColumnHandle}s
-     * {@code IcebergConnectorMetadata.getColumnHandles} produced (already lowercased). An empty list (count-only
+     * {@code IcebergConnectorMetadata.getColumnHandles} produced. An empty list (count-only
      * scan / no column handles) makes the dictionary fall back to all top-level columns.
      */
-    private static List<String> requestedLowerNames(List<ConnectorColumnHandle> columns) {
+    private static List<String> requestedColumnNames(List<ConnectorColumnHandle> columns) {
         if (columns == null || columns.isEmpty()) {
             return Collections.emptyList();
         }

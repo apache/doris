@@ -206,11 +206,13 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         String location = tableInfo.getLocation();
         String hudiTableType = detectHudiTableType(tableInfo);
 
-        // Extract partition key names
+        // Hudi's Doris columns and native schema dictionary are lower-cased end to end. Canonicalize the HMS
+        // partition names at the same boundary so path_partition_keys and columns_from_path byte-match those
+        // slots even when an external metastore client registered a mixed-case name.
         List<String> partKeyNames = Collections.emptyList();
         if (tableInfo.getPartitionKeys() != null && !tableInfo.getPartitionKeys().isEmpty()) {
             partKeyNames = tableInfo.getPartitionKeys().stream()
-                    .map(ConnectorColumn::getName)
+                    .map(column -> column.getName().toLowerCase(Locale.ROOT))
                     .collect(Collectors.toList());
         }
 
@@ -371,9 +373,9 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * Wraps the resolved columns in a {@link ConnectorTableSchema}, stamping the hudi table-type and the
      * partition-column marker fe-core needs to model the table as partitioned (parity with the OLD
      * HMSExternalTable/HudiDlaTable path, which read the HMS partition keys). The keys already live on the handle
-     * (getTableHandle -> tableInfo.getPartitionKeys()); emit them as the RAW-name CSV, matching the schema column
-     * names (the partition columns are appended to {@code columns} by both schema sources). Shared by the memoized
-     * latest path and the at-instant {@link #buildTableSchema} path.
+     * (getTableHandle -> tableInfo.getPartitionKeys()); emit their Hudi-canonical lower-case names, matching the
+     * schema column names and native schema dictionary. Shared by the memoized latest path and the at-instant
+     * {@link #buildTableSchema} path.
      */
     private ConnectorTableSchema assembleTableSchema(HudiTableHandle hudiHandle, List<ConnectorColumn> columns) {
         Map<String, String> tableProperties = new HashMap<>();
@@ -1189,8 +1191,9 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 // The predicate literal side (extractLiteralValue) is unescaped, so matchesPredicates' string
                 // compare needs the value unescaped too — otherwise an escaped partition value silently drops
                 // rows. Mirrors the sibling scan-side parse (HudiScanPlanProvider.parsePartitionValues) and
-                // legacy FileUtils.unescapePathName. The key is a column name (never escaped), left as-is.
-                values.put(part.substring(0, eq),
+                // legacy FileUtils.unescapePathName. Hudi's Doris slots are lower-cased, so canonicalize the
+                // unescaped column key too; otherwise an HMS name such as "City" cannot match a "city" predicate.
+                values.put(part.substring(0, eq).toLowerCase(Locale.ROOT),
                         HudiScanPlanProvider.unescapePathName(part.substring(eq + 1)));
             }
         }

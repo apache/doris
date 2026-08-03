@@ -109,19 +109,19 @@ public final class IcebergSchemaUtils {
     }
 
     /**
-     * Orchestrator: build the schema dictionary for {@code table} keyed off the requested (lowercased) column
-     * names and serialize it for transport via the scan-node props. {@code requestedLowerNames} is the pruned
+     * Orchestrator: build the schema dictionary for {@code table} keyed off the requested, case-preserved column
+     * names and serialize it for transport via the scan-node props. {@code requestedNames} is the pruned
      * scan-slot list ({@code PluginDrivenScanNode} hands the provider the requested columns); an empty list
      * (count-only scan / no column handles) falls back to all top-level schema columns.
      */
-    static String encodeSchemaEvolutionProp(Table table, List<String> requestedLowerNames) {
-        return encodeSchemaEvolutionProp(table, table.schema(), requestedLowerNames, false, false, false);
+    static String encodeSchemaEvolutionProp(Table table, List<String> requestedNames) {
+        return encodeSchemaEvolutionProp(table, table.schema(), requestedNames, false, false, false);
     }
 
     /**
      * Like {@link #encodeSchemaEvolutionProp(Table, List)} but builds the dictionary from an explicit
      * {@code dictSchema} (the latest schema for a normal read, or a historical schema for a time-travel read —
-     * T07 Option A passes the PINNED schema with an empty {@code requestedLowerNames} so the dict covers every
+     * T07 Option A passes the PINNED schema with an empty {@code requestedNames} so the dict covers every
      * BE scan slot). The name mapping is still read from {@code table} (it is table-level, not schema-versioned).
      *
      * <p>{@code appendRowLineage} (set by the caller when the table format-version &gt;= 3) appends the iceberg
@@ -131,12 +131,12 @@ public final class IcebergSchemaUtils {
      * {@code children.at("_row_id")} {@code std::out_of_range}-SIGABRTs the whole BE. See
      * {@link #appendRowLineageFields}.</p>
      */
-    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
+    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedNames,
             boolean appendRowLineage) {
         // Thin overload: keep both optional type mappings disabled for callers that do not thread catalog
         // properties.
         return encodeSchemaEvolutionProp(
-                table, dictSchema, requestedLowerNames, appendRowLineage, false, false);
+                table, dictSchema, requestedNames, appendRowLineage, false, false);
     }
 
     /**
@@ -145,19 +145,19 @@ public final class IcebergSchemaUtils {
      * TIMESTAMPTZ column's iceberg initial default is serialized consistently with how BE will read the
      * column (keep the trailing offset when tz-mapping is on, drop it — DATETIMEV2 UTC wall time — when off).
      */
-    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
+    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedNames,
             boolean appendRowLineage, boolean enableTimestampTz) {
         return encodeSchemaEvolutionProp(
-                table, dictSchema, requestedLowerNames, appendRowLineage, false, enableTimestampTz);
+                table, dictSchema, requestedNames, appendRowLineage, false, enableTimestampTz);
     }
 
     /** Build and encode a schema dictionary with the catalog's Doris type-mapping options. */
-    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
+    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedNames,
             boolean appendRowLineage, boolean enableVarbinary, boolean enableTimestampTz) {
         Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping(table);
         // #65784: it is the PRESENCE of the table-level mapping (not its non-emptiness) that makes it
         // authoritative for BE, so thread isPresent() through as hasNameMapping.
-        TSchema current = buildCurrentSchema(dictSchema, requestedLowerNames,
+        TSchema current = buildCurrentSchema(dictSchema, requestedNames,
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(), enableVarbinary,
                 enableTimestampTz);
         if (appendRowLineage) {
@@ -255,16 +255,17 @@ public final class IcebergSchemaUtils {
      * fix: the top-level names == the BE scan slots so the {@code StructNode} DCHECK can never miss). Each
      * requested name is matched case-insensitively to the iceberg schema; its top-level {@code TField} name is
      * the requested name VERBATIM (byte-matching the Doris slot name; case-preserved post-#65094). An
-     * empty/{@code null} {@code requestedLowerNames} falls back to all top-level columns (lowercased). Fail
+     * empty/{@code null} {@code requestedNames} falls back to all top-level columns with their Iceberg case
+     * preserved. Fail
      * loud if a requested column is absent from the schema (a genuine FE/connector inconsistency — not a
      * silent drop).
      */
-    static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
+    static TSchema buildCurrentSchema(Schema schema, List<String> requestedNames,
             Map<Integer, List<String>> nameMapping) {
         // Thin overload: default enableTimestampTz=false (pre-#65502 timestamp-default behaviour) and derive
         // hasNameMapping from the map (a non-empty map ⇒ the table carried a mapping — the #65784 default;
         // the production path threads the precise isPresent() instead).
-        return buildCurrentSchema(schema, requestedLowerNames, nameMapping,
+        return buildCurrentSchema(schema, requestedNames, nameMapping,
                 nameMapping != null && !nameMapping.isEmpty(), false, false);
     }
 
@@ -275,26 +276,26 @@ public final class IcebergSchemaUtils {
      * AUTHORITATIVE, so every field carries an explicit (possibly empty) per-field mapping (see
      * {@link #buildField}).
      */
-    static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
+    static TSchema buildCurrentSchema(Schema schema, List<String> requestedNames,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableTimestampTz) {
-        return buildCurrentSchema(schema, requestedLowerNames, nameMapping, hasNameMapping, false,
+        return buildCurrentSchema(schema, requestedNames, nameMapping, hasNameMapping, false,
                 enableTimestampTz);
     }
 
     /** Build the dictionary using the same Doris scalar mappings as the connector's catalog columns. */
-    static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
+    static TSchema buildCurrentSchema(Schema schema, List<String> requestedNames,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableVarbinary,
             boolean enableTimestampTz) {
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(CURRENT_SCHEMA_ID);
         TStructField root = new TStructField();
-        if (requestedLowerNames == null || requestedLowerNames.isEmpty()) {
+        if (requestedNames == null || requestedNames.isEmpty()) {
             for (Types.NestedField field : schema.columns()) {
-                addField(root, buildField(field, field.name().toLowerCase(Locale.ROOT), nameMapping,
+                addField(root, buildField(field, field.name(), nameMapping,
                         hasNameMapping, enableVarbinary, enableTimestampTz));
             }
         } else {
-            for (String name : requestedLowerNames) {
+            for (String name : requestedNames) {
                 Types.NestedField field = schema.caseInsensitiveFindField(name);
                 if (field == null) {
                     throw new RuntimeException("iceberg schema-evolution: requested column '" + name
@@ -308,6 +309,12 @@ public final class IcebergSchemaUtils {
         return tSchema;
     }
 
+    /**
+     * Builds the equality-delete carrier without an Iceberg {@link Schema}, which would reject historical
+     * drop/re-add fields that share a name. Preserve top-level case because the list starts with the selected
+     * schema's current fields and those names still key BE's table-side {@code StructNode}; historical-only
+     * equality fields are resolved by their stable IDs.
+     */
     private static TSchema buildCurrentSchema(List<Types.NestedField> fields,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableVarbinary,
             boolean enableTimestampTz) {
@@ -315,7 +322,7 @@ public final class IcebergSchemaUtils {
         tSchema.setSchemaId(CURRENT_SCHEMA_ID);
         TStructField root = new TStructField();
         for (Types.NestedField field : fields) {
-            addField(root, buildField(field, field.name().toLowerCase(Locale.ROOT), nameMapping,
+            addField(root, buildField(field, field.name(), nameMapping,
                     hasNameMapping, enableVarbinary, enableTimestampTz));
         }
         tSchema.setRootField(root);

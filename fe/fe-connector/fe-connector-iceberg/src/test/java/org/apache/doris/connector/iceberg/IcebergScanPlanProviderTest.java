@@ -1230,6 +1230,42 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("p", props.get("path_partition_keys"));
     }
 
+    @Test
+    public void getScanNodePropertiesUnderPinAlignsMixedCasePartitionWithFullSchemaDict() throws Exception {
+        // Every ordinary Iceberg scan is snapshot-pinned by the generic MVCC node. The pinned path builds a FULL
+        // dictionary by passing an empty requested-column list, while partition planning emits the Iceberg source
+        // name verbatim. Both carriers must therefore contain "City", not path_partition_keys="City" paired with
+        // a dictionary key "city" (the mismatch that made BE abort while checking partition fallback).
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "K1", Types.IntegerType.get()),
+                Types.NestedField.required(2, "City", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("City").build();
+        Table table = createTable("mixed_case_partition", schema, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec,
+                        "s3://b/db/mixed_case_partition/City=Beijing/data.parquet",
+                        1024, null, "City=Beijing"))
+                .commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        IcebergTableHandle pinned = new IcebergTableHandle("db1", "mixed_case_partition")
+                .withSnapshot(table.currentSnapshot().snapshotId(), null,
+                        table.currentSnapshot().schemaId());
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, pinned, Collections.emptyList(), Optional.empty());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        List<String> fieldNames = new ArrayList<>();
+        for (TFieldPtr ptr : params.getHistorySchemaInfo().get(0).getRootField().getFields()) {
+            fieldNames.add(ptr.getFieldPtr().getName());
+        }
+
+        Assertions.assertEquals("City", props.get("path_partition_keys"));
+        Assertions.assertTrue(fieldNames.contains("K1"));
+        Assertions.assertTrue(fieldNames.contains("City"));
+        Assertions.assertFalse(fieldNames.contains("city"));
+    }
+
     // --- T06 [D-065]: getScanNodeProperties sys-handle guard (skip dict + path_partition_keys) ---
 
     @Test

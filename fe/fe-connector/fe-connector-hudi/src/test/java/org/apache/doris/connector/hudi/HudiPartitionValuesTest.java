@@ -57,6 +57,18 @@ public class HudiPartitionValuesTest {
     }
 
     @Test
+    public void hiveStylePrefixMatchesCanonicalPartitionNameCaseInsensitively() {
+        // The handle canonicalizes Hudi partition slots to lower-case, but an existing hive-style storage path
+        // may still carry the original mixed-case key. Strip that prefix case-insensitively and keep the map key
+        // canonical so columns_from_path byte-matches the Doris slot/schema dictionary.
+        Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
+                "City=Beijing/DT=2026-08-03", Arrays.asList("city", "dt"));
+
+        Assertions.assertEquals("Beijing", values.get("city"));
+        Assertions.assertEquals("2026-08-03", values.get("dt"));
+    }
+
+    @Test
     public void mixedPrefixedAndPositionalFragments() {
         // Legacy decides per fragment (startsWith "col=" or not), so a mixed path must resolve each side.
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
@@ -119,6 +131,15 @@ public class HudiPartitionValuesTest {
 
         Assertions.assertEquals("US:CA", values.get("code"), "colon-escaped value must be decoded");
         Assertions.assertEquals("a/b", values.get("kind"), "slash-escaped value must be decoded");
+    }
+
+    @Test
+    public void parsePartitionNameCanonicalizesMixedCaseHmsKey() {
+        Map<String, String> values = HudiConnectorMetadata.parsePartitionName(
+                "City=BeiJing", Collections.singletonList("city"));
+
+        Assertions.assertEquals("BeiJing", values.get("city"));
+        Assertions.assertFalse(values.containsKey("City"));
     }
 
     @Test

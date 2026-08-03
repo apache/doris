@@ -636,13 +636,17 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * The Hudi table-config partition-field names (byte-faithful to legacy {@code HudiScanNode:391-393}), the
-     * source the incremental MOR path parses per-slice partition values against &mdash; NOT the HMS-sourced
-     * handle partition keys the snapshot path uses (the two coincide only for hive-synced tables).
+     * The Hudi table-config partition-field names, canonicalized to Hudi's lower-case Doris-column convention.
+     * This is the source the incremental MOR path parses per-slice partition values against &mdash; NOT the
+     * HMS-sourced handle partition keys the snapshot path uses (the two coincide only for hive-synced tables).
      */
     private static List<String> partitionFieldNames(HoodieTableMetaClient metaClient) {
         Option<String[]> fields = metaClient.getTableConfig().getPartitionFields();
-        return fields.isPresent() ? Arrays.asList(fields.get()) : Collections.emptyList();
+        return fields.isPresent()
+                ? Arrays.stream(fields.get())
+                        .map(name -> name.toLowerCase(Locale.ROOT))
+                        .collect(Collectors.toList())
+                : Collections.emptyList();
     }
 
     /**
@@ -842,9 +846,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         String[] fragments = partitionPath.split("/");
         if (fragments.length != partKeyNames.size()) {
             if (partKeyNames.size() == 1) {
-                String prefix = partKeyNames.get(0) + "=";
-                String value = partitionPath.startsWith(prefix)
-                        ? partitionPath.substring(prefix.length()) : partitionPath;
+                String value = stripPartitionColumnPrefix(partitionPath, partKeyNames.get(0));
                 values.put(partKeyNames.get(0), unescapePathName(value));
                 return values;
             }
@@ -852,12 +854,19 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     "Failed to parse partition values of path: " + partitionPath);
         }
         for (int i = 0; i < fragments.length; i++) {
-            String prefix = partKeyNames.get(i) + "=";
-            String raw = fragments[i].startsWith(prefix)
-                    ? fragments[i].substring(prefix.length()) : fragments[i];
+            String raw = stripPartitionColumnPrefix(fragments[i], partKeyNames.get(i));
             values.put(partKeyNames.get(i), unescapePathName(raw));
         }
         return values;
+    }
+
+    /** Strips an optional Hive-style {@code column=} prefix using Hive/Hudi's case-insensitive identifiers. */
+    private static String stripPartitionColumnPrefix(String fragment, String columnName) {
+        int separator = fragment.indexOf('=');
+        if (separator > 0 && fragment.substring(0, separator).equalsIgnoreCase(columnName)) {
+            return fragment.substring(separator + 1);
+        }
+        return fragment;
     }
 
     /**
