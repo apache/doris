@@ -318,6 +318,8 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"iceberg", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"paimon", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
+            {"fluss_union", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
+            {"fluss_union", TFileFormatType::FORMAT_ORC, std::nullopt, true},
             {"hudi", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
             {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
@@ -473,6 +475,35 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     query_options.__set_enable_paimon_cpp_reader(false);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+}
+
+// Scenario: a lake split of a fluss primary-key table read as its lake plus its log tail. It is the
+// paimon sibling's own split with a suppression descriptor attached, so whether V2 can read it is
+// the paimon answer, asked of the paimon payload it carries - not a separate rule that could start
+// disagreeing with paimon's after the sibling changes how it plans a split.
+TEST(FileScannerV2Test, WrappedLakeSplitsAreSupportedWhereverThePaimonOnesAre) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+
+    auto serialized_split = legacy_paimon_jni_range_without_reader_type();
+    serialized_split.table_format_params.__set_table_format_type("fluss_union");
+    EXPECT_TRUE(FileScannerV2::is_supported(params, serialized_split));
+
+    auto native_file_as_jni = range_with_format("fluss_union", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_file_format("orc");
+    native_file_as_jni.table_format_params.__set_paimon_params(paimon_params);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, native_file_as_jni));
+
+    // No paimon payload at all is not a split this reader can hand to the sibling.
+    EXPECT_FALSE(FileScannerV2::is_supported(
+            params, range_with_format("fluss_union", TFileFormatType::FORMAT_JNI)));
+
+    // The C++ paimon reader stays on the V1 fallback, which has no fluss_union branch: a clean
+    // refusal rather than a lake half read without its suppression.
+    auto cpp_split = paimon_cpp_jni_range();
+    cpp_split.table_format_params.__set_table_format_type("fluss_union");
+    EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_split));
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {

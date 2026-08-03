@@ -56,6 +56,7 @@
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/adbc_reader.h"
+#include "format_v2/table/fluss_union_lake_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
@@ -101,7 +102,11 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
         return false;
     }
     return table_format == "NotSet" || table_format == "tvf" || table_format == "hive" ||
-           table_format == "iceberg" || table_format == "paimon" || table_format == "hudi";
+           table_format == "iceberg" || table_format == "paimon" || table_format == "hudi" ||
+           // A lake split of a fluss primary-key table read as its lake plus its log tail. It is the
+           // paimon sibling's own split, wrapped, so it arrives in whichever form the sibling planned
+           // it - native Parquet/ORC here, a serialized JNI split below.
+           table_format == "fluss_union";
 }
 
 bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
@@ -111,7 +116,9 @@ bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
 
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     const auto table_format = table_format_name(range);
-    if (table_format == "paimon") {
+    // A wrapped lake split is a paimon split in every respect that decides how it is read, so
+    // whether it can be read here is the paimon answer, asked of the paimon payload it carries.
+    if (table_format == "paimon" || table_format == "fluss_union") {
         if (!range.__isset.table_format_params ||
             !range.table_format_params.__isset.paimon_params) {
             return false;
@@ -621,6 +628,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::hudi::HudiHybridReader>();
     } else if (table_format == "fluss") {
         *reader = std::make_unique<format::fluss::FlussJniReader>();
+    } else if (table_format == "fluss_union") {
+        *reader = std::make_unique<format::fluss::FlussUnionLakeReader>();
     } else if (table_format == "jdbc") {
         *reader = std::make_unique<format::jdbc::JdbcJniReader>();
     } else if (table_format == "max_compute") {
