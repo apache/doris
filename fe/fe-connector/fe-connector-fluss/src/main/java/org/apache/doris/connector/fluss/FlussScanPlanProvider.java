@@ -78,8 +78,12 @@ import java.util.function.Function;
  * as fluss-only silently returns just the rows tiering has not moved yet, which looks like a working
  * query. {@code fluss.union_read.mode=disabled} is how a user asks for that fluss-only read on purpose.
  *
- * <p>What is NOT here yet: the union of a PRIMARY-KEY table's lake with its log. That one cannot be a
- * plain concatenation — the two halves have to be merged by key — so it is refused loudly.
+ * <p>A tiered PRIMARY-KEY table is read from fluss alone for now. Its two halves cannot be concatenated —
+ * the log carries updates and deletes of rows the lake already holds, so they have to be merged BY KEY —
+ * and that merge is not implemented. Falling back is safe here in a way it is not for a log table: fluss
+ * keeps a primary-key table's state in full, so the fluss-only read is the whole table, only slower than
+ * reading the lake's columnar files would be. {@code required} refuses such a table anyway, because that
+ * mode exists to make "did this actually read the lake?" answerable in a test.
  */
 public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
 
@@ -266,6 +270,29 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             // Not a lake table, or the user asked for the fluss-only read explicitly.
             return null;
         }
+        if (handle.hasPrimaryKey()) {
+            // A primary-key table's lake is NOT read, and the fluss-only read that replaces it is the whole
+            // table rather than a part of it: fluss keeps the table's state in its own kv store, and tiering
+            // copies rows into the lake without taking them out of it, so the latest kv snapshot plus the
+            // change log after it is every row. That is the opposite of a log table, where whatever tiering
+            // has aged out of the log exists only in the lake and a fluss-only read silently loses it — which
+            // is why that case falls back only when the lake holds nothing yet. What is lost here is speed,
+            // not rows: the bucket's whole kv snapshot is fetched and merged instead of reading the lake's
+            // columnar files. Merging the two by key is a separate piece of work.
+            //
+            // Asked before the lake snapshot is, deliberately: the answer cannot depend on it. A table whose
+            // tiering has not committed yet would otherwise report the wrong reason under 'required', and
+            // waiting for that commit would not help.
+            if (mode == FlussConnectorProperties.UnionReadMode.REQUIRED) {
+                throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
+                        + handle.getTableName() + "' is a primary-key table tiered into a lake, and '"
+                        + FlussConnectorProperties.UNION_READ_MODE + "=required' asks for its lake and its"
+                        + " change log to be read as one. Merging them by key is not implemented yet. Reading"
+                        + " it from fluss alone still returns the whole table, so set the property to auto or"
+                        + " disabled.");
+            }
+            return null;
+        }
         LakeSnapshot snapshot;
         try {
             snapshot = adminOps.getReadableLakeSnapshot(handle.toTablePath());
@@ -279,13 +306,6 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             }
             // Nothing is in the lake, so the log holds everything: the fluss-only read is the whole table.
             return null;
-        }
-        if (handle.hasPrimaryKey()) {
-            throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
-                    + handle.getTableName() + "' is a primary-key table tiered into a lake. Reading it"
-                    + " requires merging the lake with the change log by key, which is not supported yet."
-                    + " Set '" + FlussConnectorProperties.UNION_READ_MODE + "=disabled' to read only what"
-                    + " the fluss log still holds, which is NOT the whole table.");
         }
         String lakeFormat = handle.getDataLakeFormat();
         if (lakeFormat == null || !PAIMON_LAKE_FORMAT.equalsIgnoreCase(lakeFormat)) {
