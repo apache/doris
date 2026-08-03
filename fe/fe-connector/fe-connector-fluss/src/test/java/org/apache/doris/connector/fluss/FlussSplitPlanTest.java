@@ -349,30 +349,82 @@ public class FlussSplitPlanTest {
                 adminOps.calls.toString());
     }
 
-    // ---------------------------------------------------------------- what is refused, and why
+    // ------------------------------------------- tiered primary-key tables: read from fluss alone
 
     /**
-     * A tiered primary-key table is refused for the same reason a tiered log table is: the fluss-only
-     * read returns whatever has not been tiered away yet, which is a successful query with missing rows.
-     * The primary-key read being implemented does not change that.
+     * Merging a primary-key table's lake with its change log is not implemented, and what replaces it is
+     * NOT the "whatever has not been tiered away" fallback a log table would get: fluss keeps such a table's
+     * state in full, so its kv snapshot plus the log after it is every row. The lake is not consulted at all
+     * — a plan that quietly asked it would produce these same ranges, so the calls are asserted too, and the
+     * sibling factory fails loud on its own if planning ever tries to build one.
      */
     @Test
-    public void tieredPrimaryKeyTableIsRefusedUntilTheUnionReadExists() {
-        adminOps.tableInfos.put(PK_TABLE, FlussTestTables.builder(PK_TABLE)
-                .column("id", DataTypes.INT().copy(false))
-                .column("v", DataTypes.STRING())
-                .primaryKey("id")
-                .buckets(2, "id")
-                .property("table.datalake.enabled", "true")
-                .property("table.datalake.format", "paimon")
-                .property("table.datalake.paimon.metastore", "filesystem")
-                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
-                .build());
+    public void tieredPrimaryKeyTableIsReadFromFlussAlone() {
+        registerTieredPkTable(2);
         adminOps.readableLakeSnapshot = new LakeSnapshot(7L, Collections.emptyMap());
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 12L, 25L);
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        assertPkRange(ranges.get(0), 0, 4L, 10L, 12L);
+        assertPkRange(ranges.get(1), 1, 5L, 20L, 25L);
+        Assertions.assertTrue(adminOps.calls.stream().noneMatch(c -> c.startsWith("getReadableLakeSnapshot")),
+                adminOps.calls.toString());
+    }
+
+    /**
+     * The fallback is the very read {@code disabled} asks for outright, down to the ranges — not a third
+     * code path that happens to look similar.
+     */
+    @Test
+    public void theFallbackIsTheReadDisabledModeAsksForOutright() {
+        registerTieredPkTable(2);
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 12L, 25L);
+
+        List<Map<String, String>> auto = rangeProperties(plan(PK_TABLE, catalog()));
+        List<Map<String, String>> disabled = rangeProperties(
+                plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "disabled")));
+
+        Assertions.assertEquals(auto, disabled);
+    }
+
+    /**
+     * {@code required} is what a regression test sets so that it cannot pass without the lake having been
+     * read. No primary-key table can satisfy it today, so it fails loud instead of falling back — and it does
+     * so whether or not tiering has committed anything, because waiting for that commit would not help.
+     */
+    @Test
+    public void requiredModeRefusesATieredPrimaryKeyTable() {
+        registerTieredPkTable(2);
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(PK_TABLE, catalog()));
-        Assertions.assertTrue(e.getMessage().contains("not supported yet"), e.getMessage());
+                () -> plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
+        Assertions.assertTrue(e.getMessage().contains("not implemented yet"), e.getMessage());
+        Assertions.assertTrue(adminOps.calls.stream().noneMatch(c -> c.startsWith("getReadableLakeSnapshot")),
+                adminOps.calls.toString());
+    }
+
+    /**
+     * The plan's own account of not having read the lake. Nothing else in the plan of a tiered primary-key
+     * table distinguishes it from one that was read as a union, which is what the follow-up work will do.
+     */
+    @Test
+    public void explainShowsATieredPrimaryKeyTableWasReadWithoutItsLake() {
+        registerTieredPkTable(1);
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 12L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+
+        Assertions.assertEquals(
+                "flussScan: unionRead=no, lakeSplits=0, logRanges=0, pkRanges=1, mode=auto\n",
+                output.toString());
     }
 
 
@@ -808,6 +860,23 @@ public class FlussSplitPlanTest {
                 .build());
     }
 
+    /**
+     * A primary-key table tiered into a lake. Deliberately does NOT mark a sibling as expected: its lake is
+     * never read, so reaching the sibling factory at all is a failure.
+     */
+    private void registerTieredPkTable(int buckets) {
+        adminOps.tableInfos.put(PK_TABLE, FlussTestTables.builder(PK_TABLE)
+                .column("id", DataTypes.INT().copy(false))
+                .column("v", DataTypes.STRING())
+                .primaryKey("id")
+                .buckets(buckets, "id")
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.metastore", "filesystem")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
+                .build());
+    }
+
     /** A primary-key table partitioned by {@code dt}, with partition ids 100, 101, ... in order. */
     private void registerPartitionedPkTable(int buckets, String... partitionValues) {
         adminOps.tableInfos.put(PK_TABLE, FlussTestTables.builder(PK_TABLE)
@@ -867,6 +936,15 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(String.valueOf(snapshotId), props.get("fluss.kv_snapshot_id"));
         Assertions.assertEquals(String.valueOf(start), props.get("fluss.log_start_offset"));
         Assertions.assertEquals(String.valueOf(stop), props.get("fluss.log_stop_offset"));
+    }
+
+    /** The ranges' payloads, in order — what two plans have to agree on to be the same read. */
+    private static List<Map<String, String>> rangeProperties(List<ConnectorScanRange> ranges) {
+        List<Map<String, String>> properties = new ArrayList<>(ranges.size());
+        for (ConnectorScanRange range : ranges) {
+            properties.add(range.getProperties());
+        }
+        return properties;
     }
 
     /** Position of the first recorded call starting with {@code prefix}, or -1. */
