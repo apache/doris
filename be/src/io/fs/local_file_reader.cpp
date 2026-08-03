@@ -37,6 +37,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"

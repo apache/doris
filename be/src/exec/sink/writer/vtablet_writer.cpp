@@ -72,6 +72,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "service/backend_options.h"
 #include "storage/binlog.h"
 #include "storage/tablet_info.h"

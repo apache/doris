@@ -58,6 +58,7 @@
 #include "io/fs/obj_storage_client.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
+#include "service/backend_options.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"

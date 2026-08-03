@@ -31,6 +31,7 @@
 #include "common/signal_handler.h"
 #include "load/memtable/memtable.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "storage/binlog.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_writer.h"

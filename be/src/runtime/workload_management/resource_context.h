@@ -32,6 +32,8 @@
 
 namespace doris {
 
+class TQueryStatistics;
+
 // Every task should have its own resource context. And BE may adjust the resource
 // context during running.
 // ResourceContext contains many contexts or controller, the task could implements their

@@ -34,6 +34,7 @@
 #include "io/hdfs_util.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
 

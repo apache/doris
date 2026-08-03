@@ -25,6 +25,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 class ObjectPool;

@@ -15,20 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/workload_management/cpu_context.h"
+#pragma once
 
-#include <glog/logging.h>
-
-#include "runtime/workload_group/workload_group.h"
-#include "runtime/workload_management/resource_context.h"
+#include <memory>
 
 namespace doris {
 
-void CPUContext::update_cpu_cost_ms(int64_t delta) const {
-    stats_.cpu_cost_ms_counter_->update(delta);
-    if (resource_ctx_ != nullptr && resource_ctx_->workload_group() != nullptr) {
-        resource_ctx_->workload_group()->update_cpu_time(delta);
-    }
-}
+class WorkloadGroup;
+
+using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
 } // namespace doris

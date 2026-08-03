@@ -103,13 +103,7 @@ public:
 
     uint64_t flush_running_count() const;
 
-    uint64_t workload_group_id() const {
-        auto wg = _resource_ctx->workload_group();
-        if (wg != nullptr) {
-            return wg->id();
-        }
-        return 0;
-    }
+    uint64_t workload_group_id() const;
 
 private:
     Status _flush_memtable();

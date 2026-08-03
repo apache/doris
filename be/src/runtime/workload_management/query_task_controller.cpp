@@ -21,6 +21,7 @@
 
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "runtime/query_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/task_controller.h"
 
 namespace doris {

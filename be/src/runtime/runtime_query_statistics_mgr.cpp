@@ -38,6 +38,7 @@
 #include "core/block/block.h"
 #include "information_schema/schema_scanner_helper.h"
 #include "runtime/exec_env.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/client_cache.h"
 #include "util/debug_util.h"
 #include "util/threadpool.h"

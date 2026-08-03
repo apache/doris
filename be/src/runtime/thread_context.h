@@ -135,6 +135,7 @@ namespace doris {
 
 class ThreadContext;
 class MemTracker;
+class QueryContext;
 class RuntimeState;
 class SwitchResourceContext;
 
