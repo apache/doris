@@ -39,6 +39,7 @@ import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.Schema;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
+import org.apache.fluss.types.DataType;
 import org.apache.fluss.types.DataTypeRoot;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -335,6 +336,10 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             // an error there, and "this table has no partitions" is already known from the handle.
             return Collections.emptyList();
         }
+        // Before the remote call and before any name is rendered, because the answer depends on the
+        // table's schema alone: a partition column whose value fluss cannot store verbatim in a partition
+        // name makes every partition of this table unreadable, whether it has any yet or not.
+        rejectUnreadablePartitionColumns(flussHandle, partitionKeys);
 
         List<PartitionInfo> flussPartitions = adminOps.listPartitionInfos(flussHandle.toTablePath());
         List<ConnectorPartitionInfo> result = new ArrayList<>(flussPartitions.size());
@@ -347,6 +352,40 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
                     new ArrayList<>(resolved.getValues().values()), Collections.emptyList()));
         }
         return result;
+    }
+
+    /**
+     * Refuses a table whose partition values cannot be read back out of the names fluss stores them in.
+     *
+     * <p>This is the only place it can be said well. Further down, the name is all there is: fe-core's
+     * parser sees {@code 1_5}, has a FLOAT column to put it in, and reports that it failed to convert a
+     * partition — naming neither the column nor fluss nor the property that would help. Here the column
+     * and its fluss type are both still in hand.
+     *
+     * <p>Refusing is the answer rather than guessing because the rewriting is many-to-one: {@code 1_5}
+     * was {@code 1.5}, and {@code 01-02-03} was {@code 01:02:03}, and neither the connector nor fluss
+     * itself can say which character came back out.
+     */
+    private void rejectUnreadablePartitionColumns(FlussTableHandle handle, List<String> partitionKeys) {
+        Map<String, DataType> keyColumnTypes = handle.getKeyColumnTypes();
+        for (String partitionKey : partitionKeys) {
+            DataType type = keyColumnTypes.get(partitionKey);
+            if (type == null) {
+                // The handle records a type for every partition column of the table it was built from, so
+                // a missing one means this handle and that schema have come apart. Guessing "readable"
+                // here would put the mangled name back on the path this method exists to close.
+                throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
+                        + handle.getTableName() + "' lists '" + partitionKey + "' as a partition column"
+                        + " but carries no type for it; refresh the catalog and try again.");
+            }
+            String rejection = FlussPartitionColumnTypes.rejection(type, typeMappingOptions);
+            if (rejection != null) {
+                throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
+                        + handle.getTableName() + "' cannot be read: its partition column '" + partitionKey
+                        + "' has fluss type " + type + ", and " + rejection + ". Partition columns of type "
+                        + FlussPartitionColumnTypes.READABLE_TYPES + " are stored as written.");
+            }
+        }
     }
 
     /**
