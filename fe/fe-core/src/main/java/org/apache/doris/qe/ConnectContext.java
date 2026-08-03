@@ -214,6 +214,9 @@ public class ConnectContext {
 
     // cloud cluster name
     protected volatile String cloudCluster = null;
+    // The compute group selected for the statement currently being executed. Unlike cloudCluster,
+    // this value is query-scoped and remains available after a per-query SET_VAR is reverted.
+    protected volatile String effectiveCloudCluster = null;
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
@@ -1428,6 +1431,14 @@ public class ConnectContext {
 
     public void setCloudCluster(String cluster) {
         this.getSessionVariable().setCloudCluster(cluster);
+    }
+
+    public String getEffectiveCloudCluster() {
+        return effectiveCloudCluster;
+    }
+
+    public void setEffectiveCloudCluster(String cluster) {
+        this.effectiveCloudCluster = cluster;
     }
 
     public String getCloudCluster() throws ComputeGroupException {
