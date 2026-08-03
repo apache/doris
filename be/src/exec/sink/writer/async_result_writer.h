@@ -21,6 +21,7 @@
 #include <condition_variable>
 #include <queue> // IWYU pragma: keep
 
+#include "exec/sink/writer/async_writer_queue_admission.h"
 #include "exec/sink/writer/result_writer.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -37,26 +38,6 @@ class Dependency;
 class PipelineTask;
 
 class Block;
-
-inline constexpr size_t ASYNC_WRITER_QUEUE_SIZE = 3;
-
-class AsyncWriterQueueAdmission {
-public:
-    void wait_for_processing_before_next_sink() { _wait_for_processing = true; }
-    void begin_processing() { _block_being_processed = _wait_for_processing; }
-    void finish_processing() { _block_being_processed = false; }
-
-    [[nodiscard]] bool is_available(size_t queued_blocks) const {
-        return _wait_for_processing ? queued_blocks == 0 && !_block_being_processed
-                                    : queued_blocks < ASYNC_WRITER_QUEUE_SIZE;
-    }
-
-    [[nodiscard]] bool waits_for_processing() const { return _wait_for_processing; }
-
-private:
-    bool _block_being_processed = false;
-    bool _wait_for_processing = false;
-};
 
 /*
  *  In the pipeline execution engine, there are usually a large number of io operations on the sink side that

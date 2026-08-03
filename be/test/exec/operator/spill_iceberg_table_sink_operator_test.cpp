@@ -18,7 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "exec/operator/iceberg_sorter_reserve_memory.h"
-#include "exec/sink/writer/async_result_writer.h"
+#include "exec/sink/writer/async_writer_queue_admission.h"
 
 namespace doris {
 
