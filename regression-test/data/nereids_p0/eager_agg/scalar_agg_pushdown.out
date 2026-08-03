@@ -8,9 +8,9 @@ PhysicalResultSink
 ------NestedLoopJoin[CROSS_JOIN]
 --------NestedLoopJoin[INNER_JOIN]
 ----------filter((ta.a = 999))
-------------PhysicalOlapScan[t1(ta)]
+------------PhysicalOlapScan[t1]
 ----------filter((tb.a = 999))
-------------PhysicalOlapScan[t1(tb)]
+------------PhysicalOlapScan[t1]
 --------PhysicalStorageLayerAggregate[t2]
 
 Hint log:
@@ -27,8 +27,8 @@ PhysicalResultSink
 ------NestedLoopJoin[CROSS_JOIN]
 --------hashJoin[INNER_JOIN] hashCondition=((ta.a = tb.a)) otherCondition=()
 ----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[t1(ta)]
-----------PhysicalOlapScan[t1(tb)]
+------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t1]
 --------PhysicalStorageLayerAggregate[t2]
 
 Hint log:
