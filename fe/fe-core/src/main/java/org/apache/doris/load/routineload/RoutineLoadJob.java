@@ -1279,10 +1279,6 @@ public abstract class RoutineLoadJob
         }
     }
 
-    // the task is aborted when the correct number of rows is more than 0
-    // be will abort txn when all of kafka data is wrong or total consume data is 0
-    // txn will be aborted but progress will be update
-    // progress will be update otherwise the progress will be hung
     // *** Please do not call after individually. It must be combined use with before ***
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReasonString)
@@ -1353,15 +1349,12 @@ public abstract class RoutineLoadJob
                     }
                     // TODO(ml): use previous be id depend on change reason
                 }
-                if (txnStatusChangeReason != TransactionState.TxnStatusChangeReason.NO_PARTITIONS) {
-                    String msg = "be " + taskBeId + " abort task,"
-                            + " task id: " + routineLoadTaskInfo.getId()
-                            + " job id: " + routineLoadTaskInfo.getJobId()
-                            + " with reason: " + txnStatusChangeReasonString;
-                    updateState(JobState.PAUSED,
-                            new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
-                            false /* not replay */);
-                }
+                // The aborted transaction is the durable record for this state transition.
+                // replayOnAborted() derives the same pause from that record, so do not write a
+                // separate routine-load state record that could be lost during a leader change.
+                unprotectUpdateState(JobState.PAUSED,
+                        getTaskAbortErrorReason(routineLoadTaskInfo, txnStatusChangeReasonString),
+                        true /* persisted by the aborted transaction */);
                 // step2: commit task , update progress, maybe create a new task
                 executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState,
                         TransactionStatus.ABORTED, txnStatusChangeReason);
@@ -1386,20 +1379,51 @@ public abstract class RoutineLoadJob
 
     @Override
     public void replayOnAborted(TransactionState txnState) {
-        // attachment may be null if this task is aborted by FE
-        // it need check commit info before update progress
-        // for follower FE node progress may exceed correct progress
-        // the data will lost if FE leader change at this moment
-        if (txnState.getTxnCommitAttachment() != null
-                && checkCommitInfo((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(),
-                        txnState,
-                        TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
-            replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+        writeLock();
+        try {
+            if (state == JobState.RUNNING) {
+                Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream()
+                        .filter(task -> task.getTxnId() == txnState.getTransactionId())
+                        .findFirst();
+                if (routineLoadTaskInfoOptional.isPresent()) {
+                    try {
+                        unprotectUpdateState(JobState.PAUSED,
+                                getTaskAbortErrorReason(routineLoadTaskInfoOptional.get(), txnState.getReason()),
+                                true /* replay */);
+                    } catch (UserException e) {
+                        LOG.warn("failed to pause routine load job {} when replaying aborted txn {}",
+                                id, txnState.getTransactionId(), e);
+                    }
+                }
+            }
+
+            // attachment may be null if this task is aborted by FE
+            // it need check commit info before update progress
+            // for follower FE node progress may exceed correct progress
+            // the data will lost if FE leader change at this moment
+            if (txnState.getTxnCommitAttachment() != null
+                    && checkCommitInfo((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(),
+                            txnState,
+                            TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
+                replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+            }
+            this.jobStatistic.abortedTaskNum++;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replay on aborted: {}, has attachment: {}",
+                        txnState, txnState.getTxnCommitAttachment() == null);
+            }
+        } finally {
+            writeUnlock();
         }
-        this.jobStatistic.abortedTaskNum++;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("replay on aborted: {}, has attachment: {}", txnState, txnState.getTxnCommitAttachment() == null);
-        }
+    }
+
+    private ErrorReason getTaskAbortErrorReason(RoutineLoadTaskInfo routineLoadTaskInfo,
+                                                String txnStatusChangeReasonString) {
+        String msg = "be " + routineLoadTaskInfo.getBeId() + " abort task,"
+                + " task id: " + routineLoadTaskInfo.getId()
+                + " job id: " + routineLoadTaskInfo.getJobId()
+                + " with reason: " + txnStatusChangeReasonString;
+        return new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg);
     }
 
     // check task exists or not before call method

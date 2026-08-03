@@ -56,6 +56,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class RoutineLoadJobTest {
     @Test
@@ -144,7 +145,39 @@ public class RoutineLoadJobTest {
             Assert.assertEquals(new Long(1), Deencapsulation.getField(jobStatistic, "abortedTaskNum"));
             Assert.assertEquals("http://127.0.0.1/error_log", routineLoadJob.getErrorLogUrls().peek());
             Assert.assertEquals("invalid source row", routineLoadJob.getFirstErrorMsg());
+            Mockito.verifyNoInteractions(editLog);
         }
+    }
+
+    @Test
+    public void testReplayOnAbortedTaskFailurePausesJob() {
+        TransactionState transactionState = Mockito.mock(TransactionState.class);
+        KafkaTaskInfo routineLoadTaskInfo = Mockito.mock(KafkaTaskInfo.class);
+
+        long txnId = 1L;
+        long jobId = 2L;
+        long beId = 3L;
+        UUID taskId = UUID.randomUUID();
+        String txnStatusChangeReasonString = "failed to commit transaction";
+
+        Mockito.when(transactionState.getTransactionId()).thenReturn(txnId);
+        Mockito.when(transactionState.getReason()).thenReturn(txnStatusChangeReasonString);
+        Mockito.when(routineLoadTaskInfo.getTxnId()).thenReturn(txnId);
+        Mockito.when(routineLoadTaskInfo.getJobId()).thenReturn(jobId);
+        Mockito.when(routineLoadTaskInfo.getBeId()).thenReturn(beId);
+        Mockito.when(routineLoadTaskInfo.getId()).thenReturn(taskId);
+
+        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
+        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList",
+                Lists.newArrayList(routineLoadTaskInfo));
+
+        routineLoadJob.replayOnAborted(transactionState);
+
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+        Assert.assertEquals(InternalErrorCode.TASKS_ABORT_ERR, routineLoadJob.getPauseReason().getCode());
+        Assert.assertTrue(routineLoadJob.getPauseReason().getMsg().contains(txnStatusChangeReasonString));
+        Assert.assertTrue(routineLoadJob.getPauseReason().getMsg().contains(taskId.toString()));
     }
 
     @Test
