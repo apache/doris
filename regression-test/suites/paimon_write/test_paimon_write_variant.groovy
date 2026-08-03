@@ -148,23 +148,43 @@ suite("test_paimon_write_variant", "p0,external,paimon") {
             SELECT
                 MAX(CASE WHEN id = 10
                     THEN variant_get(payload, '${root}', 'boolean') END),
+                MAX(CASE WHEN id = 10
+                    THEN variant_get(secondary, '${root}', 'boolean') END),
+                MAX(CASE WHEN id = 11
+                    THEN variant_get(payload, '${root}', 'tinyint') END),
+                MAX(CASE WHEN id = 11
+                    THEN variant_get(secondary, '${root}', 'smallint') END),
+                MAX(CASE WHEN id = 12
+                    THEN variant_get(payload, '${root}', 'int') END),
                 MAX(CASE WHEN id = 12
                     THEN variant_get(secondary, '${root}', 'bigint') END),
+                MAX(CASE WHEN id = 13
+                    THEN variant_get(payload, '${root}', 'float') END),
                 MAX(CASE WHEN id = 13
                     THEN variant_get(secondary, '${root}', 'double') END),
                 MAX(CASE WHEN id = 14
                     THEN variant_get(payload, '${root}', 'decimal(12,3)') END),
+                MAX(CASE WHEN id = 14
+                    THEN variant_get(secondary, '${root}', 'decimal(18,6)') END),
+                MAX(CASE WHEN id = 15
+                    THEN variant_get(payload, '${root}', 'string') END),
                 MAX(CASE WHEN id = 15
                     THEN variant_get(secondary, '${root}', 'string') END),
                 MAX(CASE WHEN id = 16
                     THEN variant_get(payload, '${root}', 'date') END),
+                MAX(CASE WHEN id = 16
+                    THEN variant_get(secondary, '${root}', 'timestamp_ntz') END),
                 MAX(CASE WHEN id = 17
-                    THEN LENGTH(variant_get(payload, '${root}', 'string')) END)
+                    THEN LENGTH(variant_get(payload, '${root}', 'string')) END),
+                MAX(CASE WHEN id = 17
+                    THEN variant_get(secondary, '${root}.batch', 'string') END)
             FROM paimon.${dbName}.t_variant_basic
         """
         assertEquals([
-                "true", "9223372036854775807", "-2.5", "123456.789",
-                "中文😀", "2024-02-29", String.valueOf("long-value-".length() * 4096)
+                "true", "false", "-128", "32767", "-2147483648", "9223372036854775807",
+                "1.25", "-2.5", "123456.789", "-0.000001", "plain-string", "中文😀",
+                "2024-02-29", "2024-02-29 12:34:56.123456",
+                String.valueOf("long-value-".length() * 4096), "large-string"
         ], scalarRows[0].collect { value -> value.toString() })
 
         // Refresh Doris metadata, then verify the external table through Paimon's Spark reader.

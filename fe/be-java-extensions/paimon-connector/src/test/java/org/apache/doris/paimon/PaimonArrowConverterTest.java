@@ -150,7 +150,7 @@ public class PaimonArrowConverterTest {
     }
 
     @Test
-    public void testVariantBinaryTransportRejectsUnsupportedNestedPrimitive() {
+    public void testVariantBinaryTransportDoesNotTraverseNestedValues() {
         GenericVariant array = GenericVariant.fromJson("[0]");
         byte[] unsupportedValue = array.value().clone();
         int primitiveHeaderOffset = unsupportedValue.length - 2;
@@ -176,11 +176,9 @@ public class PaimonArrowConverterTest {
             PaimonArrowConverter.RowReader rows =
                     new PaimonArrowConverter(ZoneId.of("UTC")).rows(
                             root, new org.apache.paimon.types.DataType[] {new VariantType()});
-            IllegalArgumentException exception = Assertions.assertThrows(
-                    IllegalArgumentException.class, () -> rows.values(0));
-            Assertions.assertTrue(exception.getMessage().contains("payload"));
-            Assertions.assertTrue(exception.getCause().getMessage().contains(
-                    "UNKNOWN_PRIMITIVE_TYPE_IN_VARIANT"));
+            GenericVariant actual = (GenericVariant) rows.values(0)[0];
+            Assertions.assertArrayEquals(unsupportedValue, actual.value());
+            Assertions.assertArrayEquals(array.metadata(), actual.metadata());
         }
     }
 

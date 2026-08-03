@@ -274,32 +274,10 @@ final class PaimonArrowConverter {
             throw new IllegalArgumentException(
                     "A non-null Paimon VARIANT struct requires non-null value and metadata");
         }
-        GenericVariant variant = new GenericVariant(
-                valueVector.get(index), metadataVector.get(index));
-        ensurePaimonVariantCompatibility(variant);
-        return variant;
-    }
-
-    private void ensurePaimonVariantCompatibility(GenericVariant variant) {
-        // GenericVariant's constructor checks only the format version and size. The regular
-        // Paimon Parquet writer copies value/metadata without parsing them, so walk the value once
-        // through SDK accessors. This rejects Doris primitive IDs unsupported by this Paimon
-        // version without duplicating Paimon's primitive table in Doris.
-        switch (variant.getType()) {
-            case ARRAY:
-                for (int i = 0; i < variant.arraySize(); i++) {
-                    ensurePaimonVariantCompatibility(variant.getElementAtIndex(i));
-                }
-                break;
-            case OBJECT:
-                for (int i = 0; i < variant.objectSize(); i++) {
-                    ensurePaimonVariantCompatibility(variant.getFieldAtIndex(i).value);
-                }
-                break;
-            default:
-                // getType() has already verified that Paimon recognizes the primitive ID.
-                break;
-        }
+        // Keep this boundary transport-only. FE analysis limits Doris-produced Variant leaves to
+        // the Paimon-supported set, while Paimon's writer owns format validation and shredding.
+        // Walking the full tree here would duplicate the writer traversal for every row.
+        return new GenericVariant(valueVector.get(index), metadataVector.get(index));
     }
 
     private GenericRow convertStructVector(

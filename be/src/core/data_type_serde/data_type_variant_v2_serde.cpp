@@ -185,7 +185,10 @@ void require_variant_arrow_status(const arrow::Status& status) {
 
 Status write_binary_variant_arrow(const IColumn& column, const NullMap* null_map,
                                   arrow::StructBuilder& builder, size_t start, size_t end) {
-    const auto& struct_type = assert_cast<const arrow::StructType&>(*builder.type());
+    // StructBuilder::type() returns a shared_ptr by value. Keep that owner alive while using the
+    // cast reference; otherwise the reference would dangle as soon as the temporary is destroyed.
+    const auto builder_type = builder.type();
+    const auto& struct_type = assert_cast<const arrow::StructType&>(*builder_type);
     if (struct_type.num_fields() != 2 || struct_type.field(0)->name() != "value" ||
         struct_type.field(1)->name() != "metadata" ||
         struct_type.field(0)->type()->id() != arrow::Type::BINARY ||

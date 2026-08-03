@@ -479,7 +479,7 @@ public class TypeCoercionUtils {
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
-        } else if (VariantType.isExecutionCompatible(input.getDataType(), targetType)
+        } else if (VariantType.isNoOpCastCompatible(input.getDataType(), targetType)
                 || (input.getDataType().isStringLikeType()) && targetType.isStringLikeType()) {
             return input;
         } else {
@@ -1219,7 +1219,7 @@ public class TypeCoercionUtils {
     }
 
     private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
-        if (!left.isExecutionCompatibleWith(right)) {
+        if (!left.hasCommonExecutionTypeWith(right)) {
             return Optional.empty();
         }
         return Optional.of(left.isComputeV2() ? VariantType.COMPUTE_V2_INSTANCE : right);

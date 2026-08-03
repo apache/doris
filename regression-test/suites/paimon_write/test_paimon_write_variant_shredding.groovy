@@ -37,6 +37,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
             '{"name":"scores","type":{"type":"ARRAY","element":"INT"}}' +
             ']}}]}}]}'
 
+    // TODO: Use variant.shreddingSchema after Paimon passes the global option to its Parquet
+    // builder. In 1.4.2 the builder still requires the fallback spelling used below.
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
 
@@ -48,7 +50,19 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
         TBLPROPERTIES (
             'file.format' = 'parquet',
             'write-only' = 'true',
-            'parquet.variant.shreddingSchema' = '${shreddingSchema}'
+            'parquet.variant.shreddingSchema' = '${shreddingSchema}',
+            'variant.inferShreddingSchema' = 'true'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_inferred;
+        CREATE TABLE paimon.${dbName}.t_variant_inferred (
+            id INT,
+            payload VARIANT
+        ) USING paimon
+        TBLPROPERTIES (
+            'file.format' = 'parquet',
+            'write-only' = 'true',
+            'variant.inferShreddingSchema' = 'true'
         );
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_variant_mixed;
@@ -170,6 +184,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
             assertTrue(payloadType.contains("typed_value:struct"))
             assertTrue(payloadType.contains("age:struct"))
             assertTrue(payloadType.contains("profile:struct"))
+            // The explicit schema wins over inference; residual-only fields must not be promoted.
+            assertFalse(payloadType.contains("other:struct"))
 
             physicalRows.addAll(sql("""
                 SELECT id,
@@ -244,6 +260,65 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
                 ["200", "200", "new", null, "kept"],
                 ["201", "201", null, null, null]
         ], sparkValues(mixedRows))
+
+        // Paimon 1.4 can infer one shredding schema per file writer. Doris still sends the same
+        // logical value/metadata pair; the SDK buffers the rows, chooses typed fields, and writes
+        // typed_value without a caller-provided schema.
+        sql """
+            INSERT INTO t_variant_inferred VALUES
+                (300, parse_to_variant('{"age":30,"profile":{"name":"alice"},"extra":"first"}')),
+                (301, parse_to_variant('{"age":31,"profile":{"name":"bob"},"extra":"second"}'))
+        """
+        def firstInferredFiles = dataFiles("t_variant_inferred")
+        assertTrue(!firstInferredFiles.isEmpty())
+        firstInferredFiles.each { filePath ->
+            String payloadType = rawPayloadType(filePath)
+            assertTrue(payloadType.contains("metadata:text"))
+            assertTrue(payloadType.contains("value:text"))
+            assertTrue(payloadType.contains("typed_value:struct"))
+            assertTrue(payloadType.contains("age:struct"))
+            assertTrue(payloadType.contains("profile:struct"))
+            assertFalse(payloadType.contains("active:struct"))
+            assertFalse(payloadType.contains("city:struct"))
+        }
+
+        // A later Doris statement opens a new Paimon file writer and may infer a different schema.
+        // Keep write-only enabled so compaction cannot hide the per-file schema difference.
+        sql """
+            INSERT INTO t_variant_inferred VALUES
+                (400, parse_to_variant('{"city":"Hangzhou","active":true,"extra":"third"}')),
+                (401, parse_to_variant('{"city":"Shanghai","active":false,"extra":"fourth"}'))
+        """
+        def allInferredFiles = dataFiles("t_variant_inferred")
+        def secondInferredFiles = allInferredFiles.findAll { !firstInferredFiles.contains(it) }
+        assertTrue(!secondInferredFiles.isEmpty())
+        secondInferredFiles.each { filePath ->
+            String payloadType = rawPayloadType(filePath)
+            assertTrue(payloadType.contains("typed_value:struct"))
+            assertTrue(payloadType.contains("active:struct"))
+            assertTrue(payloadType.contains("city:struct"))
+            assertFalse(payloadType.contains("age:struct"))
+            assertFalse(payloadType.contains("profile:struct"))
+        }
+
+        // Unshredding is a reader responsibility. It must use each file's physical schema and
+        // combine typed fields with residual values into one logical Variant column.
+        def inferredRows = spark_paimon """
+            SELECT id,
+                   variant_get(payload, '${root}.age', 'int'),
+                   variant_get(payload, '${root}.profile.name', 'string'),
+                   variant_get(payload, '${root}.city', 'string'),
+                   variant_get(payload, '${root}.active', 'boolean'),
+                   variant_get(payload, '${root}.extra', 'string')
+            FROM paimon.${dbName}.t_variant_inferred
+            ORDER BY id
+        """
+        assertEquals([
+                ["300", "30", "alice", null, null, "first"],
+                ["301", "31", "bob", null, null, "second"],
+                ["400", null, null, "Hangzhou", "true", "third"],
+                ["401", null, null, "Shanghai", "false", "fourth"]
+        ], sparkValues(inferredRows))
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }

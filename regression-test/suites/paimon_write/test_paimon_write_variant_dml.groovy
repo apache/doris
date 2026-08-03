@@ -41,13 +41,6 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon") {
         PARTITIONED BY (pt)
         TBLPROPERTIES ('file.format' = 'parquet');
 
-        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_copy;
-        CREATE TABLE paimon.${dbName}.t_variant_copy (
-            id INT,
-            payload VARIANT
-        ) USING paimon
-        TBLPROPERTIES ('file.format' = 'parquet');
-
         DROP TABLE IF EXISTS paimon.${dbName}.t_variant_overwrite;
         CREATE TABLE paimon.${dbName}.t_variant_overwrite (
             id INT,
@@ -143,28 +136,56 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon") {
 
         def dmlRows = spark_paimon """
             SELECT id,
-                   variant_get(payload, '${root}.mode', 'string'),
+                   try_variant_get(payload, '${root}.source', 'string'),
+                   try_variant_get(payload, '${root}.n', 'int'),
+                   try_variant_get(payload, '${root}[0]', 'string'),
+                   try_variant_get(payload, '${root}[1]', 'int'),
+                   try_variant_get(payload, '${root}.mode', 'string'),
+                   try_variant_get(payload, '${root}', 'bigint'),
+                   try_variant_get(payload, '${root}.generated', 'int'),
                    note,
                    pt,
                    payload IS NULL
             FROM paimon.${dbName}.t_variant_dml
-            WHERE id IN (10, 11, 12, 20, 21, 50, 51, 52)
+            WHERE id IN (1, 2, 3, 4, 10, 11, 12, 20, 21, 22, 30, 37, 50, 51, 52)
             ORDER BY id
         """
         assertEquals([
-                ["10", "reordered", "reordered", "p3", "false"],
-                ["11", "default", "default-note", "p3", "false"],
-                ["12", null, "default-note", "p3", "true"],
-                ["20", "cte", "cte-note", "p4", "false"],
-                ["21", "union-a", "union", "p4", "false"],
-                ["50", null, "static-note", "static", "false"],
-                ["51", null, "dynamic", "dynamic-a", "false"],
-                ["52", null, "dynamic", "dynamic-b", "false"]
+                ["1", "direct", "1", null, null, null, null, null,
+                 "default-note", "p1", "false"],
+                ["2", null, null, "direct", "2", null, null, null,
+                 "default-note", "p1", "false"],
+                ["3", null, null, null, null, null, null, null,
+                 "default-note", "p2", "false"],
+                ["4", null, null, null, null, null, null, null,
+                 "default-note", "p2", "true"],
+                ["10", null, null, null, null, "reordered", null, null,
+                 "reordered", "p3", "false"],
+                ["11", null, null, null, null, "default", null, null,
+                 "default-note", "p3", "false"],
+                ["12", null, null, null, null, null, null, null,
+                 "default-note", "p3", "true"],
+                ["20", null, null, null, null, "cte", null, null,
+                 "cte-note", "p4", "false"],
+                ["21", null, null, null, null, "union-a", null, null,
+                 "union", "p4", "false"],
+                ["22", null, null, null, null, null, "22", null,
+                 "union", "p4", "false"],
+                ["30", null, null, null, null, null, null, "0",
+                 "generated", "p5", "false"],
+                ["37", null, null, null, null, null, null, "7",
+                 "generated", "p5", "false"],
+                ["50", null, null, null, null, null, null, null,
+                 "static-note", "static", "false"],
+                ["51", null, null, null, null, null, null, null,
+                 "dynamic", "dynamic-a", "false"],
+                ["52", null, null, null, null, null, null, null,
+                 "dynamic", "dynamic-b", "false"]
         ], dmlRows.collect { row ->
             row.collect { value -> value == null ? null : value.toString() }
         })
 
-        // Full-table and static-partition overwrite, including empty overwrite.
+        // Static-partition overwrite exercises the overwrite writer with Variant V2 rows.
         sql """
             INSERT INTO t_variant_overwrite VALUES
                 (1, parse_to_variant('{"state":"old-east"}'), 'east'),

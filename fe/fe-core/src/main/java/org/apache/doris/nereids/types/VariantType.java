@@ -373,29 +373,29 @@ public class VariantType extends PrimitiveType {
     }
 
     /**
-     * Whether two types have the same execution layout.
+     * Whether converting between two types requires no execution-time cast.
      *
      * <p>Variant V2 layout properties describe storage/materialization behavior, but every
-     * compute-only V2 value is the same value/metadata pair. Treating property-only differences
-     * as casts would route an already compatible V2 column through Variant conversion kernels.
-     * Complex containers recurse so nested V2 leaves get the same treatment.</p>
+     * compute-only V2 value is the same value/metadata pair. Legacy Variant values still require
+     * exact type equality because their execution layout depends on those properties. Complex
+     * containers recurse so nested V2 leaves get the same treatment.</p>
      */
-    public static boolean isExecutionCompatible(DataType left, DataType right) {
+    public static boolean isNoOpCastCompatible(DataType left, DataType right) {
         if (left.equals(right)) {
             return true;
         }
         if (left instanceof VariantType && right instanceof VariantType) {
-            return ((VariantType) left).isExecutionCompatibleWith((VariantType) right);
+            return ((VariantType) left).isCastCompatibleWith((VariantType) right);
         }
         if (left instanceof ArrayType && right instanceof ArrayType) {
-            return isExecutionCompatible(
+            return isNoOpCastCompatible(
                     ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType());
         }
         if (left instanceof MapType && right instanceof MapType) {
             MapType leftMap = (MapType) left;
             MapType rightMap = (MapType) right;
-            return isExecutionCompatible(leftMap.getKeyType(), rightMap.getKeyType())
-                    && isExecutionCompatible(leftMap.getValueType(), rightMap.getValueType());
+            return isNoOpCastCompatible(leftMap.getKeyType(), rightMap.getKeyType())
+                    && isNoOpCastCompatible(leftMap.getValueType(), rightMap.getValueType());
         }
         if (left instanceof StructType && right instanceof StructType) {
             List<StructField> leftFields = ((StructType) left).getFields();
@@ -408,7 +408,7 @@ public class VariantType extends PrimitiveType {
                 StructField rightField = rightFields.get(i);
                 if (leftField.isNullable() != rightField.isNullable()
                         || !leftField.getName().equals(rightField.getName())
-                        || !isExecutionCompatible(
+                        || !isNoOpCastCompatible(
                                 leftField.getDataType(), rightField.getDataType())) {
                     return false;
                 }
@@ -441,8 +441,8 @@ public class VariantType extends PrimitiveType {
      * <p>Legacy Variant values retain their existing common-type behavior. Compute-only Variant
      * V2 values share one physical representation, independent of source layout properties.</p>
      */
-    public boolean isExecutionCompatibleWith(VariantType other) {
-        return isCastCompatibleWith(other);
+    public boolean hasCommonExecutionTypeWith(VariantType other) {
+        return computeV2 == other.computeV2;
     }
 
     /**
