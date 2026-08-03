@@ -46,7 +46,7 @@ SQL_TIMEOUT_SECONDS=900
 ATTEMPTS=3
 # Primary-key fixtures whose buckets must have been snapshotted before the
 # environment counts as ready. See wait_for_kv_snapshots.
-SNAPSHOT_TABLES=(pk_basic pk_types pk_part lake_pk)
+SNAPSHOT_TABLES=(pk_basic pk_types pk_part lake_pk lake_pk_multi lake_pk_part lake_pk_cold)
 SNAPSHOT_WAIT_SECONDS=120
 
 # What each lake fixture must hold in paimon before the tail is written -- the
@@ -59,6 +59,9 @@ LAKE_EXPECTED_ROWS=(
     "lake_types=1"
     "lake_part=3"
     "lake_pk=3"
+    "lake_pk_multi=9"
+    "lake_pk_part=4"
+    "lake_pk_cold=3"
 )
 LAKE_TIERING_WAIT_SECONDS=300
 TIERING_JAR_GLOB='/opt/flink/opt/fluss-flink-tiering-*.jar'
@@ -229,12 +232,31 @@ run_sql() {
     return 0
 }
 
+# Removes the paimon side of the lake tables, which is what makes a retry
+# possible at all. init.sql drops its fluss database, but that leaves the paimon
+# tables where they are -- and fluss refuses to create a lake table whose paimon
+# table already exists and holds rows. Without this, an attempt that failed after
+# creating one lake table dooms every attempt after it, and the environment comes
+# up "failed after 3 attempts" with the real cause three hundred lines up.
+#
+# Deleting the directory IS dropping the database here: the warehouse is a
+# filesystem catalog, mounted writable for exactly this kind of work, and the
+# host script empties the same directory before the containers start.
+drop_lake_warehouse() {
+    local warehouse="${FLUSS_PAIMON_WAREHOUSE#file://}"
+    if [[ -d "${warehouse}/fluss_test.db" ]]; then
+        echo "Removing the paimon side of the previous attempt: ${warehouse}/fluss_test.db"
+        rm -rf "${warehouse}/fluss_test.db"
+    fi
+}
+
 run_attempt() {
     local attempt="$1"
 
     # A previous attempt's tiering job would still be consuming the database
     # init.sql is about to drop.
     cancel_all_jobs
+    drop_lake_warehouse
     start_tiering_job || return 1
 
     run_sql "${MARKER_DIR}/init.sql" "${MARKER_DIR}/init-attempt-${attempt}.log" || return 1

@@ -19,18 +19,20 @@
 //
 // Its two halves cannot be concatenated the way a log table's are: the log
 // carries updates and deletes of rows the lake already holds, so reading both
-// and adding them up returns superseded and deleted rows. Merging them BY KEY is
-// not implemented, so such a table is read from fluss alone -- and that read is
-// the WHOLE table, not a part of it, because fluss keeps a primary-key table's
-// state in its own kv store and tiering copies rows into the lake rather than
-// moving them out. (A log table has no such guarantee, which is why IT is read
-// as a union and refused when the lake cannot be reached.)
+// and adding them up returns superseded and deleted rows. They are merged BY
+// KEY instead -- the lake half is read column by column and a lake row is
+// dropped when the log tail that follows it touched its key at all, while the
+// tail contributes the state it ended in.
 //
-// This suite is therefore two things at once. It checks today's read, and it
-// pins the answer a future lake+log merge will have to reproduce row for row:
-// the same queries, over a fixture whose lake and log deliberately disagree in
-// every way they can. When that merge lands, these recorded results must not
-// change -- that is what recording them is for.
+// The results below were recorded before that merge existed, off a read that
+// went to fluss alone. That read is the WHOLE table rather than a part of it,
+// because fluss keeps a primary-key table's state in its own kv store and
+// tiering copies rows into the lake rather than moving them out -- so it is a
+// second, independent answer to every query here, and the merge has to
+// reproduce it row for row. Nothing in the RESULTS says which one ran, which is
+// exactly what makes them a baseline; the plan says it, and this suite asserts
+// both. When these recorded blocks change, the merge has broken -- that is what
+// recording them is for.
 //
 // Fixtures come from docker/thirdparties/docker-compose/fluss/sql/init.sql and
 // init-lake-tail.sql, and are frozen -- the tiering service is stopped before
@@ -81,6 +83,7 @@ suite("test_fluss_lake_pk", "p0,external") {
     // that picks between them is randomised by the fuzzy mode this pipeline runs.
     sql """set enable_file_scanner_v2 = true"""
 
+    def rowsOf = { String query -> sql(query).collect { row -> row.collect { it.toString() } } }
     def planOf = { String query ->
         return sql("""explain ${query}""").collect { it[0].toString() }.join("\n")
     }
@@ -96,34 +99,48 @@ suite("test_fluss_lake_pk", "p0,external") {
     // would return the deleted row 1, two versions of row 3, and row 4.
     order_qt_front_door """select id, name from lake_pk"""
 
-    // --- auto falls back to exactly what disabled asks for -------------------
-    // The same rows out of the same code path, not "something equivalent": this
-    // result and the one above have to stay identical to each other, and a
-    // fallback that quietly read something else would break one of them.
+    // --- the merge lands on what a fluss-only read returns --------------------
+    // The same rows out of an entirely different reader: this block and the one
+    // above have to stay identical to each other. That is the whole argument for
+    // the merge being right, because fluss serves a primary-key table in full and
+    // has no lake half to get wrong.
     order_qt_fluss_only """select id, name from ${flussOnlyCatalog}.fluss_test.lake_pk"""
 
-    // --- the plan says the lake was not read ---------------------------------
-    // Nothing in the RESULT distinguishes this read from a correct merge -- that
-    // is exactly what makes it a baseline -- so only the plan can say which one
-    // ran. One bucket, one primary-key range, no lake splits.
+    // --- the plan says the lake really was read ------------------------------
+    // Without this the suite would still pass if the merge quietly stopped
+    // happening and the read fell back to fluss alone -- the rows would be the
+    // same ones. One bucket: one lake split, suppressed by the tail of that
+    // bucket, and one range replaying the tail itself.
     def plan = planOf("""select * from lake_pk""")
     assertTrue(
-            plan.contains("flussScan: unionRead=no, lakeSplits=0, logRanges=0, pkRanges=1, mode=auto"),
-            "not planned as a fluss-only primary-key read of one bucket: ${plan}")
+            plan.contains("flussScan: unionRead=yes, lakeSplits=1, suppressedLakeSplits=1, "
+                    + "logRanges=0, pkRanges=0, pkTailRanges=1, mode=auto"),
+            "not planned as a lake+tail merge of one bucket: ${plan}")
 
-    // --- required refuses rather than falling back ---------------------------
-    // That mode exists so a union-read test cannot pass without a union read. No
-    // primary-key table can satisfy it yet, and the refusal has to say so --
-    // "wait for tiering to commit" would send the reader down a dead end.
-    test {
-        sql """select * from ${requiredCatalog}.fluss_test.lake_pk"""
-        exception "not implemented yet"
-    }
+    // --- required merges rather than refusing --------------------------------
+    // That mode exists so a union-read test cannot pass by falling back. It used
+    // to refuse a primary-key table outright; now it has to produce the merge,
+    // and produce the same rows as the two modes that may fall back.
+    def requiredPlan = planOf("""select * from ${requiredCatalog}.fluss_test.lake_pk""")
+    assertTrue(requiredPlan.contains("unionRead=yes"), "required did not merge: ${requiredPlan}")
+    assertTrue(requiredPlan.contains("mode=required"), "unexpected mode: ${requiredPlan}")
+
+    // Three modes, three catalogs, one answer -- compared here rather than by
+    // three recorded blocks, because what is being asserted is that they AGREE.
+    // Two identical recordings only look alike to a reader.
+    def query = { String catalog -> "select id, name from ${catalog}.fluss_test.lake_pk order by id" }
+    def merged = rowsOf(query(autoCatalog))
+    assertEquals(rowsOf(query(flussOnlyCatalog)), merged,
+            "auto and disabled disagree on lake_pk")
+    assertEquals(rowsOf(query(requiredCatalog)), merged,
+            "required and auto disagree on lake_pk")
 
     // --- the ordinary things still work on this path -------------------------
-    // Projection, predicates and count all go through the kv snapshot merged with
-    // the change log, which is a different reader from the log tables' and is
-    // exercised here for a lake table.
+    // Projection, predicates and count all run over the merged pair. The
+    // projection one carries a second load: the merge needs the key column to
+    // suppress by, and the engine keeps it in the scan for that reason alone --
+    // so a single-column result here is also the assertion that the kept column
+    // stays out of the answer.
     order_qt_count """select count(*) from lake_pk"""
     order_qt_projection """select name from lake_pk where id = 3"""
     // The deleted row stays gone under a predicate too, not only in a full scan:
