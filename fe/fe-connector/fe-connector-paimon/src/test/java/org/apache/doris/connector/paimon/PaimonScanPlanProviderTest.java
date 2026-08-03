@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRequest;
@@ -37,13 +38,17 @@ import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -197,6 +202,26 @@ public class PaimonScanPlanProviderTest {
         provider.resolveTable(handle); // null transient -> reload via the wrapped seam
         Assertions.assertEquals(Collections.singletonList("getTable:db1.t1"), ops.log);
         Assertions.assertEquals(1, ctx.authCount);
+    }
+
+    @Test
+    public void transientFreeSystemSourceReloadRunsInsideAuthenticator() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.sysTable = new FakePaimonTable(
+                "t1$snapshots", rowType("snapshot_id"), Collections.emptyList(), Collections.emptyList());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuthOnInvocation = 2;
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops, ctx);
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "snapshots", false);
+
+        Assertions.assertThrows(RuntimeException.class, () -> provider.resolveScanTable(handle));
+        Assertions.assertEquals(2, ctx.authCount,
+                "the system wrapper and its base source must each reload inside authentication");
+        Assertions.assertEquals(1, ops.log.size(),
+                "the second auth failure must stop the base-table RPC before it reaches the catalog seam");
     }
 
     @Test
@@ -470,6 +495,168 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void resolveScanTableRejectsUnsafePhysicalOptionsAtFinalBoundary() {
+        FakePaimonTable base = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        base.setOptions(Collections.singletonMap("read.batch-size", "0"));
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(base);
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                Collections.emptyMap(), new RecordingPaimonCatalogOps());
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.resolveScanTable(handle));
+        Assertions.assertTrue(e.getMessage().contains("read.batch-size"));
+    }
+
+    @Test
+    public void resolveScanTableAllowsSafeRelationOptionToOverrideUnsafePhysicalOption() {
+        FakePaimonTable base = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        base.setOptions(Collections.singletonMap("read.batch-size", "0"));
+        FakePaimonTable copied = new FakePaimonTable(
+                "t1@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        copied.setOptions(Collections.singletonMap("read.batch-size", "4096"));
+        base.copyResult = copied;
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(base);
+        PaimonTableHandle optionsHandle = handle.withScanOptions(PaimonScanParams.markAsOptions(
+                Collections.singletonMap("read.batch-size", "4096")));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                Collections.emptyMap(), new RecordingPaimonCatalogOps());
+
+        Assertions.assertSame(copied, provider.resolveScanTable(optionsHandle));
+    }
+
+    @Test
+    public void resolveSystemScanTableValidatesHiddenDataTable() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable dataTable = new FakePaimonTable(
+                "data", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        dataTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.table = dataTable;
+        ops.sysTable = systemTable;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "partitions", false);
+        handle.setPaimonTable(systemTable);
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+
+        // The connector boundary must keep one stable exception type while preserving the
+        // validation failure as its cause for diagnostics.
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.resolveScanTable(handle));
+        Assertions.assertInstanceOf(IllegalArgumentException.class, e.getCause());
+        Assertions.assertTrue(e.getCause().getMessage().contains("scan.manifest.parallelism"));
+    }
+
+    @Test
+    public void resolveSystemScanTableValidatesPinnedSourceGeneration() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable pinnedSource = new FakePaimonTable(
+                "pinned", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        pinnedSource.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable reloadedSource = new FakePaimonTable(
+                "reloaded", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        reloadedSource.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.sysTable = systemTable;
+        PaimonTableHandle base = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        base.setPaimonTable(pinnedSource);
+        PaimonTableHandle system = (PaimonTableHandle) new PaimonConnectorMetadata(
+                ops, Collections.emptyMap(), new RecordingConnectorContext())
+                .getSysTableHandle(null, base, "partitions").orElseThrow(AssertionError::new);
+        ops.table = reloadedSource;
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.resolveScanTable(system));
+        Assertions.assertInstanceOf(IllegalArgumentException.class, e.getCause());
+        Assertions.assertTrue(e.getCause().getMessage().contains("scan.manifest.parallelism"));
+    }
+
+    @Test
+    public void resolveSystemScanTableAppliesSafeOverrideToHiddenDataTable() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable dataTable = new FakePaimonTable(
+                "data", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        dataTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable safeDataTable = new FakePaimonTable(
+                "data@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        safeDataTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        dataTable.copyResult = safeDataTable;
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable safeSystemTable = new FakePaimonTable(
+                "partitions@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        safeSystemTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        systemTable.copyResult = safeSystemTable;
+        ops.table = dataTable;
+        ops.sysTable = systemTable;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "partitions", false);
+        handle.setPaimonTable(systemTable);
+        PaimonTableHandle optionsHandle = handle.withScanOptions(PaimonScanParams.markAsOptions(
+                Collections.singletonMap("scan.manifest.parallelism", "1")));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+
+        Assertions.assertSame(safeSystemTable, provider.resolveScanTable(optionsHandle));
+        Assertions.assertEquals("1", dataTable.lastCopyOptions.get("scan.manifest.parallelism"));
+    }
+
+    @Test
+    public void resolveSystemScanTableDoesNotRecapReturnedWrapper() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        int acceptedButUnsafe = localCapacity + 1;
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable dataTable = new FakePaimonTable(
+                "data", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        dataTable.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(acceptedButUnsafe)));
+        FakePaimonTable cappedDataTable = new FakePaimonTable(
+                "data@runtime", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        cappedDataTable.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(localCapacity)));
+        dataTable.copyResult = cappedDataTable;
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable relationSystemTable = new FakePaimonTable(
+                "partitions@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        relationSystemTable.setOptions(Collections.singletonMap("read.batch-size", "4096"));
+        systemTable.copyResult = relationSystemTable;
+        ops.table = dataTable;
+        ops.sysTable = systemTable;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "partitions", false);
+        handle.setPaimonTable(systemTable);
+        handle.setSystemTableSource(dataTable);
+        PaimonTableHandle optionsHandle = handle.withScanOptions(PaimonScanParams.markAsOptions(
+                Collections.singletonMap("read.batch-size", "4096")));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        Table resolved = provider.resolveScanTable(optionsHandle);
+
+        // The hidden source is normalized independently. Re-copying the outer wrapper with one cap
+        // would broadcast it through a fallback tree and erase a smaller sibling preference.
+        Assertions.assertSame(relationSystemTable, resolved);
+        Assertions.assertNull(relationSystemTable.lastCopyOptions);
+        Assertions.assertEquals(localCapacity,
+                provider.backendManifestParallelism(optionsHandle, resolved).getAsInt());
+    }
+
+    @Test
     public void resolveScanTableResetsStalePinForIncrementalRead(@TempDir Path warehouse) throws Exception {
         // A REAL paimon table (not FakePaimonTable, whose copy() is a no-op recorder that cannot
         // reproduce paimon's merge/remove/immutability) that PERSISTS a stale scan.snapshot-id/scan.mode
@@ -655,6 +842,101 @@ public class PaimonScanPlanProviderTest {
                     "the $ro schema dict must carry history_schema_info entries");
             Assertions.assertEquals(-1L, params.getCurrentSchemaId(),
                     "the current/target schema id must be the -1 sentinel (legacy parity)");
+        }
+    }
+
+    @Test
+    public void readOptimizedSchemaDictionaryUsesPinnedSourceGeneration(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier pinnedId = Identifier.create("db", "pinned");
+            catalog.createTable(pinnedId, Schema.newBuilder()
+                    .column("pinned_id", DataTypes.INT())
+                    .primaryKey("pinned_id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Identifier reloadedId = Identifier.create("db", "reloaded");
+            catalog.createTable(reloadedId, Schema.newBuilder()
+                    .column("reloaded_id", DataTypes.INT())
+                    .primaryKey("reloaded_id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable pinned = (FileStoreTable) catalog.getTable(pinnedId);
+            FileStoreTable reloaded = (FileStoreTable) catalog.getTable(reloadedId);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle base = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            base.setPaimonTable(pinned);
+            PaimonTableHandle ro = (PaimonTableHandle) new PaimonConnectorMetadata(
+                    ops, Collections.emptyMap(), new RecordingConnectorContext())
+                    .getSysTableHandle(null, base, "ro").orElseThrow(AssertionError::new);
+            ops.table = reloaded;
+
+            Map<String, String> props = new PaimonScanPlanProvider(Collections.emptyMap(), ops)
+                    .getScanNodeProperties(null, ro, Collections.emptyList(), Optional.empty());
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            PaimonScanPlanProvider.applySchemaEvolutionParam(
+                    params, props.get("paimon.schema_evolution"));
+            String currentName = params.getHistorySchemaInfo().get(0)
+                    .getRootField().getFields().get(0).getFieldPtr().getName();
+
+            Assertions.assertEquals("pinned_id", currentName,
+                    "$ro splits and schema dictionary must come from the same pinned generation");
+        }
+    }
+
+    @Test
+    public void readOptimizedSchemaDictionaryUsesOptionSelectedSnapshot(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("old_name", DataTypes.STRING())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable firstGeneration = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder writeBuilder = firstGeneration.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1, BinaryString.fromString("v")));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            long oldSnapshotId = firstGeneration.latestSnapshot().orElseThrow(AssertionError::new).id();
+            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                    .commitChanges(SchemaChange.renameColumn("old_name", "new_name"));
+            FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle base = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            base.setPaimonTable(latestGeneration);
+            PaimonTableHandle ro = (PaimonTableHandle) new PaimonConnectorMetadata(
+                    ops, Collections.emptyMap(), new RecordingConnectorContext())
+                    .getSysTableHandle(null, base, "ro").orElseThrow(AssertionError::new);
+            ro = ro.withScanOptions(PaimonScanParams.markAsOptions(Collections.singletonMap(
+                    CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(oldSnapshotId))));
+
+            Map<String, String> props = new PaimonScanPlanProvider(Collections.emptyMap(), ops)
+                    .getScanNodeProperties(null, ro,
+                            Collections.singletonList(new PaimonColumnHandle("old_name", 1)),
+                            Optional.empty());
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            PaimonScanPlanProvider.applySchemaEvolutionParam(
+                    params, props.get("paimon.schema_evolution"));
+            String currentName = params.getHistorySchemaInfo().get(0)
+                    .getRootField().getFields().get(0).getFieldPtr().getName();
+
+            Assertions.assertEquals("old_name", currentName,
+                    "$ro schema dictionary must describe the same option-selected snapshot as its splits");
         }
     }
 

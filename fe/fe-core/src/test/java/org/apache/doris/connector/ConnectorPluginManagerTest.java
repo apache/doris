@@ -27,12 +27,24 @@ import org.apache.doris.datasource.CatalogFactory;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 
 /**
  * Tests for {@link ConnectorPluginManager}: provider selection, the type-name contract enforced when a
@@ -46,6 +58,9 @@ import java.util.Set;
  * {@code org.apache.doris.pluginapiversion.PluginApiVersionWiringTest}.
  */
 public class ConnectorPluginManagerTest {
+
+    private static final String CLASSPATH_PROVIDER_CONSTRUCTED =
+            "doris.test.connector.classpath-provider-constructed";
 
     private ConnectorPluginManager manager;
     private ConnectorContext testContext;
@@ -222,6 +237,39 @@ public class ConnectorPluginManagerTest {
     }
 
     @Test
+    void classpathProviderMustDeclareTheKernelApiMajor(@TempDir Path tempDir) throws Exception {
+        Path apiOneJar = createClasspathProviderJar(tempDir.resolve("api-one.jar"), "1.0");
+        ConnectorPluginManager incompatible = new ConnectorPluginManager();
+        try (URLClassLoader loader = providerClassLoader(apiOneJar)) {
+            incompatible.loadBuiltins(loader);
+        }
+        Assertions.assertFalse(incompatible.getRegisteredTypes().contains("classpath-test"),
+                "an API-1 provider must not enter an API-2 kernel through classpath discovery");
+
+        Path apiTwoJar = createClasspathProviderJar(tempDir.resolve("api-two.jar"), "2.0");
+        ConnectorPluginManager compatible = new ConnectorPluginManager();
+        try (URLClassLoader loader = providerClassLoader(apiTwoJar)) {
+            compatible.loadBuiltins(loader);
+        }
+        Assertions.assertTrue(compatible.getRegisteredTypes().contains("classpath-test"));
+    }
+
+    @Test
+    void incompatibleClasspathProviderIsRejectedBeforeConstruction(@TempDir Path tempDir) throws Exception {
+        System.clearProperty(CLASSPATH_PROVIDER_CONSTRUCTED);
+        try {
+            Path apiOneJar = createClasspathProviderJar(tempDir.resolve("api-one-constructor.jar"), "1.0");
+            try (URLClassLoader loader = providerClassLoader(apiOneJar)) {
+                new ConnectorPluginManager().loadBuiltins(loader);
+            }
+            Assertions.assertNull(System.getProperty(CLASSPATH_PROVIDER_CONSTRUCTED),
+                    "the API-major gate must run before untrusted provider construction");
+        } finally {
+            System.clearProperty(CLASSPATH_PROVIDER_CONSTRUCTED);
+        }
+    }
+
+    @Test
     void duplicateCreateTableEngineNameIsRefused() {
         // Engine names route CREATE TABLE ... ENGINE= the same way type names route CREATE CATALOG. Two
         // plugins answering to one engine name would make the statement mean whichever registered first, so
@@ -284,6 +332,66 @@ public class ConnectorPluginManagerTest {
             @Override
             public Connector create(Map<String, String> properties, ConnectorContext context) {
                 return new TaggedConnector(type);
+            }
+        };
+    }
+
+    public static class ClasspathProvider implements ConnectorProvider {
+        public ClasspathProvider() {
+            System.setProperty(CLASSPATH_PROVIDER_CONSTRUCTED, "true");
+        }
+
+        @Override
+        public String getType() {
+            return "classpath-test";
+        }
+
+        @Override
+        public Connector create(Map<String, String> properties, ConnectorContext context) {
+            return null;
+        }
+    }
+
+    private static Path createClasspathProviderJar(Path jarPath, String apiVersion) throws IOException {
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue("Doris-Connector-Plugin-Api-Version", apiVersion);
+        String classEntry = ClasspathProvider.class.getName().replace('.', '/') + ".class";
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
+            jar.putNextEntry(new JarEntry(classEntry));
+            try (InputStream bytes = ClasspathProvider.class.getClassLoader().getResourceAsStream(classEntry)) {
+                Assertions.assertNotNull(bytes, "provider class bytes");
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = bytes.read(buffer)) != -1) {
+                    jar.write(buffer, 0, read);
+                }
+            }
+            jar.closeEntry();
+            jar.putNextEntry(new JarEntry("META-INF/services/" + ConnectorProvider.class.getName()));
+            jar.write((ClasspathProvider.class.getName() + "\n").getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+        }
+        return jarPath;
+    }
+
+    private static URLClassLoader providerClassLoader(Path jarPath) throws IOException {
+        return new URLClassLoader(new URL[] {jarPath.toUri().toURL()}, ConnectorProvider.class.getClassLoader()) {
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (name.equals(ClasspathProvider.class.getName())) {
+                    synchronized (getClassLoadingLock(name)) {
+                        Class<?> loaded = findLoadedClass(name);
+                        if (loaded == null) {
+                            loaded = findClass(name);
+                        }
+                        if (resolve) {
+                            resolveClass(loaded);
+                        }
+                        return loaded;
+                    }
+                }
+                return super.loadClass(name, resolve);
             }
         };
     }

@@ -48,3 +48,8 @@ k2	agg_state<max_by(int not null, int null)>	No	false	\N	GENERIC
 -- !max_by_null --
 \N	\N
 
+-- !percentile_approx_merge_after_subquery --
+2
+
+-- !percentile_approx_union_after_subquery --
+2

@@ -73,6 +73,13 @@ public final class HiveConnectorProperties {
             new HashSet<>(Arrays.asList(CREATE_FILE_FORMAT, CREATE_LOCATION)));
     public static final String DORIS_PROP_PREFIX = "doris.";
 
+    // -- deployment-level settings, read from this plugin's own hms.conf --
+    // The file is named after ConnectorProvider.name() ("hms"), NOT after the plugin directory
+    // ("plugins/connector/hive"). Each key falls back to the ENV_ name below it, which is the fe.conf key
+    // it used to live under and still works.
+    public static final String CONF_DEFAULT_FILE_FORMAT = "default_file_format";
+    public static final String CONF_ENABLE_CREATE_BUCKET_TABLE = "enable_create_bucket_table";
+
     // -- environment keys threaded from fe-core DefaultConnectorContext (must stay byte-identical there) --
     public static final String ENV_HIVE_DEFAULT_FILE_FORMAT = "hive_default_file_format";
     public static final String ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE = "enable_create_hive_bucket_table";

@@ -20,7 +20,6 @@ package org.apache.doris.datasource.split;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.spi.Split;
 
-import org.apache.hadoop.fs.BlockLocation;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -36,7 +35,7 @@ public class FileSplitterTest {
     @Test
     public void testNonSplittableCompressedFileProducesSingleSplit() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/file.gz");
-        BlockLocation[] locations = new BlockLocation[]{new BlockLocation(null, new String[]{"h1"}, 0L, 10 * MB)};
+        FileBlockLocation[] locations = new FileBlockLocation[]{new FileBlockLocation(new String[]{"h1"}, 0L, 10 * MB)};
         FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, DEFAULT_INITIAL_SPLITS);
         List<Split> splits = fileSplitter.splitFile(
                 loc,
@@ -58,7 +57,7 @@ public class FileSplitterTest {
     @Test
     public void testEmptyBlockLocationsProducesSingleSplitAndNullHosts() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/file");
-        BlockLocation[] locations = new BlockLocation[0];
+        FileBlockLocation[] locations = new FileBlockLocation[0];
         FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, DEFAULT_INITIAL_SPLITS);
         List<Split> splits = fileSplitter.splitFile(
                 loc,
@@ -81,7 +80,7 @@ public class FileSplitterTest {
     public void testSplittableSingleBigBlockProducesExpectedSplitsWithInitialSmallChunks() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/bigfile");
         long length = 200 * MB;
-        BlockLocation[] locations = new BlockLocation[]{new BlockLocation(null, new String[]{"h1"}, 0L, length)};
+        FileBlockLocation[] locations = new FileBlockLocation[]{new FileBlockLocation(new String[]{"h1"}, 0L, length)};
         // set maxInitialSplits to 2 to force the first two splits to be small.
         FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, 2);
         List<Split> splits = fileSplitter.splitFile(
@@ -111,12 +110,47 @@ public class FileSplitterTest {
     }
 
     @Test
+    public void testNullBlockLocationsSplitLikeOneWholeFileBlock() throws Exception {
+        // The only production caller (TVFScanNode) always passes null block locations, so this is the
+        // shape that actually ships. Null must degrade to a single synthetic block spanning the whole
+        // file -- not to "no splits" and not to one unsplit range -- which is why the expected sizes
+        // below are identical to testSplittableSingleBigBlockProducesExpectedSplitsWithInitialSmallChunks
+        // with the same splitter settings. A broken synthetic block would silently change how many
+        // ranges the BE receives for every TVF scan.
+        LocationPath loc = LocationPath.of("hdfs://example.com/path/bigfile");
+        long length = 200 * MB;
+        FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, 2);
+        List<Split> splits = fileSplitter.splitFile(
+                loc,
+                0L,
+                null,
+                length,
+                0L,
+                true,
+                Collections.emptyList(),
+                FileSplit.FileSplitCreator.DEFAULT);
+
+        long[] expected = new long[]{32 * MB, 32 * MB, 64 * MB, 36 * MB, 36 * MB};
+        Assert.assertEquals(expected.length, splits.size());
+        long sum = 0L;
+        for (int i = 0; i < expected.length; i++) {
+            FileSplit s = (FileSplit) splits.get(i);
+            Assert.assertEquals(expected[i], s.getLength());
+            sum += s.getLength();
+            // No locality information is available, so no split may claim a host.
+            Assert.assertNotNull(s.getHosts());
+            Assert.assertEquals(0, s.getHosts().length);
+        }
+        Assert.assertEquals(length, sum);
+    }
+
+    @Test
     public void testMultiBlockSplitsAndHostPreservation() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/twoblocks");
         long len = 96 * MB;
-        BlockLocation[] locations = new BlockLocation[]{
-                new BlockLocation(null, new String[]{"h1"}, 0L, 48 * MB),
-                new BlockLocation(null, new String[]{"h2"}, 48 * MB, 48 * MB)
+        FileBlockLocation[] locations = new FileBlockLocation[]{
+                new FileBlockLocation(new String[]{"h1"}, 0L, 48 * MB),
+                new FileBlockLocation(new String[]{"h2"}, 48 * MB, 48 * MB)
         };
         FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, 0);
         List<Split> splits = fileSplitter.splitFile(
@@ -141,9 +175,9 @@ public class FileSplitterTest {
     public void testZeroLengthBlockIsSkipped() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/zeroblock");
         long length = 10 * MB;
-        BlockLocation[] locations = new BlockLocation[]{
-                new BlockLocation(null, new String[]{"h1"}, 0L, 0L),
-                new BlockLocation(null, new String[]{"h1"}, 0L, 10 * MB)
+        FileBlockLocation[] locations = new FileBlockLocation[]{
+                new FileBlockLocation(new String[]{"h1"}, 0L, 0L),
+                new FileBlockLocation(new String[]{"h1"}, 0L, 10 * MB)
         };
         FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, DEFAULT_INITIAL_SPLITS);
         List<Split> splits = fileSplitter.splitFile(
@@ -164,7 +198,7 @@ public class FileSplitterTest {
     @Test
     public void testNonSplittableFlagDecrementsCounter() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/file.gz");
-        BlockLocation[] locations = new BlockLocation[]{new BlockLocation(null, new String[]{"h1"}, 0L, 10 * MB)};
+        FileBlockLocation[] locations = new FileBlockLocation[]{new FileBlockLocation(new String[]{"h1"}, 0L, 10 * MB)};
         FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, 2);
         List<Split> splits = fileSplitter.splitFile(
                 loc,
@@ -181,7 +215,7 @@ public class FileSplitterTest {
     @Test
     public void testNullRemainingInitialSplitIsAllowed() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/somefile");
-        BlockLocation[] locations = new BlockLocation[]{new BlockLocation(null, new String[]{"h1"}, 0L, 10 * MB)};
+        FileBlockLocation[] locations = new FileBlockLocation[]{new FileBlockLocation(new String[]{"h1"}, 0L, 10 * MB)};
         FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, DEFAULT_INITIAL_SPLITS);
         List<Split> splits = fileSplitter.splitFile(
                 loc,
@@ -198,7 +232,7 @@ public class FileSplitterTest {
     @Test
     public void testZeroLengthFileProducesNoSplits() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/emptyfile");
-        BlockLocation[] locations = new BlockLocation[]{new BlockLocation(null, new String[]{"h1"}, 0L, 0L)};
+        FileBlockLocation[] locations = new FileBlockLocation[]{new FileBlockLocation(new String[]{"h1"}, 0L, 0L)};
         FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, DEFAULT_INITIAL_SPLITS);
         // Non-splittable zero-length file
         List<Split> splits = fileSplitter.splitFile(
@@ -222,7 +256,7 @@ public class FileSplitterTest {
     @Test
     public void testSmallFileNoSplit() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/small");
-        BlockLocation[] locations = new BlockLocation[]{new BlockLocation(null, new String[]{"h1"}, 0L, 2 * MB)};
+        FileBlockLocation[] locations = new FileBlockLocation[]{new FileBlockLocation(new String[]{"h1"}, 0L, 2 * MB)};
         FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, DEFAULT_INITIAL_SPLITS);
         List<Split> splits = fileSplitter.splitFile(
                 loc,

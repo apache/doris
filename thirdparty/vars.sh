@@ -268,6 +268,39 @@ ARROW_NAME="apache-arrow-17.0.0.tar.gz"
 ARROW_SOURCE="arrow-apache-arrow-17.0.0"
 ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
 
+# arrow-adbc
+# One source tree, three artifacts: the driver manager (statically linked into
+# doris_be), the JNI bridge (loaded by the FE adbc connector) and the SQLite
+# driver (BE unit tests only, not shipped).
+# Release "N" ships C/Go 1.12.0 and Java 0.24.0; the tag carries neither number.
+ARROW_ADBC_DOWNLOAD="https://github.com/apache/arrow-adbc/archive/refs/tags/apache-arrow-adbc-24.tar.gz"
+ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
+ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
+ARROW_ADBC_MD5SUM="2b2a18e95c33bdfd2bfa33a8b57c78d6"
+
+# arrow-adbc Flight SQL driver, prebuilt.
+# Upstream writes this driver in Go and publishes no bare shared library, so it is
+# taken from the official release wheel (a zip) rather than adding a Go toolchain to
+# the thirdparty build. It must come from the same release as the source tree above
+# (C/Go 1.12.0): partition descriptors are driver-private bytes, so the FE and every
+# BE have to load the very same file. ADBC tests only, not shipped -- same treatment
+# as the SQLite driver. Linux only; the macOS wheels carry a .dylib no test looks for.
+if [[ "$(uname -s)" == 'Linux' ]]; then
+    ARROW_ADBC_FLIGHTSQL_SOURCE="adbc_driver_flightsql"
+    if [[ "${MACHINE_TYPE}" == 'x86_64' ]]; then
+        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/2b/5b/f8566aa6d05eb40225f5874f8f5f5e8b8b4a4ce866d817a5ff352f326302/adbc_driver_flightsql-1.12.0-py3-none-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
+        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-x86_64.zip"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="975a283dc72db0c646204e512b396e2a"
+    elif [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/57/45/6468fb425f3c0ae868c1ca9ab8e15cba76b59e941edd7e80e892e5476728/adbc_driver_flightsql-1.12.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl"
+        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-aarch64.zip"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="4ab31967910f9d2af20663b06412e6aa"
+    else
+        echo "no prebuilt adbc flightsql driver for ${MACHINE_TYPE}, skipping it"
+        ARROW_ADBC_FLIGHTSQL_SOURCE=""
+    fi
+fi
+
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
 ABSEIL_NAME="abseil-cpp-20250512.1.tar.gz"
@@ -610,6 +643,7 @@ export TP_ARCHIVES=(
     'LIBRDKAFKA'
     'FLATBUFFERS'
     'ARROW'
+    'ARROW_ADBC'
     'BROTLI'
     'ZSTD'
     'ABSEIL'
@@ -666,6 +700,12 @@ export TP_ARCHIVES=(
     'PAIMON_CPP'
     'LANCE_C'
 )
+
+# Only defined on the platforms upstream ships a prebuilt driver for (see above).
+if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+    read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} ARROW_ADBC_FLIGHTSQL"
+    export TP_ARCHIVES
+fi
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     #binutils

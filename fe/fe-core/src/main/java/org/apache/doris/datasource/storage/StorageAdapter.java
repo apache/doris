@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.storage;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
@@ -29,17 +28,12 @@ import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.fs.FileSystemPluginManager;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -52,8 +46,11 @@ import java.util.Set;
  *
  * <p>One adapter wraps one {@link FileSystemProperties} binding produced by
  * {@link FileSystemPluginManager#bindPrimary}/{@code bindAll}. Its public surface mirrors the
- * legacy typed storage-properties contract exactly — backend map,
- * Hadoop configuration, storage name, schemas, type — so consumers can migrate mechanically.
+ * legacy typed storage-properties contract exactly — backend map, storage name, schemas, type
+ * — so consumers can migrate mechanically. Building a hadoop {@code Configuration} is NOT part
+ * of that surface: the one legacy consumer (the Azure OAuth2 backend map) is now served by
+ * {@code AzureFileSystemProperties.toMap()} inside fe-filesystem-azure, which keeps fe-core
+ * source hadoop-free.
  * Every known SPI-vs-fe-core drift from the master plan's §2.4 parity ledger is reconciled here
  * (or in the SPI implementation, where noted); each reconciliation carries a
  * "align fe-core" comment referencing the ledger item.</p>
@@ -79,22 +76,6 @@ public final class StorageAdapter {
     public static void initPluginManager(FileSystemPluginManager manager) {
         pluginManager = manager;
     }
-
-    private static final String SIMPLE_AWS_CREDENTIALS_PROVIDER =
-            "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider";
-    private static final String ASSUMED_ROLE_CREDENTIAL_PROVIDER =
-            "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider";
-
-    /**
-     * Hadoop keys the facade re-derives for the S3 provider instead of taking the SPI values:
-     * fe-core gates them on accessKey-blank and on Config.aws_credentials_provider_version,
-     * which the SPI layer cannot see (align fe-core, ledger 2.4-3).
-     */
-    private static final Set<String> S3_CREDENTIAL_KEYS = ImmutableSet.of(
-            "fs.s3a.aws.credentials.provider",
-            "fs.s3a.assumed.role.arn",
-            "fs.s3a.assumed.role.credentials.provider",
-            "fs.s3a.assumed.role.external.id");
 
     /**
      * Legacy per-dialect alias prefix for {@code force_parsing_by_standard_uri} (fe-core
@@ -123,14 +104,6 @@ public final class StorageAdapter {
     private final AwsCredentialsProviderMode s3CredentialsMode;
     /** Resolved once at construction (legacy bound it at init); read per file in listing loops. */
     private final String forceParsingByStandardUriValue;
-    /**
-     * Lazily built (legacy {@code X.of()} factories never built one; {@code new Configuration()}
-     * re-parses the Hadoop XML defaults and is too expensive for per-statement bindings that
-     * never read it, e.g. cloud COPY INTO). Volatile double-checked; construction is a pure
-     * function of final fields.
-     */
-    private volatile Configuration hadoopStorageConfig;
-    private volatile boolean hadoopStorageConfigBuilt;
     /**
      * Adapters are shared across threads (catalog adapter map, FS caches), so the lazily cached
      * map must be safely published — legacy classes were immune (eager init or fresh map per
@@ -313,23 +286,10 @@ public final class StorageAdapter {
         return spi.storageFamilyName();
     }
 
-    /** Legacy schemas() (drives ensureDisableCache): provider-declared legacy scheme set. */
+    /** Legacy schemas(): provider-declared legacy scheme set. */
     public Set<String> schemas() {
         // provider-declared legacy scheme set (ledger 2.4-6 note lives on legacyCacheSchemes)
         return spi.legacyCacheSchemes();
-    }
-
-    /** Hadoop configuration equivalent of legacy getHadoopStorageConfig(); null for BROKER/HTTP. */
-    public Configuration getHadoopStorageConfig() {
-        if (!hadoopStorageConfigBuilt) {
-            synchronized (this) {
-                if (!hadoopStorageConfigBuilt) {
-                    hadoopStorageConfig = buildHadoopStorageConfig();
-                    hadoopStorageConfigBuilt = true;
-                }
-            }
-        }
-        return hadoopStorageConfig;
     }
 
     /** Legacy isKerberos() — meaningful for the HDFS family only. */
@@ -476,7 +436,13 @@ public final class StorageAdapter {
                 // Align fe-core: Broker/Local/Http return the raw user properties verbatim.
                 return origProps;
             case AZURE:
-                return azureBackendConfigProperties();
+                // Provider-owned, both auth types (the OAuth2 map is a hadoop Configuration dump
+                // built inside fe-filesystem-azure). Routed out here so it never reaches the
+                // S3-family alignment below, exactly as before.
+                return spi.toBackendProperties()
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Provider " + providerKey + " exposes no backend properties"))
+                        .toMap();
             default:
                 break;
         }
@@ -491,20 +457,6 @@ public final class StorageAdapter {
             return alignJfsBackendMap(base);
         }
         return base;
-    }
-
-    /**
-     * Align fe-core, ledger 2.4-7: with OAuth2 the legacy AzureProperties dumps the ENTIRE
-     * Hadoop Configuration (hadoop defaults + fs.azure.* + user fs.* passthrough +
-     * disable-cache keys) as the backend map; shared-key uses the SPI's exact 7-key map.
-     */
-    private Map<String, String> azureBackendConfigProperties() {
-        if (!isAzureOauth2()) {
-            return spi.toBackendProperties().orElseThrow().toMap();
-        }
-        Map<String, String> dump = new HashMap<>();
-        getHadoopStorageConfig().forEach(entry -> dump.put(entry.getKey(), entry.getValue()));
-        return dump;
     }
 
     /**
@@ -567,166 +519,11 @@ public final class StorageAdapter {
         return aligned;
     }
 
-    private Configuration buildHadoopStorageConfig() {
-        switch (type) {
-            case BROKER:
-            case HTTP:
-                // Align fe-core: BrokerProperties/HttpProperties leave hadoopStorageConfig null.
-                return null;
-            case LOCAL:
-                return buildLocalHadoopConfig();
-            default:
-                break;
-        }
-        // Align fe-core, ledger 2.4-2: `new Configuration()` loads core-default/core-site,
-        // where the SPI map is a bare key-value view.
-        Configuration conf = new Configuration();
-        Map<String, String> spiMap = spi.toHadoopProperties()
-                .orElseThrow(() -> new IllegalStateException(
-                        "Provider " + providerKey + " exposes no hadoop properties"))
-                .toHadoopConfigurationMap();
-        if ("JFS".equals(providerKey)) {
-            // fe-core builds the HDFS-family Configuration FROM the backend map, so the JFS
-            // auth-key alignment (see alignJfsBackendMap) must be materialized here too.
-            spiMap = alignJfsBackendMap(spiMap);
-        }
-        boolean isS3 = "S3".equals(providerKey);
-        boolean skipGcsAnonProvider = isGcsAnonymous();
-        for (Map.Entry<String, String> entry : spiMap.entrySet()) {
-            if (isS3 && S3_CREDENTIAL_KEYS.contains(entry.getKey())) {
-                // Re-derived below with fe-core Config gating (align fe-core, ledger 2.4-3).
-                continue;
-            }
-            if (skipGcsAnonProvider && "fs.s3a.aws.credentials.provider".equals(entry.getKey())) {
-                // Align fe-core: GCSProperties never sets an anonymous s3a credentials provider;
-                // the SPI's AnonymousAWSCredentialsProvider extra is dropped here.
-                continue;
-            }
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        if (isS3) {
-            applyS3CredentialProviders(conf, (S3CompatibleFileSystemProperties) spi);
-        }
-        if ("AZURE".equals(providerKey) && !isAzureOauth2()) {
-            applyAzureAccountKeysFromConfig(conf);
-        }
-        appendUserFsConfig(conf);
-        ensureDisableCache(conf);
-        return conf;
-    }
-
-    private Configuration buildLocalHadoopConfig() {
-        // Align fe-core LocalProperties.initializeHadoopStorageConfig (Local has no SPI
-        // hadoop view; the two impl keys are fe-core knowledge).
-        Configuration conf = new Configuration();
-        conf.set("fs.local.impl", "org.apache.hadoop.fs.LocalFileSystem");
-        conf.set("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
-        appendUserFsConfig(conf);
-        ensureDisableCache(conf);
-        return conf;
-    }
-
-    /**
-     * Align fe-core, ledger 2.4-3: S3Properties only emits assumed-role keys when accessKey is
-     * blank, and selects the provider chain per Config.aws_credentials_provider_version — the
-     * SPI cannot see fe-core Config, so these four keys are owned by the facade.
-     */
-    private void applyS3CredentialProviders(Configuration conf, S3CompatibleFileSystemProperties s3) {
-        boolean v2 = Config.aws_credentials_provider_version.equalsIgnoreCase("v2");
-        if (StringUtils.isNotBlank(s3.getAccessKey())) {
-            // Static credentials win; access/secret/session keys came from the SPI map.
-            conf.set("fs.s3a.aws.credentials.provider", SIMPLE_AWS_CREDENTIALS_PROVIDER);
-            return;
-        }
-        if (StringUtils.isNotBlank(s3.getRoleArn())) {
-            conf.set("fs.s3a.assumed.role.arn", s3.getRoleArn());
-            conf.set("fs.s3a.aws.credentials.provider", ASSUMED_ROLE_CREDENTIAL_PROVIDER);
-            conf.set("fs.s3a.assumed.role.credentials.provider",
-                    v2 ? AwsCredentialsProviderFactory.getV2ClassName(s3CredentialsMode, false)
-                            : InstanceProfileCredentialsProvider.class.getName());
-            if (StringUtils.isNotBlank(s3.getExternalId())) {
-                conf.set("fs.s3a.assumed.role.external.id", s3.getExternalId());
-            }
-            return;
-        }
-        if (v2) {
-            conf.set("fs.s3a.aws.credentials.provider",
-                    AwsCredentialsProviderFactory.getV2ClassName(s3CredentialsMode, true));
-        }
-        // v1 + anonymous: fe-core sets nothing and leaves the hadoop default untouched.
-    }
-
-    /**
-     * Align fe-core AzureProperties.setHDFSAzureAccountKeys: shared-key account keys are derived
-     * from Config.azure_blob_host_suffixes (blob + dfs endpoints, admin-extensible), not from the
-     * SPI's static suffix list. Runs before appendUserFsConfig so explicit user values still win.
-     */
-    private void applyAzureAccountKeysFromConfig(Configuration conf) {
-        Map<String, String> backend = spi.toBackendProperties().orElseThrow().toMap();
-        String accountName = backend.get("AWS_ACCESS_KEY");
-        String accountKey = backend.get("AWS_SECRET_KEY");
-        Set<String> suffixes = new LinkedHashSet<>();
-        if (Config.azure_blob_host_suffixes != null) {
-            for (String suffix : Config.azure_blob_host_suffixes) {
-                if (StringUtils.isBlank(suffix)) {
-                    continue;
-                }
-                String normalized = suffix.trim().toLowerCase(Locale.ROOT);
-                if (normalized.startsWith(".")) {
-                    normalized = normalized.substring(1);
-                }
-                if (!normalized.isEmpty()) {
-                    suffixes.add(normalized);
-                }
-            }
-        }
-        for (String suffix : suffixes) {
-            conf.set(String.format("fs.azure.account.key.%s.%s", accountName, suffix), accountKey);
-        }
-        conf.set("fs.azure.account.key", accountKey);
-    }
-
-    /** Ledger 2.4-8: user fs.* keys with non-blank values pass through into the configuration. */
-    private void appendUserFsConfig(Configuration conf) {
-        origProps.forEach((key, value) -> {
-            if (key.startsWith("fs.") && StringUtils.isNotBlank(value)) {
-                conf.set(key, value);
-            }
-        });
-    }
-
-    /**
-     * Ledger 2.4-8: per-schema FileSystem cache disabling over the LEGACY schemas() set, with an
-     * explicit user value taking precedence — copied from StorageProperties.ensureDisableCache.
-     */
-    private void ensureDisableCache(Configuration conf) {
-        for (String schema : schemas()) {
-            String key = "fs." + schema + ".impl.disable.cache";
-            String userValue = origProps.get(key);
-            if (StringUtils.isNotBlank(userValue)) {
-                conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
-            } else {
-                conf.setBoolean(key, true);
-            }
-        }
-    }
-
     /** fe-core S3Properties alias list for s3.credentials_provider_type (no AWS_* alias). */
     private String feCoreS3CredentialsProviderType() {
         return firstNonBlank(origProps.get("s3.credentials_provider_type"),
                 origProps.get("glue.credentials_provider_type"),
                 origProps.get("iceberg.rest.credentials_provider_type"));
-    }
-
-    private boolean isAzureOauth2() {
-        return "OAuth2".equalsIgnoreCase(origProps.getOrDefault("azure.auth_type", "SharedKey"));
-    }
-
-    private boolean isGcsAnonymous() {
-        if (!"GCS".equals(providerKey) || !(spi instanceof S3CompatibleFileSystemProperties)) {
-            return false;
-        }
-        return !((S3CompatibleFileSystemProperties) spi).hasStaticCredentials();
     }
 
     /**

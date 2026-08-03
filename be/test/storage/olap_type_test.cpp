@@ -216,8 +216,7 @@ TEST_F(OlapTypeTest, deser_double_old) {
     while (std::getline(input_file, line)) {
         Field restored_field;
         auto status = data_type_serde->from_fe_string(line, restored_field);
-        // from_fe_string rejects NaN/Infinity strings, and also rejects
-        // double::max()/lowest() whose string representation parses to Infinity
+        // from_fe_string rejects NaN/Infinity strings.
         if (std::isnan(test_input_values[line_index]) ||
             std::isinf(test_input_values[line_index])) {
             EXPECT_FALSE(status.ok());
@@ -272,6 +271,16 @@ TEST_F(OlapTypeTest, ser_deser_float) {
             {0.123456789F, "0.12345679"},
             {1234567890123456.12345F, "1234568000000000"},
             {12345678901234567.12345F, "1.2345678e+16"}};
+    const std::vector<std::string> expected_e7 = {"1e-07", "2e-07", "3e-07",
+                                                  "4e-07", "5e-07", "6e-07",
+                                                  "7e-07", "8e-07", "9.0000003e-07"};
+    const std::vector<std::string> expected_e9 = {"1e-09",         "2e-09", "2.9999998e-09",
+                                                  "4e-09",         "5e-09", "5.9999996e-09",
+                                                  "6.9999997e-09", "8e-09", "9e-09"};
+    for (int i = 1; i < 10; ++i) {
+        normal_input_values.emplace_back(i * 0.0000001F, expected_e7[i - 1]);
+        normal_input_values.emplace_back(i * 0.000000001F, expected_e9[i - 1]);
+    }
     std::vector<std::pair<float, std::string>> test_input_values;
     for (const auto& [float_value, expected_str] : normal_input_values) {
         test_input_values.emplace_back(float_value, expected_str);
@@ -707,7 +716,7 @@ TEST_F(OlapTypeTest, ser_deser_decimalv2) {
 // ---------------------------------------------------------------------------
 // Float: to_olap_string / from_zonemap_string for normal values.
 //   to_olap_string uses CastToString::from_number which calls _fast_to_buffer.
-//   Format: fmt "{:.7g}" (digits10+1=7 significant digits).
+//   Format: fmt "{:.9g}" (max_digits10=9 significant digits).
 //   NaN/Inf are serialized as "NaN", "Infinity", "-Infinity" but from_zonemap_string
 //   (which uses fast_float::from_chars) CANNOT parse them back → returns error.
 //   In ZoneMap, NaN/Inf are tracked via boolean flags, not stored in min/max values.

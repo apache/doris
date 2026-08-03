@@ -62,6 +62,11 @@ private:
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
+    struct NullMapState {
+        bool has_null;
+        bool only_null;
+    };
+
     /** Create a column from immutable/shared subcolumns without cloning them.
       * Call IColumn::mutate before modifying the returned column tree.
       */
@@ -275,7 +280,10 @@ public:
                get_null_map_column().is_exclusive();
     }
 
+    bool try_replace_null_payload_with_default_without_cow() const override;
+
     bool only_null() const override;
+    NullMapState get_null_map_state() const;
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }

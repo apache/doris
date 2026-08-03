@@ -84,6 +84,11 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     }
 
     @Override
+    public Map<String, String> getConnectorConfig() {
+        return delegate.getConnectorConfig();
+    }
+
+    @Override
     public ConnectorHttpSecurityHook getHttpSecurityHook() {
         return delegate.getHttpSecurityHook();
     }

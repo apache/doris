@@ -220,8 +220,9 @@ public interface Connector extends Closeable {
 
     /**
      * Invalidates any connector-side per-table cache (e.g. a latest-snapshot/version cache) so a subsequent
-     * read reflects the latest external state. Called by the engine on {@code REFRESH TABLE}. The names are
-     * the REMOTE db/table names (as seen by the connector). Default no-op for connectors that cache nothing.
+     * read reflects the latest external state. Called by the engine on {@code REFRESH TABLE} and before applying
+     * structural table events (create, drop, rename, and same-name view recreation). The names are the REMOTE
+     * db/table names (as seen by the connector). Default no-op for connectors that cache nothing.
      */
     default void invalidateTable(String dbName, String tableName) {
     }
@@ -232,8 +233,8 @@ public interface Connector extends Closeable {
 
     /**
      * Invalidates the connector-side caches for every table in one database. Called by the engine on
-     * {@code REFRESH DATABASE}. The name is the REMOTE db name (as seen by the connector). Default no-op for
-     * connectors that cache nothing.
+     * {@code REFRESH DATABASE} and before applying structural database events (create, drop, and rename).
+     * The name is the REMOTE db name (as seen by the connector). Default no-op for connectors that cache nothing.
      */
     default void invalidateDb(String dbName) {
     }

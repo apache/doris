@@ -462,7 +462,7 @@ suite("test_hive_ddl", "p0,external") {
                             'replication_num' = '1'
                         );
                     """
-                exception "Create hive bucket table need set enable_create_hive_bucket_table to true"
+                exception "Create hive bucket table need set 'enable_create_bucket_table' in hms.conf (or enable_create_hive_bucket_table in fe.conf) to true"
             }
 
             sql """ SWITCH internal """

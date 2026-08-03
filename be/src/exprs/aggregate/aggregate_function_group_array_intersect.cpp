@@ -37,7 +37,7 @@ AggregateFunctionPtr create_aggregate_function_group_array_intersect(
     }
     return create_aggregate_function_group_array_impl<GroupArrayNumericIntersectData,
                                                       GroupArrayStringIntersectData>(
-            {argument_type}, result_is_nullable, attr);
+            argument_types, result_is_nullable, attr);
 }
 
 } // namespace doris
