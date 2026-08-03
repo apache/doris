@@ -383,6 +383,16 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
 
             contains "QUERY: SELECT `k12` FROM `doris_test`.`test1`"
         }
+        // Same projection, no WHERE: the remote query must still carry only the projected column.
+        // Every other remote-query assertion here filters, and a filter is exactly what used to make the
+        // connector rebuild its scan properties -- those are first built during scan init(), which runs
+        // before the project above the scan prunes the tuple, so a WHERE-less query explained (and told
+        // the connector) a full-width read. Keep one assertion on the unfiltered path.
+        explain {
+            sql("select k8 from test1;")
+
+            contains "QUERY: SELECT `k8` FROM `doris_test`.`test1`"
+        }
         // count(*) asks for no column of its own, but the remote scan still has to read something.
         // PhysicalPlanTranslator.updateScanSlotsMaterialization keeps exactly ONE (smallest) slot rather
         // than letting the tuple go empty, and an empty projection is precisely what makes JdbcQueryBuilder
