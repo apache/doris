@@ -34,9 +34,14 @@ under the License.
             <unpackOptions>
                 <excludes>
                     <exclude>**/Log4j2Plugins.dat</exclude>
-                    <!-- hive-catalog-shade contains Paimon classes that conflict
-                         with the isolated Paimon connector. -->
+                    <!-- hive-catalog-shade embeds Paimon 1.3 classes. This fat jar is on the
+                         JVM application classpath and therefore wins parent-first resolution
+                         over paimon-connector's isolated Paimon runtime. Java UDF does not use
+                         Paimon; keep those embedded classes out so the connector owns its SDK. -->
                     <exclude>org/apache/paimon/**</exclude>
+                    <!-- ServiceLoader also consults parent resources. Do not retain service
+                         descriptors whose providers were removed with the embedded SDK. -->
+                    <exclude>META-INF/services/org.apache.paimon*</exclude>
                 </excludes>
             </unpackOptions>
         </dependencySet>

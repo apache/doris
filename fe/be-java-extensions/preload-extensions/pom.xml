@@ -88,11 +88,6 @@ under the License.
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-jindo</artifactId>
         </dependency>
-        <!-- paimon-s3 and paimon-jindo declare paimon-common as provided. -->
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-common</artifactId>
-        </dependency>
         <!-- For Avro and Hudi Scanner PreLoad -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
