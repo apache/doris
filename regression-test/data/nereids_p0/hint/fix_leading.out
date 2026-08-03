@@ -243,6 +243,25 @@ Used: leading(t1 t2 t3 )
 UnUsed:
 SyntaxError:
 
+-- !select4_4 --
+1
+
+-- !select4_5 --
+PhysicalResultSink
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((right_join_a.k = right_join_b.k)) otherCondition=()
+----PhysicalOlapScan[right_join_b]
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalOlapScan[right_join_a]
+------PhysicalStorageLayerAggregate[right_join_c]
+
+Hint log:
+Used:
+UnUsed: leading(right_join_b right_join_a right_join_c)
+SyntaxError:
+
+-- !select4_6 --
+1
+
 -- !select6_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
