@@ -162,14 +162,16 @@ suite("test_fluss_union_log", "p0,external") {
     order_qt_part_with_tail """select id from lake_part where dt = '20260101'"""
 
     // --- a primary-key table is not a log table ------------------------------
-    // Its halves have to be merged BY KEY, which is not implemented, so `required`
-    // refuses it rather than falling back. What such a table DOES read as lives in
-    // test_fluss_lake_pk, together with the baseline that merge will have to
-    // reproduce.
-    test {
-        sql """select * from lake_pk"""
-        exception "not implemented yet"
-    }
+    // Concatenating its halves the way this suite's tables are concatenated would
+    // return superseded and deleted rows, so it is merged BY KEY instead -- a
+    // different plan out of the same mode, asserted here only so that the two
+    // shapes cannot quietly become one. What such a table reads as lives in
+    // test_fluss_lake_pk and test_fluss_lake_pk_merge.
+    def pkPlan = planOf("""select * from lake_pk""")
+    assertTrue(pkPlan.contains("unionRead=yes"), "not a union read: ${pkPlan}")
+    assertEquals(0, countIn(pkPlan, "logRanges"),
+            "a primary-key table planned a plain log range: ${pkPlan}")
+    assertTrue(countIn(pkPlan, "pkTailRanges") >= 1, "no tail replayed: ${pkPlan}")
 
     // --- required does not mean "every table has a lake" ---------------------
     // A table with no lake at all is not an error in required mode: there is
