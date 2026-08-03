@@ -69,10 +69,14 @@ INSERT INTO lake_types VALUES
 INSERT INTO lake_part VALUES
     (4, 'lp1c', '20260101');
 
--- Updates row 3 and deletes row 1, so the fluss-only view of this table differs
--- from what paimon holds: the two are compared against each other.
+-- The tail carries one of each way a change log can disagree with the lake it
+-- follows: row 3 is updated, row 1 is deleted, and row 4 exists only here. All
+-- three are what a merge of the two halves has to get right, and the fluss-only
+-- read of this table -- which is the whole table, because fluss keeps a
+-- primary-key table's state in full -- is the answer that merge must reproduce.
 INSERT INTO lake_pk VALUES
-    (3, 'lp3-hot');
+    (3, 'lp3-hot'),
+    (4, 'lp4-hot');
 
 SET 'execution.runtime-mode' = 'batch';
 DELETE FROM lake_pk WHERE id = 1;
