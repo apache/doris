@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
 #include <thrift/Thrift.h>
@@ -117,6 +118,7 @@
 #include "exec/operator/union_source_operator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline_task.h"
+#include "exec/pipeline/report_exec_status_size.h"
 #include "exec/pipeline/task_scheduler.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sort/topn_sorter.h"
@@ -2361,6 +2363,10 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     DCHECK(req.status.ok() || req.done); // if !status.ok() => done
     if (req.coord_addr.hostname == "external") {
         // External query (flink/spark read tablets) not need to report to FE.
+        if (req.done) {
+            // Without a coordinator acknowledgement no external-write file may escape rollback.
+            req.runtime_state->finalize_iceberg_report_cleanup(false);
+        }
         return;
     }
     int callback_retries = 10;
@@ -2381,6 +2387,9 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         static_cast<void>(req.cancel_fn(Status::InternalError(
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
                 PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
+        if (req.done) {
+            req.runtime_state->finalize_iceberg_report_cleanup(false);
+        }
         return;
     }
 
@@ -2549,6 +2558,16 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         params.__set_backend_id(_exec_env->cluster_info()->backend_id);
     }
 
+    Status report_size_status = validate_report_exec_status_size(
+            params, req.runtime_state->coordinator_thrift_message_limit());
+    if (!report_size_status.ok()) {
+        if (req.done) {
+            req.runtime_state->finalize_iceberg_report_cleanup(false);
+        }
+        req.cancel_fn(report_size_status);
+        return;
+    }
+
     TReportExecStatusResult res;
     Status rpc_status;
 
@@ -2569,6 +2588,9 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             rpc_status = coord->reopen();
 
             if (!rpc_status.ok()) {
+                if (req.done) {
+                    req.runtime_state->finalize_iceberg_report_cleanup(false);
+                }
                 req.cancel_fn(rpc_status);
                 return;
             }
@@ -2582,9 +2604,18 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     }
 
     if (!rpc_status.ok()) {
+        if (req.done) {
+            req.runtime_state->finalize_iceberg_report_cleanup(false);
+        }
         LOG_INFO("Going to cancel query {} since report exec status got rpc failed: {}",
                  print_id(req.query_id), rpc_status.to_string());
         req.cancel_fn(rpc_status);
+    } else if (req.done && req.status.ok()) {
+        // Files remain rollback-owned until the coordinator has acknowledged the final metadata report.
+        req.runtime_state->finalize_iceberg_report_cleanup(true);
+    } else if (req.done) {
+        // An acknowledged error report confirms that FE will not publish this write's files.
+        req.runtime_state->finalize_iceberg_report_cleanup(false);
     }
 }
 
@@ -2631,13 +2662,19 @@ Status PipelineFragmentContext::send_report(bool done) {
                              .first_error_msg = first_error_msg,
                              .cancel_fn = [this](const Status& reason) { cancel(reason); }};
     auto ctx = std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this());
-    return _exec_env->fragment_mgr()->get_thread_pool()->submit_func([this, req, ctx]() {
-        SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker());
-        _coordinator_callback(req);
-        if (!req.done) {
-            ctx->refresh_next_report_time();
-        }
-    });
+    Status submit_status =
+            _exec_env->fragment_mgr()->get_thread_pool()->submit_func([this, req, ctx]() {
+                SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker());
+                _coordinator_callback(req);
+                if (!req.done) {
+                    ctx->refresh_next_report_time();
+                }
+            });
+    if (!submit_status.ok() && req.done) {
+        // A rejected final callback can never transfer ownership to the coordinator.
+        req.runtime_state->finalize_iceberg_report_cleanup(false);
+    }
+    return submit_status;
 }
 
 size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const {

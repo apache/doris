@@ -41,4 +41,13 @@ private:
     bool _wait_for_processing = false;
 };
 
+template <typename Queue, typename BeforeRelease>
+void drain_async_writer_queue(Queue& queue, BeforeRelease before_release) {
+    for (const auto& queued : queue) {
+        before_release(queued);
+    }
+    // Queued reservation tokens must be destroyed as soon as the writer reaches a terminal state.
+    queue.clear();
+}
+
 } // namespace doris

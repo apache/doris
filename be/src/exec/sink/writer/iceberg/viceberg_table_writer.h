@@ -150,6 +150,7 @@ private:
     Status _write_prepared_block(Block& output_block);
     Status _process_row_lineage_columns(Block& block);
     void _cleanup_closed_files();
+    void _transfer_closed_files_to_report_cleanup();
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;

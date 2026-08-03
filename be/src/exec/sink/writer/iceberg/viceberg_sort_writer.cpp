@@ -17,6 +17,7 @@
 
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 
+#include "exec/operator/iceberg_sorter_reserve_memory.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
@@ -87,8 +88,22 @@ size_t VIcebergSortWriter::get_reserve_mem_size(RuntimeState* state, bool eos) c
 SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(RuntimeState* state,
                                                                         bool eos) const {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
-    return _sorter == nullptr ? SorterReserveMemory {}
-                              : _sorter->get_reserve_mem_size_components(state, eos);
+    if (_sorter == nullptr) {
+        return {};
+    }
+    auto reservation = _sorter->get_reserve_mem_size_components(state, eos);
+    if (eos && !_sorted_spill_files.empty()) {
+        size_t spill_file_count = _sorted_spill_files.size();
+        if (_sorter->data_size() > 0) {
+            ++spill_file_count;
+        }
+        const size_t merge_workspace =
+                iceberg_spill_merge_workspace(spill_file_count, state->spill_buffer_size_bytes(),
+                                              state->spill_sort_merge_mem_limit_bytes());
+        reservation.transient_workspace =
+                std::max(reservation.transient_workspace, merge_workspace);
+    }
+    return reservation;
 }
 
 Status VIcebergSortWriter::trigger_spill() {

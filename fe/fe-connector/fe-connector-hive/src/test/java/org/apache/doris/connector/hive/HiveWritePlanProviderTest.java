@@ -329,6 +329,17 @@ public class HiveWritePlanProviderTest {
         Assertions.assertEquals(8, sink.getBucketInfo().getBucketCount());
     }
 
+    @Test
+    public void planWriteAdvertisesDeferredAzureMultipartProtocol() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().build();
+
+        THiveTableSink sink = planSink(client, new RecordingConnectorContext(), handle());
+
+        Assertions.assertTrue(sink.isSetSupportsDeferredAzureMultipart());
+        Assertions.assertTrue(sink.isSupportsDeferredAzureMultipart());
+    }
+
     // ───────────────────────────── file format ─────────────────────────────
 
     @Test

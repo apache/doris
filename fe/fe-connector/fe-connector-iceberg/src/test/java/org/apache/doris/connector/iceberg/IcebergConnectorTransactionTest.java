@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
@@ -41,10 +42,12 @@ import org.apache.iceberg.DeleteFiles;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expression;
@@ -681,9 +684,41 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(
                 opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
         txn.beginWrite(SESSION, "db1", "t1", overwriteCtxPinned(-1L));
+        Assertions.assertEquals(-1L, txn.getBaseSnapshotId(),
+                "the empty-read generation must remain the transaction OCC fence");
 
         table.newAppend().appendFile(dataFile(table.spec(),
                 "s3://b/db1/t1/after-begin.parquet", 1L)).commit();
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+    }
+
+    @Test
+    public void overwriteRejectsFirstSnapshotCommittedDuringTransactionRefresh() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table loaded = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        Table racing = new BaseTable(((HasTableOperations) loaded).operations(), loaded.name()) {
+            private boolean injected;
+
+            @Override
+            public Transaction newTransaction() {
+                if (!injected) {
+                    injected = true;
+                    Table concurrent = catalog.loadTable(id);
+                    concurrent.newAppend().appendFile(dataFile(concurrent.spec(),
+                            "s3://b/db1/t1/during-refresh.parquet", 1L)).commit();
+                }
+                return super.newTransaction();
+            }
+        };
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(racing), new RecordingConnectorContext());
+
+        txn.beginWrite(SESSION, "db1", "t1", overwriteCtxPinned(-1L));
+        txn.addCommitData(commitBytes(dataFileItem(
+                "s3://b/db1/t1/replacement.parquet", 1L, 1024L, Collections.emptyList())));
 
         Assertions.assertThrows(DorisConnectorException.class, txn::commit);
     }

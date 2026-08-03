@@ -17,8 +17,12 @@
 
 #include <gtest/gtest.h>
 
+#include <deque>
+#include <memory>
+
 #include "exec/operator/iceberg_sorter_reserve_memory.h"
 #include "exec/sink/writer/async_writer_queue_admission.h"
+#include "exec/sink/writer/hive_multipart_compatibility.h"
 
 namespace doris {
 
@@ -43,6 +47,13 @@ TEST(SpillIcebergTableSinkOperatorTest, ReservesIncomingBlockBeforeAnyPartitionW
     EXPECT_EQ(6 * 1024 * 1024, iceberg_reserve_size(no_published_sorters, 6 * 1024 * 1024));
 }
 
+TEST(SpillIcebergTableSinkOperatorTest, ReservesAllMergeInputsAndOutputAtEos) {
+    constexpr size_t MB = 1024 * 1024;
+
+    EXPECT_EQ(72 * MB, iceberg_spill_merge_workspace(12, 8 * MB, 64 * MB));
+    EXPECT_EQ(32 * MB, iceberg_spill_merge_workspace(3, 8 * MB, 64 * MB));
+}
+
 TEST(SpillIcebergTableSinkOperatorTest, WaitsUntilDequeuedBlockUpdatesSorterState) {
     AsyncWriterQueueAdmission stateful_admission;
     stateful_admission.wait_for_processing_before_next_sink();
@@ -60,6 +71,35 @@ TEST(SpillIcebergTableSinkOperatorTest, WaitsUntilDequeuedBlockUpdatesSorterStat
     buffered_admission.begin_processing();
     EXPECT_TRUE(buffered_admission.is_available(2));
     EXPECT_FALSE(buffered_admission.is_available(3));
+}
+
+TEST(SpillIcebergTableSinkOperatorTest, TerminalWriterDrainsQueuedReservations) {
+    int live_reservations = 0;
+    struct Reservation {
+        explicit Reservation(int* live) : live(live) { ++*live; }
+        ~Reservation() { --*live; }
+        int* live;
+    };
+    struct Queued {
+        size_t bytes;
+        std::unique_ptr<Reservation> reservation;
+    };
+    std::deque<Queued> queue;
+    queue.push_back({7, std::make_unique<Reservation>(&live_reservations)});
+    queue.push_back({11, std::make_unique<Reservation>(&live_reservations)});
+    size_t released_bytes = 0;
+
+    drain_async_writer_queue(queue, [&](const Queued& queued) { released_bytes += queued.bytes; });
+
+    EXPECT_TRUE(queue.empty());
+    EXPECT_EQ(0, live_reservations);
+    EXPECT_EQ(18, released_bytes);
+}
+
+TEST(SpillIcebergTableSinkOperatorTest, AzureDeferredMultipartRequiresCoordinatorCapability) {
+    EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageType::AWS, false));
+    EXPECT_FALSE(hive_multipart_protocol_supported(io::ObjStorageType::AZURE, false));
+    EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageType::AZURE, true));
 }
 
 } // namespace doris

@@ -65,15 +65,9 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
     uint8_t* buffer = nullptr;
     RETURN_IF_ERROR(serializer.serialize(&iceberg_commit_data, &serialized_size, &buffer));
 
+    // This is an early per-vector guard only; the assembled RPC is measured again before send.
     constexpr size_t report_envelope_headroom = 1024 * 1024;
-    int32_t effective_thrift_limit = std::max(config::thrift_max_message_size, 0);
-    if (_query_options.__isset.coordinator_thrift_max_message_size &&
-        _query_options.coordinator_thrift_max_message_size > 0) {
-        // An older FE omits this field; otherwise the receiver's smaller limit is authoritative.
-        effective_thrift_limit = std::min(effective_thrift_limit,
-                                          _query_options.coordinator_thrift_max_message_size);
-    }
-    const size_t thrift_limit = static_cast<size_t>(effective_thrift_limit);
+    const size_t thrift_limit = coordinator_thrift_message_limit();
     const size_t commit_data_limit =
             thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
     std::lock_guard<std::mutex> budget_lock(_iceberg_commit_data_budget->mutex);
@@ -88,6 +82,37 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
     _iceberg_commit_data_budget->serialized_bytes += serialized_size + sizeof(uint32_t);
     _iceberg_commit_datas.emplace_back(std::move(iceberg_commit_data));
     return Status::OK();
+}
+
+size_t RuntimeState::coordinator_thrift_message_limit() const {
+    int32_t effective_thrift_limit = std::max(config::thrift_max_message_size, 0);
+    if (_query_options.__isset.coordinator_thrift_max_message_size &&
+        _query_options.coordinator_thrift_max_message_size > 0) {
+        // An older FE omits this field; otherwise the receiver's smaller limit is authoritative.
+        effective_thrift_limit = std::min(effective_thrift_limit,
+                                          _query_options.coordinator_thrift_max_message_size);
+    }
+    return static_cast<size_t>(effective_thrift_limit);
+}
+
+void RuntimeState::add_failed_iceberg_report_cleanup(std::function<void()> cleanup) {
+    std::lock_guard lock(_iceberg_commit_data_budget->mutex);
+    _iceberg_commit_data_budget->failed_report_cleanups.emplace_back(std::move(cleanup));
+}
+
+void RuntimeState::finalize_iceberg_report_cleanup(bool report_acknowledged) {
+    std::vector<std::function<void()>> cleanups;
+    {
+        std::lock_guard lock(_iceberg_commit_data_budget->mutex);
+        if (report_acknowledged) {
+            _iceberg_commit_data_budget->failed_report_cleanups.clear();
+            return;
+        }
+        cleanups.swap(_iceberg_commit_data_budget->failed_report_cleanups);
+    }
+    for (auto& cleanup : cleanups) {
+        cleanup();
+    }
 }
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,

@@ -50,7 +50,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /** Safely lists or deletes old files that are unreachable from every retained snapshot. */
 public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
@@ -176,13 +175,11 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
             if (objectRoot != null) {
                 String normalizedObjectRoot = normalizeLocation(objectRoot);
                 if (!isWithin(normalizedObjectRoot, tableRoot)) {
-                    if (normalizedObjectRoot.startsWith(tableRoot)) {
-                        // Iceberg omits table context for this raw-prefix case, so ownership is not recoverable.
-                        throw new DorisConnectorException(
-                                "Cannot prove object-store ownership because its path has the table location "
-                                        + "as a non-directory prefix; provide a verified explicit location");
-                    }
-                    scopes.add(ScanScope.objectStore(normalizedObjectRoot, tableRoot));
+                    // Iceberg's hashed path retains only a suffix of the table location; that suffix is not
+                    // a globally unique ownership key when multiple catalogs share an object-store root.
+                    throw new DorisConnectorException(
+                            "Cannot prove that the configured object-store root is table-exclusive; "
+                                    + "provide location with allow_unsafe_location=true after verifying exclusivity");
                 }
             }
         } else {
@@ -314,11 +311,6 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         index.addAll(locations);
     }
 
-    static boolean isOwnedObjectStorePath(String candidate, String storageRoot, String tableLocation) {
-        return ScanScope.objectStore(normalizeLocation(storageRoot), normalizeLocation(tableLocation))
-                .owns(candidate);
-    }
-
     private static final class ReachableIndex {
         private final Map<String, FileIdentity> byPath = new LinkedHashMap<>();
         private final int maxEntries;
@@ -347,54 +339,17 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
 
     private static final class ScanScope {
         private final String root;
-        private final Pattern ownedRelativePath;
 
-        private ScanScope(String root, Pattern ownedRelativePath) {
+        private ScanScope(String root) {
             this.root = root;
-            this.ownedRelativePath = ownedRelativePath;
         }
 
         private static ScanScope exclusive(String root) {
-            return new ScanScope(root, null);
-        }
-
-        private static ScanScope objectStore(String root, String tableLocation) {
-            URI tableUri = URI.create(tableLocation);
-            String[] segments = tableUri.getPath().split("/");
-            List<String> names = new ArrayList<>();
-            for (String segment : segments) {
-                if (!segment.isEmpty()) {
-                    names.add(segment);
-                }
-            }
-            if (names.isEmpty()) {
-                throw new DorisConnectorException(
-                        "Cannot infer an object-store table context from the table location");
-            }
-            String context = names.size() > 1
-                    ? names.get(names.size() - 2) + "/" + names.get(names.size() - 1)
-                    : names.get(names.size() - 1);
-            return new ScanScope(root, Pattern.compile(
-                    "[01]{4}/[01]{4}/[01]{4}/[01]{8}/"
-                            + Pattern.quote(context) + "/.+"));
+            return new ScanScope(root);
         }
 
         private boolean owns(String candidate) {
-            if (ownedRelativePath == null) {
-                return isWithinLocation(candidate, root);
-            }
-            FileIdentity child = FileIdentity.of(candidate);
-            FileIdentity parent = FileIdentity.of(root);
-            if (!child.scheme.equals(parent.scheme) || !child.authority.equals(parent.authority)) {
-                return false;
-            }
-            if (!isWithinLocation(candidate, root)) {
-                return false;
-            }
-            String relative = child.path.substring(Math.min(child.path.length(), parent.path.length()));
-            relative = relative.startsWith("/") ? relative.substring(1) : relative;
-            // Iceberg 1.10.1 splits its 20-bit hash into 4/4/4/8-bit directories before context.
-            return ownedRelativePath.matcher(relative).matches();
+            return isWithinLocation(candidate, root);
         }
     }
 

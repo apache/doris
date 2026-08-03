@@ -233,11 +233,6 @@ public class IcebergRemoveOrphanFilesActionTest {
         Table neighborTable = createTable(temp.resolve("neighbor"), objectProperties);
         String neighborLocation = neighborTable.locationProvider().newDataLocation("live.parquet");
         Path neighborFile = createOldFile(Path.of(java.net.URI.create(neighborLocation)));
-        Assertions.assertTrue(IcebergRemoveOrphanFilesAction.isOwnedObjectStorePath(
-                ownLocation, objectRoot.toUri().toString(), objectTable.location()));
-        Assertions.assertFalse(IcebergRemoveOrphanFilesAction.isOwnedObjectStorePath(
-                neighborLocation, objectRoot.toUri().toString(), objectTable.location()));
-
         Path folderRoot = temp.resolve("folder-data");
         Table folderTable = createTable(temp.resolve("folder-metadata"),
                 Collections.singletonMap(TableProperties.WRITE_FOLDER_STORAGE_LOCATION,
@@ -247,7 +242,16 @@ public class IcebergRemoveOrphanFilesActionTest {
         IcebergRemoveOrphanFilesAction objectAction = action(
                 System.currentTimeMillis() - MIN_RETENTION_MS, false);
         objectAction.validate();
-        objectAction.execute(objectTable, ActionTestTables.session("UTC"));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> objectAction.execute(objectTable, ActionTestTables.session("UTC")));
+        Assertions.assertTrue(Files.exists(ownOrphan));
+        Assertions.assertTrue(Files.exists(neighborFile));
+
+        IcebergRemoveOrphanFilesAction guardedObjectAction = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false,
+                ownOrphan.getParent().toUri().toString(), true);
+        guardedObjectAction.validate();
+        guardedObjectAction.execute(objectTable, ActionTestTables.session("UTC"));
         Assertions.assertFalse(Files.exists(ownOrphan));
         Assertions.assertTrue(Files.exists(neighborFile));
 
@@ -265,6 +269,29 @@ public class IcebergRemoveOrphanFilesActionTest {
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> folderAction.execute(folderTable, ActionTestTables.session("UTC")));
         Assertions.assertTrue(Files.exists(folderOrphan));
+    }
+
+    @Test
+    public void sharedObjectRootWithSameTableSuffixFailsClosed(@TempDir Path temp) throws Exception {
+        Path sharedRoot = temp.resolve("shared-object-root");
+        Map<String, String> properties = new HashMap<>();
+        properties.put(TableProperties.OBJECT_STORE_ENABLED, "true");
+        properties.put(TableProperties.WRITE_DATA_LOCATION, sharedRoot.toUri().toString());
+        Table first = createTable(temp.resolve("catalog-a/db/t"), properties);
+        Table second = createTable(temp.resolve("catalog-b/db/t"), properties);
+        Path firstFile = createOldFile(Path.of(java.net.URI.create(
+                first.locationProvider().newDataLocation("first.parquet"))));
+        Path secondFile = createOldFile(Path.of(java.net.URI.create(
+                second.locationProvider().newDataLocation("second.parquet"))));
+
+        IcebergRemoveOrphanFilesAction action = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false);
+        action.validate();
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> action.execute(first, ActionTestTables.session("UTC")));
+        Assertions.assertTrue(Files.exists(firstFile));
+        Assertions.assertTrue(Files.exists(secondFile));
     }
 
     @Test

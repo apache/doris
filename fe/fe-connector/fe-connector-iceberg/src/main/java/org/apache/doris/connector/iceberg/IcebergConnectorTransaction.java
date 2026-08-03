@@ -460,7 +460,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 throw new DorisConnectorException("Iceberg table " + tableName
                         + " changed after the statement read an empty snapshot");
             }
-            return null;
+            // Keep the empty generation pinned across Transactions.newTransaction(), whose refresh may
+            // otherwise adopt a first snapshot committed between the guard and transaction creation.
+            return readSnapshotId;
         }
         if (targetHead == null || !isAncestorOfTarget(readSnapshotId, targetHead)) {
             throw new DorisConnectorException("Read snapshot " + readSnapshotId

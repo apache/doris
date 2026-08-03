@@ -150,6 +150,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
     }
 
     DCHECK(_dependency);
+    bool reservation_held_for_finish = false;
     while (_writer_status.ok()) {
         ThreadCpuStopWatch cpu_time_stop_watch;
         cpu_time_stop_watch.start();
@@ -178,7 +179,6 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
 
             //check if eos or writer error
             if ((_eos && _data_queue.empty()) || !_writer_status.ok()) {
-                _data_queue.clear();
                 break;
             }
         }
@@ -204,11 +204,23 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         }
         if (queued.eos) {
             // Keep the final reservation through finish(), where buffered sorters are committed.
+            reservation_held_for_finish = true;
             _notify_block_processed();
             break;
         }
         thread_context()->thread_mem_tracker_mgr->shrink_reserved();
         _notify_block_processed();
+    }
+
+    {
+        std::lock_guard l(_m);
+        drain_async_writer_queue(_data_queue, [this](const QueuedBlock& queued) {
+            if (queued.block) {
+                _memory_used_counter->update(-queued.block->allocated_bytes());
+            }
+        });
+        _queue_admission.finish_processing();
+        _dependency->set_ready();
     }
 
     bool need_finish = false;
@@ -231,8 +243,13 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         Status st = finish(state);
         _writer_status.update(st);
     }
+    if (reservation_held_for_finish) {
+        thread_context()->thread_mem_tracker_mgr->shrink_reserved();
+    }
     Status st = Status::OK();
-    { st = _writer_status.status(); }
+    {
+        st = _writer_status.status();
+    }
 
     Status close_st = close(st);
     {

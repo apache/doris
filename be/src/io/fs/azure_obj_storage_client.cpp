@@ -36,6 +36,7 @@
 #include <azure/storage/common/storage_credential.hpp>
 #include <azure/storage/common/storage_exception.hpp>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <iterator>
@@ -92,6 +93,19 @@ std::optional<std::string_view> azure_multipart_lease_id(std::string_view upload
     return std::nullopt;
 }
 
+void renew_or_reacquire_azure_multipart_lease(BlobClient& target_blob, std::string_view lease_id) {
+    BlobLeaseClient lease(target_blob, std::string(lease_id));
+    try {
+        lease.Renew();
+    } catch (const Azure::Storage::StorageException& e) {
+        if (!doris::io::azure_multipart_lease_can_be_reacquired(static_cast<int>(e.StatusCode))) {
+            throw;
+        }
+        // The same proposed ID can be reacquired only while no competing writer owns the blob.
+        lease.Acquire(MULTIPART_LEASE_DURATION);
+    }
+}
+
 // Rate limiting is applied by RateLimitedObjStorageClient, the decorator that
 // S3ClientFactory wraps around this client when the bucket is subject to limiting.
 
@@ -103,6 +117,11 @@ namespace doris::io {
 
 std::string azure_multipart_block_id(std::string_view upload_id, int part_num) {
     return encode_azure_block_id(upload_id, part_num);
+}
+
+bool azure_multipart_lease_can_be_reacquired(int http_status) {
+    return http_status == static_cast<int>(Azure::Core::Http::HttpStatusCode::Conflict) ||
+           http_status == static_cast<int>(Azure::Core::Http::HttpStatusCode::PreconditionFailed);
 }
 
 // As Azure's doc said, the batch size is 256
@@ -272,7 +291,7 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
                 auto lease_id = azure_multipart_lease_id(*opts.upload_id);
                 if (lease_id.has_value()) {
-                    BlobLeaseClient(target_blob, std::string(*lease_id)).Renew();
+                    renew_or_reacquire_azure_multipart_lease(target_blob, *lease_id);
                     StageBlockOptions stage_opts;
                     stage_opts.AccessConditions.LeaseId = std::string(*lease_id);
                     client.StageBlock(block_id, memory_body, stage_opts);
@@ -305,7 +324,7 @@ ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
                 // Put Block List atomically replaces the committed blob; no scan-visible staging blob exists.
                 auto lease_id = azure_multipart_lease_id(*opts.upload_id);
                 if (lease_id.has_value()) {
-                    BlobLeaseClient(target_blob, std::string(*lease_id)).Renew();
+                    renew_or_reacquire_azure_multipart_lease(target_blob, *lease_id);
                     CommitBlockListOptions commit_opts;
                     commit_opts.AccessConditions.LeaseId = std::string(*lease_id);
                     target_client.CommitBlockList(string_block_ids, commit_opts);

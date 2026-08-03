@@ -583,7 +583,7 @@ Status VIcebergTableWriter::close(Status status) {
     if (!status.ok() || !result_status.ok()) {
         _cleanup_closed_files();
     } else if (!_defer_file_cleanup_until_outer_close) {
-        _closed_files.clear();
+        _transfer_closed_files_to_report_cleanup();
     }
     return result_status;
 }
@@ -594,9 +594,21 @@ void VIcebergTableWriter::finish_deferred_file_cleanup(Status outer_status) {
     if (!outer_status.ok()) {
         _cleanup_closed_files();
     } else {
-        _closed_files.clear();
+        _transfer_closed_files_to_report_cleanup();
     }
     _defer_file_cleanup_until_outer_close = false;
+}
+
+void VIcebergTableWriter::_transfer_closed_files_to_report_cleanup() {
+    DCHECK(_state != nullptr);
+    for (auto& closed_file : _closed_files) {
+        _state->add_failed_iceberg_report_cleanup([cleanup_fs = std::move(closed_file.first),
+                                                   cleanup_path = std::move(closed_file.second)] {
+            WARN_IF_ERROR(cleanup_fs->delete_file(cleanup_path),
+                          "failed to delete an Iceberg file after report failure");
+        });
+    }
+    _closed_files.clear();
 }
 
 void VIcebergTableWriter::_cleanup_closed_files() {

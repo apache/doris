@@ -501,6 +501,33 @@ class AzureObjStorageExtensionTest {
     }
 
     @Test
+    void completeMultipartUpload_reacquiresExpiredLeaseBeforePublication() throws Exception {
+        BlockBlobClient blockClient = Mockito.mock(BlockBlobClient.class);
+        BlobClient blobClient = Mockito.mock(BlobClient.class);
+        Mockito.when(blobClient.getBlockBlobClient()).thenReturn(blockClient);
+        BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(blobClient);
+        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
+        BlobLeaseClient leaseClient = Mockito.mock(BlobLeaseClient.class);
+        BlobStorageException expiredLease = Mockito.mock(BlobStorageException.class);
+        Mockito.when(expiredLease.getStatusCode()).thenReturn(409);
+        Mockito.when(leaseClient.renewLease()).thenThrow(expiredLease);
+        Mockito.when(leaseClient.acquireLease(60)).thenReturn("lease-id");
+        TestableAzureObjStorage storage =
+                new TestableAzureObjStorage(buildBasicProps(), serviceClient, leaseClient);
+
+        storage.completeMultipartUpload(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
+                "doris-azure-lease-v1:lease-id",
+                Collections.singletonList(new UploadPartResult(1, "AQAAAA==")));
+
+        Mockito.verify(leaseClient).acquireLease(60);
+        Mockito.verify(blockClient).commitBlockListWithResponse(
+                Mockito.any(BlockBlobCommitBlockListOptions.class), Mockito.isNull(), Mockito.any());
+    }
+
+    @Test
     void abortMultipartUpload_releasesLeasedSessionWithoutRewritingTarget() throws Exception {
         BlobClient blobClient = Mockito.mock(BlobClient.class);
         BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);

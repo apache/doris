@@ -50,6 +50,12 @@ TEST(AzureObjStorageClientMultipartHelperTest, fixed_length_namespace_requires_t
                          .GetLength());
 }
 
+TEST(AzureObjStorageClientMultipartHelperTest, expired_lease_can_be_reacquired_fail_closed) {
+    EXPECT_TRUE(io::azure_multipart_lease_can_be_reacquired(409));
+    EXPECT_TRUE(io::azure_multipart_lease_can_be_reacquired(412));
+    EXPECT_FALSE(io::azure_multipart_lease_can_be_reacquired(500));
+}
+
 using namespace Azure::Storage::Blobs;
 
 TEST(AzureObjStorageClientTlsHelperTest, detects_tls_ca_error) {

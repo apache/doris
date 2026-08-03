@@ -51,4 +51,20 @@ inline size_t iceberg_reserve_size(
            sorter_reserve;
 }
 
+inline size_t iceberg_spill_merge_workspace(size_t spill_file_count, size_t spill_buffer_bytes,
+                                            size_t merge_limit_bytes) {
+    if (spill_file_count == 0 || spill_buffer_bytes == 0) {
+        return 0;
+    }
+    const size_t max_fan_in = std::max<size_t>(2, merge_limit_bytes / spill_buffer_bytes);
+    const size_t input_count = std::min(spill_file_count, max_fan_in);
+    const size_t max_size = std::numeric_limits<size_t>::max();
+    const size_t input_bytes = input_count > max_size / spill_buffer_bytes
+                                       ? max_size
+                                       : input_count * spill_buffer_bytes;
+    // VSortedRunMerger materializes one block per input cursor plus the block being emitted.
+    return input_bytes > max_size - spill_buffer_bytes ? max_size
+                                                       : input_bytes + spill_buffer_bytes;
+}
+
 } // namespace doris

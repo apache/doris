@@ -82,6 +82,7 @@ class IcebergCommitDataBudget {
 private:
     std::mutex mutex;
     size_t serialized_bytes = 0;
+    std::vector<std::function<void()>> failed_report_cleanups;
 };
 
 // A collection of items that are part of the global state of a
@@ -539,6 +540,12 @@ public:
     }
 
     Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
+
+    size_t coordinator_thrift_message_limit() const;
+
+    void add_failed_iceberg_report_cleanup(std::function<void()> cleanup);
+
+    void finalize_iceberg_report_cleanup(bool report_acknowledged);
 
     void set_iceberg_commit_data_budget(std::shared_ptr<IcebergCommitDataBudget> budget) {
         _iceberg_commit_data_budget = std::move(budget);

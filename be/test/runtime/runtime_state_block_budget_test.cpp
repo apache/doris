@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "common/config.h"
+#include "exec/pipeline/report_exec_status_size.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/block_budget.h"
@@ -71,6 +72,33 @@ TEST(RuntimeStateIcebergCommitDataTest, UsesTheSmallerCoordinatorThriftLimit) {
 
     config::thrift_max_message_size = saved_limit;
     EXPECT_FALSE(status.ok());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, ValidatesTheCompleteReportEnvelope) {
+    TReportExecStatusParams params;
+    params.__set_error_log({std::string(2 * 1024 * 1024, 'x')});
+
+    EXPECT_FALSE(validate_report_exec_status_size(params, 1024 * 1024).ok());
+    EXPECT_TRUE(validate_report_exec_status_size(params, 3 * 1024 * 1024).ok());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, RetainsFileCleanupUntilReportAcknowledgement) {
+    RuntimeState coordinator_state;
+    RuntimeState task_state;
+    auto report_state = std::make_shared<IcebergCommitDataBudget>();
+    coordinator_state.set_iceberg_commit_data_budget(report_state);
+    task_state.set_iceberg_commit_data_budget(report_state);
+    int cleanup_count = 0;
+    task_state.add_failed_iceberg_report_cleanup([&] { ++cleanup_count; });
+
+    coordinator_state.finalize_iceberg_report_cleanup(false);
+    coordinator_state.finalize_iceberg_report_cleanup(false);
+
+    EXPECT_EQ(1, cleanup_count);
+
+    task_state.add_failed_iceberg_report_cleanup([&] { ++cleanup_count; });
+    coordinator_state.finalize_iceberg_report_cleanup(true);
+    EXPECT_EQ(1, cleanup_count);
 }
 
 // ---------------------------------------------------------------------------
