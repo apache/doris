@@ -65,6 +65,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
@@ -281,6 +282,58 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertNotEquals(table.schema().schemaId(), writeContext.getSchema().schemaId());
         Assertions.assertNotNull(writeContext.getSchema().findField("name"));
         Assertions.assertNull(writeContext.getSchema().findField("renamed_name"));
+        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
+    }
+
+    @Test
+    public void branchWriteRejectsCurrentRequiredFieldAbsentWithoutDefault() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().allowIncompatibleChanges()
+                .addRequiredColumn("required_value", Types.IntegerType.get()).commit();
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWriteSchemaContext.create(
+                        table, "db1.t2", Optional.of("old_schema"), false, false));
+
+        Assertions.assertTrue(exception.getMessage().contains("required field required_value"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "is absent from the pinned branch schema and has no initial default"));
+    }
+
+    @Test
+    public void branchWriteRevalidatesFieldMadeRequiredAfterPlanning() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.t2", Optional.of("old_schema"), false, false);
+        table.updateSchema().allowIncompatibleChanges().requireColumn("name").commit();
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> writeContext.validateCurrentSchema(table, false));
+
+        Assertions.assertTrue(exception.getMessage().contains("required field name"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "is optional in the pinned branch schema and can contain explicit nulls"));
+    }
+
+    @Test
+    public void branchWriteAllowsCurrentRequiredFieldWithInitialDefault() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().addRequiredColumn(
+                "required_value", Types.IntegerType.get(), Literal.of(7)).commit();
+
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.t2", Optional.of("old_schema"), false, false);
+
+        Assertions.assertNull(writeContext.getSchema().findField("required_value"));
         Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
     }
 

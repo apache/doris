@@ -3648,6 +3648,8 @@ TEST_F(IcebergReaderTest, v1_parquet_uses_descendant_id_for_hidden_nested_equali
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(read_rows, 2);
     ASSERT_EQ(block.rows(), 2);
+    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 0), "1");
+    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "3");
 
     std::filesystem::remove_all(test_dir);
 }
