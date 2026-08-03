@@ -184,6 +184,187 @@ CREATE TABLE log_empty (
 );
 
 -- ---------------------------------------------------------------------------
+-- log_nested: complex types nested inside complex types. log_types covers one
+-- column per type but never more than one level, and a decoder can be right
+-- about a MAP<STRING,INT> and wrong about the MAP<STRING,ROW<..>> beside it --
+-- the element decoder is chosen per level, and only a nested column asks for it
+-- to be chosen twice. Every combination of the three constructors is here, plus
+-- an all-NULL row, because a null at the outer level and a null element inside a
+-- present collection are different things to get wrong.
+-- ---------------------------------------------------------------------------
+CREATE TABLE log_nested (
+    id INT,
+    f_arr_arr ARRAY<ARRAY<INT>>,
+    f_arr_map ARRAY<MAP<STRING, INT>>,
+    f_arr_row ARRAY<ROW<a INT, b STRING>>,
+    f_map_arr MAP<STRING, ARRAY<INT>>,
+    f_map_row MAP<STRING, ROW<a INT, b STRING>>,
+    f_row_deep ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>,
+    f_arr_arr_arr ARRAY<ARRAY<ARRAY<INT>>>
+) WITH (
+    'bucket.num' = '1'
+);
+
+INSERT INTO log_nested VALUES
+    (
+        1,
+        ARRAY[ARRAY[1, 2], ARRAY[3]],
+        ARRAY[MAP['a', 1], MAP['b', 2]],
+        ARRAY[CAST(ROW(1, 'x') AS ROW<a INT, b STRING>), CAST(ROW(2, 'y') AS ROW<a INT, b STRING>)],
+        MAP['k1', ARRAY[1, 2], 'k2', ARRAY[3]],
+        MAP['k1', CAST(ROW(9, 'z') AS ROW<a INT, b STRING>)],
+        CAST(ROW(1, ARRAY[7, 8], MAP['m', 3], ROW(5, 'deep'))
+             AS ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>),
+        ARRAY[ARRAY[ARRAY[1], ARRAY[2, 3]], ARRAY[ARRAY[4]]]
+    ),
+    (
+        2,
+        ARRAY[CAST(NULL AS ARRAY<INT>)],
+        ARRAY[CAST(NULL AS MAP<STRING, INT>)],
+        ARRAY[CAST(NULL AS ROW<a INT, b STRING>)],
+        MAP['k1', CAST(NULL AS ARRAY<INT>)],
+        MAP['k1', CAST(NULL AS ROW<a INT, b STRING>)],
+        CAST(ROW(CAST(NULL AS INT), CAST(NULL AS ARRAY<INT>), CAST(NULL AS MAP<STRING, INT>),
+                 CAST(NULL AS ROW<x INT, y STRING>))
+             AS ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>),
+        ARRAY[CAST(NULL AS ARRAY<ARRAY<INT>>)]
+    ),
+    (
+        3,
+        CAST(NULL AS ARRAY<ARRAY<INT>>),
+        CAST(NULL AS ARRAY<MAP<STRING, INT>>),
+        CAST(NULL AS ARRAY<ROW<a INT, b STRING>>),
+        CAST(NULL AS MAP<STRING, ARRAY<INT>>),
+        CAST(NULL AS MAP<STRING, ROW<a INT, b STRING>>),
+        CAST(NULL AS ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>),
+        CAST(NULL AS ARRAY<ARRAY<ARRAY<INT>>>)
+    );
+
+-- ---------------------------------------------------------------------------
+-- pk_nested: the same nesting in the kv row format a primary-key table stores.
+-- The two formats have separate readers for every constructor, so covering one
+-- says nothing about the other.
+-- ---------------------------------------------------------------------------
+CREATE TABLE pk_nested (
+    id INT NOT NULL,
+    f_arr_arr ARRAY<ARRAY<INT>>,
+    f_arr_row ARRAY<ROW<a INT, b STRING>>,
+    f_map_arr MAP<STRING, ARRAY<INT>>,
+    f_map_row MAP<STRING, ROW<a INT, b STRING>>,
+    f_row_deep ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>,
+    PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+    'bucket.num' = '1'
+);
+
+INSERT INTO pk_nested VALUES
+    (
+        1,
+        ARRAY[ARRAY[1, 2], ARRAY[3]],
+        ARRAY[CAST(ROW(1, 'x') AS ROW<a INT, b STRING>)],
+        MAP['k1', ARRAY[1, 2]],
+        MAP['k1', CAST(ROW(9, 'z') AS ROW<a INT, b STRING>)],
+        CAST(ROW(1, ARRAY[7, 8], MAP['m', 3], ROW(5, 'deep'))
+             AS ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>)
+    ),
+    (
+        2,
+        CAST(NULL AS ARRAY<ARRAY<INT>>),
+        CAST(NULL AS ARRAY<ROW<a INT, b STRING>>),
+        CAST(NULL AS MAP<STRING, ARRAY<INT>>),
+        CAST(NULL AS MAP<STRING, ROW<a INT, b STRING>>),
+        CAST(NULL AS ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>)
+    );
+
+-- The update is what makes this a primary-key fixture rather than a second log
+-- one: the nested values of key 1 have to be the SECOND set, not the first.
+INSERT INTO pk_nested VALUES
+    (
+        1,
+        ARRAY[ARRAY[10, 20]],
+        ARRAY[CAST(ROW(11, 'xx') AS ROW<a INT, b STRING>)],
+        MAP['k9', ARRAY[10]],
+        MAP['k9', CAST(ROW(99, 'zz') AS ROW<a INT, b STRING>)],
+        CAST(ROW(2, ARRAY[70], MAP['mm', 30], ROW(50, 'deeper'))
+             AS ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>)
+    );
+
+-- ---------------------------------------------------------------------------
+-- part_types: one partition column of every type fluss allows AND Doris can
+-- read back. A partition's value is kept nowhere but in its name, so the type
+-- decides whether it survives at all -- STRING is the only one the rest of these
+-- fixtures use, and it is also the only one that could not tell a rendering bug
+-- from a working one.
+--
+-- Two rows, two partitions: one value of each column per partition, so a
+-- predicate on any single column prunes to exactly one.
+--
+-- p_bin is the type whose verdict depends on the catalog: fluss names its
+-- partitions with the hex text of the bytes, which reads back as the text it is
+-- unless 'enable.mapping.varbinary' asks for a VARBINARY column instead.
+-- ---------------------------------------------------------------------------
+CREATE TABLE part_types (
+    id INT,
+    name STRING,
+    p_str STRING,
+    p_char CHAR(2),
+    p_bool BOOLEAN,
+    p_tiny TINYINT,
+    p_small SMALLINT,
+    p_int INT,
+    p_big BIGINT,
+    p_date DATE,
+    p_bin BINARY(2)
+) PARTITIONED BY (p_str, p_char, p_bool, p_tiny, p_small, p_int, p_big, p_date, p_bin)
+WITH (
+    'bucket.num' = '2'
+);
+
+INSERT INTO part_types VALUES
+    (1, 'pt1', 'cn', CAST('c1' AS CHAR(2)), TRUE, CAST(1 AS TINYINT), CAST(10 AS SMALLINT), 100,
+     CAST(1000 AS BIGINT), DATE '2026-01-01', CAST(X'0102' AS BINARY(2))),
+    (2, 'pt2', 'us', CAST('c2' AS CHAR(2)), FALSE, CAST(2 AS TINYINT), CAST(20 AS SMALLINT), 200,
+     CAST(2000 AS BIGINT), DATE '2026-01-02', CAST(X'0304' AS BINARY(2)));
+
+-- ---------------------------------------------------------------------------
+-- part_ts: a partition column whose value fluss cannot store verbatim. Its name
+-- for 2026-01-01 01:02:03 is 2026-01-01-01-02-03_0 -- every character a
+-- partition name may not hold rewritten, many-to-one, unrecoverable. Fluss
+-- creates the table without complaint, which is why the refusal has to come from
+-- the connector and has to name the column.
+-- ---------------------------------------------------------------------------
+CREATE TABLE part_ts (
+    id INT,
+    name STRING,
+    p_ts TIMESTAMP(3)
+) PARTITIONED BY (p_ts)
+WITH (
+    'bucket.num' = '1'
+);
+
+INSERT INTO part_ts VALUES
+    (1, 'ts1', TIMESTAMP '2026-01-01 01:02:03.000');
+
+-- ---------------------------------------------------------------------------
+-- log_time: a column of the one fluss type Doris has nowhere to put. The column
+-- reads as UNSUPPORTED, so naming it -- or asking for * -- must fail, while the
+-- rest of the table stays perfectly readable. A connector that mapped it to a
+-- string or to elapsed millis instead would hand back a value meaning something
+-- else, which no error would ever reveal.
+-- ---------------------------------------------------------------------------
+CREATE TABLE log_time (
+    id INT,
+    name STRING,
+    f_time TIME(0)
+) WITH (
+    'bucket.num' = '1'
+);
+
+INSERT INTO log_time VALUES
+    (1, 'time1', TIME '01:02:03'),
+    (2, 'time2', TIME '04:05:06');
+
+-- ---------------------------------------------------------------------------
 -- pk_basic: primary-key table. Row 2 is updated and row 3 deleted, so a
 -- correct read returns the merged view, not the raw change log.
 -- ---------------------------------------------------------------------------
@@ -311,6 +492,20 @@ INSERT INTO pk_part VALUES
 SET 'execution.runtime-mode' = 'batch';
 DELETE FROM pk_part WHERE id = 4 AND dt = '20260102';
 SET 'execution.runtime-mode' = 'streaming';
+
+-- ---------------------------------------------------------------------------
+-- pk_empty: a primary-key table nothing was ever written to. It is not the same
+-- shape as an empty log table: a primary-key read starts from a kv snapshot,
+-- and there is none, so the path taken here is the one that has to notice the
+-- table is empty rather than the one that reads no log records.
+-- ---------------------------------------------------------------------------
+CREATE TABLE pk_empty (
+    id INT NOT NULL,
+    name STRING,
+    PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+    'bucket.num' = '2'
+);
 
 -- ===========================================================================
 -- Lake tables. 'table.datalake.enabled' makes the fluss coordinator create a
@@ -555,6 +750,171 @@ INSERT INTO lake_pk_cold VALUES
     (1, 'c1'),
     (2, 'c2'),
     (3, 'c3');
+
+-- ---------------------------------------------------------------------------
+-- lake_nested: nested complex types that cross the seam. The type mapping this
+-- connector applies has to equal fluss->paimon->Doris for these as well, and
+-- nesting is where the two could most easily part ways: each level is converted
+-- by its own rule on both sides. The populated row is tiered, the all-NULL row
+-- stays in the log, so one union read decodes the same nested column through
+-- paimon and through fluss.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_nested (
+    id INT,
+    f_arr_arr ARRAY<ARRAY<INT>>,
+    f_arr_row ARRAY<ROW<a INT, b STRING>>,
+    f_map_arr MAP<STRING, ARRAY<INT>>,
+    f_map_row MAP<STRING, ROW<a INT, b STRING>>,
+    f_row_deep ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>
+) WITH (
+    'bucket.num' = '1',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_nested VALUES
+    (
+        1,
+        ARRAY[ARRAY[1, 2], ARRAY[3]],
+        ARRAY[CAST(ROW(1, 'x') AS ROW<a INT, b STRING>)],
+        MAP['k1', ARRAY[1, 2]],
+        MAP['k1', CAST(ROW(9, 'z') AS ROW<a INT, b STRING>)],
+        CAST(ROW(1, ARRAY[7, 8], MAP['m', 3], ROW(5, 'deep'))
+             AS ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>)
+    );
+
+-- ---------------------------------------------------------------------------
+-- lake_empty: tiering is on and has never committed anything, because nothing
+-- was ever written. It is the state every lake table passes through, and the
+-- one where "read the lake plus the log" has no lake to read: auto has to fall
+-- back to the fluss-only read, required has to say why it will not.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_empty (
+    id INT,
+    name STRING
+) WITH (
+    'bucket.num' = '1',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+-- ---------------------------------------------------------------------------
+-- lake_part_int: a tiered log table partitioned by an INT. Concatenating a lake
+-- with a log tail needs no partition value matched across the halves -- each
+-- half prunes on its own -- so a non-STRING partition column has to work here,
+-- and this table is what says the rule that stops the primary-key merge (below)
+-- was not applied to everything partitioned.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_part_int (
+    id INT,
+    name STRING,
+    p_int INT
+) PARTITIONED BY (p_int)
+WITH (
+    'bucket.num' = '1',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_part_int VALUES
+    (1, 'li1a', 1),
+    (2, 'li1b', 1),
+    (3, 'li2a', 2);
+
+-- ---------------------------------------------------------------------------
+-- lake_pk_part_int: a tiered PRIMARY-KEY table partitioned by an INT. Merging
+-- its halves by key means matching a paimon split to a fluss partition by the
+-- text each side renders that value as, and only STRING is guaranteed to render
+-- alike -- so this table must NOT be merged. Under auto it falls back to the
+-- fluss-only read, which returns every row anyway; under required it is an
+-- error. Without this fixture the rule is only ever exercised on tables that had
+-- no lake to merge in the first place.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_pk_part_int (
+    id INT NOT NULL,
+    name STRING,
+    p_int INT NOT NULL,
+    PRIMARY KEY (id, p_int) NOT ENFORCED
+) PARTITIONED BY (p_int)
+WITH (
+    'bucket.num' = '2',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_pk_part_int VALUES
+    (1, 'pi1a', 1),
+    (2, 'pi1b', 1),
+    (3, 'pi2a', 2),
+    (4, 'pi2b', 2);
+
+-- ===========================================================================
+-- The large fixtures. Everything above is a handful of rows chosen so that a
+-- wrong answer is visible by eye; these two are the opposite question -- whether
+-- the same machinery still returns the right answer when a scan is split across
+-- many batches, a suppression set holds more keys than a debugger would print,
+-- and a bucket's log runs to five figures.
+--
+-- Both are lake tables with a tail, so ONE table answers three of the scenarios
+-- at once: read through a union-read catalog it is lake plus log, read through a
+-- disabled one it is the pure fluss read of the same rows -- a full log replay
+-- for big_log, a kv snapshot plus its log for big_pk. Two catalogs over one
+-- fixture also means the two paths can be compared to each other rather than to
+-- a number someone wrote down.
+--
+-- The values are derived from the sequence rather than randomly generated, so
+-- every aggregate over them is a closed form: 1..100000 sums to 5000050000, and
+-- a suite asserting that is checking arithmetic rather than repeating whatever
+-- the fixture happened to produce.
+-- ===========================================================================
+
+CREATE TEMPORARY TABLE big_seq (id INT) WITH (
+    'connector' = 'datagen',
+    'fields.id.kind' = 'sequence',
+    'fields.id.start' = '1',
+    'fields.id.end' = '100000'
+);
+
+-- ---------------------------------------------------------------------------
+-- big_log: 100000 rows over three buckets, all of them tiered. The tail written
+-- afterwards is small on purpose -- that is the shape of a real tiered table,
+-- where the tail is only what the freshness window has not yet taken.
+-- ---------------------------------------------------------------------------
+CREATE TABLE big_log (
+    id INT,
+    name STRING,
+    price DECIMAL(10, 2),
+    grp INT
+) WITH (
+    'bucket.num' = '3',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO big_log
+SELECT id, CONCAT('n', CAST(id AS STRING)), CAST(id AS DECIMAL(10, 2)), MOD(id, 7) FROM big_seq;
+
+-- ---------------------------------------------------------------------------
+-- big_pk: 100000 keys over three buckets, all tiered. Its tail updates 500 of
+-- them, deletes five and adds 500 more, so the suppression set that filters the
+-- lake half holds a thousand-odd keys instead of the two or three every other
+-- primary-key fixture here has. A merge that is right for three keys and wrong
+-- for a thousand -- a set built per split, a cache keyed too coarsely -- has
+-- nowhere to hide in the counts this produces.
+-- ---------------------------------------------------------------------------
+CREATE TABLE big_pk (
+    id INT NOT NULL,
+    name STRING,
+    grp INT,
+    PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+    'bucket.num' = '3',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO big_pk
+SELECT id, CONCAT('p', CAST(id AS STRING)), MOD(id, 7) FROM big_seq;
 
 -- No deletion-vector fixture, and the reason is worth recording where the next
 -- person to want one will look. Fluss does forward a 'paimon.*' table property

@@ -55,4 +55,19 @@ SELECT CONCAT('LAKEROWS:lake_pk_multi=', CAST(COUNT(*) AS STRING)) FROM lake_pk_
 UNION ALL
 SELECT CONCAT('LAKEROWS:lake_pk_part=', CAST(COUNT(*) AS STRING)) FROM lake_pk_part
 UNION ALL
-SELECT CONCAT('LAKEROWS:lake_pk_cold=', CAST(COUNT(*) AS STRING)) FROM lake_pk_cold;
+SELECT CONCAT('LAKEROWS:lake_pk_cold=', CAST(COUNT(*) AS STRING)) FROM lake_pk_cold
+UNION ALL
+SELECT CONCAT('LAKEROWS:lake_nested=', CAST(COUNT(*) AS STRING)) FROM lake_nested
+UNION ALL
+SELECT CONCAT('LAKEROWS:lake_part_int=', CAST(COUNT(*) AS STRING)) FROM lake_part_int
+UNION ALL
+SELECT CONCAT('LAKEROWS:lake_pk_part_int=', CAST(COUNT(*) AS STRING)) FROM lake_pk_part_int
+UNION ALL
+SELECT CONCAT('LAKEROWS:big_log=', CAST(COUNT(*) AS STRING)) FROM big_log
+UNION ALL
+SELECT CONCAT('LAKEROWS:big_pk=', CAST(COUNT(*) AS STRING)) FROM big_pk;
+
+-- lake_empty is absent on purpose: nothing is ever written to it, so there is
+-- nothing for tiering to commit and no count to wait for. It is the fixture for
+-- a lake table that has no snapshot at all, and waiting for one would hang the
+-- environment on the very state it exists to provide.
