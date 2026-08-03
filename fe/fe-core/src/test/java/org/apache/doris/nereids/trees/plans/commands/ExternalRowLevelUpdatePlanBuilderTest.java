@@ -22,7 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -113,20 +113,25 @@ public class ExternalRowLevelUpdatePlanBuilderTest {
         ExternalRowLevelUpdatePlanBuilder builder = new ExternalRowLevelUpdatePlanBuilder(
                 ImmutableList.of("test_catalog", "test_db", "test_table"), null, ImmutableList.of(), basePlan);
 
-        ExternalTable table = Mockito.mock(ExternalTable.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                Mockito.mock(PluginDrivenExternalTable.WriteSchemaSnapshot.class);
         Mockito.when(table.getName()).thenReturn("test_table");
         Mockito.doReturn(Mockito.mock(ExternalDatabase.class)).when(table).getDatabase();
         Mockito.doReturn(ImmutableList.of(new Column("c1", ScalarType.createType(PrimitiveType.INT))))
-                .when(table).getBaseSchema(true);
+                .when(writeSchema).getBaseSchema();
+        Mockito.doReturn("uuid-u0/schema-1").when(writeSchema).getWriteMetadataIdentity();
+        Mockito.doReturn(writeSchema).when(table).getWriteSchemaSnapshot();
 
         LogicalPlan plan = builder.buildMergePlan(ctx, basePlan, ImmutableList.of(), table);
 
         Assertions.assertTrue(plan instanceof LogicalExternalRowLevelMergeSink);
         Assertions.assertFalse(((LogicalExternalRowLevelMergeSink<?>) plan).isRequireMergeCardinalityCheck(),
                 "UPDATE must not request the SQL MERGE cardinality validation");
-        // Projection and sink metadata must share one schema generation. A second read can observe a
-        // concurrent reorder and silently pair S0 expressions with S1 columns.
-        Mockito.verify(table, Mockito.times(1)).getBaseSchema(true);
+        // Projection, sink metadata, and the conflict fence must share one schema generation.
+        Assertions.assertEquals("uuid-u0/schema-1",
+                ((LogicalExternalRowLevelMergeSink<?>) plan).getBoundWriteMetadataIdentity());
+        Mockito.verify(table, Mockito.times(1)).getWriteSchemaSnapshot();
     }
 
     @Test

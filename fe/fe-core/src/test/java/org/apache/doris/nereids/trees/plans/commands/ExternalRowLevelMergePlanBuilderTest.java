@@ -22,7 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -89,10 +89,14 @@ public class ExternalRowLevelMergePlanBuilderTest {
         Column rowId = new Column(Column.ICEBERG_ROWID_COL, ScalarType.createStringType());
         rowId.setIsVisible(false);
         Column data = new Column("c1", ScalarType.createType(PrimitiveType.INT));
-        ExternalTable table = Mockito.mock(ExternalTable.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                Mockito.mock(PluginDrivenExternalTable.WriteSchemaSnapshot.class);
         Mockito.when(table.getName()).thenReturn("test_table");
         Mockito.doReturn(Mockito.mock(ExternalDatabase.class)).when(table).getDatabase();
-        Mockito.doReturn(ImmutableList.of(data)).when(table).getBaseSchema(true);
+        Mockito.doReturn(ImmutableList.of(data)).when(writeSchema).getBaseSchema();
+        Mockito.doReturn("uuid-u0/schema-1").when(writeSchema).getWriteMetadataIdentity();
+        Mockito.doReturn(writeSchema).when(table).getWriteSchemaSnapshot();
         Mockito.doReturn(ImmutableList.of(data, rowId)).when(table).getFullSchema();
 
         LogicalPlan plan = builder.buildMergePlan(ctx, table);
@@ -105,8 +109,10 @@ public class ExternalRowLevelMergePlanBuilderTest {
         Assertions.assertTrue(plan instanceof LogicalExternalRowLevelMergeSink);
         Assertions.assertTrue(((LogicalExternalRowLevelMergeSink<?>) plan).isRequireMergeCardinalityCheck(),
                 "SQL MERGE INTO must request the cardinality validation");
-        // The branch projections and sink columns must come from the exact same target schema generation.
-        Mockito.verify(table, Mockito.times(1)).getBaseSchema(true);
+        // The branch projections, sink columns, and conflict fence must come from one generation.
+        Assertions.assertEquals("uuid-u0/schema-1",
+                ((LogicalExternalRowLevelMergeSink<?>) plan).getBoundWriteMetadataIdentity());
+        Mockito.verify(table, Mockito.times(1)).getWriteSchemaSnapshot();
     }
 
     @Test

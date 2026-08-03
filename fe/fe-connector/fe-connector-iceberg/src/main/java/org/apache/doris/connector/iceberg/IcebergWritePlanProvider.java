@@ -73,6 +73,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -282,7 +283,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             // sameBoundType, while current schema JSON enforces writes at the root.
             if (!current.name().equalsIgnoreCase(bound.getName())
                     || !sameBoundType(currentType, bound.getType())
-                    || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())) {
+                    || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())
+                    // Omitted columns and DEFAULT expressions were already materialized from this value at bind.
+                    || !Objects.equals(bound.getDefaultValue(), IcebergSchemaUtils.writeDefaultToDorisString(
+                            current.type(), current.writeDefault(), enableTimestampTz))) {
                 // BE maps write expressions to schema-json by ordinal, so accepting a reordered live
                 // schema here could silently place values under the wrong Iceberg field names.
                 throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry "
@@ -437,29 +441,49 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         return writeMetadataIdentity(resolveTable(session, (IcebergTableHandle) tableHandle));
     }
 
-    private static String writeMetadataIdentity(Table table) {
+    static String writeMetadataIdentity(Table table) {
         StringBuilder identity = new StringBuilder();
+        // UUID and schema id make this a table-generation fence, not just a physical-layout signature. They
+        // reject same-name recreation and every schema commit before a stale bound output can reach the sink.
+        appendMetadataToken(identity, "uuid");
+        appendMetadataToken(identity, tableUuid(table));
+        appendMetadataToken(identity, "schema");
+        appendMetadataToken(identity, table.schema().schemaId());
         appendMetadataToken(identity, "format");
         appendMetadataToken(identity, IcebergWriterHelper.getFormatVersion(table));
         SortOrder sortOrder = table.sortOrder();
         appendMetadataToken(identity, "sort");
-        appendMetadataToken(identity, sortOrder.orderId());
-        for (SortField field : sortOrder.fields()) {
-            appendMetadataToken(identity, field.sourceId());
-            appendMetadataToken(identity, field.transform());
-            appendMetadataToken(identity, field.direction());
-            appendMetadataToken(identity, field.nullOrder());
+        // Preserve a deterministic fence for partial Table implementations instead of failing schema loads.
+        appendMetadataToken(identity, sortOrder == null ? null : sortOrder.orderId());
+        if (sortOrder != null) {
+            for (SortField field : sortOrder.fields()) {
+                appendMetadataToken(identity, field.sourceId());
+                appendMetadataToken(identity, field.transform());
+                appendMetadataToken(identity, field.direction());
+                appendMetadataToken(identity, field.nullOrder());
+            }
         }
         PartitionSpec spec = table.spec();
         appendMetadataToken(identity, "spec");
-        appendMetadataToken(identity, spec.specId());
-        for (PartitionField field : spec.fields()) {
-            appendMetadataToken(identity, field.sourceId());
-            appendMetadataToken(identity, field.fieldId());
-            appendMetadataToken(identity, field.name());
-            appendMetadataToken(identity, field.transform());
+        appendMetadataToken(identity, spec == null ? null : spec.specId());
+        if (spec != null) {
+            for (PartitionField field : spec.fields()) {
+                appendMetadataToken(identity, field.sourceId());
+                appendMetadataToken(identity, field.fieldId());
+                appendMetadataToken(identity, field.name());
+                appendMetadataToken(identity, field.transform());
+            }
         }
         return identity.toString();
+    }
+
+    private static Object tableUuid(Table table) {
+        try {
+            return table.uuid();
+        } catch (UnsupportedOperationException e) {
+            // Non-BaseTable test doubles may not expose UUID; their remaining metadata still forms a fence.
+            return null;
+        }
     }
 
     private static void appendMetadataToken(StringBuilder identity, Object value) {
@@ -568,7 +592,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // command context onto the write handle; beginWrite validates it against the table refs and points
         // the commit at the branch. Empty for a default-ref write.
         return new IcebergWriteContext(op, handle.isOverwrite(), handle.getStaticPartitionSpec(),
-                handle.getBranchName(), readSnapshotId, readSnapshotResolved, schemaContext);
+                handle.getBranchName(), readSnapshotId, readSnapshotResolved,
+                schemaContext, handle.getBoundWriteMetadataIdentity());
     }
 
     private TIcebergTableSink buildSink(Table table, IcebergTableHandle tableHandle,

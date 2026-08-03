@@ -59,6 +59,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -755,6 +757,38 @@ public class IcebergConnectorTransactionTest {
             txn.rollback();
             txn.close();
         });
+    }
+
+    @Test
+    public void beginWriteRejectsReplacementExposedByTransactionRefresh() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table original = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("format-version", "2"));
+        String originalIdentity = IcebergWritePlanProvider.writeMetadataIdentity(original);
+        catalog.dropTable(id, false);
+        Table replacement = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("format-version", "2"));
+        AtomicReference<Table> delegate = new AtomicReference<>(original);
+        Table refreshingTable = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
+                new Class<?>[] {Table.class}, (proxy, method, args) -> {
+                    if ("newTransaction".equals(method.getName())) {
+                        delegate.set(replacement);
+                    }
+                    try {
+                        return method.invoke(delegate.get(), args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+        IcebergConnectorTransaction txn = txnFor(opsReturning(refreshingTable), new RecordingConnectorContext());
+        IcebergWriteContext ctx = new IcebergWriteContext(WriteOperation.INSERT, false,
+                Collections.emptyMap(), Optional.empty(), -1L, false, originalIdentity);
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> txn.beginWrite(SESSION, "db1", "t1", ctx));
+        Assertions.assertTrue(ex.getMessage().contains("write metadata changed"),
+                "a replacement exposed by newTransaction refresh must not become the write baseline");
     }
 
     // ─────────────────── commit-time conflict-detection validation suite (T05) ───────────────────

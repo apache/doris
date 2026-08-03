@@ -638,10 +638,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        if (iceHandle.isResolvedEmptySnapshot()) {
+        if (iceHandle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(iceHandle)) {
             // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
             // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a
-            // concurrent first append to MERGE after its anti-join had already decided the row was absent.
+            // concurrent first append to MERGE after its anti-join had already decided the row was absent. Static
+            // metadata-history tables are exempt because their creation rows exist without a data snapshot.
             return Collections.emptyList();
         }
         if (iceHandle.isSystemTable()) {
@@ -1172,6 +1173,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 && type != MetadataTableType.ALL_FILES
                 && type != MetadataTableType.ALL_MANIFESTS
                 && type != MetadataTableType.ALL_ENTRIES;
+    }
+
+    /** Metadata tables whose rows describe table metadata rather than files reachable from a data snapshot. */
+    private static boolean isSnapshotIndependentSystemTable(IcebergTableHandle handle) {
+        if (!handle.isSystemTable()) {
+            return false;
+        }
+        MetadataTableType type = MetadataTableType.from(handle.getSysTableName());
+        return type == MetadataTableType.HISTORY
+                || type == MetadataTableType.SNAPSHOTS
+                || type == MetadataTableType.REFS
+                || type == MetadataTableType.METADATA_LOG_ENTRIES;
     }
 
     /**

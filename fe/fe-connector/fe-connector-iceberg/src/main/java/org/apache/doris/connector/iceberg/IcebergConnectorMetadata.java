@@ -549,7 +549,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             }
         }
 
-        return new ConnectorTableSchema(tableName, columns, "ICEBERG", tableProps);
+        // Capture the write identity from this exact Table object so the schema-cache generation and the
+        // later beginWrite fence cannot straddle a drop/recreate or metadata commit.
+        return new ConnectorTableSchema(tableName, columns, "ICEBERG", tableProps,
+                Collections.emptySet(), IcebergWritePlanProvider.writeMetadataIdentity(table));
     }
 
     /**

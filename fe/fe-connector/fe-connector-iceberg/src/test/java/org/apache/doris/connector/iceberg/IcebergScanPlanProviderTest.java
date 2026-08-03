@@ -1462,6 +1462,36 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void resolvedEmptyMetadataLogEntriesStillReturnsCreationEntry() throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        IcebergTableHandle handle = IcebergTableHandle.forSystemTable(
+                "db1", "t1", "metadata_log_entries", -1L, null, table.schema().schemaId(), true);
+
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+
+        Assertions.assertEquals(1L, countSerializedSplitRows(ranges),
+                "metadata history exists before the first data snapshot and must not be hidden by the data fence");
+    }
+
+    @Test
+    public void resolvedEmptyAllFilesDoesNotExposeConcurrentFirstAppend() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergTableHandle emptyAllFiles = IcebergTableHandle.forSystemTable(
+                "db1", "t1", "all_files", -1L, null, table.schema().schemaId(), true);
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Assertions.assertTrue(provider.planScan(null,
+                ConnectorScanRequest.builder(emptyAllFiles, Collections.emptyList()).build()).isEmpty(),
+                "snapshot-derived history must preserve the empty boundary across a concurrent first append");
+    }
+
+    @Test
     public void planScanPinnedToTagReadsViaUseRefNotSnapshotId() {
         // The handle carries BOTH a ref (tag1 -> S1) AND the LATEST snapshot id (s2). The scan must pin by REF
         // (useRef), so it reads only f1. MUTATION: pinning by snapshotId (useSnapshot(s2)) -> reads both -> red.

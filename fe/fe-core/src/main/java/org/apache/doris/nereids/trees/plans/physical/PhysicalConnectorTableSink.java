@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -50,6 +51,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
 
     private final List<Column> boundTargetSchema;
     private final List<Column> boundPartitionColumns;
+    private final String boundWriteMetadataIdentity;
 
     // Rewrite (compaction) marker, threaded from LogicalConnectorTableSink.isRewrite. When set,
     // getRequirePhysicalProperties() short-circuits to GATHER (single writer) so a rewrite_data_files
@@ -84,8 +86,24 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                       LogicalProperties logicalProperties,
                                       boolean isRewrite,
                                       CHILD_TYPE child) {
-        this(database, targetTable, boundTargetSchema, boundPartitionColumns, cols, outputExprs,
-                groupExpression, logicalProperties,
+        this(database, targetTable, boundTargetSchema, boundPartitionColumns, null, cols, outputExprs,
+                groupExpression, logicalProperties, isRewrite, child);
+    }
+
+    /** Builds a physical sink with the write generation captured during sink binding. */
+    public PhysicalConnectorTableSink(ExternalDatabase database,
+                                      ExternalTable targetTable,
+                                      List<Column> boundTargetSchema,
+                                      List<Column> boundPartitionColumns,
+                                      String boundWriteMetadataIdentity,
+                                      List<Column> cols,
+                                      List<NamedExpression> outputExprs,
+                                      Optional<GroupExpression> groupExpression,
+                                      LogicalProperties logicalProperties,
+                                      boolean isRewrite,
+                                      CHILD_TYPE child) {
+        this(database, targetTable, boundTargetSchema, boundPartitionColumns, boundWriteMetadataIdentity,
+                cols, outputExprs, groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, isRewrite, child);
     }
 
@@ -119,10 +137,29 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                       Statistics statistics,
                                       boolean isRewrite,
                                       CHILD_TYPE child) {
+        this(database, targetTable, boundTargetSchema, boundPartitionColumns, null, cols, outputExprs,
+                groupExpression, logicalProperties, physicalProperties, statistics, isRewrite, child);
+    }
+
+    /** Builds a physical sink with the write generation captured during sink binding. */
+    public PhysicalConnectorTableSink(ExternalDatabase database,
+                                      ExternalTable targetTable,
+                                      List<Column> boundTargetSchema,
+                                      List<Column> boundPartitionColumns,
+                                      String boundWriteMetadataIdentity,
+                                      List<Column> cols,
+                                      List<NamedExpression> outputExprs,
+                                      Optional<GroupExpression> groupExpression,
+                                      LogicalProperties logicalProperties,
+                                      PhysicalProperties physicalProperties,
+                                      Statistics statistics,
+                                      boolean isRewrite,
+                                      CHILD_TYPE child) {
         super(PlanType.PHYSICAL_CONNECTOR_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
         this.boundTargetSchema = ImmutableList.copyOf(boundTargetSchema);
         this.boundPartitionColumns = ImmutableList.copyOf(boundPartitionColumns);
+        this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
         this.isRewrite = isRewrite;
     }
 
@@ -130,7 +167,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     public Plan withChildren(List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
                 (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema,
-                boundPartitionColumns, cols,
+                boundPartitionColumns, boundWriteMetadataIdentity, cols,
                 outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
                 isRewrite, children.get(0)));
     }
@@ -144,7 +181,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
                 (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, boundPartitionColumns,
-                cols,
+                boundWriteMetadataIdentity, cols,
                 outputExprs, groupExpression, getLogicalProperties(), isRewrite, child()));
     }
 
@@ -153,7 +190,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
                 (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, boundPartitionColumns,
-                cols,
+                boundWriteMetadataIdentity, cols,
                 outputExprs, groupExpression, logicalProperties.get(), isRewrite, children.get(0)));
     }
 
@@ -161,7 +198,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
                 (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, boundPartitionColumns,
-                cols,
+                boundWriteMetadataIdentity, cols,
                 outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
                 isRewrite, child()));
     }
@@ -172,6 +209,34 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
 
     public List<Column> getBoundPartitionColumns() {
         return boundPartitionColumns;
+    }
+
+    public String getBoundWriteMetadataIdentity() {
+        return boundWriteMetadataIdentity;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        PhysicalConnectorTableSink<?> that = (PhysicalConnectorTableSink<?>) o;
+        return isRewrite == that.isRewrite
+                && Objects.equals(boundTargetSchema, that.boundTargetSchema)
+                && Objects.equals(boundPartitionColumns, that.boundPartitionColumns)
+                && Objects.equals(boundWriteMetadataIdentity, that.boundWriteMetadataIdentity);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), boundTargetSchema, boundPartitionColumns,
+                boundWriteMetadataIdentity, isRewrite);
     }
 
     /**

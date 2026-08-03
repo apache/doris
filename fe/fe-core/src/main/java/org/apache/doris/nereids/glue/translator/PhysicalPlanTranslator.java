@@ -555,7 +555,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TIcebergDeleteSink dialect. No output-expr / materialized-name loop is needed: the row id reaches
         // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
         // resolves it by block-name, not by output-expr name.
-        rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE, false));
+        rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE, false,
+                deleteSink.getBoundWriteMetadataIdentity()));
         return rootFragment;
     }
 
@@ -592,7 +593,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // SQL MERGE INTO carries the cardinality requirement onto the write handle; UPDATE shares this
         // sink dialect but has no such rule, so it threads false (see PhysicalExternalRowLevelMergeSink).
         rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE,
-                mergeSink.isRequireMergeCardinalityCheck()));
+                mergeSink.isRequireMergeCardinalityCheck(), mergeSink.getBoundWriteMetadataIdentity()));
         return rootFragment;
     }
 
@@ -609,7 +610,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private PluginDrivenTableSink buildPluginRowLevelDmlSink(
             PhysicalBaseExternalTableSink<? extends Plan> sink, WriteOperation writeOperation,
-            boolean requireMergeCardinalityCheck) {
+            boolean requireMergeCardinalityCheck, String boundWriteMetadataIdentity) {
         PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) sink.getTargetTable();
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) targetTable.getCatalog();
 
@@ -646,9 +647,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
-        String boundWriteMetadataIdentity =
-                writePlanProvider.getWriteMetadataIdentity(connSession, providerTableHandle);
-
         // writeSortInfo == null: a row-level DML has no engine-resolved write sort (MERGE's sort lives in the
         // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
         return new PluginDrivenTableSink(targetTable, writePlanProvider, connSession,
@@ -723,10 +721,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
 
-        // Capture the connector generation before physical shaping so a refresh at beginWrite cannot
-        // silently relabel files with a different sort order or partition spec.
-        String boundWriteMetadataIdentity =
-                writePlanProvider.getWriteMetadataIdentity(connSession, providerTableHandle);
+        // Preserve the generation captured from the exact remote table load that supplied the bound schema.
+        // A live lookup here would silently move the fence after a concurrent drop/recreate.
+        String boundWriteMetadataIdentity = connectorTableSink.getBoundWriteMetadataIdentity();
 
         // The connector declares its write-sort columns (e.g. an iceberg WRITE ORDERED BY) as positions
         // into the sink's full-schema output; the engine resolves them to bound slots and builds the

@@ -795,9 +795,10 @@ public class BindSink implements AnalysisRuleFactory {
         ExternalDatabase database = pair.first;
         PluginDrivenExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
+        PluginDrivenExternalTable.WriteSchemaSnapshot targetMetadata = table.getWriteSchemaSnapshot();
         List<Column> targetWriteSchema = ctx.cascadesContext.getStatementContext()
                 .getConnectorWriteSchema(table.getId())
-                .orElseGet(() -> sinkTargetFullSchema(table));
+                .orElseGet(targetMetadata::getFullSchema);
 
         // Static-partition columns (e.g. MaxCompute `PARTITION(pt='x')`) carry their value via the
         // static partition spec rather than the query output, so they are excluded from the bound
@@ -832,7 +833,9 @@ public class BindSink implements AnalysisRuleFactory {
         LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
-                targetSchema.fullSchema,
+                targetWriteSchema,
+                targetMetadata.getPartitionColumns(),
+                targetMetadata.getWriteMetadataIdentity(),
                 bindColumns,
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -111,6 +112,8 @@ public class ExternalRowLevelUpdatePlanBuilder {
         String tableName = tableAlias != null
                 ? tableAlias
                 : Util.getTempTableDisplayName(icebergTable.getName());
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
         List<Column> writeColumns = ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable);
         List<EqualTo> resolvedAssignments = assignments.stream()
                 .map(assignment -> (EqualTo) assignment.withChildren(ImmutableList.of(
@@ -136,6 +139,7 @@ public class ExternalRowLevelUpdatePlanBuilder {
         return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
+                writeSchema.getWriteMetadataIdentity(),
                 writeColumns,
                 outputExprs,
                 false,

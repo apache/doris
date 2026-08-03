@@ -49,7 +49,6 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.EnumSet;
@@ -143,6 +142,29 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
     }
 
     @Test
+    public void rowLevelDmlPreservesBindTimeWriteMetadataIdentity() {
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        PlanFragment childFragment = Mockito.mock(PlanFragment.class);
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        PluginDrivenExternalTable table = pluginTable(EnumSet.of(WriteOperation.DELETE), provider);
+
+        @SuppressWarnings("unchecked")
+        PhysicalExternalRowLevelDeleteSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelDeleteSink.class);
+        Mockito.doReturn(mockChild(childFragment)).when(sink).child();
+        Mockito.doReturn(table).when(sink).getTargetTable();
+        Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn("uuid-u0/schema-1").when(sink).getBoundWriteMetadataIdentity();
+
+        new PhysicalPlanTranslator(context, null).visitPhysicalExternalRowLevelDeleteSink(sink, context);
+
+        PluginDrivenTableSink pluginSink = capturePluginSink(childFragment);
+        Assertions.assertEquals("uuid-u0/schema-1",
+                Deencapsulation.getField(pluginSink, "boundWriteMetadataIdentity"));
+        // Re-reading at translation time would accept a replacement table as this write's conflict baseline.
+        Mockito.verify(provider, Mockito.never()).getWriteMetadataIdentity(Mockito.any(), Mockito.any());
+    }
+
+    @Test
     public void partialInsertResolvesWriteSortAgainstFullOutput() {
         assertWriteSortUsesBoundOutputColumn(ImmutableList.of(C), C);
     }
@@ -158,12 +180,10 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
     }
 
     @Test
-    public void insertCapturesWriteMetadataIdentityBeforePhysicalShaping() {
+    public void insertPreservesBindTimeWriteMetadataIdentity() {
         PlanTranslatorContext context = new PlanTranslatorContext();
         PlanFragment childFragment = Mockito.mock(PlanFragment.class);
         ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
-        Mockito.when(provider.getWriteMetadataIdentity(Mockito.any(), Mockito.any()))
-                .thenReturn("sort-3/spec-7");
         PluginDrivenExternalTable table = pluginTable(EnumSet.of(WriteOperation.INSERT), provider);
 
         @SuppressWarnings("unchecked")
@@ -171,17 +191,16 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn("uuid-u0/schema-1").when(sink).getBoundWriteMetadataIdentity();
         Mockito.doReturn(false).when(sink).isRewrite();
 
         new PhysicalPlanTranslator(context, null).visitPhysicalConnectorTableSink(sink, context);
 
         PluginDrivenTableSink pluginSink = capturePluginSink(childFragment);
-        Assertions.assertEquals("sort-3/spec-7",
+        Assertions.assertEquals("uuid-u0/schema-1",
                 Deencapsulation.getField(pluginSink, "boundWriteMetadataIdentity"));
-        // Capture before sort shaping so a generation change cannot pair an old physical sort with a new fence.
-        InOrder inOrder = Mockito.inOrder(provider);
-        inOrder.verify(provider).getWriteMetadataIdentity(Mockito.any(), Mockito.any());
-        inOrder.verify(provider).getWriteSortColumns(Mockito.any(), Mockito.any(), Mockito.anyList());
+        // A translator-time refresh must not move the fence away from the schema used by BindSink.
+        Mockito.verify(provider, Mockito.never()).getWriteMetadataIdentity(Mockito.any(), Mockito.any());
     }
 
     // ==================== helpers ====================

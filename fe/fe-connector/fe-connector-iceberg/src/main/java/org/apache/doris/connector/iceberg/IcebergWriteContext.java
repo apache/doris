@@ -44,36 +44,52 @@ final class IcebergWriteContext {
     private final long readSnapshotId;
     private final IcebergWriteSchemaContext writeSchemaContext;
     private final boolean readSnapshotResolved;
+    private final String boundWriteMetadataIdentity;
 
     IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
             Map<String, String> staticPartitionValues, Optional<String> branchName) {
-        this(writeOperation, overwrite, staticPartitionValues, branchName, -1L, false, null);
+        this(writeOperation, overwrite, staticPartitionValues, branchName, -1L, false, null, null);
     }
 
     IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
             Map<String, String> staticPartitionValues, Optional<String> branchName, long readSnapshotId) {
         this(writeOperation, overwrite, staticPartitionValues, branchName,
-                readSnapshotId, readSnapshotId >= 0, null);
+                readSnapshotId, readSnapshotId >= 0, null, null);
     }
 
     IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
             Map<String, String> staticPartitionValues, Optional<String> branchName,
             long readSnapshotId, boolean readSnapshotResolved) {
         this(writeOperation, overwrite, staticPartitionValues, branchName,
-                readSnapshotId, readSnapshotResolved, null);
+                readSnapshotId, readSnapshotResolved, null, null);
     }
 
     IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
             Map<String, String> staticPartitionValues, Optional<String> branchName,
             long readSnapshotId, IcebergWriteSchemaContext writeSchemaContext) {
         this(writeOperation, overwrite, staticPartitionValues, branchName,
-                readSnapshotId, readSnapshotId >= 0, writeSchemaContext);
+                readSnapshotId, readSnapshotId >= 0, writeSchemaContext, null);
     }
 
     IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
             Map<String, String> staticPartitionValues, Optional<String> branchName,
             long readSnapshotId, boolean readSnapshotResolved,
             IcebergWriteSchemaContext writeSchemaContext) {
+        this(writeOperation, overwrite, staticPartitionValues, branchName,
+                readSnapshotId, readSnapshotResolved, writeSchemaContext, null);
+    }
+
+    IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
+            Map<String, String> staticPartitionValues, Optional<String> branchName,
+            long readSnapshotId, boolean readSnapshotResolved, String boundWriteMetadataIdentity) {
+        this(writeOperation, overwrite, staticPartitionValues, branchName,
+                readSnapshotId, readSnapshotResolved, null, boundWriteMetadataIdentity);
+    }
+
+    IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
+            Map<String, String> staticPartitionValues, Optional<String> branchName,
+            long readSnapshotId, boolean readSnapshotResolved,
+            IcebergWriteSchemaContext writeSchemaContext, String boundWriteMetadataIdentity) {
         this.writeOperation = writeOperation;
         this.overwrite = overwrite;
         this.staticPartitionValues = staticPartitionValues == null
@@ -82,6 +98,7 @@ final class IcebergWriteContext {
         this.readSnapshotId = readSnapshotId;
         this.readSnapshotResolved = readSnapshotResolved;
         this.writeSchemaContext = writeSchemaContext;
+        this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
     }
 
     WriteOperation getWriteOperation() {
@@ -124,5 +141,9 @@ final class IcebergWriteContext {
     /** Whether the read snapshot was resolved, including a table with no snapshot yet. */
     boolean isReadSnapshotResolved() {
         return readSnapshotResolved;
+    }
+
+    String getBoundWriteMetadataIdentity() {
+        return boundWriteMetadataIdentity;
     }
 }

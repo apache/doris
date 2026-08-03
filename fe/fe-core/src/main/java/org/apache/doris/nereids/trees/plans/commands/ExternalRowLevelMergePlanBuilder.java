@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -393,6 +394,8 @@ public class ExternalRowLevelMergePlanBuilder {
 
     // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here.
     LogicalPlan buildMergePlan(ConnectContext ctx, ExternalTable icebergTable) {
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
         LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
 
         List<NamedExpression> outputExprs;
@@ -409,6 +412,7 @@ public class ExternalRowLevelMergePlanBuilder {
         return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
+                writeSchema.getWriteMetadataIdentity(),
                 ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable),
                 outputExprs,
                 true,

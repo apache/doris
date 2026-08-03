@@ -219,11 +219,19 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     Table loaded = IcebergStatementScope.sharedWritableTable(session, db, tableName,
                             () -> catalogOps.loadTable(db, tableName));
                     this.table = loaded;
+                    validateBoundWriteGeneration(ctx, loaded);
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
                     }
                     applyBeginGuards(ctx, tableName);
-                    this.transaction = openTransaction(loaded, ctx.isOverwrite());
+                    Transaction opened = openTransaction(loaded, ctx.isOverwrite());
+                    // BaseTable.newTransaction refreshes metadata. Fence that second load too, closing the
+                    // drop/recreate race between the initial generation check and transaction construction.
+                    validateBoundWriteGeneration(ctx, loaded);
+                    if (writeSchemaContext != null) {
+                        writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
+                    }
+                    this.transaction = opened;
                     return null;
                 });
             } catch (Exception e) {
@@ -233,6 +241,17 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             // Only flip after a fully successful begin, so a failed load can be retried (writeStarted stays
             // false) rather than wedging the transaction in a half-begun state.
             writeStarted = true;
+        }
+    }
+
+    private static void validateBoundWriteGeneration(IcebergWriteContext ctx, Table loaded) {
+        String boundIdentity = ctx.getBoundWriteMetadataIdentity();
+        // Reject a same-name replacement before opening its SDK transaction; the replacement must never
+        // become the conflict baseline for a plan whose rows and defaults were bound against the old UUID.
+        if (boundIdentity != null
+                && !boundIdentity.equals(IcebergWritePlanProvider.writeMetadataIdentity(loaded))) {
+            throw new IllegalArgumentException(
+                    "Iceberg write metadata changed after the write was bound; retry the statement");
         }
     }
 

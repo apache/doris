@@ -1018,6 +1018,53 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteRejectsDropRecreateBeforeFirstWritableTableLoad() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier identifier = TableIdentifier.of("db1", "t2");
+        Table original = unpartitionedUnsortedTable(catalog);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t2");
+        // BindSink got U0's schema and identity from one load. Construct the write provider now, but do not
+        // resolve its sharedWritableTable until after the same-name replacement below.
+        String originalIdentity = IcebergWritePlanProvider.writeMetadataIdentity(original);
+        RecordingConnectorContext ctx = contextWithStorage();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = original;
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
+
+        catalog.dropTable(identifier, false);
+        Table recreated = unpartitionedUnsortedTable(catalog);
+        ops.table = recreated;
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planWrite(session,
+                        new WriteHandle(handle).boundWriteMetadataIdentity(originalIdentity)));
+        Assertions.assertTrue(ex.getMessage().contains("write metadata changed"),
+                "the first writable-table load must reject U1 instead of moving U0's conflict baseline");
+    }
+
+    @Test
+    public void planWriteRejectsWriteDefaultEvolution() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.updateSchema().updateColumnDefault("id", Literal.of(42)).commit();
+        List<ConnectorColumn> boundColumns = Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, "42")
+                        .withUniqueId(table.schema().findField("id").fieldId()),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
+                        .withUniqueId(table.schema().findField("name").fieldId()));
+
+        table.updateSchema().updateColumnDefault("id", Literal.of(7)).commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(table, contextWithStorage(),
+                        new WriteHandle(new IcebergTableHandle("db1", "t2"))
+                                .boundTargetColumns(boundColumns)));
+        Assertions.assertTrue(ex.getMessage().contains("schema changed"),
+                "a statement must retry instead of writing a value materialized from the stale default");
+    }
+
+    @Test
     public void planRewriteRejectsV2BoundSchemaAtV3Planning() {
         InMemoryCatalog catalog = freshCatalog();
         Table table = unpartitionedUnsortedTable(catalog);

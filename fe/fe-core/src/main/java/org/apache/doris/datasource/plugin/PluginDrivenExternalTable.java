@@ -569,7 +569,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         }
         return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
-                tableSchema.getProperties(), tableSchema.getTableCapabilities());
+                tableSchema.getProperties(), tableSchema.getTableCapabilities(),
+                tableSchema.getWriteMetadataIdentity());
     }
 
     @Override
@@ -737,12 +738,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     /** Immutable write-facing views captured from one schema-cache generation. */
     public static final class WriteSchemaSnapshot {
+        private final List<Column> baseSchema;
         private final List<Column> fullSchema;
         private final List<Column> partitionColumns;
+        private final String writeMetadataIdentity;
 
-        private WriteSchemaSnapshot(List<Column> fullSchema, List<Column> partitionColumns) {
+        private WriteSchemaSnapshot(List<Column> baseSchema, List<Column> fullSchema,
+                List<Column> partitionColumns, String writeMetadataIdentity) {
+            this.baseSchema = Collections.unmodifiableList(new ArrayList<>(baseSchema));
             this.fullSchema = Collections.unmodifiableList(new ArrayList<>(fullSchema));
             this.partitionColumns = Collections.unmodifiableList(new ArrayList<>(partitionColumns));
+            this.writeMetadataIdentity = writeMetadataIdentity;
+        }
+
+        public List<Column> getBaseSchema() {
+            return baseSchema;
         }
 
         public List<Column> getFullSchema() {
@@ -751,6 +761,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
         public List<Column> getPartitionColumns() {
             return partitionColumns;
+        }
+
+        public String getWriteMetadataIdentity() {
+            return writeMetadataIdentity;
         }
     }
 
@@ -765,7 +779,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .map(PluginDrivenSchemaCacheValue.class::cast)
                 .orElseGet(() -> new PluginDrivenSchemaCacheValue(
                         Collections.emptyList(), Collections.emptyList(), Collections.emptyList()));
-        return new WriteSchemaSnapshot(appendSyntheticWriteColumns(value.getSchema()), value.getPartitionColumns());
+        List<Column> baseSchema = value.getSchema();
+        return new WriteSchemaSnapshot(baseSchema, appendSyntheticWriteColumns(baseSchema),
+                value.getPartitionColumns(), value.getWriteMetadataIdentity());
     }
 
     /**
