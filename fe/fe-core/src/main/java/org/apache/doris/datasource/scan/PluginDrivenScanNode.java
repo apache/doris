@@ -628,6 +628,29 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Asks the connector which columns BE must read for this scan even when the query references none of them
+     * ({@link ConnectorScanPlanProvider#getMustReadColumns}), so the translator can keep their slots instead of
+     * pruning them ({@code PhysicalPlanTranslator.preserveConnectorMustReadSlots}, the plugin-table counterpart
+     * of {@code preserveExtraStorageKeySlots} for aggregate / merge-on-read unique-key OLAP tables).
+     *
+     * <p>Asked through the SAME memoized provider the rest of the scan uses, so a connector that memoizes the
+     * decision on its provider instance answers this question and plans its splits from one decision — the
+     * whole point, since a column preserved here and a split plan that assumes otherwise disagree silently.
+     * A connector with no scan provider (no scan capability) needs nothing. Public + overridable because the
+     * caller is the translator, in another package, and so the preservation is unit-testable without a live
+     * connector (mirrors {@link #classifyColumnByConnector}, whose caller is this class).</p>
+     */
+    public Set<String> mustReadColumnsFromConnector() {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null) {
+            return Collections.emptySet();
+        }
+        Set<String> columns = onPluginClassLoader(scanProvider,
+                () -> scanProvider.getMustReadColumns(connectorSession, currentHandle));
+        return columns == null ? Collections.emptySet() : columns;
+    }
+
+    /**
      * Lets the owning connector adjust the compression type this node inferred from the split's file path
      * before it is shipped to BE, WITHOUT any source-specific code here: the base inference runs first, then
      * the connector's {@link ConnectorScanPlanProvider#adjustFileCompressType} (identity by default) gets the
