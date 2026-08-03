@@ -74,6 +74,22 @@ import java.util.stream.Collectors;
  *             `-- bottomJoin(T2.a > x)
  *                   |-- Scan(T2)
  *                   `-- LogicalAssertNumRows(output=(x, ...))
+ *
+ * Case 3: Push down with equi (hash) condition, e.g. scalar subquery
+ * select * from T1 join T2 where T1.b=T2.b and T2.c = (select x from T3 ...)
+ * Before:
+ *     topJoin(T2.c = x)
+ *       |-- bottomJoin(T1.b = T2.b)
+ *       |     |-- Scan(T1)
+ *       |     `-- Scan(T2)
+ *       `-- LogicalAssertNumRows(output=(x, ...))
+ *
+ * After:
+ *     bottomJoin(T1.b = T2.b)
+ *       |-- Scan(T1)
+ *       `-- topJoin(T2.c = x)
+ *             |-- Scan(T2)
+ *             `-- LogicalAssertNumRows(output=(x, ...))
  * </pre>
  */
 public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
@@ -114,10 +130,8 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
             return false;
         }
 
-        if (topJoin.getHashJoinConjuncts().isEmpty()) {
-            return topJoin.getOtherJoinConjuncts().size() == 1;
-        }
-        return false;
+        // only one join condition, either hash (equi) or other (non-equi) conjunct.
+        return topJoin.getHashJoinConjuncts().size() + topJoin.getOtherJoinConjuncts().size() == 1;
     }
 
     private boolean isAssertOneRowEqOrProjectAssertOneRowEq(Plan plan) {
@@ -141,7 +155,9 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
 
     private Plan pushDownAssertNumRowsJoin(LogicalJoin<?, ?> topJoin) {
         Plan assertBranch = topJoin.right();
-        Expression condition = topJoin.getOtherJoinConjuncts().get(0);
+        Expression condition = topJoin.getHashJoinConjuncts().isEmpty()
+                ? topJoin.getOtherJoinConjuncts().get(0)
+                : topJoin.getHashJoinConjuncts().get(0);
         List<Alias> aliasUsedInConditionFromLeftProject = new ArrayList<>();
         LogicalJoin<? extends Plan, ? extends Plan> bottomJoin;
         if (topJoin.left() instanceof LogicalProject) {

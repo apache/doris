@@ -320,6 +320,169 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
     }
 
     /**
+     * Test push down to right child with equi (hash) condition on the top join:
+     * Before:
+     * topJoin(T2.score = x)
+     * |-- bottomJoin(T1.id = T2.sid)
+     * | |-- Scan(T1)
+     * | `-- Scan(T2)
+     * `-- LogicalAssertNumRows(output=(x, ...))
+     *
+     * After:
+     * bottomJoin(T1.id = T2.sid)
+     * |-- Scan(T1)
+     * `-- topJoin(T2.score = x)
+     * |-- Scan(T2)
+     * `-- LogicalAssertNumRows(output=(x, ...))
+     */
+    @Test
+    void testPushDownToRightChildWithHashConjunct() {
+        Plan oneRowRelation = new LogicalPlanBuilder(t3)
+                .limit(1)
+                .build();
+
+        AssertNumRowsElement assertElement = new AssertNumRowsElement(1, "", Assertion.EQ);
+        LogicalAssertNumRows<Plan> assertNumRows = new LogicalAssertNumRows<>(assertElement, oneRowRelation);
+
+        // Create bottom join: T1 JOIN T2 on T1.id = T2.sid
+        Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(1));
+
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
+                .join(t2, JoinType.INNER_JOIN, ImmutableList.of(bottomJoinCondition),
+                                ImmutableList.of())
+                .build();
+
+        // Create top join: (T1 JOIN T2) JOIN assertNumRows on T2.score = course.name
+        // This references T2 (right child of bottom join) and assertNumRows
+        Expression topJoinCondition = new EqualTo(t2Slots.get(2), t3Slots.get(1));
+
+        LogicalPlan root = new LogicalPlanBuilder(bottomJoin)
+                .join(assertNumRows, JoinType.INNER_JOIN, ImmutableList.of(topJoinCondition),
+                                ImmutableList.of())
+                .build();
+
+        // Apply the rule
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .matches(logicalJoin(
+                                logicalOlapScan(),
+                                logicalJoin(
+                                                        logicalOlapScan(),
+                                                        logicalAssertNumRows())));
+    }
+
+    /**
+     * Test push down to right child with equi (hash) condition and a project
+     * between the top join and the bottom join, mirroring the plan shape of
+     * TPC-DS Q58: store_sales join date_dim, plus a scalar subquery on date_dim:
+     * Before:
+     * topJoin(d_week_seq = x)
+     * |-- Project(all output of bottomJoin)
+     * |   `-- bottomJoin(ss_sold_date_sk = d_date_sk)
+     * |       |-- Scan(T1)
+     * |       `-- Scan(T2)
+     * `-- LogicalAssertNumRows(output=(x, ...))
+     *
+     * After:
+     * Project(all output)
+     * `-- bottomJoin(ss_sold_date_sk = d_date_sk)
+     *     |-- Scan(T1)
+     *     `-- topJoin(d_week_seq = x)
+     *         |-- Scan(T2)
+     *         `-- LogicalAssertNumRows(output=(x, ...))
+     */
+    @Test
+    void testPushDownToRightChildWithProjectAndHashConjunct() {
+        Plan oneRowRelation = new LogicalPlanBuilder(t3)
+                .limit(1)
+                .build();
+
+        AssertNumRowsElement assertElement = new AssertNumRowsElement(1, "", Assertion.EQ);
+        LogicalAssertNumRows<Plan> assertNumRows = new LogicalAssertNumRows<>(assertElement, oneRowRelation);
+
+        // Create bottom join: T1 JOIN T2 on T1.id = T2.sid
+        Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(1));
+
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
+                .join(t2, JoinType.INNER_JOIN, ImmutableList.of(bottomJoinCondition),
+                                ImmutableList.of())
+                .build();
+
+        // Wrap the bottom join in a project that passes through all its output.
+        LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.copyOf(bottomJoin.getOutput()), bottomJoin);
+
+        // Create top join: project JOIN assertNumRows on T2.score = course.name
+        Expression topJoinCondition = new EqualTo(t2Slots.get(2), t3Slots.get(1));
+
+        LogicalPlan root = new LogicalPlanBuilder(project)
+                .join(assertNumRows, JoinType.INNER_JOIN, ImmutableList.of(topJoinCondition),
+                                ImmutableList.of())
+                .build();
+
+        // Apply the rule
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .matches(logicalProject(
+                                logicalJoin(
+                                                logicalOlapScan(),
+                                                logicalJoin(
+                                                                logicalOlapScan(),
+                                                                logicalAssertNumRows()))));
+    }
+
+    /**
+     * Test push down to left child with equi (hash) condition on the top join:
+     * Before:
+     * topJoin(T1.age = x)
+     * |-- bottomJoin(T1.id = T2.sid)
+     * | |-- Scan(T1)
+     * | `-- Scan(T2)
+     * `-- LogicalAssertNumRows(output=(x, ...))
+     *
+     * After:
+     * bottomJoin(T1.id = T2.sid)
+     * |-- topJoin(T1.age = x)
+     * | |-- Scan(T1)
+     * | `-- LogicalAssertNumRows(output=(x, ...))
+     * `-- Scan(T2)
+     */
+    @Test
+    void testPushDownToLeftChildWithHashConjunct() {
+        Plan oneRowRelation = new LogicalPlanBuilder(t3)
+                .limit(1)
+                .build();
+
+        AssertNumRowsElement assertElement = new AssertNumRowsElement(1, "", Assertion.EQ);
+        LogicalAssertNumRows<Plan> assertNumRows = new LogicalAssertNumRows<>(assertElement, oneRowRelation);
+
+        // Create bottom join: T1 JOIN T2 on T1.id = T2.sid
+        Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(1));
+
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
+                .join(t2, JoinType.INNER_JOIN, ImmutableList.of(bottomJoinCondition),
+                                ImmutableList.of())
+                .build();
+
+        // Create top join: (T1 JOIN T2) JOIN assertNumRows on T1.age = course.id
+        // This references T1 (left child of bottom join) and assertNumRows
+        Expression topJoinCondition = new EqualTo(t1Slots.get(1), t3Slots.get(0));
+
+        LogicalPlan root = new LogicalPlanBuilder(bottomJoin)
+                .join(assertNumRows, JoinType.INNER_JOIN, ImmutableList.of(topJoinCondition),
+                                ImmutableList.of())
+                .build();
+
+        // Apply the rule
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .matches(logicalJoin(
+                                logicalJoin(
+                                                        logicalOlapScan(),
+                                                        logicalAssertNumRows()),
+                                logicalOlapScan()));
+    }
+
+    /**
      * Test with CROSS JOIN type.
      */
     @Test
