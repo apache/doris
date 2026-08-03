@@ -543,7 +543,7 @@ TEST_F(AsyncCacheWriteServiceTest,
     EXPECT_TRUE(is_cache_range_downloaded(cache.get(), hashes[3]));
     EXPECT_EQ(service->pending_count(), 0);
     EXPECT_EQ(service->pending_bytes(), 0);
-    EXPECT_EQ(index->size(), 0);
+    EXPECT_EQ(index->count(), 0);
 
     concurrent_reader.reset();
     entries.clear();

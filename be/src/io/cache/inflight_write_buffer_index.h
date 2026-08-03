@@ -35,7 +35,8 @@
 namespace doris::io {
 
 /// Metadata for one block whose remote payload is waiting for asynchronous persistence.
-/// `buffer_offset` and `buffer_size` describe the file interval represented by `buffer`.
+/// `buffer` is non-null. `buffer_offset` and `buffer_size` describe its valid file interval, while
+/// `buffer->size()` is the allocation capacity accounted by the index's memory gauge.
 struct InflightWriteBufferEntry {
     AsyncCacheWriteBufferPtr buffer;
     size_t buffer_offset {0};
@@ -90,7 +91,10 @@ public:
                    const std::shared_ptr<InflightWriteBufferEntry>& expected);
 
     /// Return the number of indexed block payloads.
-    size_t size() const { return _size.load(std::memory_order_relaxed); }
+    size_t count() const { return _count.load(std::memory_order_relaxed); }
+
+    /// Return the buffer-capacity bytes retained by all current index entries.
+    size_t buffer_bytes() const { return _buffer_bytes.load(std::memory_order_relaxed); }
 
     /// Record removal of an inserted entry because queue submission hit backpressure.
     void record_backpressure_rollback() { *_rollback_on_backpressure_metric << 1; }
@@ -119,9 +123,11 @@ private:
     size_t _shard_index(const Key& key) const { return KeyHash()(key) % _shards.size(); }
 
     std::vector<std::unique_ptr<Shard>> _shards;
-    std::atomic<size_t> _size {0};
+    std::atomic<size_t> _count {0};
+    std::atomic<size_t> _buffer_bytes {0};
 
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _size_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _buffer_bytes_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _lookup_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _hit_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _miss_metric;

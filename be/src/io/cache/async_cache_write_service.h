@@ -212,9 +212,6 @@ private:
     /// Record the terminal reason and invoke the task cleanup callback without the queue lock.
     void _finalize_task(AsyncCacheWriteTask task, TaskFinalizationReason reason);
 
-    /// Debug-check the queue count/byte conservation laws while `_queue_mutex` is held.
-    void _check_queue_invariants_locked() const;
-
     BlockFileCache* _cache;
     atomic_shared_ptr<const AsyncCacheWriteServiceOptions> _options;
     std::deque<AsyncCacheWriteTask> _queue;
