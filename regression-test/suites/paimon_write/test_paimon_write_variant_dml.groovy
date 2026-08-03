@@ -208,6 +208,35 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon") {
             row.collect { value -> value.toString() }
         })
 
+        // A full-table overwrite on a partitioned table must remove untouched old partitions.
+        sql """
+            INSERT OVERWRITE TABLE t_variant_overwrite VALUES
+                (20, parse_to_variant('{"state":"full-a"}'), 'all'),
+                (21, parse_to_variant('{"state":"full-b"}'), 'all')
+        """
+        def fullOverwriteRows = spark_paimon """
+            SELECT id, variant_get(payload, '${root}.state', 'string'), pt
+            FROM paimon.${dbName}.t_variant_overwrite
+            ORDER BY id
+        """
+        assertEquals([
+                ["20", "full-a", "all"],
+                ["21", "full-b", "all"]
+        ], fullOverwriteRows.collect { row ->
+            row.collect { value -> value.toString() }
+        })
+
+        // Empty full-table overwrite must still commit an empty snapshot.
+        sql """
+            INSERT OVERWRITE TABLE t_variant_overwrite
+            SELECT 30, parse_to_variant('{"state":"unused"}'), 'empty'
+            WHERE 1 = 0
+        """
+        def emptyOverwriteRows = spark_paimon """
+            SELECT COUNT(*) FROM paimon.${dbName}.t_variant_overwrite
+        """
+        assertEquals("0", emptyOverwriteRows[0][0].toString())
+
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
