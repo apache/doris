@@ -46,8 +46,12 @@ SQL_TIMEOUT_SECONDS=900
 ATTEMPTS=3
 # Primary-key fixtures whose buckets must have been snapshotted before the
 # environment counts as ready. See wait_for_kv_snapshots.
-SNAPSHOT_TABLES=(pk_basic pk_types pk_part lake_pk lake_pk_multi lake_pk_part lake_pk_cold)
-SNAPSHOT_WAIT_SECONDS=120
+#
+# pk_empty is deliberately absent: nothing was ever written to it, so no bucket
+# will ever be snapshotted and waiting would hang on the state it exists to have.
+SNAPSHOT_TABLES=(pk_basic pk_types pk_part pk_nested lake_pk lake_pk_multi lake_pk_part
+    lake_pk_cold lake_pk_part_int big_pk)
+SNAPSHOT_WAIT_SECONDS=180
 
 # What each lake fixture must hold in paimon before the tail is written -- the
 # row counts init.sql writes, merged where the table has a primary key. Keep in
@@ -62,8 +66,15 @@ LAKE_EXPECTED_ROWS=(
     "lake_pk_multi=9"
     "lake_pk_part=4"
     "lake_pk_cold=3"
+    "lake_nested=1"
+    "lake_part_int=3"
+    "lake_pk_part_int=4"
+    "big_log=100000"
+    "big_pk=100000"
 )
-LAKE_TIERING_WAIT_SECONDS=300
+# The two large fixtures put 200000 rows through the tiering service, which is
+# most of what this wait is now for; the small ones commit within a round.
+LAKE_TIERING_WAIT_SECONDS=900
 TIERING_JAR_GLOB='/opt/flink/opt/fluss-flink-tiering-*.jar'
 FLINK_BIN=/opt/flink/bin/flink
 

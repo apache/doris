@@ -94,13 +94,81 @@ INSERT INTO lake_pk_part VALUES
 INSERT INTO lake_pk_part VALUES
     (5, 'pp3a', '20260103');
 
+-- The all-NULL row of the nested fixture: every nested column arrives from the
+-- log half while its populated counterpart comes through paimon.
+INSERT INTO lake_nested VALUES
+    (
+        2,
+        CAST(NULL AS ARRAY<ARRAY<INT>>),
+        CAST(NULL AS ARRAY<ROW<a INT, b STRING>>),
+        CAST(NULL AS MAP<STRING, ARRAY<INT>>),
+        CAST(NULL AS MAP<STRING, ROW<a INT, b STRING>>),
+        CAST(NULL AS ROW<r_int INT, r_arr ARRAY<INT>, r_map MAP<STRING, INT>, r_row ROW<x INT, y STRING>>)
+    );
+
+-- A tail in one INT-named partition and none in the other.
+INSERT INTO lake_part_int VALUES
+    (4, 'li1c', 1);
+
+-- A tail on the primary-key table whose partition column is an INT. It exists so
+-- that falling back to the fluss-only read is a real choice rather than a
+-- distinction without a difference: were the halves merged by key here, this row
+-- would be the one the merge got wrong.
+INSERT INTO lake_pk_part_int VALUES
+    (1, 'pi1a-hot', 1);
+
+-- The large tails. 500 updated keys, 500 new ones and five deletions, against a
+-- lake of 100000 -- so the suppression set is a thousand-odd keys wide and the
+-- rows it must drop are scattered through every bucket rather than sitting at
+-- the front of one.
+CREATE TEMPORARY TABLE tail_seq (id INT) WITH (
+    'connector' = 'datagen',
+    'fields.id.kind' = 'sequence',
+    'fields.id.start' = '1',
+    'fields.id.end' = '500'
+);
+
+CREATE TEMPORARY TABLE tail_seq_log (id INT) WITH (
+    'connector' = 'datagen',
+    'fields.id.kind' = 'sequence',
+    'fields.id.start' = '100001',
+    'fields.id.end' = '101000'
+);
+
+-- 1000 rows appended after the lake stopped: the log half of the big log table.
+-- Ids stay contiguous with the lake half (1..101000), and every derived column
+-- is the same function of the id on both sides, so an aggregate over the union
+-- has a closed form and a missing or duplicated half is arithmetic, not opinion.
+INSERT INTO big_log
+SELECT id, CONCAT('hot', CAST(id AS STRING)), CAST(id AS DECIMAL(10, 2)), MOD(id, 7)
+FROM tail_seq_log;
+
+-- 500 keys the lake already holds, written again with a different name: each one
+-- must suppress exactly the lake row it replaces.
+INSERT INTO big_pk
+SELECT id, CONCAT('hot', CAST(id AS STRING)), MOD(id, 7) FROM tail_seq;
+
+-- 500 keys the lake has never seen, in buckets it does hold rows for: they are
+-- added, not substituted for anything.
+INSERT INTO big_pk
+SELECT 100000 + id, CONCAT('new', CAST(id AS STRING)), MOD(100000 + id, 7) FROM tail_seq;
+
 -- Deletions of rows the lake holds. They are the case a suppression set has to
 -- cover but a merge of surviving rows cannot: the key is gone from the tail's
 -- own result, and the lake row it removes would otherwise stay.
+--
+-- The big table's five are spelled out one at a time because a fluss DELETE
+-- resolves a full primary key, not a range; they are spread across the key space
+-- so they cannot all land in one bucket.
 SET 'execution.runtime-mode' = 'batch';
 DELETE FROM lake_pk WHERE id = 1;
 DELETE FROM lake_pk_multi WHERE id = 7;
 DELETE FROM lake_pk_part WHERE id = 2 AND dt = '20260101';
+DELETE FROM big_pk WHERE id = 7;
+DELETE FROM big_pk WHERE id = 19999;
+DELETE FROM big_pk WHERE id = 50000;
+DELETE FROM big_pk WHERE id = 77777;
+DELETE FROM big_pk WHERE id = 99999;
 SET 'execution.runtime-mode' = 'streaming';
 
 -- lake_pk_cold gets nothing: it is the fixture for a primary-key table the lake
