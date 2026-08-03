@@ -567,11 +567,22 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             // foreign value column would then be evaluated once per partial row
             // and double-counted. So a foreign slot (value or key) in any return
             // forces this scan OFF — never use a foreign column to justify ON.
-            for (Expression returnExp : returnExps) {
-                if (returnExp instanceof SlotReference && !outputSlots.contains(returnExp)) {
-                    return PreAggStatus.off(
-                            String.format("return expression %s references column not owned by this scan.",
-                                    returnExp.toSql()));
+            //
+            // Exception: MAX/MIN are idempotent — max(x, x) = x — so repeating a
+            // foreign value across partial rows cannot change the aggregate
+            // result. The fence is over-conservative for them: a foreign return
+            // branch is safe once the condition is row-stable (step 2) and the
+            // return slot still matches the aggregate type (enforced by
+            // KeyAndValueSlotsAggChecker). Keep the fence for non-idempotent
+            // aggregates (SUM, COUNT, ...) where a repeated foreign value would
+            // be double-counted.
+            if (!(aggFunc instanceof Max || aggFunc instanceof Min)) {
+                for (Expression returnExp : returnExps) {
+                    if (returnExp instanceof SlotReference && !outputSlots.contains(returnExp)) {
+                        return PreAggStatus.off(
+                                String.format("return expression %s references column not owned by this scan.",
+                                        returnExp.toSql()));
+                    }
                 }
             }
             if (conditionExps.isEmpty()) {

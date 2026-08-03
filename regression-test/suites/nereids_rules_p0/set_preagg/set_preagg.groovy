@@ -67,19 +67,6 @@ suite("set_preagg") {
         aggregate key (k1,k2,k3,k4,k5,k6)
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
-    """
-
-    // One-time data setup. All suites below rely on this single dataset so the
-    // whole file is self-contained and re-runnable. The data deliberately
-    // includes repeated aggregate-key material:
-    //   - preagg_t1 has two rows with k1=1 / k1=-1 (abs(k1) maps both to the
-    //     same derived key 1) to exercise derived-key fan-out.
-    //   - k6 takes 1/2/0 so IF(k6 > 0, ...) conditions have both true/false rows.
-    //   - v7/v8 are SUM columns, v9 is a MAX column.
-    sql """
-        truncate table preagg_t1;
-        truncate table preagg_t2;
-        truncate table preagg_t3;
 
         insert into preagg_t1 values
             (1,1,1,1,1,1, 10, 100, 1000),
@@ -930,6 +917,27 @@ suite("set_preagg") {
         select sum(if(t.a > 0, t.v7, r.v7)) as res
         from (select abs(k1) as a, v7 from preagg_t1) t
         inner join preagg_t2 r on t.a = r.k1;
+    """
+
+    // Positive MAX join case: MAX is idempotent (max(x, x) = x), so a foreign
+    // value branch in the IF return cannot change the result even under join
+    // fan-out. The ownership fence is skipped for MAX/MIN (it stays for
+    // SUM/COUNT), so both scans may be ON. With the one-time dataset:
+    // l.k1=1 (v9 1000,900) and l.k1=2 (v9 700) all satisfy l.k1 > 0, so
+    // max(if(l.k1 > 0, l.v9, r.v9)) = 1000.
+    explain {
+        sql("""
+            select max(if(l.k1 > 0, l.v9, r.v9))
+            from preagg_t1 l
+            inner join preagg_t2 r on l.k1 = r.k1;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+    }
+    order_qt_q34 """
+        select max(if(l.k1 > 0, l.v9, r.v9))
+        from preagg_t1 l
+        inner join preagg_t2 r on l.k1 = r.k1;
     """
 
 }
