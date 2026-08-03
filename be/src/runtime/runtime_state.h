@@ -46,7 +46,7 @@
 #include "io/fs/s3_file_system.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "util/debug_util.h"
 #include "util/timezone_utils.h"
 

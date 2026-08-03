@@ -24,7 +24,7 @@
 #include "common/factory_creator.h"
 #include "common/multi_version.h"
 #include "runtime/runtime_profile.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "runtime/workload_management/cpu_context.h"
 #include "runtime/workload_management/io_context.h"
 #include "runtime/workload_management/memory_context.h"

@@ -34,7 +34,7 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "util/stack_util.h"
 
 namespace doris {

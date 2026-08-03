@@ -48,7 +48,6 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/thread_context.h"
-#include "runtime/workload_group/workload_group.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {

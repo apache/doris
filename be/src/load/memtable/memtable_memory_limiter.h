@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "util/countdown_latch.h"
 #include "util/stopwatch.hpp"
 

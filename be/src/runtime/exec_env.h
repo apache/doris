@@ -30,7 +30,6 @@
 #include "common/config.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "information_schema/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/cluster_info.h"

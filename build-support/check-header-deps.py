@@ -61,6 +61,30 @@ RULES = [
         "them; reaching the index implementation headers from here puts the whole "
         "index writer stack (and CLucene) in front of most of the backend",
     ),
+    (
+        "runtime/exec_env.h",
+        "information_schema/",
+        set(),
+        "ExecEnv only names RoutineLoadTaskExecutor (forward-declared); the schema "
+        "scanner headers carry gen_cpp/FrontendService_types.h, which must not ride "
+        "into the ~1000 TUs that include ExecEnv transitively",
+    ),
+    (
+        "runtime/thread_context.h",
+        "runtime/workload_group/",
+        set(),
+        "ThreadContext is included by nearly every TU and only holds WorkloadGroup "
+        "through weak_ptr; workload_group.h carries gen_cpp/BackendService_types.h "
+        "(the whole thrift type universe), so it must stay out of this superhighway",
+    ),
+    (
+        "runtime/runtime_state.h",
+        "runtime/workload_group/",
+        set(),
+        "RuntimeState only returns WorkloadGroupPtr by declaration; keeping "
+        "workload_group.h (and its thrift payload) out of it keeps the exec layer "
+        "from re-spreading BackendService_types.h",
+    ),
 ]
 
 # Forward-declaration headers are the sanctioned way through a barrier: they carry
