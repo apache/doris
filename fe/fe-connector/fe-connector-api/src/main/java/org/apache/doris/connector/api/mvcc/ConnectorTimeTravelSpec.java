@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 
 /**
  * Immutable, source-agnostic description of an explicit time-travel request that
@@ -91,15 +92,17 @@ public final class ConnectorTimeTravelSpec {
     private final String stringValue;
     private final boolean digital;
     private final Map<String, String> incrementalParams;
+    private final Long latestSnapshotFence;
 
     private ConnectorTimeTravelSpec(Kind kind, String stringValue, boolean digital,
-            Map<String, String> incrementalParams) {
+            Map<String, String> incrementalParams, Long latestSnapshotFence) {
         this.kind = kind;
         this.stringValue = stringValue;
         this.digital = digital;
         this.incrementalParams = (incrementalParams == null || incrementalParams.isEmpty())
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(new HashMap<>(incrementalParams));
+        this.latestSnapshotFence = latestSnapshotFence;
     }
 
     /**
@@ -109,7 +112,7 @@ public final class ConnectorTimeTravelSpec {
      */
     public static ConnectorTimeTravelSpec snapshotId(String idDigits) {
         Objects.requireNonNull(idDigits, "idDigits");
-        return new ConnectorTimeTravelSpec(Kind.SNAPSHOT_ID, idDigits, false, null);
+        return new ConnectorTimeTravelSpec(Kind.SNAPSHOT_ID, idDigits, false, null, null);
     }
 
     /**
@@ -122,7 +125,7 @@ public final class ConnectorTimeTravelSpec {
      */
     public static ConnectorTimeTravelSpec versionRef(String name) {
         Objects.requireNonNull(name, "name");
-        return new ConnectorTimeTravelSpec(Kind.VERSION_REF, name, false, null);
+        return new ConnectorTimeTravelSpec(Kind.VERSION_REF, name, false, null, null);
     }
 
     /**
@@ -134,7 +137,7 @@ public final class ConnectorTimeTravelSpec {
      */
     public static ConnectorTimeTravelSpec timestamp(String value, boolean digital) {
         Objects.requireNonNull(value, "value");
-        return new ConnectorTimeTravelSpec(Kind.TIMESTAMP, value, digital, null);
+        return new ConnectorTimeTravelSpec(Kind.TIMESTAMP, value, digital, null, null);
     }
 
     /**
@@ -144,7 +147,7 @@ public final class ConnectorTimeTravelSpec {
      */
     public static ConnectorTimeTravelSpec tag(String name) {
         Objects.requireNonNull(name, "name");
-        return new ConnectorTimeTravelSpec(Kind.TAG, name, false, null);
+        return new ConnectorTimeTravelSpec(Kind.TAG, name, false, null, null);
     }
 
     /**
@@ -154,7 +157,7 @@ public final class ConnectorTimeTravelSpec {
      */
     public static ConnectorTimeTravelSpec branch(String name) {
         Objects.requireNonNull(name, "name");
-        return new ConnectorTimeTravelSpec(Kind.BRANCH, name, false, null);
+        return new ConnectorTimeTravelSpec(Kind.BRANCH, name, false, null, null);
     }
 
     /**
@@ -165,7 +168,7 @@ public final class ConnectorTimeTravelSpec {
      */
     public static ConnectorTimeTravelSpec incremental(Map<String, String> rawParams) {
         Objects.requireNonNull(rawParams, "rawParams");
-        return new ConnectorTimeTravelSpec(Kind.INCREMENTAL, null, false, rawParams);
+        return new ConnectorTimeTravelSpec(Kind.INCREMENTAL, null, false, rawParams, null);
     }
 
     /**
@@ -176,7 +179,14 @@ public final class ConnectorTimeTravelSpec {
      */
     public static ConnectorTimeTravelSpec options(Map<String, String> rawParams) {
         Objects.requireNonNull(rawParams, "rawParams");
-        return new ConnectorTimeTravelSpec(Kind.OPTIONS, null, false, rawParams);
+        return new ConnectorTimeTravelSpec(Kind.OPTIONS, null, false, rawParams, null);
+    }
+
+    public static ConnectorTimeTravelSpec options(
+            Map<String, String> rawParams, long latestSnapshotFence) {
+        Objects.requireNonNull(rawParams, "rawParams");
+        return new ConnectorTimeTravelSpec(
+                Kind.OPTIONS, null, false, rawParams, latestSnapshotFence);
     }
 
     /** The flavor of this spec; never null. */
@@ -219,6 +229,12 @@ public final class ConnectorTimeTravelSpec {
         return kind == Kind.OPTIONS ? incrementalParams : Collections.emptyMap();
     }
 
+    public OptionalLong getLatestSnapshotFence() {
+        return latestSnapshotFence == null
+                ? OptionalLong.empty()
+                : OptionalLong.of(latestSnapshotFence);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -231,12 +247,13 @@ public final class ConnectorTimeTravelSpec {
         return digital == that.digital
                 && kind == that.kind
                 && Objects.equals(stringValue, that.stringValue)
-                && incrementalParams.equals(that.incrementalParams);
+                && incrementalParams.equals(that.incrementalParams)
+                && Objects.equals(latestSnapshotFence, that.latestSnapshotFence);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(kind, stringValue, digital, incrementalParams);
+        return Objects.hash(kind, stringValue, digital, incrementalParams, latestSnapshotFence);
     }
 
     @Override
@@ -246,6 +263,7 @@ public final class ConnectorTimeTravelSpec {
                 + ", stringValue=" + stringValue
                 + ", digital=" + digital
                 + ", incrementalParams=" + incrementalParams
+                + ", latestSnapshotFence=" + latestSnapshotFence
                 + '}';
     }
 }

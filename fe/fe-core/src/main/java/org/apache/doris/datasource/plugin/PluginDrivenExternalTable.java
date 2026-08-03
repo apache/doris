@@ -1249,10 +1249,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * {@link #fetchRowCount()} but threads the snapshot into the 3-arg {@code getTableStatistics}. Runs in the
      * query thread (not the background cache loader, which has no statement context), so it is deliberately
      * NOT cached &mdash; the handful of versioned reads per statement is cheap. Returns
-     * {@link #UNKNOWN_ROW_COUNT} when the connector cannot serve an exact count at the snapshot, so the caller
-     * falls back to the latest cached estimate.
+     * {@link #UNKNOWN_ROW_COUNT} when the connector cannot serve an exact count at the snapshot. Ordinary
+     * tables may fall back to the latest estimate; system relations must preserve UNKNOWN to avoid snapshot
+     * skew, so the decision belongs to the caller.
      */
-    private long fetchRowCountAtSnapshot(ConnectorMvccSnapshot snapshot) {
+    protected long fetchRowCountAtSnapshot(ConnectorMvccSnapshot snapshot) {
         makeSureInitialized();
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();

@@ -40,9 +40,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -119,24 +121,47 @@ public class ConnectorPluginManager {
 
     /** Called at FE startup to load built-in providers from classpath. */
     public void loadBuiltins() {
-        ServiceLoader.load(ConnectorProvider.class)
-                .forEach(p -> {
-                    try {
-                        // Snapshot self-reported metadata before publishing the provider
-                        // so one throwing implementation is rejected cleanly instead of
-                        // aborting startup or being active without an inventory row.
-                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
-                    } catch (RuntimeException e) {
-                        LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
-                                p.getClass().getName(), e);
-                        return;
-                    }
-                    // Deliberately outside that catch: registerDiscovered's fail-loud
-                    // IllegalStateException reports a build error, not a "skip this one" condition.
-                    if (registerDiscovered(p, true)) {
-                        LOG.info("Registered built-in connector provider: {}", p.getType());
-                    }
-                });
+        loadBuiltins(ConnectorProvider.class.getClassLoader());
+    }
+
+    /** Classloader seam used to verify embedded/classpath providers with their own defining jars. */
+    void loadBuiltins(ClassLoader classLoader) {
+        Iterator<ServiceLoader.Provider<ConnectorProvider>> providers =
+                ServiceLoader.load(ConnectorProvider.class, classLoader).stream().iterator();
+        while (providers.hasNext()) {
+            ServiceLoader.Provider<ConnectorProvider> descriptor = providers.next();
+            Class<? extends ConnectorProvider> providerClass = descriptor.type();
+            String rejection = API_VERSION_GATE.rejectionReasonForClass(providerClass);
+            if (rejection != null) {
+                // Gate the descriptor before get(): an incompatible provider constructor may have
+                // side effects or link against an API that this FE must never execute.
+                LOG.warn("Skip built-in connector provider {}: {}", providerClass.getName(), rejection);
+                continue;
+            }
+            ConnectorProvider provider;
+            try {
+                provider = descriptor.get();
+            } catch (ServiceConfigurationError | RuntimeException e) {
+                LOG.warn("Skip built-in connector provider {}: construction failed",
+                        providerClass.getName(), e);
+                continue;
+            }
+            try {
+                // Snapshot self-reported metadata before publishing the provider
+                // so one throwing implementation is rejected cleanly instead of
+                // aborting startup or being active without an inventory row.
+                PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, provider);
+            } catch (RuntimeException e) {
+                LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
+                        providerClass.getName(), e);
+                continue;
+            }
+            // Deliberately outside that catch: registerDiscovered's fail-loud
+            // IllegalStateException reports a build error, not a "skip this one" condition.
+            if (registerDiscovered(provider, true)) {
+                LOG.info("Registered built-in connector provider: {}", provider.getType());
+            }
+        }
     }
 
     /**
@@ -429,6 +454,28 @@ public class ConnectorPluginManager {
             if (provider.supports(catalogType, properties)) {
                 provider.validateProperties(properties);
                 return;
+            }
+        }
+    }
+
+    /** Validates an ALTER candidate through the matching provider without mutating catalog state. */
+    public void validatePropertiesForUpdate(String catalogType,
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        for (ConnectorProvider provider : providers) {
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try {
+                // Directory providers may resolve validation helpers through TCCL, so selection and
+                // validation must run under the same plugin loader and never leak it to the FE caller.
+                thread.setContextClassLoader(provider.getClass().getClassLoader());
+                Map<String, String> matchProperties = currentProperties == null
+                        ? Collections.emptyMap() : currentProperties;
+                if (provider.supports(catalogType, matchProperties)) {
+                    provider.validatePropertiesForUpdate(currentProperties, updatedProperties);
+                    return;
+                }
+            } finally {
+                thread.setContextClassLoader(previous);
             }
         }
     }

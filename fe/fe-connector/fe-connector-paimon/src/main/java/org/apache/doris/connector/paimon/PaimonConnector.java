@@ -150,7 +150,7 @@ public class PaimonConnector implements Connector {
 
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
-        this.tableOptions = PaimonTableOptions.extract(properties);
+        this.tableOptions = PaimonTableOptions.extractCompatible(properties);
         // Wrap the FE-injected context so every executeAuthenticated pins the TCCL to the plugin loader (the
         // paimon plugin bundles paimon-core + hadoop child-first) and, for a Kerberos catalog, runs the op
         // under a plugin-side UGI doAs (pluginAuthenticator): the plugin's FileSystem reads the plugin's own

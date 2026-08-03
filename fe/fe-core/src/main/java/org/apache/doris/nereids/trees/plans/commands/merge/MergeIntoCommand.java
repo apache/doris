@@ -125,6 +125,14 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                 Objects.requireNonNull(notMatchedClauses, "notMatchedClauses should not be null"));
     }
 
+    /** Return every relation root retained across prepared executions. */
+    public List<LogicalPlan> getRelationRoots() {
+        ImmutableList.Builder<LogicalPlan> roots = ImmutableList.builder();
+        cte.ifPresent(roots::add);
+        roots.add(source);
+        return roots.build();
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf table = getTargetTableIf(ctx);

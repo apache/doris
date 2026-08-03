@@ -27,6 +27,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -68,6 +69,12 @@ public interface ConnectorMetadata extends
     default Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
             ConnectorSession session, ConnectorTableHandle handle) {
         return Optional.empty();
+    }
+
+    /** Whether relation-level options need the statement's latest snapshot as their version fence. */
+    default boolean usesStatementSnapshotForOptions(
+            ConnectorSession session, ConnectorTableHandle handle, Map<String, String> options) {
+        return true;
     }
 
     /**

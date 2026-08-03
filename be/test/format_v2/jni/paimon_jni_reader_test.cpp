@@ -23,6 +23,7 @@
 #include <string>
 #include <utility>
 
+#include "core/data_type/data_type_string.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
@@ -159,6 +160,21 @@ TEST(PaimonJniReaderTest, ScanLevelOptionsOverrideLegacySplitFallbacks) {
     ASSERT_TRUE(build_params(&reader, range, &params).ok());
     EXPECT_EQ(params["paimon.source"], "scan");
     EXPECT_EQ(params["hadoop.source"], "scan");
+}
+
+TEST(PaimonJniReaderTest, PublishesEncodedSchemaForQuotedIdentifiers) {
+    PaimonJniReader reader;
+    reader._jni_columns = {JniTableReader::JniColumn {
+            .java_name = "region,code",
+            // Keep the aggregate complete because BE UT treats omitted JNI column fields as errors.
+            .output_type = std::make_shared<DataTypeString>(),
+            .transfer_type = std::make_shared<DataTypeString>(),
+    }};
+
+    reader._prepare_jni_scanner_schema();
+
+    EXPECT_EQ(reader._scanner_params.at("required_fields_base64"), "$cmVnaW9uLGNvZGU=");
+    EXPECT_TRUE(reader._scanner_params.contains("columns_types_base64"));
 }
 
 TEST(PaimonJniReaderTest, UsesStableRuntimeBatchSizeBeforeAndAfterOpen) {
