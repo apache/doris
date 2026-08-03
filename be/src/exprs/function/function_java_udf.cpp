@@ -19,6 +19,7 @@
 
 #include <bthread/bthread.h>
 
+#include <future>
 #include <memory>
 #include <string>
 

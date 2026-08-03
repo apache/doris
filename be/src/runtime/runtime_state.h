@@ -51,6 +51,9 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace io {
+class S3FileSystem;
+} // namespace io
 class RuntimeFilter;
 
 inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {

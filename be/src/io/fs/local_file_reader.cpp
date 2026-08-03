@@ -39,6 +39,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"

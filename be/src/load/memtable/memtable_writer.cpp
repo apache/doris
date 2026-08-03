@@ -36,6 +36,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
 #include "service/backend_options.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/group_rowset_writer.h"

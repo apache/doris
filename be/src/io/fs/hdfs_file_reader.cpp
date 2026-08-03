@@ -36,6 +36,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "runtime/workload_management/resource_context.h"
 #include "service/backend_options.h"
 
 namespace doris::io {

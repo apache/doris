@@ -37,6 +37,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"

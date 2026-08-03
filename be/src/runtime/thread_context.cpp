@@ -18,11 +18,33 @@
 #include "runtime/thread_context.h"
 
 #include "common/signal_handler.h"
+#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 class MemTracker;
+
+void ThreadContext::attach_task(const std::shared_ptr<ResourceContext>& rc) {
+    // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
+    DCHECK(resource_ctx_ == nullptr);
+    // Validation of `rc` and its sub-objects is performed by the
+    // AttachTask::init() / SwitchResourceContext constructor entry
+    // points before any thread-local or signal mutation, so a thrown
+    // FatalError does not leak thread-local handle counts or leave a
+    // stale signal task id behind.
+    resource_ctx_ = rc;
+    thread_mem_tracker_mgr->attach_limiter_tracker(rc->memory_context()->mem_tracker(),
+                                                   rc->workload_group());
+    thread_mem_tracker_mgr->enable_wait_gc();
+}
+
+std::shared_ptr<ResourceContext> ThreadContext::_make_orphan_resource_ctx() {
+    auto ctx = ResourceContext::create_shared();
+    ctx->memory_context()->set_mem_tracker(ExecEnv::GetInstance()->orphan_mem_tracker());
+    return ctx;
+}
 
 void AttachTask::init(const std::shared_ptr<ResourceContext>& rc) {
     // Validate the ResourceContext chain before mutating any thread-local

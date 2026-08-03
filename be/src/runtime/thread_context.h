@@ -136,6 +136,7 @@ namespace doris {
 class ThreadContext;
 class MemTracker;
 class QueryContext;
+class ResourceContext;
 class RuntimeState;
 class SwitchResourceContext;
 
@@ -166,19 +167,7 @@ public:
 
     ~ThreadContext() = default;
 
-    void attach_task(const std::shared_ptr<ResourceContext>& rc) {
-        // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
-        DCHECK(resource_ctx_ == nullptr);
-        // Validation of `rc` and its sub-objects is performed by the
-        // AttachTask::init() / SwitchResourceContext constructor entry
-        // points before any thread-local or signal mutation, so a thrown
-        // FatalError does not leak thread-local handle counts or leave a
-        // stale signal task id behind.
-        resource_ctx_ = rc;
-        thread_mem_tracker_mgr->attach_limiter_tracker(rc->memory_context()->mem_tracker(),
-                                                       rc->workload_group());
-        thread_mem_tracker_mgr->enable_wait_gc();
-    }
+    void attach_task(const std::shared_ptr<ResourceContext>& rc);
 
     void detach_task() {
         resource_ctx_.reset();
@@ -194,12 +183,8 @@ public:
 #endif
         if (is_attach_task()) {
             return resource_ctx_;
-        } else {
-            auto ctx = ResourceContext::create_shared();
-            ctx->memory_context()->set_mem_tracker(
-                    doris::ExecEnv::GetInstance()->orphan_mem_tracker());
-            return ctx;
         }
+        return _make_orphan_resource_ctx();
     }
 
     static std::string get_thread_id() {
@@ -219,6 +204,11 @@ public:
 
 private:
     friend class SwitchResourceContext;
+
+    // Cold fallback for threads without an attached task; defined in the .cpp
+    // so this header does not need the full ResourceContext / ExecEnv types.
+    static std::shared_ptr<ResourceContext> _make_orphan_resource_ctx();
+
     std::shared_ptr<ResourceContext> resource_ctx_;
 };
 

@@ -45,6 +45,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/tablet/tablet.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -52,6 +54,18 @@
 namespace doris {
 
 using namespace std::chrono_literals;
+
+// ==================== ScanTask ====================
+ScanTask::ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
+    _resource_ctx = thread_context()->resource_ctx();
+    DorisMetrics::instance()->scanner_task_cnt->increment(1);
+}
+
+ScanTask::~ScanTask() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+    DorisMetrics::instance()->scanner_task_cnt->increment(-1);
+    cached_block.reset();
+}
 
 // ==================== ScannerContext ====================
 ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
