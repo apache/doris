@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.metacache.MetaCacheEntry;
+import org.apache.doris.connector.metacache.spi.CacheSpec;
 
 import com.aliyun.odps.Partition;
 
@@ -31,7 +31,7 @@ import java.util.concurrent.ForkJoinPool;
 /**
  * The MaxCompute connector's own partition-listing cache — a structural copy of the hive connector's
  * {@code HiveFileListingCache}, backed by the shared
- * {@code fe-connector-cache} framework ({@link CacheSpec} + {@link MetaCacheEntry}). It memoizes the (expensive)
+ * {@code fe-connector-metacache} framework ({@link CacheSpec} + {@link MetaCacheEntry}). It memoizes the (expensive)
  * per-table ODPS partition listing ({@code structureHelper.getPartitions}), keyed by {@code (db, table)} — the
  * ODPS project is constant per catalog, so it is NOT part of the key.
  *

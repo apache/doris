@@ -17,83 +17,35 @@
 
 package org.apache.doris.datasource.metacache;
 
-import com.google.common.collect.Maps;
+import org.apache.doris.connector.metacache.MetaCacheRegistry;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Collection;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-
 /**
- * Registry for engine cache instances and alias resolution.
+ * FE logging adapter over the data-source-neutral metadata cache registry.
+ *
+ * <p>Engine and alias indexing live in the shared runtime. FE keeps only diagnostics
+ * for duplicate built-in/plugin registrations.
  */
-public class ExternalMetaCacheRegistry {
+public class ExternalMetaCacheRegistry extends MetaCacheRegistry<ExternalMetaCache> {
     private static final Logger LOG = LogManager.getLogger(ExternalMetaCacheRegistry.class);
-    private static final String ENGINE_DEFAULT = "default";
 
-    private final Map<String, ExternalMetaCache> engineCaches = Maps.newConcurrentMap();
-    private final Map<String, String> engineAliasIndex = Maps.newConcurrentMap();
-
-    public ExternalMetaCache resolve(String engine) {
-        Objects.requireNonNull(engine, "engine is null");
-        String normalizedEngine = normalizeEngineName(engine);
-        String primaryEngine = engineAliasIndex.getOrDefault(normalizedEngine, normalizedEngine);
-        ExternalMetaCache found = engineCaches.get(primaryEngine);
-        if (found != null) {
-            return found;
-        }
-        throw new IllegalArgumentException(
-                String.format("unsupported external meta cache engine '%s'", normalizedEngine));
-    }
-
-    public Collection<ExternalMetaCache> allCaches() {
-        return engineCaches.values();
-    }
-
-    public void register(ExternalMetaCache cache) {
-        String engineName = normalizeEngineName(cache.engine());
-        ExternalMetaCache existing = engineCaches.putIfAbsent(engineName, cache);
-        if (existing != null) {
-            LOG.warn("skip duplicated external meta cache engine '{}', existing class: {}, new class: {}",
-                    engineName, existing.getClass().getName(), cache.getClass().getName());
-            return;
-        }
-        registerAliases(cache, engineName);
+    @Override
+    protected void onRegistered(String engineName, ExternalMetaCache cache) {
         LOG.debug("registered external meta cache engine '{}'", engineName);
     }
 
-    public void resetForTest(Collection<? extends ExternalMetaCache> caches) {
-        engineCaches.clear();
-        engineAliasIndex.clear();
-        caches.forEach(this::register);
+    @Override
+    protected void onDuplicatedEngine(
+            String engineName, ExternalMetaCache existing, ExternalMetaCache duplicate) {
+        LOG.warn("skip duplicated external meta cache engine '{}', existing class: {}, new class: {}",
+                engineName, existing.getClass().getName(), duplicate.getClass().getName());
     }
 
-    static String normalizeEngineName(String engine) {
-        if (engine == null) {
-            return ENGINE_DEFAULT;
-        }
-        String normalized = engine.trim().toLowerCase(Locale.ROOT);
-        if (normalized.isEmpty()) {
-            return ENGINE_DEFAULT;
-        }
-        return normalized;
-    }
-
-    private void registerAliases(ExternalMetaCache cache, String primaryEngineName) {
-        registerAlias(primaryEngineName, primaryEngineName);
-        for (String alias : cache.aliases()) {
-            registerAlias(alias, primaryEngineName);
-        }
-    }
-
-    private void registerAlias(String alias, String primaryEngineName) {
-        String normalizedAlias = normalizeEngineName(alias);
-        String existing = engineAliasIndex.putIfAbsent(normalizedAlias, primaryEngineName);
-        if (existing != null && !existing.equals(primaryEngineName)) {
-            LOG.warn("skip duplicated external meta cache alias '{}', existing engine: {}, new engine: {}",
-                    normalizedAlias, existing, primaryEngineName);
-        }
+    @Override
+    protected void onDuplicatedAlias(String alias, String existingEngine, String duplicateEngine) {
+        LOG.warn("skip duplicated external meta cache alias '{}', existing engine: {}, new engine: {}",
+                alias, existingEngine, duplicateEngine);
     }
 }

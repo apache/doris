@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.doris;
 
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.connector.metacache.MetaCacheEntry;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;

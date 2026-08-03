@@ -18,8 +18,8 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.cache.ConnectorMetadataCache;
-import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.metacache.ConnectorMetadataCache;
+import org.apache.doris.connector.metacache.ConnectorTableKey;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.ManifestFile;

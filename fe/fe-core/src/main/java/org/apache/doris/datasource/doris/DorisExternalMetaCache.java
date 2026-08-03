@@ -19,16 +19,16 @@ package org.apache.doris.datasource.doris;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.connector.metacache.MetaCacheEntry;
+import org.apache.doris.connector.metacache.spi.CacheSpec;
+import org.apache.doris.connector.metacache.spi.MetaCacheEntryDef;
+import org.apache.doris.connector.metacache.spi.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
-import org.apache.doris.datasource.metacache.CacheSpec;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
-import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
-import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableMap;
@@ -84,7 +84,9 @@ public class DorisExternalMetaCache extends AbstractExternalMetaCache {
                 SchemaCacheValue.class,
                 this::loadSchemaCacheValue,
                 defaultSchemaCacheSpec(),
-                MetaCacheEntryInvalidation.forNameMapping(SchemaCacheKey::getNameMapping)));
+                MetaCacheEntryInvalidation.forTableIdentity(
+                        key -> key.getNameMapping().getLocalDbName(),
+                        key -> key.getNameMapping().getLocalTblName())));
     }
 
     @Override

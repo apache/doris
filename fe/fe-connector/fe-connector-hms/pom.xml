@@ -55,7 +55,7 @@ under the License.
              dep is what puts CacheSpec/MetaCacheEntry on -hms's own compile classpath. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-cache</artifactId>
+            <artifactId>fe-connector-metacache</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -141,10 +141,10 @@ under the License.
         </dependency>
 
         <!-- TEST ONLY: CachingHmsClientTest constructs the decorator, which builds MetaCacheEntry (backed by
-             Caffeine). fe-connector-cache declares Caffeine `provided` (non-transitive), and this library
+             Caffeine). fe-connector-metacache declares Caffeine `provided` (non-transitive), and this library
              module carries no Caffeine of its own — in production it runs inside the assembled hive plugin
              whose zip bundles Caffeine 2.9.3 (C-a), but the -hms unit-test classpath needs its own copy.
-             Test-scope only — NOT bundled. Pinned to 2.9.3 = the version fe-connector-cache is compiled
+             Test-scope only — NOT bundled. Pinned to 2.9.3 = the version fe-connector-metacache is compiled
              against (mirrors fe-connector-hive/-paimon). -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>

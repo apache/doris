@@ -56,7 +56,8 @@ endpoint properties)
 
 | Module | Role |
 |---|---|
-| `fe-connector-cache` | Self-contained caching framework used by several connectors. No fe-core dependency; it is bundled into each consuming plugin, so shared third-party libraries stay at the consumers' lowest common version (see the version notes in consumer poms). |
+| `fe-connector-metacache-spi` | JDK-only cache policy, entry-definition, invalidation, statistics, and lifecycle contracts. It has no fe-core, cache-library, or data-source SDK dependency. |
+| `fe-connector-metacache` | Shared Caffeine-backed cache runtime used by fe-core and connector plugins. It owns entry generations, refresh, scoped invalidation, catalog entry groups, and the engine registry; it never depends on fe-core or a data-source SDK. |
 | `fe-connector-hms-hive-shade` | Slim, relocated HMS metastore-client closure for connectors that speak HMS thrift. The pom comments say exactly what relocates where and why. |
 | `fe-connector-paimon-hive-shade` | Paimon-private relocated HMS-thrift closure; same idea, different owner. |
 
@@ -183,10 +184,10 @@ metastore/shade/cache). For a write path, the richest example is
 6. **Property ownership.** Metadata-connection properties are parsed in your
    connector (or the metastore layer). Storage properties belong to
    `fe-filesystem`. Do not add parsing to fe-core — rule 2 above.
-7. **Caching.** Reuse `fe-connector-cache` (example:
-   `PaimonLatestSnapshotCache`). Bundle the caching library into your plugin
-   zip and keep shared third-party versions aligned with the other consumers
-   (see the version notes in `fe-connector-paimon/pom.xml`). Respect the
+7. **Caching.** Describe reusable entries with `fe-connector-metacache-spi`
+   and run them through `fe-connector-metacache` (example:
+   `PaimonLatestSnapshotCache`). Keep shared third-party versions aligned with
+   the other consumers (see the version notes in `fe-connector-paimon/pom.xml`). Respect the
    authorization invariant in `AGENTS.md`: a cross-query cache must never
    serve metadata that would bypass per-user, load-time authorization.
 8. **Shading.** If your client stack drags a conflicting closure (hive/thrift
