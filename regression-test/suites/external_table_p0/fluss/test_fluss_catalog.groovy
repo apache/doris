@@ -38,55 +38,42 @@ suite("test_fluss_catalog", "p0,external") {
     """
 
     // --- the fixture database and its tables are visible -------------------
-    // Every result is bound to a variable before it is chained on: in a Groovy
-    // command expression `sql """..."""​.collect {}` would collect over the
-    // string, not over the rows.
-    def databaseRows = sql """show databases from ${catalogName}"""
-    def databases = databaseRows.collect { it[0] }
-    assertTrue(databases.contains("fluss_test"),
-            "fluss_test missing from ${catalogName}: ${databases}")
+    // The listings are recorded rather than spot-checked: a table that appears
+    // out of nowhere is as much a bug as one that goes missing, and only the
+    // whole list catches the first kind. In particular a lake table must be
+    // listed ONCE, under its own name -- the $lake reader is a way of reading it,
+    // not a second table, and a listing that showed both would double every lake
+    // table for anything walking the schema.
+    order_qt_databases """show databases from ${catalogName}"""
 
     sql """switch ${catalogName}"""
     sql """use fluss_test"""
 
-    def tableRows = sql """show tables"""
-    def tables = tableRows.collect { it[0] }
-    for (String expected : ["log_basic", "log_types", "log_part", "log_empty", "pk_basic", "pk_types",
-                            "pk_part", "lake_log", "lake_cold", "lake_types", "lake_part", "lake_pk"]) {
-        assertTrue(tables.contains(expected), "table ${expected} missing: ${tables}")
-    }
-    // A lake table is listed once, under its own name. The $lake reader is a way
-    // of reading it, not a second table, and a catalog listing that showed both
-    // would double every lake table for anything walking the schema.
-    assertTrue(tables.every { !it.toString().contains("\$") },
-            "system tables leaked into show tables: ${tables}")
+    order_qt_tables """show tables"""
 
     // --- schema mapping ----------------------------------------------------
-    // desc rows are [Field, Type, Null, Key, Default, Extra].
-    def descLogBasic = sql """desc log_basic"""
-    assertEquals(["id", "name", "price"], descLogBasic.collect { it[0] })
+    // desc is recorded UNSORTED: column order is part of what is being checked,
+    // and sorting the rows would throw it away. Types are pinned here too, so a
+    // type-mapping change shows up before any query runs.
+    qt_desc_log_basic """desc log_basic"""
 
-    // One column per fluss type the connector maps, plus the id column. A
-    // dropped or duplicated column shows up here before any query runs.
-    def descLogTypes = sql """desc log_types"""
-    assertEquals(["id", "f_boolean", "f_tinyint", "f_smallint", "f_int", "f_bigint",
-                  "f_float", "f_double", "f_decimal", "f_char", "f_string", "f_binary",
-                  "f_bytes", "f_date", "f_timestamp", "f_timestamp_ltz", "f_array",
-                  "f_map", "f_row"],
-            descLogTypes.collect { it[0] })
+    // One column per fluss type the connector maps, plus the id column.
+    qt_desc_log_types """desc log_types"""
 
     // The partition key is an ordinary column of the table, not a hidden one.
-    def descLogPart = sql """desc log_part"""
-    assertEquals(["id", "name", "dt"], descLogPart.collect { it[0] })
+    qt_desc_log_part """desc log_part"""
 
     // Primary-key columns keep their position; the connector reports every
     // column as a key column, which is how Doris models external tables.
-    def descPkBasic = sql """desc pk_basic"""
-    assertEquals(["id", "name", "score"], descPkBasic.collect { it[0] })
+    qt_desc_pk_basic """desc pk_basic"""
 
     // --- comments survive the metadata mapping -----------------------------
     // Column comments live on the fluss schema, not on the row type: reading
     // the row type instead would silently drop every one of them.
+    //
+    // Not recorded into a .out on purpose: the statement carries the catalog's
+    // properties, including this environment's bootstrap address, so a recorded
+    // baseline would be tied to the machine that generated it.
     def createTableRows = sql """show create table log_basic"""
     def createTable = createTableRows[0][1].toString()
     assertTrue(createTable.contains("row id"), "column comment lost: ${createTable}")
@@ -94,10 +81,11 @@ suite("test_fluss_catalog", "p0,external") {
             "table comment lost: ${createTable}")
 
     // --- refresh keeps the catalog usable ----------------------------------
+    // Recorded again rather than compared with the listing above: the two blocks
+    // have to stay identical in the baseline, which is the same statement made
+    // in a way that also survives someone adding a fixture table.
     sql """refresh catalog ${catalogName}"""
-    def refreshedRows = sql """show tables"""
-    def tablesAfterRefresh = refreshedRows.collect { it[0] }
-    assertEquals(tables.sort(), tablesAfterRefresh.sort())
+    order_qt_tables_after_refresh """show tables"""
 
     sql """switch internal"""
     sql """drop catalog ${catalogName}"""

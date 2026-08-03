@@ -53,44 +53,43 @@ suite("test_fluss_lake_only", "p0,external") {
     // The connector is wired into the v2 file scanner only, and fuzzy sessions
     // randomize this variable.
     sql """set enable_file_scanner_v2 = true"""
-
-    def scalarOf = { String query -> sql(query)[0][0].toString() }
+    // TIMESTAMP_LTZ renders through the session time zone, and the baselines below
+    // record what it rendered as.
+    sql """set time_zone = 'Asia/Shanghai'"""
 
     // --- the lake holds what was tiered, and nothing that came after ---------
     // lake_log got four rows before the tiering service was stopped and two
     // after. Reading the lake alone must return the first four: a $lake that
     // quietly fell back to the fluss read would return all six.
-    def lakeRows = sql """select id, name, price from lake_log\$lake order by id"""
-    assertEquals(4, lakeRows.size())
-    assertEquals(["1", "lake1", "1.10"], lakeRows[0].collect { it.toString() })
-    assertEquals(["2", "lake2", "2.20"], lakeRows[1].collect { it.toString() })
-    assertEquals(["3", "lake3", "3.30"], lakeRows[2].collect { it.toString() })
-    assertEquals(["4", "lake4", "4.40"], lakeRows[3].collect { it.toString() })
+    order_qt_lake_rows """select id, name, price from lake_log\$lake"""
 
     // --- the three columns fluss adds to every lake table --------------------
     // They belong to the lake table and not to the fluss one, which is the whole
     // reason the two are exposed as separate tables rather than one.
-    def systemColumns = sql """
+    //
+    // Their VALUES are deliberately not recorded: which bucket a log row lands in
+    // is the writer's choice and __timestamp is a wall clock, so a baseline holding
+    // them would be rewritten every time the environment is rebuilt. What is
+    // recorded is that every row has all three within the range they must be in.
+    order_qt_system_columns """
         select count(*) from lake_log\$lake
             where __bucket >= 0 and __bucket < 3
               and __offset >= 0
               and __timestamp is not null
     """
-    assertEquals("4", systemColumns[0][0].toString())
 
-    def lakeSchema = sql """desc lake_log\$lake"""
-    def lakeColumnNames = lakeSchema.collect { it[0].toString() }
-    assertEquals(["id", "name", "price", "__bucket", "__offset", "__timestamp"], lakeColumnNames)
-
+    qt_desc_lake_log_lake """desc lake_log\$lake"""
     // The fluss table itself has none of them.
-    def flussColumnNames = sql("""desc lake_log""").collect { it[0].toString() }
-    assertEquals(["id", "name", "price"], flussColumnNames)
+    qt_desc_lake_log """desc lake_log"""
 
     // --- type parity between the two doors ----------------------------------
     // The connector's fluss->Doris mapping has to equal fluss->paimon->Doris, or
-    // `tbl` and `tbl$lake` present two different schemas for one table. Until now
-    // that was checked by reading both mappings side by side; here the second one
-    // is the paimon connector actually running.
+    // `tbl` and `tbl$lake` present two different schemas for one table. Both
+    // schemas are recorded, and the equality is ALSO asserted here: a reader
+    // comparing two recorded blocks by eye is not what should be guarding an
+    // invariant this quiet.
+    qt_desc_lake_types """desc lake_types"""
+    qt_desc_lake_types_lake """desc lake_types\$lake"""
     def typesOf = { String table ->
         def result = [:]
         sql("""desc ${table}""").each { row -> result.put(row[0].toString(), row[1].toString()) }
@@ -104,68 +103,51 @@ suite("test_fluss_lake_only", "p0,external") {
     }
     assertEquals(flussTypes.size() + 3, lakeTypes.size())
 
-    // Parity of the values, not just of the declared types: row 1 of lake_types
-    // is compared against itself read the other way round, through fluss rather
-    // than paimon. Two decoders, one row, one set of literals.
-    def lakeTypeRow = sql """
-        select count(*) from lake_types\$lake where id = 1
-            and f_boolean = true
-            and f_tinyint = 1 and f_smallint = 2 and f_int = 3 and f_bigint = 4
-            and f_float = cast(1.5 as float) and f_double = 2.5
-            and f_decimal = 123.4567
-            and f_char = 'char1' and f_string = 'string1'
-            and hex(f_binary) = '010203' and hex(f_bytes) = '0A0B'
-            and f_date = '2026-01-01'
-            -- Compared as text, not as a timestamp: an equality on a microsecond TIMESTAMP is pushed
-            -- into paimon and matches nothing there, while a range predicate on the same column and
-            -- the value itself are both right. That is the paimon connector's own behaviour (a plain
-            -- paimon catalog over this warehouse does the same), so pinning it here would assert
-            -- someone else's bug. The value is what this suite is about, and casting keeps the
-            -- comparison in Doris.
-            and cast(f_timestamp as string) = '2026-01-01 01:02:03.456789'
-            and f_timestamp_ltz is not null
-            and array_size(f_array) = 3 and f_array[1] = 1 and f_array[3] = 3
-            and f_map['k1'] = 1 and f_map['k2'] = 2
-            and struct_element(f_row, 'r_int') = 1
-            and struct_element(f_row, 'r_string') = 'nested1'
+    // Parity of the values, not just of the declared types: the row is recorded
+    // here read through paimon, and the same row read through fluss is recorded in
+    // test_fluss_log_table -- two decoders, one row, and the two baselines have to
+    // agree column for column.
+    //
+    // BINARY and BYTES go through hex() for the same reason as everywhere else. Note
+    // that an equality predicate on the microsecond TIMESTAMP would match nothing:
+    // it is pushed into paimon, which does not find the row, while the value itself
+    // and range predicates on it are right. That is the paimon connector's own
+    // behaviour (a plain paimon catalog over this warehouse does the same), so it is
+    // not pinned here -- recording the value sidesteps it entirely.
+    order_qt_lake_types_row """
+        select id, f_boolean, f_tinyint, f_smallint, f_int, f_bigint, f_float, f_double,
+               f_decimal, f_char, f_string, hex(f_binary) as f_binary_hex,
+               hex(f_bytes) as f_bytes_hex, f_date, f_timestamp, f_timestamp_ltz,
+               f_array, f_map, f_row
+        from lake_types\$lake
     """
-    assertEquals("1", lakeTypeRow[0][0].toString())
 
     // The all-NULL row was written after tiering stopped, so it is not here.
-    assertEquals("1", scalarOf("""select count(*) from lake_types\$lake"""))
+    order_qt_lake_types_count """select count(*) from lake_types\$lake"""
 
     // --- a table the lake holds in full --------------------------------------
-    def coldRows = sql """select id, name from lake_cold\$lake order by id"""
-    assertEquals([["1", "cold1"], ["2", "cold2"], ["3", "cold3"]],
-            coldRows.collect { row -> row.collect { it.toString() } })
+    order_qt_cold_rows """select id, name from lake_cold\$lake"""
 
     // --- partitioning survives the delegation --------------------------------
     // The lake table is partitioned by the same column, so the partition value
     // has to come back with its own row and not with a neighbour's.
-    def partRows = sql """select id, name, dt from lake_part\$lake order by id"""
-    assertEquals(3, partRows.size())
-    assertEquals(["1", "lp1a", "20260101"], partRows[0].collect { it.toString() })
-    assertEquals(["2", "lp1b", "20260101"], partRows[1].collect { it.toString() })
-    assertEquals(["3", "lp2a", "20260102"], partRows[2].collect { it.toString() })
+    order_qt_part_rows """select id, name, dt from lake_part\$lake"""
 
     // Pruning is the sibling's, not fluss's: the predicate is pushed to the
     // paimon connector, which owns the plan for this table.
-    def prunedPart = sql """select id from lake_part\$lake where dt = '20260101' order by id"""
-    assertEquals(["1", "2"], prunedPart.collect { it[0].toString() })
+    order_qt_part_pruned """select id from lake_part\$lake where dt = '20260101'"""
 
     // --- a primary-key table's lake is its merged state at the tiering point --
     // Row 2 was updated before tiering, so the lake holds the update, not both
     // versions. Row 3's later update and row 1's delete came after and are absent,
-    // which is exactly how this differs from the fluss-only read of the same table.
-    def pkLakeRows = sql """select id, name from lake_pk\$lake order by id"""
-    assertEquals([["1", "lp1"], ["2", "lp2-lake"], ["3", "lp3"]],
-            pkLakeRows.collect { row -> row.collect { it.toString() } })
+    // which is exactly how this differs from the fluss-only read of the same table
+    // (recorded in test_fluss_lake_pk, against this same fixture).
+    order_qt_pk_lake_rows """select id, name from lake_pk\$lake"""
 
     // --- projection and aggregation through the sibling ----------------------
-    assertEquals("4", scalarOf("""select count(*) from lake_log\$lake"""))
-    assertEquals("11.00", scalarOf("""select sum(price) from lake_log\$lake"""))
-    def namesOnly = sql """select name from lake_log\$lake where id > 2 order by name"""
-    assertEquals(["lake3", "lake4"], namesOnly.collect { it[0].toString() })
+    order_qt_lake_count """select count(*) from lake_log\$lake"""
+    order_qt_lake_sum """select sum(price) from lake_log\$lake"""
+    order_qt_lake_names """select name from lake_log\$lake where id > 2"""
 
     // --- tables with no lake -------------------------------------------------
     // A table with no lake never offers the sub-table, so the name does not resolve
@@ -182,11 +164,8 @@ suite("test_fluss_lake_only", "p0,external") {
 
     // $lake is a way to read a table, not a table of its own: it must not appear
     // in the catalog listing, or every tool that walks the schema would show each
-    // lake table twice.
-    def tableNames = sql("""show tables""").collect { it[0].toString() }
-    assertTrue(tableNames.contains("lake_log"), "lake_log missing from ${tableNames}")
-    assertTrue(tableNames.every { !it.contains("\$") },
-            "system tables leaked into show tables: ${tableNames}")
+    // lake table twice. The recorded listing is what says so.
+    order_qt_tables """show tables"""
 
     sql """drop catalog if exists ${catalogName}"""
 }
