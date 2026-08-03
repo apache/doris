@@ -27,8 +27,12 @@ import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -48,16 +52,29 @@ import java.util.Optional;
  */
 final class RecordingLakeSibling implements Connector {
 
-    /** The sibling's own handle type: the analogue of {@code PaimonTableHandle}. */
+    /** Fixture shorthand: this handle has not been pinned to a snapshot. */
+    static final long UNPINNED = Long.MIN_VALUE;
+
+    /**
+     * The sibling's own handle type: the analogue of {@code PaimonTableHandle}. It carries the pin the
+     * same way a real one does — as a NEW handle returned by {@code applySnapshot} — so a test can tell a
+     * scan that was planned on the pinned handle from one planned on the raw one.
+     */
     static final class Handle implements ConnectorTableHandle {
         private static final long serialVersionUID = 1L;
 
         final String dbName;
         final String tableName;
+        final long pinnedSnapshotId;
 
         Handle(String dbName, String tableName) {
+            this(dbName, tableName, UNPINNED);
+        }
+
+        Handle(String dbName, String tableName, long pinnedSnapshotId) {
             this.dbName = dbName;
             this.tableName = tableName;
+            this.pinnedSnapshotId = pinnedSnapshotId;
         }
     }
 
@@ -69,13 +86,114 @@ final class RecordingLakeSibling implements Connector {
     static final long ROW_COUNT = 4242L;
 
     /** The scan plan provider this sibling hands out; identity is what the routing test asserts. */
-    final ConnectorScanPlanProvider scanPlanProvider = (session, request) -> Collections.emptyList();
+    final ConnectorScanPlanProvider scanPlanProvider = new ScanPlanProvider();
 
     final Map<String, String> properties;
     final List<String> calls = new ArrayList<>();
 
     /** When false, the sibling reports the lake table as absent (nothing tiered to it yet). */
     boolean lakeTableExists = true;
+
+    /**
+     * The columns the lake table reports, by name. Defaults to the single lake-only column the gateway
+     * tests assert on; a union test replaces it with the fluss table's columns plus the three system
+     * columns tiering appends, which is what a real lake table looks like.
+     */
+    Map<String, ConnectorColumnHandle> lakeColumns = defaultLakeColumns();
+
+    /** The ranges this sibling's scan planner returns, so a union test can recognize the lake half. */
+    List<ConnectorScanRange> lakeRanges = Collections.emptyList();
+
+    /** The node properties this sibling's scan planner reports, to be merged into the scan node's. */
+    Map<String, String> lakeNodeProperties = Collections.emptyMap();
+
+    /** The handle the scan planner was last asked to plan; proves WHICH handle reached the lake half. */
+    Handle plannedHandle;
+
+    /** The columns the scan planner was last asked to plan, in order. */
+    List<ConnectorColumnHandle> plannedColumns = Collections.emptyList();
+
+    /** The node properties last handed to {@code populateScanLevelParams}. */
+    Map<String, String> populatedNodeProperties;
+
+    private static Map<String, ConnectorColumnHandle> defaultLakeColumns() {
+        Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>();
+        handles.put(COLUMN_NAME, new LakeColumn(COLUMN_NAME));
+        return handles;
+    }
+
+    /** The sibling's own column-handle type, which fluss can only pass through, never build. */
+    static final class LakeColumn implements ConnectorColumnHandle {
+        private static final long serialVersionUID = 1L;
+
+        final String name;
+
+        LakeColumn(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof LakeColumn && name.equals(((LakeColumn) other).name);
+        }
+
+        @Override
+        public int hashCode() {
+            return name.hashCode();
+        }
+
+        @Override
+        public String toString() {
+            return "LakeColumn{" + name + "}";
+        }
+    }
+
+    /**
+     * The sibling's own range type. Deliberately NOT a {@link FlussScanRange}: on a union read both kinds
+     * share one list, and a fixture that handed back fluss ranges would hide every place that assumes the
+     * list is homogeneous.
+     */
+    static final class LakeRange implements ConnectorScanRange {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public String getTableFormatType() {
+            return "paimon";
+        }
+
+        @Override
+        public Map<String, String> getProperties() {
+            return Collections.emptyMap();
+        }
+    }
+
+    /** Records what the lake half was asked to plan and answers with this sibling's canned values. */
+    private final class ScanPlanProvider implements ConnectorScanPlanProvider {
+
+        @Override
+        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+            calls.add("planScan");
+            plannedHandle = (Handle) request.getTableHandle();
+            plannedColumns = new ArrayList<>(request.getColumns());
+            return lakeRanges;
+        }
+
+        @Override
+        public Map<String, String> getScanNodeProperties(ConnectorSession session,
+                ConnectorTableHandle handle, List<ConnectorColumnHandle> columns,
+                Optional<ConnectorExpression> filter) {
+            calls.add("getScanNodeProperties");
+            plannedColumns = new ArrayList<>(columns);
+            return lakeNodeProperties;
+        }
+
+        @Override
+        public void populateScanLevelParams(TFileScanRangeParams params,
+                Map<String, String> nodeProperties) {
+            calls.add("populateScanLevelParams");
+            populatedNodeProperties = new LinkedHashMap<>(nodeProperties);
+        }
+    }
 
     /** How many metadata instances this sibling was asked to build (the per-statement funnel's proof). */
     int metadataBuilds;
@@ -93,6 +211,12 @@ final class RecordingLakeSibling implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
+        return scanPlanProvider;
+    }
+
+    @Override
+    public ConnectorScanPlanProvider getScanPlanProvider(ConnectorTableHandle handle) {
+        calls.add("getScanPlanProvider");
         return scanPlanProvider;
     }
 
@@ -129,9 +253,20 @@ final class RecordingLakeSibling implements Connector {
         public Map<String, ConnectorColumnHandle> getColumnHandles(
                 ConnectorSession session, ConnectorTableHandle handle) {
             calls.add("getColumnHandles");
-            Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>();
-            handles.put(COLUMN_NAME, new FlussColumnHandle(COLUMN_NAME, 0));
-            return handles;
+            return lakeColumns;
+        }
+
+        /**
+         * Threads the pin the way a real MVCC connector does: a NEW handle carrying the snapshot. The
+         * empty-properties latest-pin form is the only one fluss can send, so that is the only one
+         * answered here — a caller that invented connector-specific options would go unnoticed otherwise.
+         */
+        @Override
+        public ConnectorTableHandle applySnapshot(ConnectorSession session,
+                ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+            calls.add("applySnapshot:" + snapshot.getSnapshotId() + ":" + snapshot.getProperties());
+            Handle lakeHandle = (Handle) handle;
+            return new Handle(lakeHandle.dbName, lakeHandle.tableName, snapshot.getSnapshotId());
         }
 
         @Override
