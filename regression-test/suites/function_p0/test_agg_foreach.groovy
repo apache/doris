@@ -145,4 +145,9 @@ suite("test_agg_foreach") {
 		sql """select PERCENTILE_APPROX_foreach(a,a) from foreach_table;"""
 		exception "Unsupport the func"
 	}
+
+    test {
+        sql """select PERCENTILE_APPROX_ARRAY_foreach(a,a) from foreach_table;"""
+        exception "Unsupport the func"
+    }
 }
