@@ -532,6 +532,39 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
     }
 
     @Test
+    public void testBucketShuffleUnionUnderWindowStaysBucketAligned() throws Exception {
+        // Regression: UNION ALL feeding a window function returned duplicate row_number()=1 for
+        // the same partition key.  The union is bucket-shuffled (t1 keeps its storage buckets,
+        // t2 arrives through a bucket-shuffle exchange onto them), and the analytic sort below
+        // the AnalyticEval requires hash-partitioned input.  With the generic hash requirement
+        // the t2 branch satisfied it and kept its bucket placement while the t1 branch — serial
+        // under the pooling scan, so it claims no distribution — was re-partitioned by
+        // LOCAL_EXECUTION_HASH_SHUFFLE.  The two placements put one partition key in two
+        // different pipeline tasks and the analytic numbered each task from 1.
+        //
+        //   AnalyticEval ← Sort ← Union ← LE(BUCKET_HASH) ← LE(PT) ← scan(t1)
+        //                               ← Exchange (bucket shuffle) ← scan(t2)
+        setupLocalShuffleSession(sv -> {
+            sv.setForceToLocalShuffle(true);
+            sv.setBucketShuffleDowngradeRatio(0);
+        });
+        String sql = "select k1, row_number() over (partition by k1 order by k2) from ("
+                + "select k1, k2 from test.t1 union all select k1, k2 from test.t2) u";
+        assertPlanShape(sql,
+                anyTree(
+                        analytic(
+                                sort(
+                                        union(
+                                                localExchange(BUCKET_HASH,
+                                                        localExchange(PT,
+                                                                olapScan("t1"))),
+                                                anyTree(exchange()))))));
+        // The mixed-placement signature of the bug: an execution-hash local exchange sitting
+        // next to a bucket-distributed sibling branch.
+        assertNoLocalExchangeOfType(sql, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    @Test
     public void testGroupingSetsPlanContainsHashShuffle() throws Exception {
         // Non-pooling grouping sets keeps the colocated BUCKET_HASH_SHUFFLE output of
         // the scan all the way through Repeat→Agg; no LE(LOCAL_HASH) is needed.
