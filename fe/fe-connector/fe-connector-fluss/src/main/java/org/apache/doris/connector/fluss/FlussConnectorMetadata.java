@@ -225,7 +225,10 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
                     + flussHandle.getTableName() + "' does not exist yet: nothing has been tiered to the"
                     + " lake. Start (or wait for) the fluss tiering service for this table");
         }
-        return lakeHandle;
+        // From here on this handle travels back through the engine and returns to the guards below, which
+        // route it by asking the sibling whether it is its own. Checked once, here, where a failure still
+        // has a cause attached to it.
+        return Optional.of(LakeSibling.requireOwned(sibling, lakeHandle.get()));
     }
 
     @Override
