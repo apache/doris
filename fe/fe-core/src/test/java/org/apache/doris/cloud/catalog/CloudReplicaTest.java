@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
@@ -64,7 +65,20 @@ public class CloudReplicaTest {
 
         mockEnv = Mockito.mock(Env.class);
         mockColocateIndex = Mockito.mock(ColocateTableIndex.class);
-        mockInfoService = Mockito.mock(CloudSystemInfoService.class);
+        mockInfoService = Mockito.mock(CloudSystemInfoService.class, Mockito.withSettings()
+                .useConstructor()
+                .defaultAnswer(invocation -> {
+                    String methodName = invocation.getMethod().getName();
+                    if (methodName.equals("getCloudColocateHrwBeId")
+                            || methodName.equals("getCloudColocateBucketsNum")) {
+                        return invocation.callRealMethod();
+                    }
+                    return Mockito.RETURNS_DEFAULTS.answer(invocation);
+                }));
+
+        ColocateGroupSchema mockGroupSchema = Mockito.mock(ColocateGroupSchema.class);
+        Mockito.when(mockGroupSchema.getBucketsNum()).thenReturn(1);
+        Mockito.when(mockColocateIndex.getGroupSchema(Mockito.any(GroupId.class))).thenReturn(mockGroupSchema);
 
         envMockedStatic = Mockito.mockStatic(Env.class);
         envMockedStatic.when(Env::getCurrentEnv).thenReturn(mockEnv);
