@@ -29,10 +29,10 @@
 // README), so these queries take that path rather than replaying the change log.
 //
 // Fixtures come from docker/thirdparties/docker-compose/fluss/sql/init.sql and are
-// static - this suite never writes, so no polling gate is needed. Everything is
-// asserted explicitly rather than through qt_ and a .out file: the values are the
-// fixture's own literals, so an expectation that drifts from the fixture is a diff
-// in one file rather than a regenerated baseline nobody reads.
+// static - this suite never writes, so no polling gate is needed. Results are
+// recorded into the .out baseline; what stays in the code is what is not a result:
+// the EXPLAIN anchors saying how the scan was planned, and range-count bounds,
+// which cannot be exact because key-to-bucket hashing is fluss's business.
 suite("test_fluss_pk_table", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableFlussTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -59,8 +59,11 @@ suite("test_fluss_pk_table", "p0,external") {
     // this variable, so pinning it is what keeps the suite from failing on half the
     // CI runs for a reason that has nothing to do with fluss.
     sql """set enable_file_scanner_v2 = true"""
+    // TIMESTAMP_LTZ renders through the session time zone, and the baseline below
+    // records what it rendered as. Without pinning it, the recorded value would be
+    // whatever the machine that generated the baseline happened to be set to.
+    sql """set time_zone = 'Asia/Shanghai'"""
 
-    def scalarOf = { String query -> sql(query)[0][0].toString() }
     def planOf = { String query ->
         def planRows = sql("""explain ${query}""")
         return planRows.collect { it[0].toString() }.join("\n")
@@ -75,118 +78,65 @@ suite("test_fluss_pk_table", "p0,external") {
     // The fixture inserts four rows, updates one and deletes one. Four writes, three
     // rows: id 2 carries its later value and id 3 is gone. Reading the change log
     // straight through would answer six rows here, all of them real records.
-    def basicRows = sql """select id, name, score from pk_basic order by id"""
-    assertEquals(3, basicRows.size())
-    assertEquals(["1", "k1", "1.5"], basicRows[0].collect { it.toString() })
-    assertEquals(["2", "k2-updated", "22.5"], basicRows[1].collect { it.toString() })
-    assertEquals(["4", "k4", "4.5"], basicRows[2].collect { it.toString() })
+    order_qt_basic_all """select id, name, score from pk_basic"""
 
     // COUNT(*) projects no column at all. On a primary-key table the count still has
     // to be the merged one: counting change log records would report six.
-    assertEquals("3", scalarOf("""select count(*) from pk_basic"""))
+    order_qt_basic_count """select count(*) from pk_basic"""
 
-    // The deleted key must be absent, not merely superseded.
-    assertEquals("0", scalarOf("""select count(*) from pk_basic where id = 3"""))
-    // And the updated key must appear once, not once per version.
-    assertEquals("1", scalarOf("""select count(*) from pk_basic where id = 2"""))
-    assertEquals("0", scalarOf("""select count(*) from pk_basic where name = 'k2'"""))
+    // The deleted key must be absent, not merely superseded; the updated key must
+    // appear once, not once per version, and never under its old value.
+    order_qt_basic_deleted_key """select count(*) from pk_basic where id = 3"""
+    order_qt_basic_updated_key """select count(*) from pk_basic where id = 2"""
+    order_qt_basic_stale_value """select count(*) from pk_basic where name = 'k2'"""
 
     // --- projection and predicates -----------------------------------------
     // The merge needs the primary key even when the query does not ask for it, so the
     // reader adds it to what it fetches and projects it back out. A leaked key column
     // or a fetch-order projection shows up as the wrong values here.
-    def names = sql """select name from pk_basic order by name"""
-    assertEquals(["k1", "k2-updated", "k4"], names.collect { it[0].toString() })
+    order_qt_basic_names """select name from pk_basic"""
 
-    def reordered = sql """select score, name from pk_basic where id = 1"""
-    assertEquals(["1.5", "k1"], reordered[0].collect { it.toString() })
+    order_qt_basic_reordered """select score, name from pk_basic where id = 1"""
 
-    assertEquals("2", scalarOf("""select count(*) from pk_basic where score > 2.0"""))
+    order_qt_basic_filtered """select count(*) from pk_basic where score > 2.0"""
 
     // --- every mapped type, in the kv row format ---------------------------
     // Primary-key tables store rows in a different format from a log table's, so this
-    // repeats the type coverage rather than trusting the log suite for it. Asserted by
-    // predicate, not by rendering: how a decimal or a map prints is the display layer's
-    // business, and pinning it here would make this suite fail for the wrong reasons.
-    assertEquals("2", scalarOf("""select count(*) from pk_types"""))
+    // repeats the type coverage rather than trusting the log suite for it. Both rows
+    // are recorded whole -- the populated one and the all-NULL one, where a null map
+    // off by one column shifts every value after it.
+    //
+    // BINARY and BYTES go through hex(): they map to a Doris string, and a raw byte
+    // in a recorded baseline is neither readable nor safely round-tripped.
+    order_qt_types_all """
+        select id, f_boolean, f_tinyint, f_smallint, f_int, f_bigint, f_float, f_double,
+               f_decimal, f_char, f_string, hex(f_binary) as f_binary_hex,
+               hex(f_bytes) as f_bytes_hex, f_date, f_timestamp, f_timestamp_ltz,
+               f_array, f_map, f_row
+        from pk_types
+    """
 
-    assertEquals("1", scalarOf("""
-        select count(*) from pk_types where id = 1
-            and f_boolean = true
-            and f_tinyint = 1
-            and f_smallint = 2
-            and f_int = 3
-            and f_bigint = 4
-            and f_float = cast(1.5 as float)
-            and f_double = 2.5
-            and f_decimal = 123.4567
-    """))
-
-    // Fluss BYTES and BINARY map to a Doris string by default, so their content is
-    // compared as hex; a decoder that lost the length would return a prefix of this.
-    assertEquals("1", scalarOf("""
-        select count(*) from pk_types where id = 1
-            and f_char = 'char1'
-            and f_string = 'string1'
-            and hex(f_binary) = '010203'
-            and hex(f_bytes) = '0A0B'
-    """))
-
-    // TIMESTAMP_LTZ is only checked for presence: its rendering depends on the session
-    // time zone, which is not what this suite is pinning.
-    assertEquals("1", scalarOf("""
-        select count(*) from pk_types where id = 1
-            and f_date = '2026-01-01'
-            and f_timestamp = '2026-01-01 01:02:03.456789'
-            and f_timestamp_ltz is not null
-    """))
-
-    assertEquals("1", scalarOf("""
-        select count(*) from pk_types where id = 1
-            and array_size(f_array) = 3
-            and f_array[1] = 1
-            and f_array[3] = 3
-            and f_map['k1'] = 1
-            and f_map['k2'] = 2
-            and struct_element(f_row, 'r_int') = 1
-            and struct_element(f_row, 'r_string') = 'nested1'
-    """))
-
-    // The all-NULL row. Read through a null map that is off by one column, every value
-    // after it shifts, so this is checked column by column rather than by row count.
-    assertEquals("1", scalarOf("""
-        select count(*) from pk_types where id = 2
-            and f_boolean is null and f_tinyint is null and f_smallint is null
-            and f_int is null and f_bigint is null and f_float is null
-            and f_double is null and f_decimal is null and f_char is null
-            and f_string is null and f_binary is null and f_bytes is null
-            and f_date is null and f_timestamp is null and f_timestamp_ltz is null
-            and f_array is null and f_map is null and f_row is null
-    """))
+    // The nested readers, asked for one element at a time: a struct that decoded into
+    // the right shape but the wrong field order still renders plausibly above.
+    order_qt_types_nested """
+        select id, array_size(f_array), f_array[1], f_map['k1'], f_map['k2'],
+               struct_element(f_row, 'r_int'), struct_element(f_row, 'r_string')
+        from pk_types
+    """
 
     // --- partitioned primary-key table --------------------------------------
     // A partitioned primary-key table is snapshotted per partition, so its snapshots
     // have to be asked for per partition too; asking at table level resumes the change
     // log at another partition's offset. The partition column itself is not read by the
-    // scanner - FE declares it and BE fills it in from each range - so checking it
-    // against the row it belongs to is what catches a partition value on the wrong split.
-    def partRows = sql """select id, name, dt from pk_part order by dt, id"""
-    assertEquals(3, partRows.size())
-    assertEquals(["1", "q1a", "20260101"], partRows[0].collect { it.toString() })
-    assertEquals(["2", "q1b-updated", "20260101"], partRows[1].collect { it.toString() })
-    assertEquals(["3", "q2a", "20260102"], partRows[2].collect { it.toString() })
+    // scanner - FE declares it and BE fills it in from each range - so recording it
+    // next to the row it belongs to is what catches a partition value on the wrong split.
+    order_qt_part_all """select id, name, dt from pk_part"""
 
     // The delete landed in 20260102 and the update in 20260101: a merge that crossed
     // partitions would lose or resurrect one of them.
-    def perPartition = sql """select dt, count(*) from pk_part group by dt order by dt"""
-    assertEquals(2, perPartition.size())
-    assertEquals(["20260101", "2"], perPartition[0].collect { it.toString() })
-    assertEquals(["20260102", "1"], perPartition[1].collect { it.toString() })
+    order_qt_part_grouped """select dt, count(*) from pk_part group by dt"""
 
-    def prunedRows = sql """select id, name from pk_part where dt = '20260101' order by id"""
-    assertEquals(2, prunedRows.size())
-    assertEquals(["1", "q1a"], prunedRows[0].collect { it.toString() })
-    assertEquals(["2", "q1b-updated"], prunedRows[1].collect { it.toString() })
+    order_qt_part_pruned """select id, name from pk_part where dt = '20260101'"""
 
     // --- planning is visible in the plan ------------------------------------
     def basicPlan = planOf("""select * from pk_basic""")
