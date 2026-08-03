@@ -16,9 +16,15 @@
 #
 
 # Flink image used to prepare the fluss regression data: stock Flink plus the
-# fluss connector. build-images.sh assembles lib/ from a local fluss checkout,
-# because fluss 1.0 is not released yet.
+# fluss connector, the paimon runtime and the lake tiering job. build-images.sh
+# assembles both directories, lib/ from a local fluss checkout (fluss 1.0 is not
+# released yet) and paimon from the maven repository.
 ARG FLINK_BASE_IMAGE=flink:1.20.0-scala_2.12-java17
 FROM ${FLINK_BASE_IMAGE}
 
 COPY lib/ /opt/flink/lib/
+
+# The tiering job is submitted with `flink run`, so it is a job artifact rather
+# than a cluster dependency: it belongs in opt/, not lib/. Upstream's quickstart
+# image puts it in the same place.
+COPY opt/ /opt/flink/opt/

@@ -21,8 +21,12 @@ under the License.
 
 Stack: ZooKeeper, a fluss coordinator server, one fluss tablet server, and a
 Flink cluster (jobmanager, taskmanager, sql-client). The sql-client container
-runs `sql/init.sql` once and then idles; its healthcheck only turns green after
+builds the fixtures once and then idles; its healthcheck only turns green after
 every statement succeeded, so `--wait` gates on the fixtures being complete.
+
+The fluss cluster is lakehouse-enabled: `datalake.format: paimon` with a
+filesystem warehouse under `data/paimon`, and the sql-client container runs the
+fluss lake tiering service as a Flink job while building the fixtures.
 
 ## Prerequisite: a built fluss checkout
 
@@ -31,8 +35,13 @@ builds both from a local source tree, which must be packaged first:
 
 ```bash
 git clone https://github.com/apache/fluss.git
-mvn -f fluss/pom.xml -pl fluss-dist,fluss-flink/fluss-flink-1.20 -am package -DskipTests
+mvn -f fluss/pom.xml \
+    -pl fluss-dist,fluss-flink/fluss-flink-1.20,fluss-flink/fluss-flink-tiering,fluss-lake/fluss-lake-paimon \
+    -am package -DskipTests
 ```
+
+The paimon runtime the tiering job needs (`paimon-flink-1.20`) is resolved from
+the local maven repository, or downloaded from Maven Central when it is missing.
 
 When fluss 1.0 ships, this step and `build-images.sh` are replaced by the
 official `apache/fluss` and Flink images.
@@ -68,14 +77,18 @@ enableFlussTest=true
 The servers advertise `<host ip>:<published port>`, because Doris FE/BE run on
 the host rather than inside the compose network.
 
-`remote.data.dir` is bind mounted at the same absolute path inside the
-containers and on the host (`data/remote`): Doris BE reads the kv snapshots and
-remote log segments written there directly, so the two sides must agree on the
-path string.
+Two directories are bind mounted at the same absolute path inside the containers
+and on the host, because Doris reads the files in them directly and the path
+string is recorded rather than translated:
+
+| Directory | Written by | Read by |
+|---|---|---|
+| `data/remote` (`remote.data.dir`) | fluss servers | Doris BE — kv snapshots, remote log segments |
+| `data/paimon` (`datalake.paimon.warehouse`) | the tiering job | Doris FE/BE through the paimon connector |
 
 ## Fixtures
 
-`sql/init.sql` recreates database `fluss_test` from scratch on every start:
+The fixtures recreate database `fluss_test` from scratch on every start:
 
 | Table | Shape |
 |---|---|
@@ -86,8 +99,27 @@ path string.
 | `pk_basic` | primary-key table, one updated row and one deleted row |
 | `pk_types` | primary-key table with the same type coverage as `log_types` |
 | `pk_part` | primary-key table partitioned by `dt`, with an update and a delete inside a partition |
+| `lake_log` | lake table, 4 rows tiered + 2 in the log, 3 buckets (some bucket has no tail) |
+| `lake_cold` | lake table read entirely from the lake — no log tail at all |
+| `lake_types` | lake table with the full type coverage; non-NULL rows tiered, the all-NULL row in the log |
+| `lake_part` | lake table partitioned by `dt`; only `20260101` has a log tail |
+| `lake_pk` | primary-key lake table — union read is not implemented for it, so it pins the refusal |
 
-Data-lake tables and the tiering service are added when union read lands.
+### Lake tables are frozen half in, half out
+
+Building them takes three steps (`scripts/run-init-sql.sh`):
+
+1. `sql/init.sql` writes the rows that belong in paimon, tiering service running;
+2. `sql/lake-row-counts.sql` is polled until paimon holds every one of them;
+3. the tiering job is cancelled, and only then does `sql/init-lake-tail.sql`
+   write the rows that must stay in the fluss log.
+
+Both the counting and the cancelling are load-bearing. Left running, the tiering
+service would keep consuming the tail, and a suite asserting that a table is read
+as "lake plus log" would quietly become one asserting "lake only" — passing or
+failing by how long the environment had been up. And waiting for *a* paimon
+snapshot rather than for the *row counts* would freeze some fixtures half-tiered,
+which is the same flakiness one step earlier.
 
 ### Primary-key tables come with a kv snapshot
 

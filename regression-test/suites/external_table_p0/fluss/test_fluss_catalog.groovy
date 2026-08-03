@@ -52,9 +52,14 @@ suite("test_fluss_catalog", "p0,external") {
     def tableRows = sql """show tables"""
     def tables = tableRows.collect { it[0] }
     for (String expected : ["log_basic", "log_types", "log_part", "log_empty", "pk_basic", "pk_types",
-                            "pk_part"]) {
+                            "pk_part", "lake_log", "lake_cold", "lake_types", "lake_part", "lake_pk"]) {
         assertTrue(tables.contains(expected), "table ${expected} missing: ${tables}")
     }
+    // A lake table is listed once, under its own name. The $lake reader is a way
+    // of reading it, not a second table, and a catalog listing that showed both
+    // would double every lake table for anything walking the schema.
+    assertTrue(tables.every { !it.toString().contains("\$") },
+            "system tables leaked into show tables: ${tables}")
 
     // --- schema mapping ----------------------------------------------------
     // desc rows are [Field, Type, Null, Key, Default, Extra].

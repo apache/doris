@@ -17,8 +17,8 @@
 # under the License.
 
 # Rendered to fluss.env by run-thirdparties-docker.sh (envsubst).
-# build-images.sh also sources this template directly for the image tags, so
-# keep the two FLUSS_*_IMAGE lines free of variable references.
+# build-images.sh also sources this template directly, for the image tags and
+# the paimon version, so keep those lines free of variable references.
 
 DOCKER_FLUSS_ZOOKEEPER_EXTERNAL_PORT=22181
 DOCKER_FLUSS_COORDINATOR_EXTERNAL_PORT=19123
@@ -39,3 +39,28 @@ FLUSS_HOST_IP=${IP_HOST}
 # those files directly (primary-key table reads), so the directory is bind
 # mounted at the SAME absolute path inside the containers and on the host.
 FLUSS_REMOTE_DATA_DIR=${FLUSS_COMPOSE_DIR}/data/remote
+
+# The paimon warehouse the tiering service writes the lake tables into. Doris
+# reads it from the host through the paimon connector, so -- exactly like
+# remote.data.dir above -- the same absolute path has to resolve on both sides:
+# the warehouse location is recorded in fluss table properties and handed to
+# paimon verbatim, with nothing left to rewrite a container path into a host one.
+#
+# Two spellings, and both are needed. The bind mount is a plain path, while the
+# warehouse Doris is told about must carry the file:// scheme: a location with no
+# scheme is read as HDFS (StorageRegistry.fromScheme defaults a blank scheme to
+# HDFS), and every data-file path paimon recorded then fails to normalize with
+# "Unsupported schema: null" at scan time -- long after catalog creation.
+FLUSS_PAIMON_WAREHOUSE_DIR=${FLUSS_COMPOSE_DIR}/data/paimon
+FLUSS_PAIMON_WAREHOUSE=file://${FLUSS_COMPOSE_DIR}/data/paimon
+
+# Paimon build the flink image carries, matched to the one fluss-lake-paimon was
+# compiled against (fluss-dist ships paimon-bundle at this version) and to Doris's
+# own paimon.version, so all three read the same table format.
+FLUSS_PAIMON_VERSION=1.3.1
+
+# Paimon builds its CatalogContext around a hadoop Configuration whatever the
+# catalog is, so even a plain directory warehouse needs hadoop on the classpath;
+# without it the tiering job dies with NoClassDefFoundError the first time it
+# writes. Upstream's quickstart image carries the same repackaged jar.
+FLUSS_HADOOP_APACHE_VERSION=3.3.5-1
