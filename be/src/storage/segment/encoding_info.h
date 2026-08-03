@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/options.h"
+#include "storage/types.h" // CppTypeTraits, used by the EncodingTraits base below
 #include "util/slice.h"
 
 namespace doris {

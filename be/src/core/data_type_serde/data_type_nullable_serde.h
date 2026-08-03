@@ -50,6 +50,8 @@ public:
                                     BufferWritable& bw, FormatOptions& options) const override;
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
+    Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                         const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,

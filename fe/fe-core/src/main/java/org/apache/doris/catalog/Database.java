@@ -58,10 +58,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -715,22 +713,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     @Override
     public void write(DataOutput out) throws IOException {
-        discardHudiTable();
         Text.writeString(out, GsonUtils.GSON.toJson(this));
         writeTables(out);
-    }
-
-
-    private void discardHudiTable() {
-        Iterator<Entry<String, Table>> iterator = nameToTable.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<String, Table> entry = iterator.next();
-            if (entry.getValue().getType() == TableType.HUDI) {
-                LOG.warn("hudi table is deprecated, discard it. table name: {}", entry.getKey());
-                iterator.remove();
-                idToTable.remove(entry.getValue().getId());
-            }
-        }
     }
 
     public void analyze() {

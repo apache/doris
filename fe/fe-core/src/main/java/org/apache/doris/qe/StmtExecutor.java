@@ -64,7 +64,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.scan.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
@@ -672,6 +672,7 @@ public class StmtExecutor {
 
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
+        context.setEffectiveCloudCluster(null);
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.setReturnResultFromLocal(true);
         }
@@ -698,6 +699,11 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            // Preserve the effective per-query compute group before SET_VAR values are reverted.
+            // Audit logging runs after this method returns and otherwise sees the session value.
+            if (Config.isCloudMode()) {
+                context.setEffectiveCloudCluster(sessionVariable.getCloudCluster());
+            }
             // Snapshot changed session variables (including SET_VAR hint values) BEFORE revert,
             // so the audit log (logged after execute() returns, i.e. after the revert below) can
             // reflect what was actually in effect for this statement instead of the reverted values.
@@ -1069,6 +1075,13 @@ public class StmtExecutor {
                             DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                     context.setQueryId(newQueryId);
                     context.setNeedRegenerateInstanceId(newQueryId);
+                    // Each retry attempt gets a fresh per-statement connector scope. The previous attempt's scope
+                    // was closed by its own query-finish callback (registered under the previous query id), so
+                    // reusing it would memoize into an already-closed scope whose values then never close. Reset
+                    // closes (idempotent) and drops it; this attempt builds a fresh one under the new query id.
+                    if (context.getStatementContext() != null) {
+                        context.getStatementContext().resetConnectorStatementScope();
+                    }
                     if (Config.isCloudMode()) {
                         // sleep random millis [1000, 1500] ms
                         // in the begining of retryTime/2

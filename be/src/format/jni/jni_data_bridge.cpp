@@ -38,6 +38,8 @@
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
+#include "util/string_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -487,6 +489,55 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
         return "string";
     default:
         return "unsupported";
+    }
+}
+
+std::string JniDataBridge::encode_schema_values(const std::vector<std::string>& values) {
+    std::vector<std::string> encoded_values;
+    encoded_values.reserve(values.size());
+    for (const auto& value : values) {
+        std::string encoded;
+        base64_encode(value, &encoded);
+        // Prefix every element so an empty Base64 token remains distinct from an empty list.
+        encoded_values.emplace_back("$" + encoded);
+    }
+    return join(encoded_values, ",");
+}
+
+std::string JniDataBridge::get_jni_type_with_encoded_struct_fields(const DataTypePtr& data_type) {
+    switch (data_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        const auto* type_struct =
+                assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
+        std::ostringstream buffer;
+        buffer << "struct<";
+        for (int i = 0; i < type_struct->get_elements().size(); ++i) {
+            if (i != 0) {
+                buffer << ",";
+            }
+            std::string encoded_name;
+            base64_encode(type_struct->get_element_name(i), &encoded_name);
+            // '$' versions the nested-name token and cannot collide with Base64 or grammar
+            // delimiters; Java rejects an unversioned name in the encoded schema path.
+            buffer << "$" << encoded_name << ":"
+                   << get_jni_type_with_encoded_struct_fields(type_struct->get_element(i));
+        }
+        buffer << ">";
+        return buffer.str();
+    }
+    case TYPE_ARRAY: {
+        const auto* type_array =
+                assert_cast<const DataTypeArray*>(remove_nullable(data_type).get());
+        return "array<" + get_jni_type_with_encoded_struct_fields(type_array->get_nested_type()) +
+               ">";
+    }
+    case TYPE_MAP: {
+        const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(data_type).get());
+        return "map<" + get_jni_type_with_encoded_struct_fields(type_map->get_key_type()) + "," +
+               get_jni_type_with_encoded_struct_fields(type_map->get_value_type()) + ">";
+    }
+    default:
+        return get_jni_type_with_different_string(data_type);
     }
 }
 

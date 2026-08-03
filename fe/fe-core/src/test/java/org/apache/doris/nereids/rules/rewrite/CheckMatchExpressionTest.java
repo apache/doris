@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -57,6 +58,19 @@ class CheckMatchExpressionTest {
     void testRejectsRootVariantMatch() {
         SlotReference rootVariantSlot = new SlotReference("response", VariantType.INSTANCE, true, Arrays.asList());
         MatchAny match = new MatchAny(rootVariantSlot, new StringLiteral("doris"));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> invokeCheck(match));
+        Assertions.assertTrue(exception.getMessage().contains("VARIANT root column does not support MATCH"),
+                exception.getMessage());
+    }
+
+    @Test
+    void testRejectsRootVariantMatchNestedInOr() {
+        SlotReference textSlot = new SlotReference("response_body", StringType.INSTANCE, true);
+        SlotReference rootVariantSlot = new SlotReference("response", VariantType.INSTANCE, true, Arrays.asList());
+        Or match = new Or(
+                new MatchAny(textSlot, new StringLiteral("doris")),
+                new MatchAny(rootVariantSlot, new StringLiteral("doris")));
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> invokeCheck(match));
         Assertions.assertTrue(exception.getMessage().contains("VARIANT root column does not support MATCH"),

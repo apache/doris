@@ -39,6 +39,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -435,12 +436,13 @@ public class CastTest {
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             SlotReference child = new SlotReference("slot", DateTimeType.INSTANCE, false);
             Cast cast = new Cast(child, DateTimeType.INSTANCE);
-            Assertions.assertTrue(cast.nullable());
+            // An exact-type cast cannot fail even though conversions between datetime types can.
+            Assertions.assertFalse(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
             child = new SlotReference("slot", DateTimeV2Type.SYSTEM_DEFAULT, false);
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
-            Assertions.assertTrue(cast.nullable());
+            Assertions.assertFalse(cast.nullable());
             cast = new Cast(child, DateTimeType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
         }
@@ -459,7 +461,8 @@ public class CastTest {
             cast = new Cast(child, IntegerType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
-            Assertions.assertTrue(cast.nullable());
+            // Identity casts preserve requiredness; only actual time conversions may introduce NULL.
+            Assertions.assertFalse(cast.nullable());
         }
     }
 
@@ -631,6 +634,26 @@ public class CastTest {
             cast = new Cast(child, JsonType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
         }
+    }
+
+    @Test
+    public void testCastFromVariant() {
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, JsonType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
+        Assertions.assertFalse(Cast.castNullable(false, VariantType.INSTANCE, VariantType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(true, VariantType.INSTANCE, VariantType.INSTANCE));
+    }
+
+    @Test
+    public void testIdentityDateTimeV2CastKeepsRequiredness() {
+        DateTimeV2Type dateTimeV2 = DateTimeV2Type.of(3);
+
+        // An identity cast is also used while merging unchanged siblings of a complex type. It cannot
+        // introduce NULL, so widening the sibling here would make a required struct field nullable.
+        Assertions.assertFalse(Cast.castNullable(false, dateTimeV2, dateTimeV2));
     }
 
     @Test

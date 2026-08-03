@@ -83,7 +83,7 @@ suite("test_trino_hive_other", "p0,external") {
         connect('ext_catalog_user', '12345', context.config.jdbcUrl) {
             def database_lists = sql """show databases from ${catalog_name}"""
             boolean ok = false;
-            for (int i = 0; i < database_lists.size(); ++j) {
+            for (int i = 0; i < database_lists.size(); ++i) {
                 assertEquals(1, database_lists[i].size())
                 if (database_lists[i][0].equals("default")) {
                     ok = true;

@@ -2036,7 +2036,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 10;
+    public static int max_be_exec_version = 11;
 
     /**
      * Min data version of backends serialize block.
@@ -2169,6 +2169,17 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Maximum cache number of database and table instances in external catalogs."})
     public static long max_meta_object_cache_num = 1000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Stripe count used by multi-key MetaCacheEntry instances such as external object caches."})
+    public static int external_meta_cache_object_entry_lock_stripes = 256;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "Whether to synchronously refresh external database/table names when a name lookup misses in an "
+                    + "existing cached snapshot. This option is enabled by default to preserve existing external "
+                    + "catalog visibility behavior. Disable it to avoid repeated remote name enumeration for "
+                    + "non-existent objects."})
+    public static boolean enable_external_meta_cache_name_miss_refresh = true;
+
     @ConfField(description = {"Maximum cache number of Hive partitioned tables."})
     public static long max_hive_partition_table_cache_num = 10000;
 
@@ -2221,11 +2232,6 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The auto-refresh interval of the external meta cache."})
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
-    // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
-    @ConfField(mutable = true, masterOnly = false,
-            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
-    public static boolean enable_external_meta_cache_manual_miss_load = true;
-
     /**
      * Github workflow test type, for setting some session variables
      * only for certain test type. E.g. only settting batch_size to small
@@ -2275,12 +2281,18 @@ public class Config extends ConfigBase {
     public static boolean enable_fqdn_mode = false;
 
     /**
-     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
-     * otherwise it will throw an AnalysisException.
+     * @deprecated No-op since the hms/iceberg SPI cutover: external views (hive, iceberg) are always served.
+     *     Retained for one release so operator fe.conf that sets it still parses; will be removed later.
      */
+    @Deprecated
     @ConfField(mutable = true)
     public static boolean enable_query_hive_views = true;
 
+    /**
+     * @deprecated No-op since the iceberg SPI cutover: external views (hive, iceberg) are always served.
+     *     Retained for one release so operator fe.conf that sets it still parses; will be removed later.
+     */
+    @Deprecated
     @ConfField(mutable = true)
     public static boolean enable_query_iceberg_views = true;
 
@@ -2881,9 +2893,12 @@ public class Config extends ConfigBase {
                     + "multiple integration names are comma-separated"})
     public static String authentication_chain = "";
 
+    // The dir the trino-connector catalog loads Trino's own plugins from, used verbatim. Keep the
+    // default in sync with BE config trino_connector_plugin_dir: FE and BE load the same plugins and
+    // an operator who leaves both untouched expects both to find them.
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
-    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/connectors";
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/trino_plugins";
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;

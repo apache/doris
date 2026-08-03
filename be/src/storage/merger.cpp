@@ -60,6 +60,7 @@
 #include "storage/tablet/tablet_reader.h"
 #include "storage/types.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -252,10 +253,11 @@ Status Merger::vertical_compact_one_group(
         const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
         RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, Statistics* stats_output,
         std::vector<uint32_t> key_group_cluster_key_idxes, int64_t batch_size,
-        CompactionSampleInfo* sample_info, bool enable_sparse_optimization) {
+        CompactionSampleInfo* sample_info, VerticalCompactionContextStats* context_stats,
+        bool enable_sparse_optimization) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
-    VerticalBlockReader reader(row_source_buf);
+    VerticalBlockReader reader(row_source_buf, context_stats);
     TabletReader::ReaderParams reader_params;
     reader_params.is_key_column_group = is_key;
     reader_params.key_group_cluster_key_idxes = key_group_cluster_key_idxes;
@@ -499,6 +501,13 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                                       Statistics* stats_output,
                                       VerticalCompactionProgressCallback progress_cb) {
     LOG(INFO) << "Start to do vertical compaction, tablet_id: " << tablet->tablet_id();
+    VerticalCompactionContextStats context_stats;
+    Defer log_context_stats {[&] {
+        DCHECK_EQ(context_stats.active_segment_contexts, 0);
+        LOG(INFO) << "Vertical compaction segment context statistics, tablet_id: "
+                  << tablet->tablet_id() << ", vertical_compaction_active_segment_contexts_peak: "
+                  << context_stats.active_segment_contexts_peak;
+    }};
     std::vector<std::vector<uint32_t>> column_groups;
     std::vector<uint32_t> key_group_cluster_key_idxes;
     // If BE config vertical_compaction_num_columns_per_group has been modified from
@@ -703,7 +712,8 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
         Status st = vertical_compact_one_group(
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, group_stats_ptr,
-                key_group_cluster_key_idxes, batch_size, &sample_info, enable_sparse_optimization);
+                key_group_cluster_key_idxes, batch_size, &sample_info, &context_stats,
+                enable_sparse_optimization);
         {
             std::unique_lock<std::mutex> lock(sample_info_lock);
             sample_infos[i] = sample_info;

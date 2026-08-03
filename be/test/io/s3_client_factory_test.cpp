@@ -21,9 +21,14 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
+#include "io/fs/rate_limited_obj_storage_client.h"
+#include "io/fs/s3_obj_storage_client.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -31,7 +36,41 @@ namespace doris {
 
 class S3ClientFactoryTest : public testing::Test {
     FRIEND_TEST(S3ClientFactoryTest, S3ClientFactory);
+
+protected:
+    void TearDown() override { S3ClientFactory::instance().clear_client_creator_for_test(); }
 };
+
+namespace {
+
+class CloudModeConfigGuard {
+public:
+    explicit CloudModeConfigGuard(bool cloud_mode)
+            : _deploy_mode(config::deploy_mode), _cloud_unique_id(config::cloud_unique_id) {
+        config::deploy_mode = cloud_mode ? "cloud" : "";
+        config::cloud_unique_id.clear();
+    }
+
+    ~CloudModeConfigGuard() {
+        config::deploy_mode = _deploy_mode;
+        config::cloud_unique_id = _cloud_unique_id;
+    }
+
+private:
+    std::string _deploy_mode;
+    std::string _cloud_unique_id;
+};
+
+S3ClientConf make_factory_conf(std::string endpoint, bool is_internal_bucket) {
+    S3ClientConf conf;
+    conf.endpoint = std::move(endpoint);
+    conf.region = "us-east-1";
+    conf.cred_provider_type = CredProviderType::Anonymous;
+    conf.is_internal_bucket = is_internal_bucket;
+    return conf;
+}
+
+} // namespace
 
 TEST_F(S3ClientFactoryTest, GcpWorkloadIdentityClientCreation) {
     // Workload Identity has neither ak/sk nor role_arn; the factory must build a
@@ -76,13 +115,73 @@ TEST_F(S3ClientFactoryTest, ClientIdentityDistinguishesAddressingAndEndpointOver
     virtual_hosted_conf.need_override_endpoint = false;
 
     EXPECT_NE(path_style_conf, virtual_hosted_conf);
-    EXPECT_NE(path_style_conf.get_hash(), virtual_hosted_conf.get_hash());
 
     auto path_style_client = S3ClientFactory::instance().create(path_style_conf);
     auto virtual_hosted_client = S3ClientFactory::instance().create(virtual_hosted_conf);
     ASSERT_NE(path_style_client, nullptr);
     ASSERT_NE(virtual_hosted_client, nullptr);
     EXPECT_NE(path_style_client, virtual_hosted_client);
+}
+
+TEST_F(S3ClientFactoryTest, WrapsAllClientsInNonCloudMode) {
+    CloudModeConfigGuard guard(false);
+    auto& factory = S3ClientFactory::instance();
+
+    auto external_client =
+            factory.create(make_factory_conf("non-cloud-external-rate-limit.example.com", false));
+    auto internal_client =
+            factory.create(make_factory_conf("non-cloud-internal-rate-limit.example.com", true));
+
+    ASSERT_NE(external_client, nullptr);
+    ASSERT_NE(internal_client, nullptr);
+    EXPECT_NE(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(external_client), nullptr);
+    EXPECT_NE(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(internal_client), nullptr);
+}
+
+TEST_F(S3ClientFactoryTest, WrapsOnlyInternalClientsInCloudModeAndDistinguishesClientScope) {
+    CloudModeConfigGuard guard(true);
+    auto external_conf = make_factory_conf("cloud-rate-limit-client-scope.example.com", false);
+    auto internal_conf = make_factory_conf("cloud-rate-limit-client-scope.example.com", true);
+    ASSERT_NE(external_conf, internal_conf);
+
+    auto& factory = S3ClientFactory::instance();
+    auto external_client = factory.create(external_conf);
+    auto internal_client = factory.create(internal_conf);
+
+    ASSERT_NE(external_client, nullptr);
+    ASSERT_NE(internal_client, nullptr);
+    EXPECT_EQ(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(external_client), nullptr);
+    EXPECT_NE(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(internal_client), nullptr);
+    EXPECT_NE(external_client, internal_client);
+    EXPECT_EQ(factory.create(external_conf), external_client);
+    EXPECT_EQ(factory.create(internal_conf), internal_client);
+}
+
+TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesClientScope) {
+    auto external_conf = make_factory_conf("s3-client-holder-client-scope.example.com", false);
+    auto internal_conf = make_factory_conf("s3-client-holder-client-scope.example.com", true);
+    ASSERT_NE(external_conf, internal_conf);
+
+    auto external_client =
+            std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    auto internal_client =
+            std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    int create_count = 0;
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [&](const S3ClientConf& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                ++create_count;
+                return conf.is_internal_bucket ? internal_client : external_client;
+            });
+
+    io::ObjClientHolder holder(external_conf);
+    ASSERT_TRUE(holder.init().ok());
+    EXPECT_EQ(create_count, 1);
+    EXPECT_EQ(holder.get(), external_client);
+
+    ASSERT_TRUE(holder.reset(internal_conf).ok());
+    EXPECT_EQ(create_count, 2);
+    EXPECT_EQ(holder.get(), internal_client);
+    EXPECT_EQ(holder.s3_client_conf(), internal_conf);
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {

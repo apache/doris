@@ -458,6 +458,18 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
     echo "Finished patching ${ARROW_SOURCE}"
 fi
 
+# arrow-adbc patch adds the pre-generated JNI header, so that building the JNI
+# bridge needs no Maven. See the patch header for how to regenerate it.
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_ADBC " ]]; then
+    cd "${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-pregenerated-jni-header.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${ARROW_ADBC_SOURCE}"
+fi
+
 # patch librdkafka to avoid crash
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
     if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-2.11.0" ]]; then

@@ -763,16 +763,19 @@ bool StreamingAggLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* pl
                               };
 
                               auto creator_for_null_key = [&](auto& mapped) {
-                                  mapped = _agg_arena_pool.aligned_alloc(
+                                  auto* new_state = _agg_arena_pool.aligned_alloc(
                                           Base::_parent->template cast<StreamingAggOperatorX>()
                                                   ._total_size_of_aggregate_states,
                                           Base::_parent->template cast<StreamingAggOperatorX>()
                                                   ._align_aggregate_states);
-                                  auto st = _create_agg_status(mapped);
+                                  auto st = _create_agg_status(new_state);
                                   if (!st) {
                                       throw Exception(st.code(), st.to_string());
                                   }
-                                  _refresh_limit_heap(i, key_columns);
+                                  commit_aggregate_state(
+                                          mapped, new_state,
+                                          [&] { _refresh_limit_heap(i, key_columns); },
+                                          [&](auto* state) { _destroy_agg_status(state); });
                               };
 
                               SCOPED_TIMER(_hash_table_emplace_timer);

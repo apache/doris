@@ -25,6 +25,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.foundation.format.FormatOptions;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -247,17 +248,22 @@ public class ExprToStringValueVisitorTest {
     public void testFloatLiteralDouble() {
         FloatLiteral f = new FloatLiteral(3.14, Type.DOUBLE);
         String result = V.visitFloatLiteral(f, StringValueContext.forQuery(FormatOptions.getDefault()));
-        // FractionalFormat should produce a numeric string
-        Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.contains("3.14"));
+        Assertions.assertEquals("3.14", result);
+        Assertions.assertEquals("1e+23", V.visitFloatLiteral(new FloatLiteral(1e23, Type.DOUBLE),
+                StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("5e-324", V.visitFloatLiteral(new FloatLiteral(Double.MIN_VALUE, Type.DOUBLE),
+                StringValueContext.forQuery(FormatOptions.getDefault())));
     }
 
     @Test
     public void testFloatLiteralFloat() {
         FloatLiteral f = new FloatLiteral(2.5, Type.FLOAT);
         String result = V.visitFloatLiteral(f, StringValueContext.forQuery(FormatOptions.getDefault()));
-        Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.contains("2.5"));
+        Assertions.assertEquals("2.5", result);
+        Assertions.assertEquals("111.1111", V.visitFloatLiteral(new FloatLiteral(111.1111, Type.FLOAT),
+                StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("1e-45", V.visitFloatLiteral(new FloatLiteral((double) Float.MIN_VALUE, Type.FLOAT),
+                StringValueContext.forQuery(FormatOptions.getDefault())));
     }
 
     @Test
@@ -311,6 +317,111 @@ public class ExprToStringValueVisitorTest {
         DateLiteral d = new DateLiteral(2024, 1, 15, Type.DATEV2);
         Assertions.assertEquals("\"2024-01-15\"",
                 V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()).asComplexType()));
+    }
+
+    // ======================== TimeStampTz ========================
+
+    @Test
+    public void testDateLiteralTimeStampTzPositiveOffset() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("+08:00");
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2020-02-02 12:00:03.123456+00:00",
+                    ScalarType.createTimeStampTzType(6));
+            // UTC wall clock = 12:00:03.123456, with session +08:00 → wall clock 20:00:03.123456, offset +08:00
+            Assertions.assertEquals("2020-02-02 20:00:03.123456+08:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzNegativeOffset() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("-08:00");
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2020-02-02 12:00:03.123456+00:00",
+                    ScalarType.createTimeStampTzType(6));
+            // UTC wall clock = 12:00:03.123456, with session -08:00 → wall clock 04:00:03.123456, offset -08:00
+            Assertions.assertEquals("2020-02-02 04:00:03.123456-08:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzDstWinterTarget() throws Exception {
+        // Regression: visitor must NOT use Instant.now() for DST offset computation.
+        // A winter TIMESTAMPTZ value rendered in America/Chicago session must show
+        // winter offset (-06:00), not summer offset (-05:00) even if the JVM clock
+        // is in summer.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/Chicago");
+            // Winter target: 2027-01-01 00:00:00 UTC
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2027-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            // America/Chicago winter offset = -06:00
+            // UTC wall clock = 2027-01-01 00:00:00 → CST wall clock = 2026-12-31 18:00:00
+            Assertions.assertEquals("2026-12-31 18:00:00-06:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzDstSummerTarget() throws Exception {
+        // Summer baseline: a July value in America/Chicago should use -05:00.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/Chicago");
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2027-07-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            // America/Chicago summer offset = -05:00
+            // UTC wall clock = 2027-07-01 00:00:00 → CDT wall clock = 2027-06-30 19:00:00
+            Assertions.assertEquals("2027-06-30 19:00:00-05:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzHistoricalOffsetStreamLoad() throws Exception {
+        // BE's TimestampTzValue::to_string() truncates offset seconds
+        // (e.g. +08:05:43 → +08:05), denoting a different instant if
+        // reparsed.  Both stream-load and query paths must therefore
+        // serialise historical second-resolution offsets in UTC format
+        // so that FE constant evaluation and BE row serialisation
+        // produce the same string for the same stored instant.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("Asia/Shanghai");
+            // Pre-standard-offset instant: 1900-01-01 00:00:00 UTC.
+            DateLiteral d = DateLiteralUtils.createDateLiteral("1900-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            // Stream-load path must emit UTC format.
+            Assertions.assertEquals("1900-01-01 00:00:00+00:00",
+                    V.visitDateLiteral(d, StringValueContext.forStreamLoad(FormatOptions.getDefault())));
+            // Query path also falls back to UTC when the session timezone's
+            // offset at the target instant contains seconds (e.g. +08:05:43),
+            // because BE's TimestampTzValue::to_string() truncates offset
+            // seconds to +08:05, producing text that denotes a different
+            // instant.  Falling back to UTC ensures FE constant evaluation
+            // and BE row serialisation produce the same string.
+            Assertions.assertEquals("1900-01-01 00:00:00+00:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     // ======================== CastExpr ========================
@@ -437,6 +548,31 @@ public class ExprToStringValueVisitorTest {
         Assertions.assertEquals("{\"Bob\", 25}", result);
     }
 
+    @Test
+    public void testStructTimeStampTzStreamLoadHistoricalOffset() throws Exception {
+        // Regression: STRUCT children in stream-load must preserve the
+        // forStreamLoad flag so that TIMESTAMPTZ renders in UTC format;
+        // otherwise the query branch emits historical offsets with seconds
+        // (e.g. Asia/Shanghai +08:05:43) which BE's parser rejects.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("Asia/Shanghai");
+            DateLiteral tsTz = DateLiteralUtils.createDateLiteral(
+                    "1900-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            StructType structType = new StructType(
+                    new StructField("ts", ScalarType.createTimeStampTzType(0)));
+            StructLiteral s = new StructLiteral(structType, tsTz);
+            FormatOptions opts = FormatOptions.getDefault();
+            String result = V.visitStructLiteral(s, StringValueContext.forStreamLoad(opts));
+            // Nested TIMESTAMPTZ must be UTC, not with +08:05:43.
+            Assertions.assertEquals("{\"1900-01-01 00:00:00+00:00\"}", result);
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     // ======================== Default visitor (unoverridden Expr) ========================
 
     @Test
@@ -476,8 +612,10 @@ public class ExprToStringValueVisitorTest {
     public void testAsQueryComplexType() {
         StringValueContext streamCtx = StringValueContext.forStreamLoad(FormatOptions.getDefault());
         StringValueContext queryComplex = streamCtx.asQueryComplexType();
-        // asQueryComplexType: forces query mode + complex type
-        Assertions.assertFalse(queryComplex.isForStreamLoad());
+        // asQueryComplexType: forces complex type but preserves forStreamLoad
+        // so nested TIMESTAMPTZ renders in UTC format (BE parser rejects
+        // historical offsets with seconds like +08:05:43).
+        Assertions.assertTrue(queryComplex.isForStreamLoad());
         Assertions.assertTrue(queryComplex.isInComplexType());
     }
 

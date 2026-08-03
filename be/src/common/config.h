@@ -342,6 +342,39 @@ DECLARE_mInt32(download_binlog_meta_timeout_ms);
 // the interval time(seconds) for agent report index policy to FE
 DECLARE_mInt32(report_index_policy_interval_seconds);
 
+// DNS cache: log the "Failed to resolve hostname ... use cached ip" warning
+// only once per N consecutive failures for the same hostname, to avoid
+// flooding be.WARNING. Set <= 1 to log every failure (legacy behavior).
+// Should be set <= dns_cache_max_consecutive_failures, otherwise only the
+// first-failure log is ever emitted before a host is evicted.
+DECLARE_mInt32(dns_cache_log_every_n_failures);
+
+// DNS cache: evict a hostname after this many consecutive resolution failures.
+// At the default refresh interval of 60s, the default value of 30 means a
+// hostname that was once successfully resolved is evicted after ~30 minutes of
+// being un-resolvable.  Hostnames that have never been successfully resolved are
+// not tracked and are unaffected by this threshold.
+// Eviction additionally requires the most recent failure to be an authoritative
+// NXDOMAIN (getaddrinfo returning EAI_NONAME), i.e. the resolver positively
+// stating that the name does not exist. Transient failures such as EAI_AGAIN
+// (resolver unreachable or timed out) never evict, so a DNS-server outage
+// degrades to serving the last known IP instead of emptying the cache for every
+// hostname at once and turning a DNS incident into a cluster-wide RPC outage.
+// Set <= 0 to disable eviction (legacy behavior, kept for backward compatibility).
+DECLARE_mInt32(dns_cache_max_consecutive_failures);
+
+// DNS cache: seconds to suppress re-resolve attempts for a hostname that could
+// not be resolved -- either because it was evicted after repeated failures, or
+// because it never resolved in the first place.  During this window get()
+// returns an error immediately (no blocking getaddrinfo) so request threads are
+// not stalled while the backend is being drained or while a bad hostname is
+// being retried.
+// This also bounds recovery latency: the refresh thread does not retry hostnames
+// that are no longer in the cache, so a host comes back only when a caller's
+// get() runs after this TTL expires (one such retry per host per TTL).
+// Set <= 0 to disable the negative cache.
+DECLARE_mInt32(dns_cache_negative_ttl_seconds);
+
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
 // for udf
@@ -1621,6 +1654,22 @@ DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
 DECLARE_mInt64(s3_rate_limiter_log_interval);
+
+// CPU-aware S3 rate limiter: GET/PUT QPS per CPU core. A negative value means unset and
+// falls back to the legacy absolute token configs above; 0 disables QPS limiting.
+DECLARE_mInt64(s3_get_requests_per_second_per_core);
+DECLARE_mInt64(s3_put_requests_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_requests_per_second_max);
+DECLARE_mInt64(s3_put_requests_per_second_max);
+// GET/PUT bytes per second per CPU core. A non-positive value disables byte-rate limiting.
+DECLARE_mInt64(s3_get_bytes_per_second_per_core);
+DECLARE_mInt64(s3_put_bytes_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_bytes_per_second_max);
+DECLARE_mInt64(s3_put_bytes_per_second_max);
+// Override for cores used to derive effective limits: a non-positive value means auto-detect.
+DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will

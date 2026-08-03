@@ -19,3 +19,9 @@ sh generated-source.sh
 ```bash
 cd fe && mvn clean install -DskipTests -Dskip.doc=true -T 1C
 ```
+
+## Connector Framework
+
+For work under `fe-connector/` (connector plugins / external catalogs), start
+with `fe-connector/README.md` (architecture, adding a new connector) and
+`fe-connector/AGENTS.md` (build/test recipes, gates, invariants).

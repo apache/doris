@@ -43,6 +43,7 @@
 #include "exec/common/hex.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
+#include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/olap_common.h"
@@ -978,8 +979,8 @@ void TabletSchema::remove_index(int64_t index_id) {
                 auto& pattern_to_index_map = _index_by_unique_id_with_pattern[col_uid];
                 pattern_to_index_map[field_pattern].emplace_back(index);
             } else {
-                IndexKey key = std::make_tuple(_indexes.back()->index_type(), col_uid,
-                                               _indexes.back()->get_index_suffix());
+                IndexKey key =
+                        std::make_tuple(index->index_type(), col_uid, index->get_index_suffix());
                 _col_id_suffix_to_index[key].push_back(new_pos);
             }
         }

@@ -17,9 +17,6 @@
 
 package org.apache.doris.connector.jdbc;
 
-import java.util.Collections;
-import java.util.Map;
-
 /**
  * Normalizes JDBC URLs by adding required parameters for correct behavior.
  * Replicates the logic from {@code JdbcResource.handleJdbcUrl()} in fe-core,
@@ -55,21 +52,25 @@ public final class JdbcUrlNormalizer {
      * <p>For SQL Server:
      * <ul>
      *   <li>{@code useBulkCopyForBatchInsert=true}</li>
-     *   <li>{@code encrypt=false} — when {@code force_sqlserver_jdbc_encrypt_false} is set</li>
+     *   <li>{@code encrypt=false} — when the deployment asks for it</li>
      * </ul>
      */
     public static String normalize(String jdbcUrl, JdbcDbType dbType) {
-        return normalize(jdbcUrl, dbType, Collections.emptyMap());
+        return normalize(jdbcUrl, dbType, false);
     }
 
     /**
-     * Normalize a JDBC URL with engine environment context.
+     * Normalize a JDBC URL, honoring the deployment-level SQL Server encryption override.
      *
      * @param jdbcUrl the raw JDBC URL
      * @param dbType  the database type
-     * @param environment engine environment properties (from ConnectorContext)
+     * @param forceSqlServerEncryptFalse whether to pin {@code encrypt=false} on a SQL Server URL.
+     *                                   Resolved by the caller from {@code force_sqlserver_encrypt_false}
+     *                                   in the plugin's own jdbc.conf or
+     *                                   {@code force_sqlserver_jdbc_encrypt_false} in fe.conf
      */
-    public static String normalize(String jdbcUrl, JdbcDbType dbType, Map<String, String> environment) {
+    public static String normalize(String jdbcUrl, JdbcDbType dbType,
+            boolean forceSqlServerEncryptFalse) {
         if (jdbcUrl == null || jdbcUrl.isEmpty()) {
             return jdbcUrl;
         }
@@ -95,8 +96,7 @@ public final class JdbcUrlNormalizer {
                 url = setParam(url, dbType, "reWriteBatchedInserts", "false", "true");
                 break;
             case SQLSERVER:
-                if ("true".equalsIgnoreCase(environment.getOrDefault(
-                        "force_sqlserver_jdbc_encrypt_false", "false"))) {
+                if (forceSqlServerEncryptFalse) {
                     url = setParam(url, dbType, "encrypt", "true", "false");
                 }
                 url = setParam(url, dbType, "useBulkCopyForBatchInsert", "false", "true");

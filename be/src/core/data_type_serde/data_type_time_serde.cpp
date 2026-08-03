@@ -63,6 +63,10 @@ public:
               _context(context),
               _state(state) {}
 
+    TimeV2ParquetConsumer(ColumnTimeV2::Container& data, const ParquetDecodeContext& context,
+                          ParquetMaterializationState* state = nullptr)
+            : _data(data), _context(context), _state(state) {}
+
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         const size_t old_size = _data.size();
         _data.resize(old_size + num_values);
@@ -121,6 +125,39 @@ public:
     Status consume(const StringRef* values, size_t num_values) override {
         return Status::NotSupported("Binary Parquet values cannot be materialized as TIMEV2");
     }
+};
+
+class TimeV2PredicateParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    TimeV2PredicateParquetConsumer(const ParquetDecodeContext& context, bool enable_strict_mode,
+                                   ParquetLogicalValueConsumer& consumer,
+                                   ColumnTimeV2::Container& logical_values,
+                                   IColumn::Filter& conversion_nulls)
+            : _context(context),
+              _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        TimeV2ParquetConsumer converter(_logical_values, _context, &state);
+        RETURN_IF_ERROR(converter.consume(values, num_values, value_width));
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(TimeValue::TimeType), _conversion_nulls.data());
+    }
+
+private:
+    const ParquetDecodeContext& _context;
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    ColumnTimeV2::Container& _logical_values;
+    IColumn::Filter& _conversion_nulls;
 };
 
 } // namespace
@@ -298,6 +335,26 @@ Status DataTypeTimeV2SerDe::read_column_from_parquet(IColumn& column, ParquetDec
         state.dictionary_generation = source.dictionary_generation();
     }
     return state.materialize_dictionary(column, source, num_values);
+}
+
+bool DataTypeTimeV2SerDe::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    return context.encoding != ParquetValueEncoding::DICTIONARY &&
+           (context.physical_type == ParquetPhysicalType::INT32 ||
+            context.physical_type == ParquetPhysicalType::INT64) &&
+           context.logical_type == ParquetLogicalType::TIME;
+}
+
+Status DataTypeTimeV2SerDe::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if (!supports_parquet_raw_predicate(context)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for TIMEV2");
+    }
+    TimeV2PredicateParquetConsumer predicate_consumer(context, enable_strict_mode, consumer,
+                                                      _parquet_predicate_values,
+                                                      _parquet_predicate_nulls);
+    return source.decode_fixed_values(num_values, predicate_consumer);
 }
 
 template <typename IntDataType>

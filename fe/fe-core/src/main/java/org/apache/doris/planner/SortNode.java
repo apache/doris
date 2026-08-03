@@ -271,13 +271,15 @@ public class SortNode extends PlanNode {
             // BE: SortSink._is_analytic_sort=true → required_data_distribution() = HASH.
             // This sort serves a parent AnalyticEvalNode (window function) and requires
             // data partitioned by the analytic's partition exprs.
-            if (AddLocalExchange.isColocated(this)) {
-                requireChild = LocalExchangeTypeRequire.requireHash();
-                outputType = AddLocalExchange.resolveExchangeType(
-                        LocalExchangeTypeRequire.requireHash());
-            } else {
-                requireChild = parentRequire.autoRequireHash();
-            }
+            // requireHash() is the generic hash require: BUCKET_HASH_SHUFFLE satisfies it too,
+            // so a bucket-distributed child keeps its bucket placement and no local exchange is
+            // inserted. outputType must therefore stay null and be derived from enforceResult —
+            // hardcoding LOCAL_EXECUTION_HASH_SHUFFLE here would advertise a placement the data
+            // is not on, and a parent asking for exactly LOCAL_EXECUTION_HASH_SHUFFLE (a bucket
+            // join upgraded to local hash) would skip its realign local exchange.
+            requireChild = AddLocalExchange.isColocated(this)
+                    ? LocalExchangeTypeRequire.requireHash()
+                    : parentRequire.autoRequireHash();
         } else if (mergeByexchange) {
             // BE: SortSink._merge_by_exchange=true → required_data_distribution() = PASSTHROUGH.
             requireChild = LocalExchangeTypeRequire.requirePassthrough();
