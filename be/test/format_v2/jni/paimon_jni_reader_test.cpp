@@ -99,7 +99,7 @@ TEST(PaimonJniReaderTest, ForwardsSerializedTableCacheKey) {
     EXPECT_EQ(params["serialized_table_cache_key"], "table-cache-key");
 }
 
-TEST(PaimonJniReaderTest, OmitsMissingOrEmptySerializedTableCacheKey) {
+TEST(PaimonJniReaderTest, GeneratesMissingOrEmptySerializedTableCacheKey) {
     auto range = make_paimon_jni_range();
     range.table_format_params.paimon_params.__set_paimon_predicate("serialized-predicate");
     auto scan_params = make_scan_params();
@@ -110,12 +110,15 @@ TEST(PaimonJniReaderTest, OmitsMissingOrEmptySerializedTableCacheKey) {
     std::map<std::string, std::string> params;
     ASSERT_TRUE(build_params(&reader, range, &params).ok());
     EXPECT_EQ(params["serialized_table"], "serialized-table");
-    EXPECT_EQ(params.end(), params.find("serialized_table_cache_key"));
+    const std::string missing_key = params["serialized_table_cache_key"];
+    EXPECT_FALSE(missing_key.empty());
 
     scan_params.__set_serialized_table_cache_key("");
     ASSERT_TRUE(build_params(&reader, range, &params).ok());
     EXPECT_EQ(params["serialized_table"], "serialized-table");
-    EXPECT_EQ(params.end(), params.find("serialized_table_cache_key"));
+    const std::string empty_key = params["serialized_table_cache_key"];
+    EXPECT_FALSE(empty_key.empty());
+    EXPECT_NE(missing_key, empty_key);
 }
 
 TEST(PaimonJniReaderTest, FallsBackToLegacySplitPredicateWhenScanPredicateIsMissing) {

@@ -224,19 +224,11 @@ Status JniReader::close() {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
-    Status close_status;
-    if (env->ExceptionCheck()) {
-        close_status = Jni::Env::GetJniExceptionMsg(env);
-    }
-    _publish_close_profile(env);
 
     // _fill_block may fail before releasing the current Java table. JniScanner::releaseTable()
     // is idempotent, so close always retries it. Java close must still run when that release
     // fails, otherwise connector resources such as Paimon's static table-cache lease can leak.
-    auto cleanup_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call();
-    if (close_status.ok() && !cleanup_status.ok()) {
-        close_status = std::move(cleanup_status);
-    }
+    auto close_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call();
     auto java_close_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_close).call();
     if (close_status.ok() && !java_close_status.ok()) {
         close_status = std::move(java_close_status);
@@ -246,45 +238,6 @@ Status JniReader::close() {
         _closed = true;
     }
     return close_status;
-}
-
-void JniReader::_publish_close_profile(JNIEnv* env) {
-    if (_close_profile_published) {
-        return;
-    }
-    _close_profile_published = true;
-    if (_profile == nullptr) {
-        return;
-    }
-
-    COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
-    COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
-
-    jlong append_data_time = 0;
-    auto append_time_status =
-            _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                    .call(&append_data_time);
-    jlong create_vector_table_time = 0;
-    auto create_table_time_status =
-            _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
-                    .call(&create_vector_table_time);
-    if (!append_time_status.ok()) {
-        LOG(WARNING) << "failed to collect JNI append-data time during close: "
-                     << append_time_status;
-    }
-    if (!create_table_time_status.ok()) {
-        LOG(WARNING) << "failed to collect JNI vector-table time during close: "
-                     << create_table_time_status;
-    }
-    if (append_time_status.ok() && create_table_time_status.ok()) {
-        COUNTER_UPDATE(_java_append_data_time, append_data_time);
-        COUNTER_UPDATE(_java_create_vector_table_time, create_vector_table_time);
-        COUNTER_UPDATE(_java_scan_time,
-                       _java_scan_watcher - append_data_time - create_vector_table_time);
-        _max_time_split_weight_counter->conditional_update(
-                _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
-                _self_split_weight);
-    }
 }
 
 // =========================================================================
@@ -445,6 +398,35 @@ void JniReader::_collect_profile_before_close() {
             LOG(WARNING) << "failed to get jni env when collect profile: " << st;
             return;
         }
+        COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
+        COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
+
+        jlong append_data_time = 0;
+        auto append_time_status =
+                _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+                        .call(&append_data_time);
+        jlong create_vector_table_time = 0;
+        auto create_table_time_status =
+                _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
+                        .call(&create_vector_table_time);
+        if (!append_time_status.ok()) {
+            LOG(WARNING) << "failed to collect JNI append-data time before close: "
+                         << append_time_status;
+        }
+        if (!create_table_time_status.ok()) {
+            LOG(WARNING) << "failed to collect JNI vector-table time before close: "
+                         << create_table_time_status;
+        }
+        if (append_time_status.ok() && create_table_time_status.ok()) {
+            COUNTER_UPDATE(_java_append_data_time, append_data_time);
+            COUNTER_UPDATE(_java_create_vector_table_time, create_vector_table_time);
+            COUNTER_UPDATE(_java_scan_time,
+                           _java_scan_watcher - append_data_time - create_vector_table_time);
+            _max_time_split_weight_counter->conditional_update(
+                    _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
+                    _self_split_weight);
+        }
+
         // update scanner metrics
         std::map<std::string, std::string> statistics_result;
         st = _get_statistics(env, &statistics_result);

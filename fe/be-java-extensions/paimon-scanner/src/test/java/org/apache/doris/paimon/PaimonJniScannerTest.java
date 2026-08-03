@@ -73,6 +73,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PaimonJniScannerTest {
+    private static final String SERIALIZED_TABLE = "serialized_table";
     private static final String SERIALIZED_TABLE_CACHE_KEY = "serialized_table_cache_key";
 
     @Rule
@@ -89,13 +90,40 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testConstructorAcceptsMissingOrEmptyTableCacheKey() {
+    public void testConstructorRejectsMissingOrEmptyTableCacheKey() {
         Map<String, String> params = createBaseParams();
         params.remove(SERIALIZED_TABLE_CACHE_KEY);
-        new PaimonJniScanner(128, params);
+        assertInvalidTableCacheKey(params);
 
         params.put(SERIALIZED_TABLE_CACHE_KEY, "");
-        new PaimonJniScanner(128, params);
+        assertInvalidTableCacheKey(params);
+    }
+
+    @Test
+    public void testWarmTableCacheHitReleasesSerializedTablePayload() throws Exception {
+        String cacheKey = "warm-table-cache-hit";
+        Map<String, String> params = createBaseParams();
+        params.put(SERIALIZED_TABLE_CACHE_KEY, cacheKey);
+        params.put(SERIALIZED_TABLE, "serialized-table-payload");
+        Table cachedTable = newTestTable(Collections.emptyMap());
+        PaimonTableCache.TableCacheEntry cacheEntry =
+                new PaimonTableCache.TableCacheEntry(cachedTable, Collections.emptyList());
+        Assert.assertTrue(PaimonTableCache.publish(cacheKey, cacheEntry));
+
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+        Method initTableFromCache = PaimonJniScanner.class.getDeclaredMethod("initTableFromCache");
+        initTableFromCache.setAccessible(true);
+
+        Assert.assertTrue((Boolean) initTableFromCache.invoke(scanner));
+        Assert.assertFalse(params.containsKey(SERIALIZED_TABLE));
+        Field tableField = PaimonJniScanner.class.getDeclaredField("table");
+        tableField.setAccessible(true);
+        Assert.assertSame(cachedTable, tableField.get(scanner));
+
+        scanner.close();
+        Assert.assertEquals(1, PaimonTableCache.size());
+        PaimonTableCache.release(cacheKey, cacheEntry);
+        Assert.assertEquals(0, PaimonTableCache.size());
     }
 
     @Test
@@ -738,6 +766,15 @@ public class PaimonJniScannerTest {
         params.put("paimon_predicate", "");
         params.put(SERIALIZED_TABLE_CACHE_KEY, "test-table-cache-key");
         return params;
+    }
+
+    private void assertInvalidTableCacheKey(Map<String, String> params) {
+        try {
+            new PaimonJniScanner(128, params);
+            Assert.fail("expected constructor to reject an invalid table cache key");
+        } catch (IllegalStateException e) {
+            Assert.assertTrue(e.getMessage().contains(SERIALIZED_TABLE_CACHE_KEY));
+        }
     }
 
     private String encodeFields(String... fields) {

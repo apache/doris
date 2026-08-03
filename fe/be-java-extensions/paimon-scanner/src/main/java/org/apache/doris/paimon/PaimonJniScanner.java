@@ -76,6 +76,7 @@ public class PaimonJniScanner extends JniScanner {
     private static final String PAIMON_OPTION_PREFIX = "paimon.";
     private static final String ASYNC_READER_THREAD_NAME_PREFIX = "paimon-reader-async-thread";
     private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
+    private static final String SERIALIZED_TABLE = "serialized_table";
     private static final int MAX_MANIFEST_PARALLELISM = 256;
     static final String DORIS_MANIFEST_PARALLELISM_CAP =
             "doris.scan.manifest.parallelism-cap";
@@ -137,6 +138,8 @@ public class PaimonJniScanner extends JniScanner {
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
         tableCacheKey = params.get("serialized_table_cache_key");
+        Preconditions.checkState(tableCacheKey != null && !tableCacheKey.isEmpty(),
+                "Missing required Paimon scanner parameter: serialized_table_cache_key");
         String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
         initTableInfo(columnTypes, requiredFields, batchSize);
@@ -641,8 +644,9 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTable() {
-        Preconditions.checkState(params.containsKey("serialized_table"));
-        table = PaimonUtils.deserialize(params.get("serialized_table"));
+        Preconditions.checkState(params.containsKey(SERIALIZED_TABLE));
+        table = PaimonUtils.deserialize(params.get(SERIALIZED_TABLE));
+        params.remove(SERIALIZED_TABLE);
         String encodedSystemSource = params.get(PAIMON_OPTION_PREFIX + DORIS_SERIALIZED_SYSTEM_SOURCE);
         FileStoreTable systemSource = encodedSystemSource == null
                 ? null : PaimonUtils.deserialize(encodedSystemSource);
@@ -870,18 +874,20 @@ public class PaimonJniScanner extends JniScanner {
         }
     }
 
-    private void initTableAndReader() throws IOException {
-        // Old FE Version maybe not contains serialized_table_cache_key, maybe need delete now is 4.x
-        if (tableCacheKey == null || tableCacheKey.isEmpty()) {
-            initTable();
-            initReader();
-            return;
-        }
+    private boolean initTableFromCache() {
         PaimonTableCache.TableCacheEntry cachedEntry = PaimonTableCache.acquire(tableCacheKey);
-        if (cachedEntry != null) {
-            tableCacheEntry = cachedEntry;
-            table = cachedEntry.table();
-            paimonAllFieldNames = cachedEntry.fieldNames();
+        if (cachedEntry == null) {
+            return false;
+        }
+        tableCacheEntry = cachedEntry;
+        table = cachedEntry.table();
+        paimonAllFieldNames = cachedEntry.fieldNames();
+        params.remove(SERIALIZED_TABLE);
+        return true;
+    }
+
+    private void initTableAndReader() throws IOException {
+        if (initTableFromCache()) {
             initReader();
             return;
         }

@@ -146,7 +146,6 @@ private:
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
     Status _fill_block(Block* block, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
-    void _publish_close_profile(JNIEnv* env);
 
     std::string _connector_name;
     std::string _connector_class;
@@ -170,7 +169,6 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
-    bool _close_profile_published = false;
 
     Jni::GlobalClass _jni_scanner_cls;
     Jni::GlobalObject _jni_scanner_obj;

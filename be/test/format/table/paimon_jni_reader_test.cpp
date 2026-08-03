@@ -40,7 +40,7 @@ TFileRangeDesc make_legacy_paimon_jni_range() {
     return range;
 }
 
-TEST(LegacyPaimonJniReaderTest, OmitsMissingOrEmptySerializedTableCacheKey) {
+TEST(LegacyPaimonJniReaderTest, GeneratesMissingOrEmptySerializedTableCacheKey) {
     const auto range = make_legacy_paimon_jni_range();
     TFileScanRangeParams scan_params;
     scan_params.__set_serialized_table("serialized-table");
@@ -50,14 +50,15 @@ TEST(LegacyPaimonJniReaderTest, OmitsMissingOrEmptySerializedTableCacheKey) {
 
     PaimonJniReader missing_key_reader(file_slot_descs, &state, nullptr, range, &scan_params);
     EXPECT_EQ(missing_key_reader._scanner_params["serialized_table"], "serialized-table");
-    EXPECT_EQ(missing_key_reader._scanner_params.end(),
-              missing_key_reader._scanner_params.find("serialized_table_cache_key"));
+    const auto& missing_key = missing_key_reader._scanner_params["serialized_table_cache_key"];
+    EXPECT_FALSE(missing_key.empty());
 
     scan_params.__set_serialized_table_cache_key("");
     PaimonJniReader empty_key_reader(file_slot_descs, &state, nullptr, range, &scan_params);
     EXPECT_EQ(empty_key_reader._scanner_params["serialized_table"], "serialized-table");
-    EXPECT_EQ(empty_key_reader._scanner_params.end(),
-              empty_key_reader._scanner_params.find("serialized_table_cache_key"));
+    const auto& empty_key = empty_key_reader._scanner_params["serialized_table_cache_key"];
+    EXPECT_FALSE(empty_key.empty());
+    EXPECT_NE(missing_key, empty_key);
 }
 
 } // namespace
