@@ -247,9 +247,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         thread_context()->thread_mem_tracker_mgr->shrink_reserved();
     }
     Status st = Status::OK();
-    {
-        st = _writer_status.status();
-    }
+    { st = _writer_status.status(); }
 
     Status close_st = close(st);
     {
