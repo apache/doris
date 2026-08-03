@@ -189,5 +189,46 @@ TEST(FlussJniReaderTest, StillReadsAPartitionColumnTheRangeDidNotCarry) {
     EXPECT_EQ(columns[1].output_index, 1);
 }
 
+// A reader whose projection nobody planned.
+//
+// Every projection so far arrived from FE as slot descriptors: the query asked for these columns,
+// the engine turned them into ColumnDefinitions, the reader read them. A union read of a primary-key
+// table needs one that did not come from a query at all - to suppress the lake rows a newer log
+// record has replaced, BE first has to read the key columns of that log tail, and those keys are
+// needed whether or not the query happens to project them.
+//
+// What this pins is that a projection assembled here, from names and types alone, drives the reader
+// exactly like a planned one: the scanner is asked for those columns, in that order, with those
+// types. Everything downstream (the JNI block template, and the Java scanner's own projection) is
+// derived from this pair of strings, so if they are right the rest follows.
+TEST(FlussJniReaderTest, ReadsAProjectionBuiltHereRatherThanPlannedByFe) {
+    auto scan_params = make_scan_params({{"fluss.db_name", "db"}});
+    // No slot descriptors, no tuple, no query: three key columns named and typed on the spot.
+    std::vector<ColumnDefinition> synthetic_keys {
+            make_column("id", std::make_shared<DataTypeInt32>(), false),
+            make_column("name", std::make_shared<DataTypeString>(), false),
+            make_column("amount", std::make_shared<DataTypeInt64>(), false)};
+
+    FlussJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params, std::move(synthetic_keys)).ok());
+
+    ASSERT_TRUE(reader.build_jni_columns(&reader._jni_columns).ok());
+    ASSERT_EQ(reader._jni_columns.size(), 3);
+    reader._prepare_jni_scanner_schema();
+
+    // The two strings the Java scanner projects by. A synthetic projection that produced anything
+    // else here would read the wrong columns, or fail to open, at the first union read of a
+    // primary-key table - and nothing between here and there would notice.
+    EXPECT_EQ(reader._scanner_params["required_fields"], "id,name,amount");
+    EXPECT_EQ(reader._scanner_params["columns_types"], "int#string#bigint");
+
+    // The block C++ receives them into. Its width and types must match the projection, since
+    // finalize_jni_block moves these columns into the output block by position.
+    ASSERT_EQ(reader._jni_block_template.columns(), 3);
+    EXPECT_EQ(reader._jni_block_template.get_by_position(0).name, "id");
+    EXPECT_EQ(reader._jni_block_template.get_by_position(2).name, "amount");
+    EXPECT_TRUE(reader._jni_block_template.get_by_position(2).type->equals(DataTypeInt64 {}));
+}
+
 } // namespace
 } // namespace doris::format::fluss
