@@ -26,9 +26,11 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
@@ -100,6 +102,12 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         // ON, duplicate full keys remain as partial rows and a stale partial can
         // be picked instead of the merged value, changing MAX/MIN.
         private Set<RelationId> asofSelectedSideRelationIds = new HashSet<>();
+
+        // Retained non-movable project expressions (e.g. assert_true). They are
+        // kept by pruneOutputs even when unused, and must run on storage-merged
+        // rows: a pre-agg ON scan would evaluate them on raw partial rows. Any
+        // scan whose value columns they reference must stay OFF.
+        private List<Expression> retainedNonMovableExpressions = new ArrayList<>();
 
         private Map<Slot, Expression> replaceMap = new HashMap<>();
 
@@ -204,6 +212,18 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             groupingScalarFunctionExpresssions.add(expression);
         }
 
+        private void addRetainedNonMovableExpression(Expression expr) {
+            try {
+                retainedNonMovableExpressions.add(ExpressionUtils.replace(expr, replaceMap));
+            } catch (AnalysisException e) {
+                if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                    hasUnresolvedExpression = true;
+                } else {
+                    throw e;
+                }
+            }
+        }
+
         private void addAggregateFunctions(Set<AggregateFunction> functions) {
             aggregateFunctions.addAll(functions);
             Set<AggregateFunction> newAggregateFunctions = Sets.newHashSet();
@@ -300,9 +320,18 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> logicalProject,
             Stack<PreAggInfoContext> context) {
-        LogicalProject plan = (LogicalProject) super.visit(logicalProject, context);
+        LogicalProject<?> plan = (LogicalProject) super.visit(logicalProject, context);
         if (!context.empty() && context.peek() != null) {
             context.peek().setReplaceMap(plan.getAliasToProducer());
+            // Track retained non-movable project expressions (e.g. assert_true):
+            // pruneOutputs keeps them even when unused, and they must run on
+            // storage-merged rows. If pre-agg turns a scan ON, these would be
+            // evaluated on raw partial rows, so keep affected scans OFF.
+            for (NamedExpression output : plan.getOutputs()) {
+                if (output.containsType(NoneMovableFunction.class)) {
+                    context.peek().addRetainedNonMovableExpression(output);
+                }
+            }
         }
         return plan;
     }
@@ -404,6 +433,17 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             if (!Sets.intersection(joinInputSlots, valueSlots).isEmpty()) {
                 return PreAggStatus.off(String.format("Join conjuncts %s contains non-key column %s",
                         joinConjuncts, joinInputSlots));
+            }
+
+            // Retained non-movable project expressions (e.g. assert_true) must
+            // run on storage-merged rows: with pre-agg ON they would be evaluated
+            // on raw partial rows. Keep any scan whose value columns they read OFF.
+            for (Expression retained : context.retainedNonMovableExpressions) {
+                if (!Sets.intersection(retained.getInputSlots(), valueSlots).isEmpty()) {
+                    return PreAggStatus.off(String.format(
+                            "retained non-movable expression %s references non-key column %s",
+                            retained, valueSlots));
+                }
             }
 
             // Row-stability check: volatile expressions evaluated per partial row

@@ -32,6 +32,7 @@ suite("set_preagg") {
         drop table if exists preagg_f_r;
         drop table if exists preagg_asof_l;
         drop table if exists preagg_asof_r;
+        drop table if exists preagg_g;
 
         create table preagg_t1(
             k1 int null,
@@ -127,6 +128,14 @@ suite("set_preagg") {
         aggregate key (grp, ts)
         distributed BY hash(grp) buckets 1
         properties("replication_num" = "1");
+        create table preagg_g(
+            k1 int null,
+            v7 bigint SUM,
+            v9 bigint MAX
+        )
+        aggregate key (k1)
+        distributed BY hash(k1) buckets 1
+        properties("replication_num" = "1");
 
         insert into preagg_t1 values
             (1,1,1,1,1,1, 10, 100, 1000),
@@ -155,6 +164,8 @@ suite("set_preagg") {
         insert into preagg_asof_r values (1,'2020-01-01 00:00:00',100);
         insert into preagg_asof_r values (1,'2020-01-01 00:00:00',200);
         insert into preagg_asof_r values (2,'2020-01-01 00:00:00',300);
+        insert into preagg_g values (1, -2, 10);
+        insert into preagg_g values (1, 3, 20);
     """
 
     explain {
@@ -1115,6 +1126,24 @@ suite("set_preagg") {
     order_qt_q39 """
         select min(if(l.k1 > 0, l.v9m, r.v9m))
         from preagg_f_l l inner join preagg_f_r r on l.k1 = r.k1;
+    """
+
+    // Retained non-movable project expressions (e.g. assert_true) must run on
+    // storage-merged rows. pruneOutputs deliberately keeps the unused
+    // assert_true(v7 > 0, 'bad') output; pre-agg ON would evaluate it on the
+    // raw partial row v7=-2 (preagg_g loads (1,-2,10) and (1,3,20) in separate
+    // rowsets) and throw InvalidArgument, while pre-agg OFF merges v7 to
+    // -2+3=1 and the assert passes, returning max(if(1>0, 20, 0)) = 20.
+    explain {
+        sql("""
+            select max(if(k1 > 0, v9, 0))
+            from (select k1, v9, assert_true(v7 > 0, 'bad') as checked from preagg_g) t
+        """)
+        notContains "(preagg_g), PREAGGREGATION: ON"
+    }
+    order_qt_test_c """
+        select max(if(k1 > 0, v9, 0))
+        from (select k1, v9, assert_true(v7 > 0, 'bad') as checked from preagg_g) t
     """
 
 }
