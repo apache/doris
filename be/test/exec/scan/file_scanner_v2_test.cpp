@@ -411,9 +411,10 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_format_type(TFileFormatType::FORMAT_LANCE);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
-    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP,
-                                                                  TFileFormatType::FORMAT_LANCE};
+    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP};
     for (const auto format : unsupported_formats) {
         params.__set_format_type(format);
         EXPECT_FALSE(
