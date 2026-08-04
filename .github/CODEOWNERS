@@ -18,6 +18,8 @@
 # for more syntax help and usage example
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners#codeowners-syntax
 
+be/src/agent/be_exec_version_manager.cpp @HappenLee @mrhhsg
+be/**/CMakeLists.txt @HappenLee @mrhhsg
 fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinKirs @morningman
 **/pom.xml @CalvinKirs @morningman
 fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java @dataroaring @morningman @yiguolei @xiaokang
