@@ -1468,6 +1468,22 @@ public class StatementContext implements Closeable {
         return mvCanRewritePartitionsMap;
     }
 
+    /** Clear materialized-view planning state retained by a prepared statement between executions. */
+    public void resetMaterializedViewStateForPreparedExecution() {
+        tableUsedPartitionNameMap.clear();
+        commonTableIdToRelationIdToMap.clear();
+        mvCanRewritePartitionsMap.clear();
+        materializedViewRewriteDuration = 0;
+        hints.removeIf(UseMvHint.class::isInstance);
+        tmpPlanForMvRewrite.clear();
+        rewrittenPlansByMv.clear();
+        needPreMvRewriteRuleMasks.clear();
+        needPreMvRewrite = false;
+        preMvRewritten = false;
+        materializationRewrittenSuccessSet.clear();
+        relationIdToStatisticsMap.clear();
+    }
+
     public void setPrepareStage(boolean isPrepare) {
         this.prepareStage = isPrepare;
     }

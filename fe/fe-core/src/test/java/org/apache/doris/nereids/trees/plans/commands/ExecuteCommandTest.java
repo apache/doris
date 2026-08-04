@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -27,18 +28,26 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -129,6 +138,55 @@ public class ExecuteCommandTest {
         Assertions.assertEquals(Collections.singleton(1),
                 statementContext.getCommonTableIdToRelationIdMap().get(0));
         Mockito.verify(executor, Mockito.times(2)).execute();
+    }
+
+    @Test
+    public void testMaterializedViewStateIsResetForEveryExecute() throws Exception {
+        String sql = "select 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        connectContext.addPreparedStatementContext("stmt", preparedStatement);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        Hint retainedHint = new Hint("Distribute");
+        statementContext.addHint(retainedHint);
+        statementContext.setForceRecordTmpPlan(true);
+        AtomicInteger executionCount = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertTrue(statementContext.getTableUsedPartitionNameMap().isEmpty());
+            Assertions.assertTrue(statementContext.getCommonTableIdToRelationIdMap().isEmpty());
+            Assertions.assertTrue(statementContext.getMvCanRewritePartitionsMap().isEmpty());
+            Assertions.assertEquals(0, statementContext.getMaterializedViewRewriteDuration());
+            Assertions.assertEquals(Collections.singletonList(retainedHint), statementContext.getHints());
+            Assertions.assertTrue(statementContext.getTmpPlanForMvRewrite().isEmpty());
+            Assertions.assertTrue(statementContext.getRewrittenPlansByMv().isEmpty());
+            Assertions.assertTrue(statementContext.getNeedPreMvRewriteRuleMasks().isEmpty());
+            Assertions.assertFalse(statementContext.isNeedPreMvRewrite());
+            Assertions.assertFalse(statementContext.isPreMvRewritten());
+            Assertions.assertTrue(statementContext.getMaterializationRewrittenSuccessSet().isEmpty());
+            Assertions.assertTrue(statementContext.getRelationIdToStatisticsMap().isEmpty());
+            Assertions.assertTrue(statementContext.isForceRecordTmpPlan());
+            NereidsPlanner planner = new NereidsPlanner(statementContext);
+            planner.plan(new LogicalPlanAdapter(logicalPlan, statementContext));
+            Assertions.assertNotNull(planner.getPhysicalPlan());
+            populateMaterializedViewState(statementContext, logicalPlan);
+            executionCount.incrementAndGet();
+            return null;
+        }).when(executor).execute();
+
+        populateMaterializedViewState(statementContext, logicalPlan);
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+
+        Assertions.assertEquals(2, executionCount.get());
     }
 
     @Test
@@ -278,6 +336,23 @@ public class ExecuteCommandTest {
         return scanParams.getOrResolveMapParams(ignored -> ImmutableMap.of(
                 "scan.snapshot-id", String.valueOf(snapshotId.incrementAndGet())))
                 .get("scan.snapshot-id");
+    }
+
+    private void populateMaterializedViewState(StatementContext statementContext, LogicalPlan logicalPlan) {
+        statementContext.getTableUsedPartitionNameMap().put(Collections.singletonList("table"),
+                Pair.of(new RelationId(1), Collections.singleton("partition")));
+        statementContext.getCommonTableIdToRelationIdMap().put(1, 1);
+        statementContext.getMvCanRewritePartitionsMap().put(Mockito.mock(BaseTableInfo.class),
+                Collections.singleton(Mockito.mock(Partition.class)));
+        statementContext.addMaterializedViewRewriteDuration(1);
+        statementContext.addHint(Mockito.mock(UseMvHint.class));
+        statementContext.addTmpPlanForMvRewrite(logicalPlan);
+        statementContext.addRewrittenPlanByMv(logicalPlan);
+        statementContext.ruleSetApplied(RuleType.REORDER_JOIN);
+        statementContext.setNeedPreMvRewrite(true);
+        statementContext.setPreMvRewritten(true);
+        statementContext.addMaterializationRewrittenSuccess(Collections.singletonList("mv"));
+        statementContext.addStatistics(new RelationId(1), Mockito.mock(Statistics.class));
     }
 
     private void assertPreparedCommandResetsScanOptions(

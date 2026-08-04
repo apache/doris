@@ -91,10 +91,9 @@ public class ExecuteCommand extends Command {
         }
         PrepareCommand prepareCommand = preparedStmtCtx.command;
         StatementContext statementContext = preparedStmtCtx.getStatementContext();
-        // Prepared statements reuse StatementContext across executions. Discard partition
-        // information collected by the previous execution before planning the current one.
-        statementContext.getTableUsedPartitionNameMap().clear();
-        statementContext.getCommonTableIdToRelationIdMap().clear();
+        // Prepared statements reuse StatementContext across executions. Discard partition and MV
+        // planning results collected by the previous execution before planning the current one.
+        statementContext.resetMaterializedViewStateForPreparedExecution();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
         // A prepared EXECUTE reuses this one StatementContext across executions; drop the connector
