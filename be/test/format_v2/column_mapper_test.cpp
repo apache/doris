@@ -2843,10 +2843,9 @@ TEST(ColumnMapperScanRequestTest, StructProjectionPrunesChildrenByName) {
     EXPECT_EQ(projected_type->get_element_name(0), "b");
 }
 
-// Scenario: a row filter reaches a struct child through an array wrapper
-// (`items.item.a > 5`). The mapper cannot localize the filter, so it keeps the full array root in
-// the lazy non-predicate set for table-level evaluation.
-TEST(ColumnMapperScanRequestTest, ArrayWrapperDoesNotBuildNestedPredicateFilter) {
+// Scenario: a row filter reaches a struct child through an array element
+// (`items[1].a > 5`). Identical table/file schemas can safely localize the complete accessor path.
+TEST(ColumnMapperScanRequestTest, ArrayStructPathBuildsNestedPredicateFilter) {
     const auto int_type = i32();
     const auto string_type = str();
 
@@ -2859,7 +2858,7 @@ TEST(ColumnMapperScanRequestTest, ArrayWrapperDoesNotBuildNestedPredicateFilter)
     auto table_array = file_array;
 
     const auto item_type = file_element.type;
-    auto item_expr = struct_element(table_slot(0, 0, table_array.type, "items"), item_type, "item");
+    auto item_expr = array_element_at(table_slot(0, 0, table_array.type, "items"), item_type, 1);
     auto filter_expr = int_gt(struct_element(item_expr, int_type, "a"), 5);
     TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
                         .global_indices = {GlobalIndex(0)}};
@@ -2868,14 +2867,17 @@ TEST(ColumnMapperScanRequestTest, ArrayWrapperDoesNotBuildNestedPredicateFilter)
     ASSERT_TRUE(mapper.create_mapping({table_array}, {}, {file_array}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_array}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, &request).ok());
 
-    EXPECT_TRUE(request.conjuncts.empty());
-    EXPECT_TRUE(request.predicate_columns.empty());
-    ASSERT_EQ(request.non_predicate_columns.size(), 1);
-    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(0));
-    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
-    EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
+    ASSERT_EQ(request.conjuncts.size(), 1);
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns.empty());
+    const auto& projection = request.predicate_columns[0];
+    EXPECT_EQ(projection.column_id(), LocalColumnId(0));
+    // Array indexing still needs the complete repeated sequence, while the localized accessor lets
+    // Parquet metadata pruning resolve the selected struct leaf.
+    EXPECT_TRUE(projection.project_all_children);
+    EXPECT_TRUE(projection.children.empty());
 }
 
 // Scenario: a map value struct projects child `b`, while a row filter reads value child `a`.

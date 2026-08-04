@@ -34,6 +34,7 @@
 namespace doris::format {
 
 struct StructChildSelector {
+    bool is_array_element = false;
     bool by_name = true;
     std::string name;
     size_t ordinal = 0;
@@ -48,6 +49,7 @@ struct ResolvedNestedStructPath {
     LocalColumnIndex file_projection;
     std::vector<std::string> file_child_names;
     std::vector<DataTypePtr> file_child_types;
+    std::vector<bool> file_array_elements;
 };
 
 // A split-local literal produced by slot-literal predicate localization. This wrapper keeps the

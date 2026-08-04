@@ -842,11 +842,21 @@ static bool needs_complex_file_slot_cast(const DataTypePtr& file_type,
 
 static bool collect_struct_element_chain(const VExprSPtr& expr, std::vector<VExprSPtr>* chain) {
     DORIS_CHECK(chain != nullptr);
-    if (!is_struct_element_expr(expr)) {
+    const auto is_supported_element = [](const VExprSPtr& candidate) {
+        if (is_struct_element_expr(candidate)) {
+            return true;
+        }
+        return candidate != nullptr && candidate->get_num_children() == 2 &&
+               candidate->fn().name.function_name == "element_at" &&
+               candidate->children()[0]->data_type() != nullptr &&
+               remove_nullable(candidate->children()[0]->data_type())->get_primitive_type() ==
+                       TYPE_ARRAY;
+    };
+    if (!is_supported_element(expr)) {
         return false;
     }
     const auto& parent = expr->children()[0];
-    if (is_struct_element_expr(parent)) {
+    if (is_supported_element(parent)) {
         if (!collect_struct_element_chain(parent, chain)) {
             return false;
         }
@@ -891,7 +901,8 @@ static bool rewrite_struct_element_path_to_file_expr(
     std::vector<VExprSPtr> struct_element_chain;
     if (!collect_struct_element_chain(expr, &struct_element_chain) ||
         struct_element_chain.size() != resolved.file_child_names.size() ||
-        struct_element_chain.size() != resolved.file_child_types.size()) {
+        struct_element_chain.size() != resolved.file_child_types.size() ||
+        struct_element_chain.size() != resolved.file_array_elements.size()) {
         return false;
     }
 
@@ -933,8 +944,10 @@ static bool rewrite_struct_element_path_to_file_expr(
     struct_element_chain.front()->set_children(std::move(root_children));
     for (size_t idx = 0; idx < struct_element_chain.size(); ++idx) {
         auto children = struct_element_chain[idx]->children();
-        children[1] = create_file_struct_child_name_literal(resolved.file_child_names[idx],
-                                                            rewrite_context);
+        if (!resolved.file_array_elements[idx]) {
+            children[1] = create_file_struct_child_name_literal(resolved.file_child_names[idx],
+                                                                rewrite_context);
+        }
         struct_element_chain[idx]->set_children(std::move(children));
         // The selector name and the expression return type must be moved to file schema together.
         // Example:
@@ -2176,6 +2189,7 @@ Status TableColumnMapper::create_scan_request(
         file_request->local_positions = *fixed_local_positions;
     }
     file_request->conjuncts.clear();
+    file_request->metadata_pruning_safe_conjunct_count = 0;
     file_request->delete_conjuncts.clear();
     _filter_entries.clear();
     // 1. Build referenced non-predicate columns
@@ -2365,6 +2379,9 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
             RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
             file_request->conjuncts.push_back(std::move(localized_conjunct));
+            if (table_filter.metadata_pruning_safe) {
+                ++file_request->metadata_pruning_safe_conjunct_count;
+            }
             for (const auto global_index : table_filter.global_indices) {
                 const auto* mapping = _find_filter_mapping(global_index);
                 if (mapping != nullptr && mapping->file_local_id.has_value() &&

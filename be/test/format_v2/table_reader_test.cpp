@@ -1424,7 +1424,13 @@ TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .conjuncts = {prepared_conjunct(&state, unsafe_predicate)},
+                                    .conjuncts =
+                                            {
+                                                    prepared_conjunct(&state, unsafe_predicate),
+                                                    prepared_conjunct(&state,
+                                                                      table_int32_greater_than_expr(
+                                                                              0, 0, 10)),
+                                            },
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1440,7 +1446,8 @@ TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_NE(fake_state->last_request, nullptr);
-    EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
+    ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
+    EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 0);
     EXPECT_FALSE(predicate_executed);
     ASSERT_TRUE(reader.close().ok());
 }
