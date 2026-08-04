@@ -68,6 +68,8 @@ using namespace ErrorCode;
 
 namespace {
 
+constexpr size_t MEBIBYTE = 1024 * 1024;
+
 bool is_compressed_file_scan(const TPipelineFragmentParams& params) {
     if (!params.__isset.file_scan_params) {
         return false;
@@ -232,7 +234,8 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     // TODO(zs) : need Need to request an FE to obtain information such as format
     // check content length
     ctx->body_bytes = 0;
-    size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
+    const auto csv_max_body_mb = config::streaming_load_max_mb;
+    size_t csv_max_body_bytes = csv_max_body_mb * MEBIBYTE;
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         try {
             ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
@@ -244,9 +247,11 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
             return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "body size {} exceed BE's conf `streaming_load_max_mb` {}. increase it if you "
-                    "are sure this load is reasonable",
-                    ctx->body_bytes, csv_max_body_bytes);
+                    "body size {} bytes ({:.2f} MiB) exceeds the limit of {} bytes ({} MiB) set "
+                    "by BE config `streaming_load_max_mb`. Increase it if you are sure this load "
+                    "is reasonable",
+                    ctx->body_bytes, static_cast<double>(ctx->body_bytes) / MEBIBYTE,
+                    csv_max_body_bytes, csv_max_body_mb);
         }
     }
 

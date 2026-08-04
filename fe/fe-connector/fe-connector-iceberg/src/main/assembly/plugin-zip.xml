@@ -36,13 +36,26 @@ under the License.
         </fileSet>
     </fileSets>
 
+    <files>
+        <!--
+          The connector's settings template, at the ZIP ROOT (not lib/): the engine looks for
+          <pluginDir>/<name>.conf. Only the .template ships; build.sh seeds the live iceberg.conf from
+          it with cp -n, so unzipping a newer plugin build over a deployed directory refreshes this
+          file but never the administrator's copy. The name must equal ConnectorProvider.name() +
+          ".conf.template" - IcebergConnectorConfTest fails if it drifts.
+        -->
+        <file>
+            <source>src/main/resources/iceberg.conf.template</source>
+            <outputDirectory>/</outputDirectory>
+        </file>
+    </files>
+
     <dependencySets>
         <dependencySet>
             <outputDirectory>lib</outputDirectory>
             <useProjectArtifact>false</useProjectArtifact>
             <excludes>
                 <!-- Provided by fe-core classloader (parent-first) -->
-                <exclude>org.apache.doris:fe-connector-api</exclude>
                 <exclude>org.apache.doris:fe-connector-spi</exclude>
                 <exclude>org.apache.doris:fe-extension-spi</exclude>
                 <exclude>org.apache.doris:fe-filesystem-api</exclude>

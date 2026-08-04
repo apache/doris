@@ -31,6 +31,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
     static const char* parquet_profile = "ParquetReader";
     total_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, parquet_profile, file_scan_profile::FILE_READER, 1);
+    refresh_scan_request_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "RefreshScanRequestTime", parquet_profile, 1);
 
     // Row-group counters are part of the long-standing ParquetReader profile contract. Keep them
     // below the format node so profile parsers and operators can attribute pruning to Parquet.
@@ -256,6 +258,7 @@ void ParquetProfile::update_deferred_pruning_stats(const ParquetPruningStats& pr
                                                    bool selected) const {
     const int64_t filtered = selected ? 0 : 1;
     COUNTER_UPDATE(filtered_row_groups, filtered);
+    COUNTER_UPDATE(filtered_row_groups_by_min_max, pruning_stats.filtered_row_groups_by_statistics);
     COUNTER_UPDATE(filtered_row_groups_by_dictionary,
                    pruning_stats.filtered_row_groups_by_dictionary);
     COUNTER_UPDATE(filtered_row_groups_by_bloom_filter,

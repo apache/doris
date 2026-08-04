@@ -50,16 +50,15 @@ under the License.
           definition is what makes minor two-way compatible. See
           plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
 
-          The contract this version describes spans fe-connector-api, fe-connector-spi and - because
+          The contract this version describes spans fe-connector-spi and - because
           connector plugins link them too - fe-extension-spi and fe-filesystem-api. Changing either
           of the latter two means bumping this property as well (and fe-extension-spi means bumping
           all four families).
         -->
-        <connector.plugin.api.version>1.0</connector.plugin.api.version>
+        <connector.plugin.api.version>3.0</connector.plugin.api.version>
     </properties>
 
     <modules>
-        <module>fe-connector-api</module>
         <module>fe-connector-spi</module>
         <module>fe-connector-cache</module>
         <module>fe-connector-metastore-api</module>

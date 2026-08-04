@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
@@ -27,6 +27,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -94,6 +95,28 @@ public class PaimonConnectorProvider implements ConnectorProvider {
         // path no longer runs; validateProperties is this path's fail-fast hook.
         PaimonTableOptions.extract(properties);
         MetaStoreProviders.bind(properties, Collections.emptyMap()).validate();
+    }
+
+    @Override
+    public void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        PaimonReaderOptions.validateCatalogProperties(updatedProperties);
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+
+        // Old images could contain arbitrary paimon.table-option.* values. Validate the complete
+        // catalog candidate, but retain only safe legacy reader values unless this ALTER touched them.
+        candidate.keySet().removeIf(PaimonTableOptions::isTableOptionProperty);
+        PaimonReaderOptions.compatibleCatalogOptions(currentProperties == null
+                        ? Collections.emptyMap() : currentProperties)
+                .forEach((key, value) -> candidate.put(PaimonReaderOptions.TABLE_OPTION_PREFIX + key, value));
+        updatedProperties.forEach((key, value) -> {
+            if (PaimonTableOptions.isTableOptionProperty(key)) {
+                candidate.put(key, value);
+            }
+        });
+        validateProperties(candidate);
     }
 
     /**

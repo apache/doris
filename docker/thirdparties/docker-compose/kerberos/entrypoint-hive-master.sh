@@ -37,6 +37,7 @@ readonly HTTP_PRINCIPAL="HTTP/${HOST}@${REALM}"
 readonly HIVE_PRINCIPAL="hive/${HOST}@${REALM}"
 readonly HIVE_CLIENT_PRINCIPAL="hive/presto-master.docker.cluster@${REALM}"
 readonly PRESTO_CLIENT_PRINCIPAL="presto-server/presto-master.docker.cluster@${REALM}"
+readonly PRINCIPAL_PASSWORD="doris-kerberos-test"
 
 declare -a SERVICE_PIDS=()
 
@@ -70,12 +71,18 @@ wait_for_port() {
     return 1
 }
 
+# Keys must stay identical across container rebuilds. Deployments that run
+# Doris on separate hosts from this container provision /keytabs out of band,
+# so a key that is re-randomized on every start makes every such client fail
+# the AS-REP decryption with "GeneralSecurityException: Checksum failed".
+# A fixed password plus the single fixed enctype in kdc.conf yields a stable
+# key, and -norandkey exports that key instead of rolling a new one.
 create_keytab() {
     local principal=$1
     local keytab=$2
 
-    kadmin.local -r "${REALM}" -q "addprinc -randkey ${principal}"
-    kadmin.local -r "${REALM}" -q "ktadd -k ${keytab} ${principal}"
+    kadmin.local -r "${REALM}" -q "addprinc -pw ${PRINCIPAL_PASSWORD} ${principal}"
+    kadmin.local -r "${REALM}" -q "ktadd -k ${keytab} -norandkey ${principal}"
 }
 
 report_stage() {

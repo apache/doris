@@ -17,16 +17,16 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorContractValidator;
-import org.apache.doris.connector.api.ConnectorPassthroughSqlOps;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorContractValidator;
+import org.apache.doris.connector.spi.ConnectorPassthroughSqlOps;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.NoOpConnectorTransaction;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -128,7 +128,7 @@ class JdbcDorisConnectorTest {
         JdbcDorisConnector connector = new JdbcDorisConnector(minimalProps(), testContext());
         connector.close();
         // testConnection catches exceptions internally and returns failure result
-        org.apache.doris.connector.api.ConnectorTestResult result = connector.testConnection(null);
+        org.apache.doris.connector.spi.ConnectorTestResult result = connector.testConnection(null);
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertTrue(result.getMessage().contains("closed"),
                 "Failure message should mention closed: " + result.getMessage());

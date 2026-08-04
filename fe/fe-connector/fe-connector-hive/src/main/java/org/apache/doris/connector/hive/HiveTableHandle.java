@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import java.util.Collections;
 import java.util.List;

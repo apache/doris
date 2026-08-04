@@ -762,8 +762,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _fs_mod
-    # Connector API, SPI, and plugin modules (loaded at runtime as plugins)
-    modules+=("fe-connector/fe-connector-api")
+    # Connector SPI and plugin modules (loaded at runtime as plugins)
     modules+=("fe-connector/fe-connector-spi")
     for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
         if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
@@ -1158,8 +1157,17 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
         mkdir -p "${conn_plugin_target}"
         unzip -o "${conn_zip}" -d "${conn_plugin_target}/"
+        # A connector's own settings file. The zip carries only <name>.conf.template; the live
+        # <name>.conf is seeded from it here and never overwritten, so an upgrade that unzips a new
+        # plugin build over this directory refreshes the jars and the template but leaves whatever the
+        # administrator configured. Deliberately generic (globbed on *.conf.template, no connector
+        # named): a new connector ships a template and needs no change here.
+        for conn_conf_tpl in "${conn_plugin_target}"/*.conf.template; do
+            [ -e "${conn_conf_tpl}" ] || continue
+            cp -n "${conn_conf_tpl}" "${conn_conf_tpl%.template}"
+        done
     done
-    unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip
+    unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip conn_conf_tpl
 
     # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
     # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,

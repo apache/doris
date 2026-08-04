@@ -17,17 +17,18 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTestResult;
-import org.apache.doris.connector.api.ConnectorValidationContext;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTestResult;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.thrift.TJdbcTable;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -86,7 +87,11 @@ public class JdbcDorisConnector implements Connector {
         if (rawUrl != null && !rawUrl.isEmpty()) {
             JdbcDbType dbType = JdbcDbType.parseFromUrl(rawUrl);
             normalized.put(JdbcConnectorProperties.JDBC_URL,
-                    JdbcUrlNormalizer.normalize(rawUrl, dbType, context.getEnvironment()));
+                    JdbcUrlNormalizer.normalize(rawUrl, dbType,
+                            Boolean.parseBoolean(ConnectorConf.get(context,
+                                    JdbcConnectorProperties.CONF_FORCE_SQLSERVER_ENCRYPT_FALSE,
+                                    JdbcConnectorProperties.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE,
+                                    "false"))));
         }
         this.properties = Collections.unmodifiableMap(normalized);
         this.context = context;
@@ -319,9 +324,10 @@ public class JdbcDorisConnector implements Connector {
     }
 
     /**
-     * Resolves driver URL using the environment from ConnectorContext.
+     * Resolves driver URL against the configured drivers directory.
      * If the URL is a plain filename (e.g., "mysql-connector-j-8.4.0.jar"),
-     * resolves it using the jdbc_drivers_dir from the environment.
+     * resolves it under {@code drivers_dir} from this plugin's jdbc.conf, or fe.conf's
+     * {@code jdbc_drivers_dir}.
      */
     private String resolveDriverUrl(String driverUrl) {
         if (driverUrl == null || driverUrl.isEmpty()) {
@@ -331,10 +337,11 @@ public class JdbcDorisConnector implements Connector {
                 || driverUrl.startsWith("https://") || driverUrl.startsWith("/")) {
             return driverUrl;
         }
-        // Plain filename — resolve using jdbc_drivers_dir from environment
-        Map<String, String> env = context.getEnvironment();
-        String driversDir = env.get("jdbc_drivers_dir");
-        String dorisHome = env.get("doris_home");
+        // Plain filename — resolve under the configured drivers directory. doris_home is engine-wide
+        // rather than this connector's setting, so it keeps coming from the engine environment.
+        String driversDir = ConnectorConf.get(context, JdbcConnectorProperties.CONF_DRIVERS_DIR,
+                JdbcConnectorProperties.ENV_DRIVERS_DIR, null);
+        String dorisHome = context.getEnvironment().get(JdbcConnectorProperties.ENV_DORIS_HOME);
         if (driversDir != null && !driversDir.isEmpty()) {
             String newPath = driversDir + "/" + driverUrl;
             if (new File(newPath).exists()) {

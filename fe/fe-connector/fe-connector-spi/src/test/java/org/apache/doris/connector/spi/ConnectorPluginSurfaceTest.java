@@ -17,8 +17,6 @@
 
 package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.api.Connector;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -30,6 +28,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Properties;
 import java.util.TreeSet;
 
 /**
@@ -60,6 +59,21 @@ import java.util.TreeSet;
 public class ConnectorPluginSurfaceTest {
 
     private static final String BASELINE_RESOURCE = "/connector-plugin-surface.txt";
+
+    @Test
+    public void connectorApiMajorTracksTheRecordedSurfaceChange() throws IOException {
+        Properties version = new Properties();
+        try (InputStream in = ConnectorProvider.class.getResourceAsStream(
+                "/META-INF/doris/connector-plugin-api-version.properties")) {
+            Assertions.assertNotNull(in, "missing connector plugin API version resource");
+            version.load(in);
+        }
+        // fe-connector-api was merged into fe-connector-spi in this surface revision, so every type on
+        // the contract changed its fully-qualified name (org.apache.doris.connector.api.* ->
+        // org.apache.doris.connector.spi.*). A plugin built against major 2 cannot resolve a single one
+        // of them; it must be refused at load time rather than fail later with NoClassDefFoundError.
+        Assertions.assertEquals("3.0", version.getProperty("api.version"));
+    }
 
     /** The types a connector plugin implements or calls. Everything reachable on them is the contract. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(

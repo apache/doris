@@ -175,6 +175,14 @@ public:
             Status status = dns_cache->get(host, &realhost);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host:" << status.to_string();
+                // The hostname is no longer resolvable, which normally means the backend
+                // was dropped from the cluster. Returning early is not enough: any stub
+                // cached under this host:port still holds a brpc Channel bound to the last
+                // resolved (now dead) IP, and brpc keeps health-checking that socket
+                // forever, which is the source of the endless
+                // "Fail to wait EPOLLOUT ... Connection timed out" warnings. Drop it here
+                // so the socket is closed along with the last reference to the stub.
+                _stub_map.erase(fmt::format("{}:{}", host, port));
                 return nullptr;
             }
         }

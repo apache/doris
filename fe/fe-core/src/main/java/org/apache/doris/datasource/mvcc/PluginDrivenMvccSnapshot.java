@@ -19,7 +19,7 @@ package org.apache.doris.datasource.mvcc;
 
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import java.util.Collections;

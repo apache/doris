@@ -70,13 +70,6 @@ under the License.
             <version>2.9.3</version>
         </dependency>
 
-        <!-- connector-api provides SPI interfaces -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
         <!-- Thrift types for constructing TTableFormatFileDesc in populateRangeParams -->
         <dependency>
             <groupId>${project.groupId}</groupId>

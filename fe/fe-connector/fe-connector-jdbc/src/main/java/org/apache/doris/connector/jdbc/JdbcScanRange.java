@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;

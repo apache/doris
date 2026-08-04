@@ -20,7 +20,7 @@ package org.apache.doris.httpv2.restv2;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.JsonUtil;
-import org.apache.doris.connector.api.rest.ConnectorRestPassthrough;
+import org.apache.doris.connector.spi.rest.ConnectorRestPassthrough;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;

@@ -23,11 +23,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.connector.ConnectorFactory;
-import org.apache.doris.connector.api.event.ConnectorEventSource;
-import org.apache.doris.connector.api.event.EventPollRequest;
-import org.apache.doris.connector.api.event.EventPollResult;
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.event.ConnectorEventSource;
+import org.apache.doris.connector.spi.event.EventPollRequest;
+import org.apache.doris.connector.spi.event.EventPollResult;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -41,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
@@ -63,8 +65,9 @@ import java.util.function.Supplier;
  * repointed to feed THIS driver's follower cursor (see {@link #updateMasterLastSyncedEventId}).
  *
  * <p><b>Classloader.</b> {@code pollOnce} runs under a context-classloader pin to the event source's own
- * plugin classloader (covering the notification RPC and the JSON/GZIP deserialization), mirroring
- * {@code PluginDrivenScanNode.onPluginClassLoader}; the daemon thread does not inherit any pin.
+ * plugin classloader (covering the notification RPC and the JSON/GZIP deserialization). Descriptor
+ * application and master-side full refresh run under the connector's plugin classloader because they may
+ * call connector invalidation and identifier hooks. The daemon thread does not inherit any pin.
  */
 public class MetastoreEventSyncDriver extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(MetastoreEventSyncDriver.class);
@@ -145,9 +148,12 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             if (!pluginCatalog.isInitialized() && !seedCursorOfUninitializedCatalog(pluginCatalog)) {
                 continue;
             }
+            Connector connector;
             ConnectorEventSource eventSource;
             try {
-                eventSource = pluginCatalog.getConnector().getEventSource();
+                connector = pluginCatalog.getConnector();
+                eventSource = onPluginClassLoader(
+                        connector.getClass().getClassLoader(), connector::getEventSource);
             } catch (RuntimeException e) {
                 // uninitialized / unavailable connector this cycle => skip (mirrors the legacy skip-on-throw)
                 continue;
@@ -156,7 +162,7 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 continue;
             }
             try {
-                syncCatalog(pluginCatalog, eventSource);
+                syncCatalog(pluginCatalog, connector, eventSource);
             } catch (Exception e) {
                 // Self-heal (mirrors the legacy poller's onRefreshCache(true) + reset-to-(-1)): reset the
                 // cursor so the next cycle first-pulls -> full refresh, jumping past a deterministically-failing
@@ -171,21 +177,25 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         }
     }
 
-    private void syncCatalog(PluginDrivenExternalCatalog catalog, ConnectorEventSource eventSource)
-            throws Exception {
+    private void syncCatalog(PluginDrivenExternalCatalog catalog, Connector connector,
+            ConnectorEventSource eventSource) throws Exception {
         long catalogId = catalog.getId();
         boolean isMaster = Env.getCurrentEnv().isMaster();
         long lastSyncedEventId = lastSyncedEventIdMap.getOrDefault(catalogId, -1L);
         long masterUpperBound = masterLastSyncedEventIdMap.getOrDefault(catalogId, -1L);
 
         EventPollRequest request = new EventPollRequest(lastSyncedEventId, isMaster, masterUpperBound);
-        EventPollResult result = onPluginClassLoader(eventSource, () -> eventSource.pollOnce(request));
+        EventPollResult result = onPluginClassLoader(
+                eventSource.getClass().getClassLoader(), () -> eventSource.pollOnce(request));
 
         if (result.isNeedsFullRefresh()) {
             // first sync or an events-gap: the master invalidates the whole catalog locally; a follower
             // forwards REFRESH CATALOG to the master. Then seed the cursor to the connector's current id.
             if (isMaster) {
-                refreshCatalogForMaster(catalog);
+                onPluginClassLoader(connector.getClass().getClassLoader(), () -> {
+                    refreshCatalogForMaster(catalog);
+                    return null;
+                });
             } else {
                 refreshCatalogForSlave(catalog);
             }
@@ -205,7 +215,10 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         // Apply in order; on failure the exception propagates and realRun's catch resets the cursor to -1
         // (self-heal), so the edit-log cursor below is NOT written (followers do not jump past a failed apply)
         // and the next cycle first-pulls a clean full refresh instead of retrying the poison descriptor.
-        applyDescriptors(catalog, descriptors);
+        onPluginClassLoader(connector.getClass().getClassLoader(), () -> {
+            applyDescriptors(catalog, connector, descriptors);
+            return null;
+        });
         commitCursor(catalogId, result.getNewCursor(), isMaster);
     }
 
@@ -217,11 +230,11 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         }
     }
 
-    private void applyDescriptors(PluginDrivenExternalCatalog catalog,
+    private void applyDescriptors(PluginDrivenExternalCatalog catalog, Connector connector,
             List<MetastoreChangeDescriptor> descriptors) {
         for (MetastoreChangeDescriptor descriptor : descriptors) {
             try {
-                applyOne(catalog, descriptor);
+                applyOne(catalog, connector, descriptor);
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to apply metastore change " + descriptor + " on catalog "
@@ -232,10 +245,11 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
 
     // Applies one neutral descriptor via the engine's own (connector-agnostic) mutators — the same ones the
     // legacy event.process() bodies called, now generalized to work on a flipped catalog.
-    private void applyOne(PluginDrivenExternalCatalog catalog, MetastoreChangeDescriptor descriptor)
-            throws Exception {
+    private void applyOne(PluginDrivenExternalCatalog catalog, Connector connector,
+            MetastoreChangeDescriptor descriptor) throws Exception {
         String catalogName = catalog.getName();
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
+        invalidateStructuralEventCaches(connector, descriptor);
         switch (descriptor.getOp()) {
             case REGISTER_DATABASE:
                 catalogMgr.registerExternalDatabaseFromEvent(descriptor.getDbName(), catalogName);
@@ -244,11 +258,10 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 catalogMgr.unregisterExternalDatabase(descriptor.getDbName(), catalogName);
                 break;
             case RENAME_DATABASE:
-                // legacy AlterDatabaseEvent.processRename: skip when the after-db already exists locally
-                if (catalog.getDbNullable(descriptor.getDbNameAfter()) == null) {
-                    catalogMgr.unregisterExternalDatabase(descriptor.getDbName(), catalogName);
-                    catalogMgr.registerExternalDatabaseFromEvent(descriptor.getDbNameAfter(), catalogName);
-                }
+                // Always converge to "old removed, new registered". A normal lookup may already have warmed the
+                // target after the remote rename; treating that as a reason to skip would retain stale old state.
+                catalogMgr.unregisterExternalDatabase(descriptor.getDbName(), catalogName);
+                catalogMgr.registerExternalDatabaseFromEvent(descriptor.getDbNameAfter(), catalogName);
                 break;
             case REGISTER_TABLE:
                 catalogMgr.registerExternalTableFromEvent(descriptor.getDbName(), descriptor.getTableName(),
@@ -285,18 +298,47 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         }
     }
 
+    /**
+     * Invalidates connector-owned caches for structural events before publishing the corresponding FE mutation.
+     * Descriptor names are remote identities, which is the contract of the connector invalidation SPI. Rename
+     * invalidates both exact keys because case-only changes can address distinct cache entries; same-key
+     * view-recreate invalidates once. Refresh and partition descriptors already invalidate through their existing
+     * engine mutators and are deliberately not duplicated here.
+     */
+    private void invalidateStructuralEventCaches(Connector connector, MetastoreChangeDescriptor descriptor) {
+        switch (descriptor.getOp()) {
+            case REGISTER_DATABASE:
+            case UNREGISTER_DATABASE:
+                connector.invalidateDb(descriptor.getDbName());
+                break;
+            case RENAME_DATABASE:
+                connector.invalidateDb(descriptor.getDbName());
+                if (!Objects.equals(descriptor.getDbName(), descriptor.getDbNameAfter())) {
+                    connector.invalidateDb(descriptor.getDbNameAfter());
+                }
+                break;
+            case REGISTER_TABLE:
+            case UNREGISTER_TABLE:
+                connector.invalidateTable(descriptor.getDbName(), descriptor.getTableName());
+                break;
+            case RENAME_TABLE:
+                connector.invalidateTable(descriptor.getDbName(), descriptor.getTableName());
+                if (!Objects.equals(descriptor.getDbName(), descriptor.getDbNameAfter())
+                        || !Objects.equals(descriptor.getTableName(), descriptor.getTableNameAfter())) {
+                    connector.invalidateTable(descriptor.getDbNameAfter(), descriptor.getTableNameAfter());
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
     private void applyRenameTable(PluginDrivenExternalCatalog catalog, MetastoreChangeDescriptor descriptor)
             throws Exception {
         String catalogName = catalog.getName();
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
-        // legacy AlterTableEvent: a rename to a DIFFERENT key that already exists locally is skipped
-        // (processRename guard); a view recreate (after == before) always proceeds (processRecreateTable).
-        boolean sameKey = descriptor.getDbName().equalsIgnoreCase(descriptor.getDbNameAfter())
-                && descriptor.getTableName().equalsIgnoreCase(descriptor.getTableNameAfter());
-        if (!sameKey && catalogMgr.externalTableExistInLocal(descriptor.getDbNameAfter(),
-                descriptor.getTableNameAfter(), catalogName)) {
-            return;
-        }
+        // Always converge to "old removed, new registered". The target may already be hot because a normal
+        // lookup raced with the event after the remote rename; it must not prevent cleanup of the old identity.
         catalogMgr.unregisterExternalTable(descriptor.getDbName(), descriptor.getTableName(),
                 catalogName, true);
         catalogMgr.registerExternalTableFromEvent(descriptor.getDbNameAfter(),
@@ -345,10 +387,10 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         masterLastSyncedEventIdMap.put(catalogId, eventId);
     }
 
-    private static <T> T onPluginClassLoader(ConnectorEventSource eventSource, Supplier<T> body) {
+    private static <T> T onPluginClassLoader(ClassLoader pluginClassLoader, Supplier<T> body) {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
-            Thread.currentThread().setContextClassLoader(eventSource.getClass().getClassLoader());
+            Thread.currentThread().setContextClassLoader(pluginClassLoader);
             return body.get();
         } finally {
             Thread.currentThread().setContextClassLoader(previous);

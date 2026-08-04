@@ -70,13 +70,6 @@ under the License.
             <version>2.9.3</version>
         </dependency>
 
-        <!-- connector-api provides SPI interfaces -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
         <!-- fe-filesystem-api: the StorageProperties contract that fe-core binds and hands over via
              ConnectorContext.getStorageProperties(); paimon merges toHadoopProperties().toHadoopConfigurationMap()
              into the catalog Hadoop config (P1-T03). Directly used now; previously only transitive via

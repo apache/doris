@@ -35,6 +35,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -48,6 +49,17 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
     List<List<Expression>> getGroupingSets();
 
     List<NamedExpression> getOutputExpressions();
+
+    /**
+     * Values to fill the internal GROUPING_ID slot for each grouping set.
+     *
+     * <p>Most repeat nodes derive these values from their grouping sets. A repeat split by
+     * {@code DecomposeRepeatWithPreAggregation} keeps the values from the original repeat so
+     * that its GROUPING_ID remains stable after one grouping set is removed.</p>
+     */
+    default Optional<List<Long>> getGroupingIdValues() {
+        return Optional.empty();
+    }
 
     @Override
     default List<Expression> getGroupByExpressions() {
@@ -107,7 +119,7 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
         List<GroupingScalarFunction> functions = ExpressionUtils.collectToList(
                 getOutputExpressions(), GroupingScalarFunction.class::isInstance);
         List<List<Long>> groupingFunctionsValues = Lists.newArrayList();
-        groupingFunctionsValues.add(shapes.computeGroupingIdValue());
+        groupingFunctionsValues.add(getGroupingIdValues().orElseGet(shapes::computeGroupingIdValue));
         for (GroupingScalarFunction function : functions) {
             groupingFunctionsValues.add(function.computeValue(shapes));
         }

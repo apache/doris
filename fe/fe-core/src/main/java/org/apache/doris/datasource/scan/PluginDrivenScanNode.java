@@ -31,26 +31,26 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
-import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
-import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
-import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanProfile;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
-import org.apache.doris.connector.api.scan.ConnectorSplitSource;
-import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.pushdown.ProjectionApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
+import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.connector.converter.ExprToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -628,6 +628,29 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Asks the connector which columns BE must read for this scan even when the query references none of them
+     * ({@link ConnectorScanPlanProvider#getMustReadColumns}), so the translator can keep their slots instead of
+     * pruning them ({@code PhysicalPlanTranslator.preserveConnectorMustReadSlots}, the plugin-table counterpart
+     * of {@code preserveExtraStorageKeySlots} for aggregate / merge-on-read unique-key OLAP tables).
+     *
+     * <p>Asked through the SAME memoized provider the rest of the scan uses, so a connector that memoizes the
+     * decision on its provider instance answers this question and plans its splits from one decision — the
+     * whole point, since a column preserved here and a split plan that assumes otherwise disagree silently.
+     * A connector with no scan provider (no scan capability) needs nothing. Public + overridable because the
+     * caller is the translator, in another package, and so the preservation is unit-testable without a live
+     * connector (mirrors {@link #classifyColumnByConnector}, whose caller is this class).</p>
+     */
+    public Set<String> mustReadColumnsFromConnector() {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null) {
+            return Collections.emptySet();
+        }
+        Set<String> columns = onPluginClassLoader(scanProvider,
+                () -> scanProvider.getMustReadColumns(connectorSession, currentHandle));
+        return columns == null ? Collections.emptySet() : columns;
+    }
+
+    /**
      * Lets the owning connector adjust the compression type this node inferred from the split's file path
      * before it is shipped to BE, WITHOUT any source-specific code here: the base inference runs first, then
      * the connector's {@link ConnectorScanPlanProvider#adjustFileCompressType} (identity by default) gets the
@@ -865,6 +888,30 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
 
         return attrs;
+    }
+
+    /**
+     * Drops the connector's cached scan-node properties before finalizing, because they were computed
+     * against a tuple that no longer describes this scan.
+     *
+     * <p>The cache is first filled during {@code init()} — {@code FileQueryScanNode.initSchemaParams()}
+     * asks for {@link #getPathPartitionKeys()}, which loads the whole property bundle. That happens while
+     * {@code PhysicalPlanTranslator} is still translating THIS scan, i.e. strictly BEFORE the project
+     * above it prunes the tuple down to the columns the query actually reads
+     * ({@code updateScanSlotsMaterialization}). So everything the connector derived from the projection at
+     * that point — the jdbc remote {@code SELECT} list, per-column dictionaries — describes the FULL
+     * schema. Finalize is the first moment the tuple is final, so the bundle is rebuilt from here.</p>
+     *
+     * <p>Queries with a filter were getting this by accident: {@link #convertPredicate()} invalidates the
+     * same cache for its own reason, and it runs first. Filter-less queries hit its empty-conjuncts early
+     * return and kept the pre-pruning bundle, which is why {@code EXPLAIN} reported a full-width remote
+     * query for e.g. {@code select count(*) from tbl} while the scan itself read one column.</p>
+     */
+    @Override
+    protected void doFinalize() throws UserException {
+        scanNodeProperties = null;
+        cachedPropertiesResult = null;
+        super.doFinalize();
     }
 
     @Override

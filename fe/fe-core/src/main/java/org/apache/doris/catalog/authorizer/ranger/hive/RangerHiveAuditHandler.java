@@ -38,6 +38,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * ATTN: the {@code org.apache.hadoop.conf.Configuration} import below is a SANCTIONED EXCEPTION to the
+ * fe-core hadoop-decoupling effort — do not "clean" it away.
+ *
+ * <p>The type is imposed by the Ranger library, not chosen by Doris: {@link RangerDefaultAuditHandler}
+ * declares the constructor as {@code RangerDefaultAuditHandler(org.apache.hadoop.conf.Configuration)}, and
+ * the only argument ever passed is {@code RangerBasePlugin.getConfig()}, whose type chain is
+ * {@code RangerPluginConfig -> RangerConfiguration -> org.apache.hadoop.conf.Configuration}. Narrowing the
+ * parameter to {@code RangerPluginConfig} would make a grep look clean while removing no dependency at all:
+ * ranger-plugins-common itself pulls hadoop-client-api/hadoop-client-runtime onto the fe-core classpath.
+ *
+ * <p>Removing hadoop from here therefore requires moving the whole Ranger authorizer out of fe-core, which
+ * contradicts the standing decision that this package is a generic external-catalog authorizer kept in
+ * fe-core unchanged.
+ */
 public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
 
     public static final String ACCESS_TYPE_ROWFILTER = "ROW_FILTER";
