@@ -178,16 +178,6 @@ void propagate_native_max_levels(ParquetColumnSchema* schema) {
     }
 }
 
-bool contains_variant_node(const ParquetColumnSchema& schema) {
-    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
-        return true;
-    }
-    return std::ranges::any_of(schema.children, [](const auto& child) {
-        DORIS_CHECK(child != nullptr);
-        return contains_variant_node(*child);
-    });
-}
-
 std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldSchema& field,
                                                               int32_t local_id) {
     auto result = std::make_unique<ParquetColumnSchema>();
@@ -222,6 +212,7 @@ std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldS
     }
     if (field.variant_physical_type != nullptr) {
         result->kind = ParquetColumnSchemaKind::VARIANT;
+        result->contains_variant = true;
     } else if (primitive_type == TYPE_ARRAY) {
         result->kind = ParquetColumnSchemaKind::LIST;
     } else if (primitive_type == TYPE_MAP) {
@@ -233,10 +224,11 @@ std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldS
     for (size_t child_idx = 0; child_idx < field.children.size(); ++child_idx) {
         result->children.push_back(
                 build_native_node_schema(field.children[child_idx], cast_set<int32_t>(child_idx)));
+        result->contains_variant |= result->children.back()->contains_variant;
     }
     // A nested Variant changes its public child type from the physical STRUCT carrier. Rebuild
     // every enclosing complex type so file-block columns keep the same logical shape as readers.
-    if (result->kind != ParquetColumnSchemaKind::VARIANT && contains_variant_node(*result)) {
+    if (result->kind != ParquetColumnSchemaKind::VARIANT && result->contains_variant) {
         DataTypePtr logical_type;
         if (result->kind == ParquetColumnSchemaKind::LIST) {
             DORIS_CHECK(result->children.size() == 1);

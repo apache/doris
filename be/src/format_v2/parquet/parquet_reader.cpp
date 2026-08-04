@@ -163,6 +163,9 @@ size_t finalize_variant_leaf_projections(
         if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
             continue;
         }
+        if (!file_schema[local_id]->contains_variant) {
+            continue;
+        }
         retained += detail::finalize_variant_leaf_projection(metadata.to_thrift(),
                                                              *file_schema[local_id], &projection);
     }
@@ -467,6 +470,11 @@ Status ParquetReader::init(RuntimeState* state) {
         SCOPED_TIMER(_parquet_profile.parse_meta_time);
         RETURN_IF_ERROR(build_parquet_column_schema(_state->file_context.native_metadata->schema(),
                                                     &_state->file_schema));
+        _state->file_context.contains_variant =
+                std::ranges::any_of(_state->file_schema, [](const auto& column) {
+                    DORIS_CHECK(column != nullptr);
+                    return column->contains_variant;
+                });
         if (_enable_mapping_timestamp_tz) {
             for (auto& column_schema : _state->file_schema) {
                 apply_timestamp_tz_mapping(column_schema.get());
@@ -518,13 +526,16 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     }
     auto request_snapshot = request;
     DORIS_CHECK(request_snapshot != nullptr);
-    const size_t retained_variant_leaf_projections =
-            finalize_variant_leaf_projections(*_state->file_context.native_metadata,
-                                              _state->file_schema,
-                                              &request_snapshot->predicate_columns) +
-            finalize_variant_leaf_projections(*_state->file_context.native_metadata,
-                                              _state->file_schema,
-                                              &request_snapshot->non_predicate_columns);
+    size_t retained_variant_leaf_projections = 0;
+    if (_state->file_context.contains_variant) {
+        retained_variant_leaf_projections =
+                finalize_variant_leaf_projections(*_state->file_context.native_metadata,
+                                                  _state->file_schema,
+                                                  &request_snapshot->predicate_columns) +
+                finalize_variant_leaf_projections(*_state->file_context.native_metadata,
+                                                  _state->file_schema,
+                                                  &request_snapshot->non_predicate_columns);
+    }
     if (_parquet_profile.variant_leaf_projections != nullptr) {
         COUNTER_UPDATE(_parquet_profile.variant_leaf_projections,
                        retained_variant_leaf_projections);

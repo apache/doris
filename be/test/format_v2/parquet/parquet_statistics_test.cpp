@@ -924,6 +924,7 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
     variant->name = "v";
     variant->local_id = 0;
     variant->kind = format::parquet::ParquetColumnSchemaKind::VARIANT;
+    variant->contains_variant = true;
     variant->type = make_nullable(std::make_shared<DataTypeVariantV2>());
     variant->children.push_back(bytes("metadata", 0, 0));
     variant->children.push_back(bytes("value", 1, 1));
