@@ -217,6 +217,7 @@ TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
         ASSERT_TRUE(status.ok()) << status;
         ASSERT_EQ(fields.size(), 1);
         EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
+        EXPECT_TRUE(fields[0]->contains_variant);
         EXPECT_EQ(remove_nullable(fields[0]->type)->get_primitive_type(), TYPE_VARIANT);
         EXPECT_NE(typeid_cast<const DataTypeVariantV2*>(remove_nullable(fields[0]->type).get()),
                   nullptr);
@@ -247,6 +248,10 @@ TEST(ParquetSchemaTest, NestedVariantPropagatesIntoParentLogicalType) {
     const auto status = build_parquet_column_schema(descriptor, &fields);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(fields.size(), 1);
+    EXPECT_TRUE(fields[0]->contains_variant);
+    ASSERT_EQ(fields[0]->children.size(), 2);
+    EXPECT_FALSE(fields[0]->children[0]->contains_variant);
+    EXPECT_TRUE(fields[0]->children[1]->contains_variant);
     const auto* info_type =
             assert_cast<const DataTypeStruct*>(remove_nullable(fields[0]->type).get());
     ASSERT_EQ(info_type->get_elements().size(), 2);
@@ -481,9 +486,12 @@ TEST(ParquetSchemaTest, NativeMetadataTreePreservesNestedFieldNamesAndIds) {
     std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
     ASSERT_TRUE(build_parquet_column_schema(native_schema, &fields).ok());
     ASSERT_EQ(fields.size(), 1);
+    EXPECT_FALSE(fields[0]->contains_variant);
     EXPECT_EQ(fields[0]->name, "protocol");
     EXPECT_EQ(fields[0]->parquet_field_id, 10);
     ASSERT_EQ(fields[0]->children.size(), 2);
+    EXPECT_FALSE(fields[0]->children[0]->contains_variant);
+    EXPECT_FALSE(fields[0]->children[1]->contains_variant);
     EXPECT_EQ(fields[0]->children[0]->name, "minReaderVersion");
     EXPECT_EQ(fields[0]->children[0]->leaf_column_id, 0);
     EXPECT_EQ(fields[0]->children[1]->name, "minWriterVersion");

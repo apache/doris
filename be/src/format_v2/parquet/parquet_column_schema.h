@@ -57,6 +57,10 @@ struct ParquetColumnSchema {
 
     ParquetColumnSchemaKind kind = ParquetColumnSchemaKind::PRIMITIVE;
 
+    // Cached during schema construction so readers created per row group do not repeatedly walk
+    // ordinary nested schemas to discover whether Variant-specific planning is needed.
+    bool contains_variant = false;
+
     // ======== Dremel Levels ========
 
     int16_t max_definition_level = 0;
