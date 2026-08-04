@@ -47,6 +47,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
@@ -457,25 +458,55 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // (identical equals/hashCode/toString and the same sys Identifier). The support check above
         // stays case-insensitive; only the canonical stored name is lowercased.
         String sys = sysName.toLowerCase(java.util.Locale.ROOT);
-        Identifier sysId = new Identifier(
-                base.getDatabaseName(), base.getTableName(), "main", sys);
-        // M-11: wrap the remote getTable in executeAuthenticated (D-052). TableNotExistException is
-        // caught INSIDE the lambda (Kerberos UGI.doAs would wrap it otherwise) and signalled out as a
-        // null Table so this method can still short-circuit to Optional.empty().
-        Table sysTable;
-        try {
-            sysTable = context.executeAuthenticated(() -> {
-                try {
-                    return catalogOps.getTable(sysId);
-                } catch (Catalog.TableNotExistException e) {
-                    return null;
-                }
-            });
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load Paimon system table: " + sysId, e);
-        }
+        // Build the wrapper over the base Table this handle ALREADY carries, exactly the way the
+        // Paimon catalog builds it ({@code CatalogUtils#createSystemTable}), and keep that base on
+        // the sys handle. Loading the wrapper from the catalog instead would give it its own schema
+        // generation, independent of any base a consumer resolves later: the FE would then plan on
+        // one generation while PaimonScanPlanProvider serializes to the BE a system table rebuilt
+        // over the other one, and a system table whose row type follows the base schema
+        // ($audit_log, $binlog, $ro) could reach the BE without the columns the FE asked for.
+        //
+        // Strictly the ALREADY-RESOLVED reference, never a reload: getTableHandle stashes it one
+        // call earlier (PluginDrivenSysExternalTable#resolveConnectorTableHandle resolves the base
+        // handle immediately before this), so the normal path needs no round-trip. Resolving it
+        // here instead would enter the authenticator a second time and would turn a missing base
+        // table into a thrown RuntimeException rather than this method's Optional.empty() contract.
+        //
+        // "Exactly the way the catalog builds it" includes building it over the UNDECORATED base:
+        // CatalogUtils#loadTable hands createSystemTable the raw FileStoreTableFactory#create
+        // result, and the decorator a catalog may add afterwards never reaches a system table,
+        // because it only wraps a FileStoreTable and no system table is one. That matters for $ro:
+        // ReadOptimizedTable#newScan builds its two-branch FallbackReadScan only when its immediate
+        // wrapped object is a FallbackReadFileStoreTable, so with a PrivilegedFileStoreTable in
+        // between it would plan the main branch alone through the pair's inherited
+        // newSnapshotReader() and silently drop every fallback-only partition.
+        Table baseTable = base.getPaimonTable();
+        FileStoreTable sysBase = baseTable instanceof FileStoreTable
+                ? PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) baseTable)
+                : null;
+        Table sysTable = sysBase == null ? null : SystemTableLoader.load(sys, sysBase);
         if (sysTable == null) {
-            return Optional.empty();
+            // Not a file store table (format / object table): let the catalog decide.
+            // M-11: wrap the remote getTable in executeAuthenticated (D-052). TableNotExistException is
+            // caught INSIDE the lambda (Kerberos UGI.doAs would wrap it otherwise) and signalled out as a
+            // null Table so this method can still short-circuit to Optional.empty().
+            Identifier sysId = new Identifier(
+                    base.getDatabaseName(), base.getTableName(), "main", sys);
+            try {
+                sysTable = context.executeAuthenticated(() -> {
+                    try {
+                        return catalogOps.getTable(sysId);
+                    } catch (Catalog.TableNotExistException e) {
+                        return null;
+                    }
+                });
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to load Paimon system table: " + sysId, e);
+            }
+            if (sysTable == null) {
+                return Optional.empty();
+            }
+            sysBase = null;
         }
         // #65984 widened the name-forced set to include row_tracking: like binlog/audit_log its rows
         // are materialized by the paimon reader itself, so the native reader would return wrong rows.
@@ -484,6 +515,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
                 base.getDatabaseName(), base.getTableName(), sys, forceJni);
         handle.setPaimonTable(sysTable);
+        handle.setSysBaseTable(sysBase);
+        // Validation must retain the decorated relation generation, while sysBaseTable intentionally
+        // keeps the undecorated FileStoreTable used to rebuild the wrapper for the backend.
+        handle.setSystemTableSource(baseTable);
         return Optional.of(handle);
     }
 
@@ -530,6 +565,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         long id = latestSnapshotCache.getOrLoad(identifier,
                 () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
         return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id).build());
+    }
+
+    @Override
+    public boolean usesStatementSnapshotForOptions(
+            ConnectorSession session, ConnectorTableHandle handle, Map<String, String> options) {
+        // Explicit Paimon selectors own their version and must not be overwritten by a latest fence.
+        return PaimonScanParams.usesStatementSnapshot(options);
     }
 
     /**
@@ -699,8 +741,17 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 // must not be re-evaluated later, or split planning would read a different version than
                 // the one whose schema was bound. Resolution runs against the LATEST table, because the
                 // options themselves are what selects the version.
-                Map<String, String> resolved =
-                        PaimonScanParams.resolveOptions(table, spec.getOptions());
+                boolean usesStatementFence = spec.getLatestSnapshotFence().isPresent()
+                        && PaimonScanParams.usesStatementSnapshot(spec.getOptions());
+                Map<String, String> resolved;
+                if (usesStatementFence) {
+                    // Planning-only aliases own different table projections, not different
+                    // versions. Reuse the statement fence even if latest advances between binds.
+                    resolved = PaimonScanParams.pinOptionsToSnapshot(
+                            spec.getOptions(), spec.getLatestSnapshotFence().getAsLong());
+                } else {
+                    resolved = PaimonScanParams.resolveOptions(table, spec.getOptions());
+                }
                 String pinnedTag = resolved.get(CoreOptions.SCAN_TAG_NAME.key());
                 if (pinnedTag != null) {
                     // A tag selector (scan.tag-name, or a tag-valued scan.version that resolveOptions
@@ -717,8 +768,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                             .properties(PaimonScanParams.markAsOptions(resolved))
                             .build());
                 }
-                long pinnedId = pinnedSnapshotId(table, resolved);
-                long schemaId = pinnedId < 0
+                long pinnedId = usesStatementFence
+                        ? spec.getLatestSnapshotFence().getAsLong()
+                        : pinnedSnapshotId(table, resolved);
+                // The statement fence pins data visibility, not schema time travel. Planning-only
+                // aliases must retain the latest-schema projection used by the plain relation.
+                long schemaId = usesStatementFence || pinnedId < 0
                         ? -1L
                         : catalogOps.snapshotSchemaId(table, pinnedId).orElse(-1L);
                 // resolved is never empty for a startup selector; for a selector-free @options (e.g. only
@@ -882,14 +937,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 return paimonHandle.withScanOptions(snapshot.getProperties());
             }
         }
-        // Empty-properties latest-pin (beginQuerySnapshot) path. Empty-table / query-begin parity:
-        // beginQuerySnapshot pins INVALID_SNAPSHOT_ID (-1) for an empty table rather than
-        // Optional.empty(). A -1 (or a null snapshot) must NOT become scan.snapshot-id=-1, because
-        // Table.copy(scan.snapshot-id=-1) resolves to a non-existent snapshot in the paimon SDK
-        // (confusing "snapshot/file not found"). Legacy never copied an invalid id: its empty /
-        // query-begin path reads latest WITHOUT a copy. So return the handle UNCHANGED (read latest).
-        if (snapshot == null || snapshot.getSnapshotId() < 0) {
+        if (snapshot == null) {
             return paimonHandle;
+        }
+        if (snapshot.getSnapshotId() < 0) {
+            // Empty latest is still a statement-scoped state. Carry only Doris' internal marker;
+            // Paimon's scan.snapshot-id=-1 would address a non-existent snapshot file.
+            return paimonHandle.withScanOptions(
+                    PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L));
         }
         Map<String, String> scanOptions = Collections.singletonMap(
                 CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.getSnapshotId()));
@@ -1224,7 +1279,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      */
     private List<ConnectorPartitionInfo> cachedPartitions(PaimonTableHandle paimonHandle) {
         List<String> partitionKeys = paimonHandle.getPartitionKeys();
-        if (partitionViewCache == null || partitionKeys == null || partitionKeys.isEmpty()) {
+        Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        if (partitionViewCache == null || partitionKeys == null || partitionKeys.isEmpty()
+                || (!scanOptions.isEmpty() && !PaimonScanParams.hasOnlyReaderOptions(scanOptions))) {
             return collectPartitions(paimonHandle);
         }
         ConnectorTableKey key = partitionViewCacheKey(paimonHandle);
@@ -1234,11 +1291,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     /**
      * Builds cache A's key for {@code paimonHandle}: {@code (db, table, snapshotId, schemaId)}.
      *
-     * <p><b>snapshotId</b>: {@link #collectPartitions}'s remote call ({@code catalogOps.listPartitions(Identifier)})
-     * is BASE-identifier-only — it does not apply the handle's pinned {@code scanOptions} (unlike the scan path),
-     * so it always reflects the CURRENT catalog state, never a time-travel pin (branch / time-travel reads never
-     * reach this path at all — see {@link #collectPartitions}). The key must therefore track "current", not
-     * whatever snapshot happens to be threaded on the handle: it reads the SAME per-catalog
+     * <p><b>snapshotId</b>: cached calls have no startup-changing scan options (those bypass this cache), so
+     * {@link #collectPartitions} enumerates the current resolved table copy. The key therefore reads the SAME
+     * per-catalog
      * {@link #latestSnapshotCache} that {@link #beginQuerySnapshot} pins queries to (a cheap in-memory hit within
      * the query — {@code beginQuerySnapshot} already warmed it), so a repeat query within the TTL hits this cache,
      * and a new snapshot (data change, once the entry expires or REFRESH invalidates it) naturally mints a new key.
@@ -1269,6 +1324,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * the partition columns and escapes path-special characters in the name via the Paimon SDK.
      */
     private List<ConnectorPartitionInfo> collectPartitions(PaimonTableHandle paimonHandle) {
+        if (PaimonScanParams.isPinnedEmptyScan(paimonHandle.getScanOptions())) {
+            // Do not reopen latest metadata after the statement fenced an empty table.
+            return Collections.emptyList();
+        }
         List<String> partitionKeys = paimonHandle.getPartitionKeys();
         // Legacy never lists partitions for unpartitioned tables: PaimonPartitionInfoLoader.load
         // returns EMPTY when partitionColumns is empty, so guard before touching the seam.
@@ -1276,23 +1335,36 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
 
-        // Partition enumeration is intentionally BASE-only: branch / time-travel reads carry EMPTY
-        // partition info (legacy PaimonPartitionInfo.EMPTY) and never reach this path, so for the
-        // (non-branch) handles that do, resolveTable returns the base table and the base-Identifier
-        // listing below is consistent. (A branch handle would otherwise mix branch schema metadata
-        // here with the base partition list — but that combination does not occur by design.)
-        Table table = resolveTable(paimonHandle);
+        Table resolvedTable = resolveTable(paimonHandle);
+        Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        boolean optionsPin = PaimonScanParams.isOptionsPin(scanOptions);
+        Table table;
+        if (optionsPin) {
+            table = PaimonScanParams.applyOptions(resolvedTable, scanOptions);
+        } else {
+            String snapshotId = scanOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
+            // Fence hydration receives an ordinary positive snapshot pin. Apply it before listing
+            // partitions so EXPLAIN and block-rule accounting describe the same version as the scan.
+            Table partitionTable = snapshotId == null
+                    ? resolvedTable
+                    : resolvedTable.copy(Collections.singletonMap(
+                            CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId));
+            // Partition projection never opens a data reader, so reader-only settings must not
+            // invalidate metadata that a later relation-scoped override can make safe.
+            // Metadata planning can also touch Paimon's global manifest executor, so apply the
+            // CPU-local cap to a disposable projection rather than the cached catalog handle.
+            table = PaimonReaderOptions.runtimeSafeTable(partitionTable);
+            PaimonReaderOptions.validateEffectivePlanningTable(table);
+        }
         Identifier identifier = Identifier.create(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName());
-        // M-11: wrap the remote listPartitions in executeAuthenticated (D-052), mirroring legacy
-        // PaimonExternalCatalog.getPaimonPartitions which ran it inside executionAuthenticator.execute
-        // and swallowed TableNotExistException INSIDE the wrap (Kerberos UGI.doAs would otherwise wrap
-        // the checked exception, so it must be caught inside).
         List<Partition> paimonPartitions;
         try {
             paimonPartitions = context.executeAuthenticated(() -> {
                 try {
-                    return catalogOps.listPartitions(identifier);
+                    // Always enumerate the exact resolved copy: both relation and catalog policies are
+                    // query semantics and must survive this metadata-planning boundary.
+                    return catalogOps.listPartitions(identifier, table);
                 } catch (Catalog.TableNotExistException e) {
                     LOG.warn("Paimon table not found while listing partitions: {}", identifier, e);
                     return Collections.<Partition>emptyList();
@@ -1412,7 +1484,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         long rowCount;
         try {
-            rowCount = catalogOps.rowCount(resolveTable(paimonHandle));
+            Table table = PaimonReaderOptions.runtimeSafeTable(resolveTable(paimonHandle));
+            table = runtimeSafeSystemTable(paimonHandle, table, Collections.emptyMap());
+            PaimonReaderOptions.validateEffectiveTable(table);
+            rowCount = catalogOps.rowCount(table);
         } catch (Exception e) {
             LOG.warn("Failed to compute Paimon row count for {}", paimonHandle, e);
             return Optional.empty();
@@ -1439,11 +1514,21 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         long rowCount;
         try {
             PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, handle, snapshot);
+            if (PaimonScanParams.isPinnedEmptyScan(pinned.getScanOptions())) {
+                // Empty is a real statement fence; reopening latest here could count a concurrent
+                // first commit even though execution is still required to scan zero rows.
+                return Optional.empty();
+            }
             Table table = resolveTable(pinned);
             Map<String, String> scanOptions = pinned.getScanOptions();
             if (scanOptions != null && !scanOptions.isEmpty()) {
-                table = table.copy(scanOptions);
+                table = PaimonScanParams.isOptionsPin(scanOptions)
+                        ? PaimonScanParams.applyOptions(table, scanOptions)
+                        : table.copy(scanOptions);
             }
+            table = PaimonReaderOptions.runtimeSafeTable(table);
+            table = runtimeSafeSystemTable(pinned, table, scanOptions);
+            PaimonReaderOptions.validateEffectiveTable(table);
             rowCount = catalogOps.rowCount(table);
         } catch (Exception e) {
             LOG.warn("Failed to compute Paimon row count at snapshot {} for {}",
@@ -1454,6 +1539,17 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Optional.of(new ConnectorTableStatistics(rowCount, -1));
         }
         return Optional.empty();
+    }
+
+    private Table runtimeSafeSystemTable(
+            PaimonTableHandle handle, Table systemTable, Map<String, String> scanOptions)
+            throws Exception {
+        if (!handle.isSystemTable()) {
+            return systemTable;
+        }
+        Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
+        return PaimonReaderOptions.runtimeSafeSystemTable(
+                handle.getSysTableName(), systemTable, dataTable, scanOptions);
     }
 
     /**

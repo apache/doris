@@ -249,6 +249,30 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void planningPassSystemTableLoadsSameBaseOnceViaSharedScope() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        RecordingIcebergCatalogOps ops = opsReturning(table);
+        IcebergConnectorMetadata metadata =
+                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops);
+        IcebergTableHandle handle = IcebergTableHandle.forSystemTable(
+                "db1", "t1", "snapshots", -1L, null, -1L);
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+
+        metadata.getColumnHandles(session, handle);
+        provider.planScan(session, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+
+        // The metadata schema and serialized scan task must derive from one base generation. Two independent
+        // loads can expose different nested metadata-table schemas in a session catalog after a refresh.
+        long remoteLoads = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
+        Assertions.assertEquals(1, remoteLoads,
+                "a system-table planning pass must share one base-table generation");
+    }
+
+    @Test
     public void planningPassWithoutSharedScopeLoadsEachTime() {
         // Contrast to the shared-scope gate: with NONE (no live statement scope) each resolver loads independently
         // (byte-identical to the pre-scope offline behavior). MUTATION: memoizing under NONE -> 1 load -> red.
@@ -1237,6 +1261,29 @@ public class IcebergScanPlanProviderTest {
                 .getFields().get(0).getFieldPtr().getName());
         Assertions.assertEquals("name", params.getHistorySchemaInfo().get(0).getRootField()
                 .getFields().get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void getScanNodePropertiesUnderPinConvertsPredicatesWithPinnedSchema() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        long s1 = table.currentSnapshot().snapshotId();
+        long schemaIdS1 = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("name", "fullname").commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorExpression oldNamePredicate = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("name", ConnectorType.of("VARCHAR")),
+                new ConnectorLiteral(ConnectorType.of("VARCHAR"), "alice"));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1").withSnapshot(s1, null, schemaIdS1),
+                Collections.singletonList(new IcebergColumnHandle("name", 2)), Optional.of(oldNamePredicate));
+
+        // A historical predicate must bind to the historical field name/id; converting against the current
+        // renamed schema silently drops manifest pruning and can bind a later same-named field instead.
+        Assertions.assertTrue(props.containsKey("iceberg.pushdown_predicates"),
+                "the historical predicate must be converted against the pinned schema");
     }
 
     @Test
@@ -2982,6 +3029,49 @@ public class IcebergScanPlanProviderTest {
 
         Assertions.assertEquals(2L, latestRows, "latest $files should list both data files");
         Assertions.assertEquals(1L, pinnedRows, "pinned-to-S1 $files should list only S1's file");
+    }
+
+    @Test
+    public void planScanForStaticSystemTableDoesNotSelectSnapshot() throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable(
+                                "db1", "t1", "snapshots", Long.MAX_VALUE, null, -1L),
+                        Collections.emptyList())
+                .build());
+
+        // Static metadata scans enumerate metadata history and ignore snapshot selection. Calling useSnapshot
+        // first only rejects expired pins even though it cannot fence the rows returned by this table type.
+        Assertions.assertEquals(1L, countSerializedSplitRows(ranges));
+    }
+
+    @Test
+    public void planScanForAllMetadataTablesDoesNotSelectSnapshotOrRef() throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        for (String systemTable : Arrays.asList(
+                "all_data_files", "all_delete_files", "all_files", "all_manifests", "all_entries")) {
+            Assertions.assertDoesNotThrow(() -> provider.planScan(null,
+                    ConnectorScanRequest.builder(
+                            IcebergTableHandle.forSystemTable(
+                                    "db1", "t1", systemTable, Long.MAX_VALUE, null, -1L),
+                            Collections.emptyList())
+                    .build()), systemTable + " must ignore an unsupported snapshot pin");
+            Assertions.assertDoesNotThrow(() -> provider.planScan(null,
+                    ConnectorScanRequest.builder(
+                            IcebergTableHandle.forSystemTable(
+                                    "db1", "t1", systemTable, table.currentSnapshot().snapshotId(), "main", -1L),
+                            Collections.emptyList())
+                    .build()), systemTable + " must ignore an unsupported ref pin");
+        }
     }
 
     @Test

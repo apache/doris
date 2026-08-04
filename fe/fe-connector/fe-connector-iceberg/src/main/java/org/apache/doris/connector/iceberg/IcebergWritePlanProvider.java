@@ -701,13 +701,11 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     private Table resolveTable(ConnectorSession session, IcebergTableHandle handle) {
-        // Per-statement scope (PERF-07): the write-shaping derivations (sort columns / partitioning / explain)
-        // share the SAME one loaded RAW table as the statement's read + scan resolvers. For a row-level DML the
-        // scan has already populated the scope, so this is a hit (no write-side load); a write-only INSERT loads
-        // once here. Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces
-        // verbatim (it re-validates the credential even on a scope hit).
+        // Write shaping and beginWrite share a mutable table under a namespace separate from frozen reads;
+        // newTransaction refreshes this object without changing a concurrently planned statement generation.
+        // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim.
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
-        return IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(), () -> {
+        return IcebergStatementScope.sharedWritableTable(session, handle.getDbName(), handle.getTableName(), () -> {
             if (context == null) {
                 return ops.loadTable(handle.getDbName(), handle.getTableName());
             }

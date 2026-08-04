@@ -19,10 +19,12 @@ package org.apache.doris.extension.loader;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.Properties;
+import java.util.jar.JarFile;
 
 /**
  * Decides whether a directory-loaded plugin was built against an API this FE can serve.
@@ -73,13 +75,15 @@ public final class ApiVersionGate {
     private final String manifestAttribute;
     private final String expectedVersion;
     private final int expectedMajor;
+    private final ClassLoader kernelClassLoader;
 
     private ApiVersionGate(String familyLabel, String manifestAttribute, String expectedVersion,
-            int expectedMajor) {
+            int expectedMajor, ClassLoader kernelClassLoader) {
         this.familyLabel = familyLabel;
         this.manifestAttribute = manifestAttribute;
         this.expectedVersion = expectedVersion;
         this.expectedMajor = expectedMajor;
+        this.kernelClassLoader = kernelClassLoader;
     }
 
     /**
@@ -107,7 +111,7 @@ public final class ApiVersionGate {
                     + " defect: the maven property feeding this resource is missing or was not filtered.");
         }
         return new ApiVersionGate(family.toUpperCase(Locale.ROOT), manifestAttributeOf(family),
-                declared.trim(), major.getAsInt());
+                declared.trim(), major.getAsInt(), spiAnchor.getClassLoader());
     }
 
     /** Kernel-side resource path for a family, by convention. */
@@ -177,6 +181,21 @@ public final class ApiVersionGate {
                     + " Doris release.";
         }
         return null;
+    }
+
+    /** Applies the same manifest-major contract to a classpath-discovered provider. */
+    public String rejectionReasonForClass(Class<?> pluginClass) {
+        Path definingJar = ManifestVersions.jarOf(pluginClass);
+        if (definingJar == null) {
+            // Maven/IDE runs expose kernel-built providers as class directories, but an independently
+            // loaded exploded provider has no immutable declaration and must remain fail-closed.
+            return pluginClass.getClassLoader() == kernelClassLoader ? null : rejectionReason((String) null);
+        }
+        try (JarFile jar = new JarFile(definingJar.toFile())) {
+            return rejectionReason(ManifestVersions.mainAttribute(jar, manifestAttribute));
+        } catch (IOException e) {
+            return rejectionReason((String) null);
+        }
     }
 
     /**

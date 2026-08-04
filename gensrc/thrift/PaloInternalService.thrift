@@ -374,6 +374,8 @@ struct TQueryOptions {
 
   148: optional i32 min_scanners_concurrency = 1;
   149: optional i32 min_scan_scheduler_concurrency = 0; //deprecated
+  // Controls runtime-filter partition pruning for readers that honor this option.
+  // FileScannerV2 always enables safe partition pruning.
   150: optional bool enable_runtime_filter_partition_prune = true;
 
   // The minimum memory that an operator required to run.
@@ -501,7 +503,8 @@ struct TQueryOptions {
   // enable plan local exchange node in fe
   223: optional bool enable_local_shuffle_planner;
 
-  // To control whether BE scan readers may apply expression-based ZoneMap pruning.
+  // Controls expression-based ZoneMap pruning for readers that honor this option.
+  // FileScannerV2 always enables safe expression ZoneMap pruning.
   224: optional bool enable_expr_zonemap_filter = true
 
   225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456

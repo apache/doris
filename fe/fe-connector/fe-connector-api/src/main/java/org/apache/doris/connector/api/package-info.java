@@ -160,8 +160,8 @@
  *
  * <h2>Rule 7 — where a connector's tunable knobs live</h2>
  *
- * <p>Pick the channel by the SCOPE of the value. Only the second one obliges anyone to touch the engine, so
- * a knob that can be catalog-scoped should be.</p>
+ * <p>Pick the channel by the SCOPE of the value. None of them requires an engine change any more, so a
+ * knob that can be catalog-scoped should be, and one that cannot belongs in the plugin's own conf file.</p>
  *
  * <ul>
  * <li><b>Per catalog</b> &rarr; a key in {@code CREATE CATALOG ... PROPERTIES(...)}. The engine hands the
@@ -174,9 +174,22 @@
  *     declared in {@code HiveConnectorProperties} and read in {@code HiveScanPlanProvider} /
  *     {@code HiveConnector}; those key strings appear nowhere in {@code fe-core}.</li>
  * <li><b>Per FE process</b> (one deployment-level value for every catalog, e.g. a driver directory)
- *     &rarr; an {@code fe.conf} field forwarded through {@code ConnectorContext.getEnvironment()} by
- *     {@code DefaultConnectorContext.buildEnvironment}. This is the one knob shape that requires an engine
- *     change per key, so use it only when the value genuinely is not per catalog.</li>
+ *     &rarr; a key in the plugin's own {@code <name>.conf}, read with {@code ConnectorConf.get}. The engine
+ *     locates and parses {@code <pluginDir>/<name>.conf} generically
+ *     ({@code ConnectorPluginManager.loadPlugins}) and serves it back through
+ *     {@code ConnectorContext.getConnectorConfig()}, so no key name of yours reaches {@code fe-core} and
+ *     adding one costs the engine nothing. Do <b>not</b> prefix these keys — the file name already
+ *     namespaces them. Ship {@code src/main/resources/<name>.conf.template} and add it to your assembly's
+ *     {@code <files>} at the zip root; {@code build.sh} seeds the live {@code .conf} from it. {@code <name>}
+ *     is {@code ConnectorProvider.name()} and need not equal your plugin directory name
+ *     ({@code plugins/connector/hive/} holds {@code hms.conf}).</li>
+ * <li><b>Per FE process, legacy</b> &rarr; an {@code fe.conf} field forwarded through
+ *     {@code ConnectorContext.getEnvironment()} by {@code DefaultConnectorContext.buildEnvironment}. This is
+ *     the one shape that requires an engine change per key, and it is <b>closed to new keys</b>. What is
+ *     still there is either shared by several connectors or not a connector setting at all
+ *     ({@code doris_home}, {@code doris_version}); the connector settings among them are kept as the
+ *     fallback {@code ConnectorConf.get} consults after the plugin conf, so deployments configured before
+ *     the conf files existed keep working untouched.</li>
  * <li><b>Per session</b> &rarr; read the query's session variables from
  *     {@link ConnectorSession#getSessionProperties()}. The connector does not declare them; it looks up the
  *     names it cares about.</li>

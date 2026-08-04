@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 import java.util.Collections;
@@ -87,6 +88,31 @@ public class PaimonTableHandle implements ConnectorTableHandle {
 
     /** Transient Paimon Table reference; not serialized. Set by PaimonConnectorMetadata. */
     private transient Table paimonTable;
+
+    /**
+     * For a SYSTEM handle, the base {@link FileStoreTable} its {@link #paimonTable} wrapper was built
+     * over - the very same schema generation, because {@link PaimonConnectorMetadata#getSysTableHandle}
+     * builds both from one load. {@code null} for a normal handle and for the catalog fallback
+     * (format / object tables, which have no {@code FileStoreTable} base).
+     *
+     * <p>It exists so {@code PaimonScanPlanProvider} can rebuild an equivalent wrapper over a
+     * catalog-less copy for the BE without ever asking the catalog for a second, possibly newer,
+     * generation: the FE would then plan on one generation while the BE materialized the splits on
+     * another, and a system table whose row type follows the base schema ({@code $audit_log},
+     * {@code $binlog}, {@code $ro}) could reach the BE without the columns the FE asked for.
+     *
+     * <p>Transient like {@link #paimonTable}: after a serialization round-trip it is null and the BE
+     * simply gets the wrapper as it stands (the pre-#65867 behaviour), never a wrapper rebuilt over a
+     * base this handle did not resolve.
+     */
+    private transient FileStoreTable sysBaseTable;
+
+    /**
+     * The exact relation generation resolved before the system wrapper was created. Unlike
+     * {@link #sysBaseTable}, this keeps decorators intact so validation and statistics observe the
+     * same policy-bearing handle that analysis accepted.
+     */
+    private transient Table systemTableSource;
 
     public PaimonTableHandle(String databaseName, String tableName,
             List<String> partitionKeys, List<String> primaryKeys) {
@@ -182,11 +208,17 @@ public class PaimonTableHandle implements ConnectorTableHandle {
      * scanOptions — the snapshot-pinned read variant. The transient Table is copied over as-is; the
      * scan path applies {@code Table.copy(scanOptions)} at resolution time. branchName is preserved
      * because it is part of the handle identity.
+     *
+     * <p>{@link #sysBaseTable} travels with the Table it belongs to: pinning a system table does not
+     * change which base its wrapper was built over, and dropping it here would silently send the BE a
+     * catalog-ful wrapper for exactly the pinned reads that need the rebuilt one most.
      */
     public PaimonTableHandle withScanOptions(Map<String, String> options) {
         PaimonTableHandle copy = new PaimonTableHandle(databaseName, tableName,
                 partitionKeys, primaryKeys, sysTableName, forceJni, options, branchName);
         copy.paimonTable = this.paimonTable;
+        copy.sysBaseTable = this.sysBaseTable;
+        copy.systemTableSource = this.systemTableSource;
         return copy;
     }
 
@@ -214,6 +246,29 @@ public class PaimonTableHandle implements ConnectorTableHandle {
     /** Sets the transient Paimon Table reference. */
     public void setPaimonTable(Table paimonTable) {
         this.paimonTable = paimonTable;
+    }
+
+    /**
+     * The base table this system handle's wrapper was built over, or null (normal handle, catalog
+     * fallback, or a deserialized handle). See {@link #sysBaseTable}.
+     */
+    public FileStoreTable getSysBaseTable() {
+        return sysBaseTable;
+    }
+
+    /** Sets the base table this system handle's wrapper was built over. See {@link #sysBaseTable}. */
+    public void setSysBaseTable(FileStoreTable sysBaseTable) {
+        this.sysBaseTable = sysBaseTable;
+    }
+
+    /** Returns the policy-bearing relation generation used to create this system handle. */
+    public Table getSystemTableSource() {
+        return systemTableSource;
+    }
+
+    /** Retains the policy-bearing relation generation used to create this system handle. */
+    public void setSystemTableSource(Table systemTableSource) {
+        this.systemTableSource = systemTableSource;
     }
 
     @Override

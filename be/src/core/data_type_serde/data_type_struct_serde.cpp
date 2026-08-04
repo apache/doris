@@ -446,12 +446,18 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
-    for (auto row_id = start; row_id < end; row_id++) {
-        for (int i = 0; i < struct_col.tuple_size(); ++i) {
-            RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
-                    timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                    row_id + 1, arena, options));
+    for (int i = 0; i < struct_col.tuple_size(); ++i) {
+        if (null_map != nullptr) {
+            // ORC child writers filter values with the child's presence stream, not only the
+            // incoming parent mask, so propagate parent nulls into every child batch.
+            cur_batch->fields[i]->hasNulls = true;
+            for (auto row_id = start; row_id < end; ++row_id) {
+                cur_batch->fields[i]->notNull[row_id] = !(*null_map)[row_id];
+            }
         }
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(timezone, struct_col.get_column(i),
+                                                                 null_map, cur_batch->fields[i],
+                                                                 start, end, arena, options));
     }
 
     cur_batch->numElements = end - start;

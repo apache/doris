@@ -545,8 +545,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MINIDUMP_PATH = "minidump_path";
 
-    public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
-
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
     public static final String MEMO_LOGICAL_ROW_COUNT_AGGREGATION_POLICY = "memo_logical_row_count_aggregation_policy";
@@ -2198,7 +2196,15 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterPrune = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true)
+    @VarAttrDef.VarAttr(
+            name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE,
+            description = {"控制支持该变量的 scanner 是否启用运行时过滤器分区裁剪。"
+                    + "File Scanner V2 始终启用安全的分区裁剪。默认为 true。",
+                    "Controls runtime-filter partition pruning in scanners that honor this variable. "
+                            + "File Scanner V2 always enables safe partition pruning. "
+                            + "The default value is true."},
+            needForward = true,
+            fuzzy = true)
     public boolean enableRuntimeFilterPartitionPrune = true;
 
     /**
@@ -2557,8 +2563,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
 
-    @VarAttrDef.VarAttr(name = PLAN_NEREIDS_DUMP)
-    public boolean planNereidsDump = false;
+    // Internal state, not a session variable: it is turned on only by MinidumpUtils while replaying
+    // a minidump file (PLAY '<dumpfile>'), where tables and statistics come from the dump instead of
+    // the catalog. It is intentionally not settable through SET, not forwarded and not serialized.
+    private boolean planNereidsDump = false;
 
     // If set to true, all query will be executed without returning result
     @VarAttrDef.VarAttr(name = DRY_RUN_QUERY, needForward = true)
@@ -2719,8 +2727,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(
             name = ENABLE_EXPR_ZONEMAP_FILTER,
             fuzzy = true,
-            description = {"控制 scanner 是否启用表达式 ZoneMap 过滤。默认为 true。",
-                    "Controls whether to enable expression ZoneMap filtering in scanners. "
+            description = {"控制支持该变量的 scanner 是否启用表达式 ZoneMap 过滤。"
+                    + "File Scanner V2 始终启用安全的表达式 ZoneMap 过滤。默认为 true。",
+                    "Controls expression ZoneMap filtering in scanners that honor this variable. "
+                            + "File Scanner V2 always enables safe expression ZoneMap filtering. "
                             + "The default value is true."},
             needForward = true)
     public boolean enableExprZonemapFilter = true;

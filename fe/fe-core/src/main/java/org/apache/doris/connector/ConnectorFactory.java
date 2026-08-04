@@ -146,6 +146,15 @@ public final class ConnectorFactory {
         }
     }
 
+    /** Validates an ALTER candidate through the matching connector provider. */
+    public static void validatePropertiesForUpdate(String catalogType,
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr != null) {
+            mgr.validatePropertiesForUpdate(catalogType, currentProperties, updatedProperties);
+        }
+    }
+
     /** For testing only. */
     static void clearPluginManager() {
         pluginManager = null;

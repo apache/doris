@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorContext;
+
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.Table;
 
@@ -83,5 +85,23 @@ final class PaimonTableResolver {
             id = Identifier.create(handle.getDatabaseName(), handle.getTableName());
         }
         return catalogOps.getTable(id);
+    }
+
+    static Table resolveSystemSource(
+            PaimonCatalogOps catalogOps, PaimonTableHandle handle, ConnectorContext context)
+            throws Exception {
+        Table source = handle.getSystemTableSource();
+        if (source == null) {
+            source = handle.getSysBaseTable();
+        }
+        if (source != null) {
+            return source;
+        }
+        Identifier baseId = Identifier.create(handle.getDatabaseName(), handle.getTableName());
+        // A deserialized system handle loses all transient source references. Its fallback catalog
+        // RPC must re-enter the same UGI/TCCL boundary as the preceding system-wrapper reload.
+        return context == null
+                ? catalogOps.getTable(baseId)
+                : context.executeAuthenticated(() -> catalogOps.getTable(baseId));
     }
 }

@@ -20,6 +20,7 @@ package org.apache.doris.connector.api.mvcc;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -141,6 +142,16 @@ public class ConnectorTimeTravelSpecTest {
         // MUTATION: dropping `digital ==` from equals makes this red.
         Assertions.assertNotEquals(a, digitalFlipped,
                 "specs differing only by the digital flag must not be equal");
+    }
+
+    @Test
+    public void optionsCanCarryAStatementLatestSnapshotFence() {
+        ConnectorTimeTravelSpec spec = ConnectorTimeTravelSpec.options(
+                Collections.singletonMap("scan.manifest.parallelism", "1"), 7L);
+
+        Assertions.assertEquals(7L, spec.getLatestSnapshotFence().getAsLong());
+        Assertions.assertNotEquals(spec, ConnectorTimeTravelSpec.options(
+                Collections.singletonMap("scan.manifest.parallelism", "1"), 8L));
     }
 
     @Test

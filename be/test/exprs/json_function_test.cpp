@@ -23,6 +23,7 @@
 #include <rapidjson/writer.h>
 
 #include <string>
+#include <string_view>
 
 #include "exprs/json_functions.h"
 #include "gtest/gtest_pred_impl.h"
@@ -125,6 +126,30 @@ TEST_F(JsonFunctionTest, json_path_test) {
         EXPECT_EQ(res6->Size(), 1);
         EXPECT_TRUE(wrap_explicitly);
     }
+}
+
+TEST_F(JsonFunctionTest, extract_from_object_not_found_errors) {
+    const auto expect_not_found = [](std::string_view json, const std::string& path,
+                                     std::string_view expected_message) {
+        simdjson::ondemand::parser parser;
+        simdjson::padded_string padded_json(json.data(), json.size());
+        auto document = parser.iterate(padded_json);
+        simdjson::ondemand::object object;
+        ASSERT_EQ(document.get_object().get(object), simdjson::SUCCESS);
+
+        std::vector<JsonPath> parsed_paths;
+        JsonFunctions::parse_json_paths(path, &parsed_paths);
+        simdjson::ondemand::value value;
+        const Status status = JsonFunctions::extract_from_object(object, parsed_paths, &value);
+
+        ASSERT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
+        EXPECT_NE(status.to_string().find(expected_message), std::string::npos) << status;
+    };
+
+    expect_not_found(R"({"k1":{"k2":"v2"}})", "$.k1.k3", "unable to find field: k3");
+    expect_not_found(R"({"k1":{"k2":[1,2,3]}})", "$.k1.k2[5]",
+                     "failed to access array field: k2, index: 5");
+    expect_not_found(R"({"k1":{"k2":"v2"}})", "$.k1.k2.k3", "unable to find field: k3");
 }
 
 } // namespace doris
