@@ -34,15 +34,18 @@ enum class Encoding {
     DELTA_LENGTH_BYTE_ARRAY,
     DELTA_BYTE_ARRAY
 };
-enum class ValueType { INT32, INT64, FLOAT, DOUBLE, BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY };
+enum class ValueType { INT32, INT64, FLOAT, DOUBLE, BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY, DECIMAL64 };
 enum class Pattern { CLUSTERED, ALTERNATING };
 enum class Projection { PREDICATE_ONLY, PREDICATE_PROJECTED };
+enum class ReaderImplementation { DEFAULT, LEGACY, RAW_DISJUNCTION, RAW_DNF_MASK };
 enum class SelectionOperation { RESIZE_IDENTITY, ROW_FILTER, CASCADE_FILTER };
 enum class ReaderOperation {
     OPEN_TO_FIRST_BLOCK,
     FULL_SCAN,
     PREDICATE_SCAN,
     COMPLEX_RESIDUAL_SCAN,
+    MULTI_COLUMN_OR_SCAN,
+    MULTI_COLUMN_DNF_SCAN,
     LIMIT_1,
     LIMIT_1000
 };
@@ -72,6 +75,7 @@ struct ReaderScenario {
     int schema_width;
     int predicate_position;
     ValueType value_type = ValueType::INT32;
+    ReaderImplementation implementation = ReaderImplementation::DEFAULT;
 };
 
 struct KernelScenario {
@@ -207,13 +211,13 @@ inline std::vector<NullableSelectionScenario> nullable_selection_scenarios() {
 inline std::vector<ReaderScenario> reader_scenarios() {
     std::vector<ReaderScenario> scenarios;
     std::set<std::tuple<ReaderOperation, Encoding, int, Pattern, int, Projection, int, int,
-                        ValueType>>
+                        ValueType, ReaderImplementation>>
             seen;
     const auto add = [&](ReaderScenario scenario) {
         const auto key = std::make_tuple(
                 scenario.operation, scenario.encoding, scenario.null_percent, scenario.null_pattern,
                 scenario.selectivity_percent, scenario.projection, scenario.schema_width,
-                scenario.predicate_position, scenario.value_type);
+                scenario.predicate_position, scenario.value_type, scenario.implementation);
         if (seen.insert(key).second) {
             scenarios.push_back(scenario);
         }
@@ -306,6 +310,59 @@ inline std::vector<ReaderScenario> reader_scenarios() {
             }
         }
     }
+    for (const auto encoding : {Encoding::PLAIN, Encoding::DICTIONARY}) {
+        for (const int null_percent : {0, 1, 10, 50, 90}) {
+            for (const int selectivity : {1, 10, 50, 90, 100}) {
+                for (const auto projection :
+                     {Projection::PREDICATE_ONLY, Projection::PREDICATE_PROJECTED}) {
+                    for (const auto implementation :
+                         {ReaderImplementation::LEGACY, ReaderImplementation::RAW_DISJUNCTION}) {
+                        auto scenario = baseline;
+                        scenario.operation = ReaderOperation::MULTI_COLUMN_OR_SCAN;
+                        scenario.encoding = encoding;
+                        scenario.null_percent = null_percent;
+                        scenario.selectivity_percent = selectivity;
+                        scenario.projection = projection;
+                        scenario.value_type = ValueType::DECIMAL64;
+                        scenario.implementation = implementation;
+                        add(scenario);
+                    }
+                }
+            }
+        }
+        for (const auto implementation :
+             {ReaderImplementation::LEGACY, ReaderImplementation::RAW_DNF_MASK}) {
+            auto scenario = baseline;
+            scenario.operation = ReaderOperation::MULTI_COLUMN_DNF_SCAN;
+            scenario.encoding = encoding;
+            scenario.null_percent = 50;
+            scenario.selectivity_percent = 10;
+            scenario.projection = Projection::PREDICATE_PROJECTED;
+            scenario.value_type = ValueType::INT32;
+            scenario.schema_width = 4;
+            scenario.implementation = implementation;
+            add(scenario);
+        }
+    }
+    for (const auto encoding : {Encoding::PLAIN, Encoding::DICTIONARY}) {
+        for (const int null_percent : {0, 10, 50, 90}) {
+            for (const int selectivity : {1, 10, 50, 90}) {
+                for (const auto implementation :
+                     {ReaderImplementation::LEGACY, ReaderImplementation::RAW_DNF_MASK}) {
+                    auto scenario = baseline;
+                    scenario.operation = ReaderOperation::MULTI_COLUMN_DNF_SCAN;
+                    scenario.encoding = encoding;
+                    scenario.null_percent = null_percent;
+                    scenario.selectivity_percent = selectivity;
+                    scenario.projection = Projection::PREDICATE_ONLY;
+                    scenario.value_type = ValueType::INT32;
+                    scenario.schema_width = 4;
+                    scenario.implementation = implementation;
+                    add(scenario);
+                }
+            }
+        }
+    }
     return scenarios;
 }
 
@@ -383,6 +440,8 @@ inline std::string to_string(ValueType value) {
         return "byte_array";
     case ValueType::FIXED_LEN_BYTE_ARRAY:
         return "fixed_len_byte_array";
+    case ValueType::DECIMAL64:
+        return "decimal64";
     }
     return "unknown";
 }
@@ -417,6 +476,10 @@ inline std::string to_string(ReaderOperation value) {
         return "predicate_scan";
     case ReaderOperation::COMPLEX_RESIDUAL_SCAN:
         return "complex_residual_scan";
+    case ReaderOperation::MULTI_COLUMN_OR_SCAN:
+        return "multi_column_or_scan";
+    case ReaderOperation::MULTI_COLUMN_DNF_SCAN:
+        return "multi_column_dnf_scan";
     case ReaderOperation::LIMIT_1:
         return "limit_1";
     case ReaderOperation::LIMIT_1000:
@@ -425,13 +488,32 @@ inline std::string to_string(ReaderOperation value) {
     return "unknown";
 }
 
+inline std::string to_string(ReaderImplementation value) {
+    switch (value) {
+    case ReaderImplementation::DEFAULT:
+        return "default";
+    case ReaderImplementation::LEGACY:
+        return "legacy";
+    case ReaderImplementation::RAW_DISJUNCTION:
+        return "raw_disjunction";
+    case ReaderImplementation::RAW_DNF_MASK:
+        return "raw_dnf_mask";
+    }
+    return "unknown";
+}
+
 inline std::string reader_scenario_name(const ReaderScenario& scenario) {
-    return to_string(scenario.operation) + "/" + to_string(scenario.encoding) + "/" +
-           to_string(scenario.value_type) + "/null_" + std::to_string(scenario.null_percent) + "/" +
-           to_string(scenario.null_pattern) + "/sel_" +
-           std::to_string(scenario.selectivity_percent) + "/" + to_string(scenario.projection) +
-           "/width_" + std::to_string(scenario.schema_width) + "/predicate_" +
-           std::to_string(scenario.predicate_position);
+    std::string name =
+            to_string(scenario.operation) + "/" + to_string(scenario.encoding) + "/" +
+            to_string(scenario.value_type) + "/null_" + std::to_string(scenario.null_percent) +
+            "/" + to_string(scenario.null_pattern) + "/sel_" +
+            std::to_string(scenario.selectivity_percent) + "/" + to_string(scenario.projection) +
+            "/width_" + std::to_string(scenario.schema_width) + "/predicate_" +
+            std::to_string(scenario.predicate_position);
+    if (scenario.implementation != ReaderImplementation::DEFAULT) {
+        name += "/impl_" + to_string(scenario.implementation);
+    }
+    return name;
 }
 
 inline std::string to_string(Kernel value) {

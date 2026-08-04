@@ -105,7 +105,7 @@ be/output/lib/benchmark_test \
 ## Local reader cases
 
 `ParquetReader` measures local open-to-first-block, full scan, predicate scan, complex residual
-scan, and LIMIT-shaped reads. The matrix covers:
+scan, paired multi-column OR and DNF execution, and LIMIT-shaped reads. The matrix covers:
 
 - PLAIN, dictionary, byte-stream-split, and DELTA binary-packed files;
 - NULL ratios of 0%, 1%, 10%, 50%, and 90%, with clustered and alternating placement;
@@ -113,6 +113,30 @@ scan, and LIMIT-shaped reads. The matrix covers:
 - predicate-only and predicate-plus-lazy-projected reads;
 - ordered complex residuals whose later columns are reachable only after an earlier residual;
 - schemas with 4, 32, 128, and 512 columns, with the predicate first or last.
+
+The DECIMAL(10,2) multi-column OR cases compare the legacy residual expression with raw
+disjunction filtering for PLAIN and dictionary files. They sweep selectivity, NULL density, and
+whether the first OR column is projected:
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetReader/multi_column_or_scan/' \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true
+```
+
+The INT32 multi-column DNF cases model three `(category AND bound)` branches over two columns.
+They pair the legacy residual expression with exact decoder-produced branch masks for PLAIN and
+dictionary files. A projected-predicate pair verifies the conservative fallback:
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetReader/multi_column_dnf_scan/' \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true
+```
 
 Fixtures are created lazily under the system temporary directory in
 `doris_parquet_reader_benchmark`. Generation, footer validation, and reader setup are excluded from
