@@ -685,7 +685,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 if (branchName != null) {
                     overwriteFiles = overwriteFiles.toBranch(branchName);
                 }
-                try (CloseableIterable<FileScanTask> fileScanTasks = table.newScan().planFiles()) {
+                TableScan overwriteScan = table.newScan();
+                if (branchName != null) {
+                    overwriteScan = overwriteScan.useRef(branchName);
+                }
+                try (CloseableIterable<FileScanTask> fileScanTasks = overwriteScan.planFiles()) {
                     OverwriteFiles finalOverwriteFiles = overwriteFiles;
                     fileScanTasks.forEach(f -> finalOverwriteFiles.deleteFile(f.file()));
                 } catch (IOException e) {

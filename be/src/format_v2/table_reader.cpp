@@ -387,12 +387,10 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
             field.type.__isset.len ? field.type.len : -1);
 }
 
-// NOLINTNEXTLINE(readability-function-size): keep recursive Iceberg type reconstruction together.
-ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
-                                                         DataTypePtr type,
-                                                         bool prefer_current_name) {
+ColumnDefinition build_schema_column_metadata_from_external_field(
+        const schema::external::TField& field, DataTypePtr type) {
     type = restore_current_primitive_type(field, std::move(type));
-    ColumnDefinition column {
+    return ColumnDefinition {
             .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
@@ -411,6 +409,13 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
                                                      : std::nullopt,
             .is_partition_key = false,
     };
+}
+
+// NOLINTNEXTLINE(readability-function-size): keep recursive Iceberg type reconstruction together.
+ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
+                                                         DataTypePtr type,
+                                                         bool prefer_current_name) {
+    auto column = build_schema_column_metadata_from_external_field(field, std::move(type));
     if (column.type == nullptr || !field.__isset.nestedField) {
         return column;
     }
@@ -803,7 +808,8 @@ std::optional<std::vector<ColumnDefinition>> TableReader::_find_table_column_pat
             return std::nullopt;
         }
 
-        DataTypePtr path_type = leaf_type;
+        std::vector<DataTypePtr> path_types(external_path->size());
+        path_types.back() = leaf_type;
         for (size_t index = external_path->size(); index > 1; --index) {
             const auto* parent = (*external_path)[index - 2];
             const auto* child = (*external_path)[index - 1];
@@ -813,27 +819,21 @@ std::optional<std::vector<ColumnDefinition>> TableReader::_find_table_column_pat
             if (!parent->__isset.nestedField || !parent->nestedField.__isset.struct_field) {
                 return std::nullopt;
             }
-            path_type = std::make_shared<DataTypeStruct>(DataTypes {std::move(path_type)},
-                                                         Strings {child->name});
+            DataTypePtr path_type = std::make_shared<DataTypeStruct>(
+                    DataTypes {path_types[index - 1]}, Strings {child->name});
             if (parent->__isset.is_optional && parent->is_optional) {
                 path_type = make_nullable(path_type);
             }
+            path_types[index - 2] = std::move(path_type);
         }
 
-        auto root = build_schema_column_from_external_field(
-                *external_path->front(), path_type,
-                supports_iceberg_scan_semantics_v1(_scan_params));
         std::vector<ColumnDefinition> result;
-        const ColumnDefinition* current = &root;
-        while (current != nullptr) {
-            result.push_back(*current);
-            if (current->has_identifier_field_id() &&
-                current->get_identifier_field_id() == field_id) {
-                return result;
-            }
-            current = current->children.size() == 1 ? &current->children.front() : nullptr;
+        result.reserve(external_path->size());
+        for (size_t index = 0; index < external_path->size(); ++index) {
+            result.push_back(build_schema_column_metadata_from_external_field(
+                    *(*external_path)[index], path_types[index]));
         }
-        return std::nullopt;
+        return result;
     };
 
     const auto* current_schema = &_scan_params->history_schema_info.front();

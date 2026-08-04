@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -799,6 +800,8 @@ public class IcebergScanPlanProviderTest {
         List<ConnectorColumnHandle> columns = Collections.singletonList(new IcebergColumnHandle("name", 2));
         Map<String, String> props = provider.getScanNodeProperties(
                 null, new IcebergTableHandle("db1", "eqdel"), columns, Optional.empty());
+        Assertions.assertTrue(props.containsKey(
+                ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
 
         TFileScanRangeParams params = new TFileScanRangeParams();
         provider.populateScanLevelParams(params, props);
@@ -872,17 +875,77 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void missingEqualityDeleteSummaryKeepsCarrierEnabled() {
-        Assertions.assertTrue(IcebergScanPlanProvider.mayHaveEqualityDeletes(Collections.emptyMap()));
-        Assertions.assertFalse(IcebergScanPlanProvider.mayHaveEqualityDeletes(
-                Collections.singletonMap("total-equality-deletes", "0")));
+    public void partitionPrunedEqualityDeleteDoesNotRequireCurrentBackendSemantics() {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("partition_pruned_eqdel", PART_SCHEMA, spec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/partition_pruned_eqdel/p=1/f1.parquet",
+                        1024, null, "p=1"))
+                .appendFile(dataFile(spec, "s3://b/db/partition_pruned_eqdel/p=2/f2.parquet",
+                        1024, null, "p=2"))
+                .commit();
+        DeleteFile equalityDelete = FileMetadata.deleteFileBuilder(spec)
+                .ofEqualityDeletes(1)
+                .withPartitionPath("p=2")
+                .withPath("s3://b/db/partition_pruned_eqdel/p=2/eq.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(1L)
+                .build();
+        table.newRowDelta().addDeletes(equalityDelete).commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        List<ConnectorColumnHandle> columns =
+                Collections.singletonList(new IcebergColumnHandle("id", 1));
+
+        Map<String, String> prunedProps = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "partition_pruned_eqdel"),
+                columns, Optional.of(eqInt("p", 1)));
+        Assertions.assertFalse(prunedProps.containsKey(
+                ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS),
+                "an equality delete in a pruned partition must not gate the selected tasks");
+
+        Map<String, String> applicableProps = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "partition_pruned_eqdel"),
+                columns, Optional.of(eqInt("p", 2)));
+        Assertions.assertTrue(applicableProps.containsKey(
+                ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS),
+                "the partition whose task carries the equality delete must retain the rolling-upgrade fence");
+    }
+
+    @Test
+    public void sequencePrunedEqualityDeleteDoesNotRequireCurrentBackendSemantics() {
+        Table table = createTable("sequence_pruned_eqdel", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        DataFile oldFile = dataFile(table.spec(),
+                "s3://b/db/sequence_pruned_eqdel/old.parquet", 1024, null, null);
+        table.newAppend().appendFile(oldFile).commit();
+        table.newRowDelta()
+                .addDeletes(equalityDeleteFile(
+                        "s3://b/db/sequence_pruned_eqdel/eq.parquet", FileFormat.PARQUET, 1))
+                .commit();
+        DataFile newFile = dataFile(table.spec(),
+                "s3://b/db/sequence_pruned_eqdel/new.parquet", 1024, null, null);
+        table.newOverwrite().deleteFile(oldFile).addFile(newFile).commit();
+        Assertions.assertNotEquals("0",
+                table.currentSnapshot().summary().get("total-equality-deletes"),
+                "the snapshot-wide counter must still expose the stale equality delete");
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "sequence_pruned_eqdel"),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+        Assertions.assertFalse(props.containsKey(
+                ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS),
+                "an older equality delete must not gate a later-sequence replacement data file");
     }
 
     @Test
     public void equalityDeleteCarrierKeepsLargeByteSplitScanLazyAndBatchEligible() throws Exception {
         // A single large file with many row-group offsets represents 20,000 byte-split tasks. Building scan
-        // properties must retain only schema metadata: it must not drain and cache those tasks before dispatch.
-        // The unprojected equality key also proves that bounded planning still produces the required carrier.
+        // properties may inspect the lazy whole-file task to prove delete applicability, but it must not expand
+        // or retain those byte-split tasks before dispatch. The unprojected equality key also proves that the
+        // bounded planning path still produces the required carrier.
         // MUTATION: restoring preplanScan() materializes every split here and leaves a retained plan whose
         // streamingSplitEstimate() result is -1 instead of 1.
         int splitCount = 20_000;

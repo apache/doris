@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -364,7 +365,8 @@ final class IcebergWriteSchemaContext {
                 && ((Types.TimestampType) type).shouldAdjustToUTC();
     }
 
-    private static String toDorisSql(Type type, Object value,
+    @VisibleForTesting
+    static String toDorisSql(Type type, Object value,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         if (value == null) {
             return "NULL";
@@ -373,9 +375,13 @@ final class IcebergWriteSchemaContext {
             case BOOLEAN:
             case INTEGER:
             case LONG:
-            case FLOAT:
-            case DOUBLE:
                 return String.valueOf(value);
+            case FLOAT:
+                return Float.isFinite((Float) value) ? String.valueOf(value)
+                        : "CAST(" + quote(String.valueOf(value)) + " AS FLOAT)";
+            case DOUBLE:
+                return Double.isFinite((Double) value) ? String.valueOf(value)
+                        : "CAST(" + quote(String.valueOf(value)) + " AS DOUBLE)";
             case DECIMAL:
                 return ((BigDecimal) value).toPlainString();
             case STRING:

@@ -1556,14 +1556,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean systemTable = iceHandle.isSystemTable();
         Schema scanSchema = null;
         TableScan exactScan = null;
-        boolean mayHaveEqualityDeletes = false;
+        boolean hasApplicableEqualityDeletes = false;
         if (!systemTable) {
             scanSchema = pinnedSchema(table, iceHandle);
             exactScan = buildScan(table, iceHandle, filter, session);
-            mayHaveEqualityDeletes = mayHaveEqualityDeletes(exactScan.snapshot());
+            hasApplicableEqualityDeletes = hasApplicableEqualityDeletes(exactScan);
             Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
             if (requiresCurrentScanSemantics(
-                    table, exactScan, scanSchema, columns, mayHaveEqualityDeletes, nameMapping)) {
+                    table, exactScan, scanSchema, columns, hasApplicableEqualityDeletes, nameMapping)) {
                 props.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS,
                         "Current Iceberg scan semantics");
             }
@@ -1656,7 +1656,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // In particular, enable.mapping.timestamp_tz decides whether an initial default keeps its trailing
             // offset, while enable.mapping.varbinary decides the binary-like storage class. Thread both into
             // every branch so the default and current field type match BE's read.
-            if (mayHaveEqualityDeletes) {
+            if (hasApplicableEqualityDeletes) {
                 List<NestedField> equalityFields = schemaForPotentialEqualityDeletes(
                         table, exactScan, scanSchema);
                 dict = IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
@@ -1758,19 +1758,31 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return names;
     }
 
-    private static boolean mayHaveEqualityDeletes(Snapshot snapshot) {
-        if (snapshot == null) {
+    @VisibleForTesting
+    static boolean hasApplicableEqualityDeletes(TableScan scan) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null
+                || "0".equals(snapshot.summary().get(TOTAL_EQUALITY_DELETES))) {
             return false;
         }
-        return mayHaveEqualityDeletes(snapshot.summary());
-    }
-
-    @VisibleForTesting
-    static boolean mayHaveEqualityDeletes(Map<String, String> snapshotSummary) {
-        String equalityDeletes = snapshotSummary.get(TOTAL_EQUALITY_DELETES);
-        // A missing counter is unknown (replace/cherry-pick snapshots can omit it), so retain the bounded
-        // schema-history carrier. The exact task/delete binding is still decided by Iceberg during split planning.
-        return equalityDeletes == null || !equalityDeletes.equals("0");
+        // planFiles binds delete files to the exact filtered data-file tasks after partition and sequence
+        // pruning. A snapshot summary of zero returns above without planning; a positive or missing summary
+        // needs this exact proof. Iterate whole-file tasks lazily and stop at the first equality delete: this
+        // keeps memory O(1), does not create or retain byte-split tasks, and avoids snapshot-wide delete
+        // counters forcing new-BE-only semantics when no dispatched task can consume an equality delete.
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            for (FileScanTask task : tasks) {
+                for (DeleteFile delete : task.deletes()) {
+                    if (delete.content() == FileContent.EQUALITY_DELETES) {
+                        return true;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new DorisConnectorException(
+                    "Failed to inspect applicable Iceberg equality deletes: " + e.getMessage(), e);
+        }
+        return false;
     }
 
     /**
@@ -1949,9 +1961,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static boolean requiresCurrentScanSemantics(
             Table table, TableScan scan, Schema scanSchema, List<ConnectorColumnHandle> columns,
-            boolean mayHaveEqualityDeletes,
+            boolean hasApplicableEqualityDeletes,
             Optional<Map<Integer, List<String>>> nameMapping) {
-        if (mayHaveEqualityDeletes) {
+        if (hasApplicableEqualityDeletes) {
             return true;
         }
         Set<Integer> projectedFieldIds = projectedFieldIds(scanSchema, columns);

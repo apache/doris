@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.ParserTestBase;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
@@ -45,6 +47,25 @@ public class ConnectorWriteSchemaUtilsTest extends ParserTestBase {
             Assertions.assertEquals("unhex('433a5c6e6577')", defaultMode.toSql().toLowerCase());
         } finally {
             ConnectContext.get().getSessionVariable().setSqlMode(originalSqlMode);
+        }
+    }
+
+    @Test
+    public void connectorNonFiniteFloatingDefaultsParseAsTypedExpressions() {
+        Column column = new Column("value", ScalarType.createStringType());
+        for (String defaultSql : new String[] {
+                "CAST('NaN' AS FLOAT)",
+                "CAST('Infinity' AS DOUBLE)",
+                "CAST('-Infinity' AS DOUBLE)",
+                "named_struct('float_value', CAST('NaN' AS FLOAT), "
+                        + "'double_values', array(CAST('Infinity' AS DOUBLE), "
+                        + "CAST('-Infinity' AS DOUBLE)))"}) {
+            column.setConnectorDefaultValueSql(defaultSql);
+            Expression expression = ConnectorWriteSchemaUtils.resolveDefault(column);
+            Assertions.assertTrue(expression.anyMatch(candidate -> candidate instanceof Cast),
+                    "non-finite default must remain an explicitly typed cast: " + defaultSql);
+            Assertions.assertFalse(expression.anyMatch(candidate -> candidate instanceof UnboundSlot),
+                    "non-finite default must not be parsed as an identifier: " + defaultSql);
         }
     }
 }

@@ -64,6 +64,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -270,6 +271,34 @@ public class IcebergWritePlanProviderTest {
             Assertions.assertNull(column.getDefaultValue(),
                     "request-scoped Iceberg defaults must not leak into cached metadata");
         }
+    }
+
+    @Test
+    public void floatingPointDefaultsUseTypedSqlForNonFiniteValuesRecursively() {
+        Assertions.assertEquals("CAST('NaN' AS FLOAT)",
+                IcebergWriteSchemaContext.toDorisSql(
+                        Types.FloatType.get(), Float.NaN, false, false));
+        Assertions.assertEquals("CAST('Infinity' AS FLOAT)",
+                IcebergWriteSchemaContext.toDorisSql(
+                        Types.FloatType.get(), Float.POSITIVE_INFINITY, false, false));
+        Assertions.assertEquals("CAST('-Infinity' AS DOUBLE)",
+                IcebergWriteSchemaContext.toDorisSql(
+                        Types.DoubleType.get(), Double.NEGATIVE_INFINITY, false, false));
+
+        Types.StructType nestedType = Types.StructType.of(
+                Types.NestedField.optional(20, "float_value", Types.FloatType.get()),
+                Types.NestedField.optional(21, "double_values",
+                        Types.ListType.ofOptional(22, Types.DoubleType.get())));
+        GenericRecord nestedDefault = GenericRecord.create(nestedType);
+        nestedDefault.setField("float_value", Float.NaN);
+        nestedDefault.setField("double_values",
+                Arrays.asList(Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY));
+
+        Assertions.assertEquals(
+                "named_struct('float_value', CAST('NaN' AS FLOAT), "
+                        + "'double_values', array(CAST('Infinity' AS DOUBLE), "
+                        + "CAST('-Infinity' AS DOUBLE)))",
+                IcebergWriteSchemaContext.toDorisSql(nestedType, nestedDefault, false, false));
     }
 
     @Test
