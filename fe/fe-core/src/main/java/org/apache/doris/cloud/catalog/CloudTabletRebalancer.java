@@ -1150,18 +1150,16 @@ public class CloudTabletRebalancer extends MasterDaemon {
         globalBeToTablets.computeIfAbsent(be, globalTabletSetFactory).add(tabletId);
 
         // table
-        beToTabletsInTable.putIfAbsent(tableId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable = beToTabletsInTable.get(tableId);
-        beToTabletsOfTable.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfTable.get(be).add(tabletId);
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable =
+                beToTabletsInTable.computeIfAbsent(tableId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfTable.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
 
         // partition
-        partToTablets.putIfAbsent(partId, new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>());
-        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets = partToTablets.get(partId);
-        indexToTablets.putIfAbsent(indexId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex = indexToTablets.get(indexId);
-        beToTabletsOfIndex.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfIndex.get(be).add(tabletId);
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets =
+                partToTablets.computeIfAbsent(partId, ignored -> new ConcurrentHashMap<>());
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex =
+                indexToTablets.computeIfAbsent(indexId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfIndex.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
     }
 
     private Function<Long, Set<Long>> newGlobalTabletSetFactory(Map<Long, Set<Long>> previousBeToTablets) {
