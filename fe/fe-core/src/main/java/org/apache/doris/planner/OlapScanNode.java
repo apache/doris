@@ -975,8 +975,18 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = Lists.newArrayList();
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             // point query need prune tablets at this place
+            // For a nereids point query, prefer the nereids-pruned tablet set when it has already
+            // been pruned to a single tablet (the direct-query case, where the key literals are
+            // known at planning time). When the pruned set still contains multiple tablets
+            // (e.g. a prepared-statement point query whose parameter values are unknown at planning
+            // time), fall back to the legacy HashDistributionPruner path, which prunes at runtime
+            // using the column filters populated from the (placeholder-replaced) conjuncts.
+            // Without this, a direct point query on a table with PARTITION BY LIST + multiple
+            // tablets per partition hits the single-tablet checkState in PointQueryExecutor with
+            // an un-pruned tablet list and throws IllegalStateException. See issue #66030.
+            boolean useNereidsPrune = isNereids && (!isPointQuery || nereidsPrunedTabletIds.size() == 1);
             Collection<Long> prunedTabletIds = distributionPrune(olapTable.getSchemaByIndexId(selectedIndexId),
-                    allTabletIds, partition.getDistributionInfo(), isNereids && !isPointQuery);
+                    allTabletIds, partition.getDistributionInfo(), useNereidsPrune);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("distribution prune tablets: {}", prunedTabletIds);
             }
