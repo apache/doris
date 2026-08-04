@@ -25,6 +25,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/compiler_util.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
@@ -51,9 +52,7 @@ struct AggregateFunctionSumData {
     typename PrimitiveTypeTraits<T>::CppType sum {};
 
     NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<T>::CppType value) {
-#ifdef __clang__
-#pragma clang fp reassociate(on)
-#endif
+        ALLOW_FP_REASSOCIATION
         sum += value;
     }
 

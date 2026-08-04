@@ -17,9 +17,8 @@
 
 
 suite("test_cast_to_string_from_float") {
-    sql """set debug_skip_fold_constant = "true";"""
     def float_values = [
-        "0.0", "-0.0", "1.23", "123.456", "123", "1234567", "123456.12345", "1234567.12345", "12345678.12345", "123456789.12345",
+        "0.0", "-0.0", "1.1", "111.1111", "1.23", "123.456", "123", "1234567", "123456.12345", "1234567.12345", "12345678.12345", "123456789.12345",
         "1234567890000.12345", "0.33", "123.456789", "123.456789123",
         "987654336.0", "16777216.0",
         "0.000123456", "0.0001234567", "0.00012345678",
@@ -29,11 +28,15 @@ suite("test_cast_to_string_from_float") {
         "0.1234567", "0.123456789",
         "1234567890123456.12345", "12345678901234567.12345",
         "1.175494e-38", "-3.402823e+38", "1.401298e-45", "3.402823e+38",
-        "-Infinity", "Infinity", "NaN"
+        "-Infinity", "Infinity", "NaN", "1.262177448353619e-29"
     ]
 
-    // for (b in ["false", "true"]) {
-    // sql """set debug_skip_fold_constant = "${b}";"""
+    sql """set debug_skip_fold_constant = "false";"""
+    for (test_str in float_values) {
+        qt_sql_float_fe """select "${test_str}", cast("${test_str}" as float), cast(cast("${test_str}" as float) as string);"""
+    }
+
+    sql """set debug_skip_fold_constant = "true";"""
     for (test_str in float_values) {
         qt_sql_float_be """select "${test_str}", cast("${test_str}" as float), cast(cast("${test_str}" as float) as string);"""
     }
@@ -62,6 +65,8 @@ suite("test_cast_to_string_from_float") {
     def double_values = [
         "0.0",
         "-0.0",
+        "1.1",
+        "111.1111",
         "1.230",
         "123.456000",
         "123.000",
@@ -102,8 +107,16 @@ suite("test_cast_to_string_from_float") {
         "1.797693134862316e+308",
         "Infinity",
         "-Infinity",
-        "NaN"
+        "NaN",
+        "5.9604644775390625e-08"
     ]
+
+    sql """set debug_skip_fold_constant = "false";"""
+    for (test_str in double_values) {
+        qt_sql_double_fe """select "${test_str}", cast("${test_str}" as double), cast(cast("${test_str}" as double) as string);"""
+    }
+
+    sql """set debug_skip_fold_constant = "true";"""
     for (test_str in double_values) {
         qt_sql_double_be """select "${test_str}", cast("${test_str}" as double), cast(cast("${test_str}" as double) as string);"""
     }

@@ -27,6 +27,8 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -35,6 +37,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -141,20 +145,6 @@ void collect_projected_ids(const ParquetColumnSchema& schema,
         // key/value entry alignment while constructing offsets.
         ids->insert(native_field.children[0].get_column_id());
     }
-}
-
-Status append_non_null_dictionary_values(MutableColumnPtr& target, MutableColumnPtr values) {
-    DORIS_CHECK(target);
-    DORIS_CHECK(values);
-    const size_t value_count = values->size();
-    if (auto* nullable = check_and_get_column<ColumnNullable>(*target); nullable != nullptr) {
-        nullable->get_nested_column().insert_range_from(*values, 0, value_count);
-        auto& null_map = nullable->get_null_map_data();
-        null_map.resize_fill(null_map.size() + value_count, 0);
-        return Status::OK();
-    }
-    target->insert_range_from(*values, 0, value_count);
-    return Status::OK();
 }
 
 } // namespace
@@ -323,13 +313,7 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     if (_nested && _profile.nested_batches != nullptr) {
         COUNTER_UPDATE(_profile.nested_batches, 1);
     }
-    // Retained-capacity inspection walks the native reader tree. Check it periodically instead of
-    // on every small batch; row-group destruction is still the hard lifetime bound for scratch.
-    constexpr size_t SCRATCH_CHECK_BATCH_INTERVAL = 16;
-    if (++_batches_since_scratch_check >= SCRATCH_CHECK_BATCH_INTERVAL) {
-        _native_reader->release_batch_scratch(MAX_RETAINED_BATCH_SCRATCH_BYTES);
-        _batches_since_scratch_check = 0;
-    }
+    release_batch_scratch_if_needed();
     if (*rows_read != rows) {
         return Status::Corruption("Native parquet reader returned {} rows, expected {} for {}",
                                   *rows_read, rows, _name);
@@ -337,17 +321,19 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     return Status::OK();
 }
 
-Status NativeColumnReader::read_with_plain_filter(int64_t rows, const uint8_t* filter_data,
-                                                  bool filter_all, const VExprSPtrs& conjuncts,
-                                                  int column_id, IColumn::Filter* row_filter,
-                                                  int64_t* rows_read, bool* used_filter) {
+Status NativeColumnReader::read_with_fixed_width_filter(
+        int64_t rows, const uint8_t* filter_data, bool filter_all, const VExprSPtrs& conjuncts,
+        int column_id, IColumn* projected_column, IColumn::Filter* row_filter, int64_t* rows_read,
+        bool* used_filter, DirectPredicateExecutionKind* execution_kind) {
     DORIS_CHECK(rows >= 0);
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(rows_read != nullptr);
     DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK(execution_kind != nullptr);
     row_filter->clear();
     *rows_read = 0;
     *used_filter = false;
+    *execution_kind = DirectPredicateExecutionKind::NONE;
     if (rows == 0) {
         return Status::OK();
     }
@@ -361,26 +347,36 @@ Status NativeColumnReader::read_with_plain_filter(int64_t rows, const uint8_t* f
         size_t loop_rows = 0;
         IColumn::Filter loop_filter;
         bool loop_used = false;
-        RETURN_IF_ERROR(_native_reader->read_plain_filter(
-                conjuncts, column_id, filter, static_cast<size_t>(rows - *rows_read), &loop_filter,
-                &loop_rows, &eof, &loop_used));
+        DirectPredicateExecutionKind loop_kind = DirectPredicateExecutionKind::NONE;
+        RETURN_IF_ERROR(_native_reader->read_fixed_width_filter(
+                conjuncts, column_id, filter, static_cast<size_t>(rows - *rows_read),
+                projected_column, &loop_filter, &loop_rows, &eof, &loop_used, &loop_kind));
         if (!loop_used) {
             if (UNLIKELY(*rows_read != 0)) {
                 // Footer encoding lists are untrusted. Once a prior page advanced the cursor, a
                 // typed fallback would restart the request at the wrong row, so reject the file
                 // instead of terminating the BE or returning shifted results.
                 return Status::Corruption(
-                        "Parquet PLAIN predicate encoding changed after {} rows for column {}",
+                        "Parquet fixed-width predicate encoding changed after {} rows for column "
+                        "{}",
                         *rows_read, _name);
             }
             row_filter->clear();
             return Status::OK();
         }
+        if (*execution_kind == DirectPredicateExecutionKind::NONE) {
+            *execution_kind = loop_kind;
+        } else if (loop_kind != DirectPredicateExecutionKind::DEFINITION_LEVEL) {
+            DORIS_CHECK(*execution_kind == DirectPredicateExecutionKind::DEFINITION_LEVEL ||
+                        *execution_kind == loop_kind);
+            *execution_kind = loop_kind;
+        }
         row_filter->insert(row_filter->end(), loop_filter.begin(), loop_filter.end());
         if (loop_rows == 0 && !eof) {
             if (++consecutive_empty_calls > _row_group_rows + 1) {
                 return Status::Corruption(
-                        "Native parquet PLAIN predicate made no progress for column {}", _name);
+                        "Native parquet fixed-width predicate made no progress for column {}",
+                        _name);
             }
             continue;
         }
@@ -389,11 +385,91 @@ Status NativeColumnReader::read_with_plain_filter(int64_t rows, const uint8_t* f
     }
     if (*rows_read != rows) {
         return Status::Corruption(
-                "Native parquet PLAIN predicate returned {} rows, expected {} for {}", *rows_read,
-                rows, _name);
+                "Native parquet fixed-width predicate returned {} rows, expected {} for {}",
+                *rows_read, rows, _name);
     }
     *used_filter = true;
+    release_batch_scratch_if_needed();
     return Status::OK();
+}
+
+Status NativeColumnReader::read_with_dictionary_filter(
+        int64_t rows, const uint8_t* filter_data, bool filter_all,
+        const IColumn::Filter& dictionary_filter, const IColumn* typed_dictionary,
+        IColumn* projected_values, ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter,
+        int64_t* survivor_count, int64_t* rows_read, bool* projected_directly, bool* used_filter) {
+    DORIS_CHECK(rows >= 0);
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(survivor_count != nullptr);
+    DORIS_CHECK(rows_read != nullptr);
+    DORIS_CHECK(projected_directly != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    row_filter->clear();
+    *survivor_count = 0;
+    *rows_read = 0;
+    *projected_directly = false;
+    *used_filter = false;
+    if (rows == 0) {
+        return Status::OK();
+    }
+
+    native::FilterMap filter;
+    RETURN_IF_ERROR(filter.init(filter_data, static_cast<size_t>(rows), filter_all));
+    _native_reader->reset_filter_map_index();
+    bool eof = false;
+    int64_t consecutive_empty_calls = 0;
+    while (*rows_read < rows && !eof) {
+        size_t loop_rows = 0;
+        size_t loop_survivors = 0;
+        bool loop_projected_directly = false;
+        bool loop_used = false;
+        RETURN_IF_ERROR(_native_reader->read_dictionary_filter(
+                dictionary_filter, filter, static_cast<size_t>(rows - *rows_read), typed_dictionary,
+                projected_values, matched_dictionary_ids, row_filter, &loop_survivors, &loop_rows,
+                &eof, &loop_projected_directly, &loop_used));
+        if (!loop_used) {
+            if (UNLIKELY(*rows_read != 0)) {
+                return Status::Corruption(
+                        "Parquet dictionary predicate encoding changed after {} rows for column {}",
+                        *rows_read, _name);
+            }
+            row_filter->clear();
+            return Status::OK();
+        }
+        if (*rows_read != 0) {
+            DORIS_CHECK_EQ(*projected_directly, loop_projected_directly);
+        }
+        *projected_directly = loop_projected_directly;
+        *survivor_count += cast_set<int64_t>(loop_survivors);
+        if (loop_rows == 0 && !eof) {
+            if (++consecutive_empty_calls > _row_group_rows + 1) {
+                return Status::Corruption(
+                        "Native parquet dictionary predicate made no progress for column {}",
+                        _name);
+            }
+            continue;
+        }
+        consecutive_empty_calls = 0;
+        *rows_read += static_cast<int64_t>(loop_rows);
+    }
+    if (*rows_read != rows) {
+        return Status::Corruption(
+                "Native parquet dictionary predicate returned {} rows, expected {} for {}",
+                *rows_read, rows, _name);
+    }
+    *used_filter = true;
+    release_batch_scratch_if_needed();
+    return Status::OK();
+}
+
+void NativeColumnReader::release_batch_scratch_if_needed() {
+    // PLAIN predicate batches bypass materialization but share the same persistent decoder tree,
+    // so both read paths must advance the retained-capacity aging clock.
+    constexpr size_t SCRATCH_CHECK_BATCH_INTERVAL = 16;
+    if (++_batches_since_scratch_check >= SCRATCH_CHECK_BATCH_INTERVAL) {
+        _native_reader->release_batch_scratch(MAX_RETAINED_BATCH_SCRATCH_BYTES);
+        _batches_since_scratch_check = 0;
+    }
 }
 
 Status NativeColumnReader::validate_selected_span(int64_t rows) {
@@ -503,24 +579,78 @@ Status NativeColumnReader::select(const SelectionVector& selection, uint16_t sel
     return Status::OK();
 }
 
-Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& selection,
-                                                         uint16_t selected_rows, int64_t batch_rows,
-                                                         const IColumn::Filter& dictionary_filter,
-                                                         MutableColumnPtr& column,
-                                                         IColumn::Filter* row_filter,
-                                                         bool* used_filter) {
+Status NativeColumnReader::select_with_dictionary_filter(
+        const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
+        const IColumn::Filter& dictionary_filter, IColumn* projected_column,
+        IColumn::Filter* row_filter, uint16_t* survivor_count, bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(survivor_count != nullptr);
     DORIS_CHECK(used_filter != nullptr);
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
     *used_filter = false;
+    *survivor_count = 0;
     row_filter->clear();
     if (!_dictionary_filter_enabled) {
         return Status::OK();
     }
     *used_filter = true;
+    row_filter->reserve(selected_rows);
 
     const uint8_t* filter_data = nullptr;
     RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
+    ColumnInt32* direct_matched_ids = nullptr;
+    const IColumn* typed_dictionary = nullptr;
+    IColumn* projected_values = projected_column;
+    ColumnNullable* projected_nullable = nullptr;
+    if (projected_column != nullptr) {
+        if (!_matched_dictionary_ids) {
+            _matched_dictionary_ids = ColumnInt32::create();
+        }
+        _matched_dictionary_ids->clear();
+        direct_matched_ids = check_and_get_column<ColumnInt32>(*_matched_dictionary_ids);
+        DORIS_CHECK(direct_matched_ids != nullptr);
+        RETURN_IF_ERROR(_native_reader->prepare_typed_dictionary(_type, &typed_dictionary));
+        projected_nullable = check_and_get_column<ColumnNullable>(*projected_column);
+        if (projected_nullable != nullptr) {
+            projected_values = &projected_nullable->get_nested_column();
+        }
+    }
+    int64_t direct_rows_read = 0;
+    int64_t direct_survivor_count = 0;
+    bool projected_directly = false;
+    bool direct_filter_used = false;
+    RETURN_IF_ERROR(read_with_dictionary_filter(
+            batch_rows, filter_data, selected_rows == 0, dictionary_filter, typed_dictionary,
+            projected_values, direct_matched_ids, row_filter, &direct_survivor_count,
+            &direct_rows_read, &projected_directly, &direct_filter_used));
+    if (direct_filter_used) {
+        advance_selected_span(direct_rows_read);
+        *survivor_count = cast_set<uint16_t>(direct_survivor_count);
+        if (projected_column != nullptr) {
+            if (projected_directly) {
+                DORIS_CHECK(direct_matched_ids->empty());
+                if (projected_nullable != nullptr) {
+                    auto& null_map = projected_nullable->get_null_map_data();
+                    null_map.resize_fill(null_map.size() + *survivor_count, 0);
+                }
+                if (_profile.dictionary_predicate_fused_projected_rows != nullptr) {
+                    COUNTER_UPDATE(_profile.dictionary_predicate_fused_projected_rows,
+                                   *survivor_count);
+                }
+            } else {
+                DORIS_CHECK_EQ(direct_matched_ids->size(), *survivor_count);
+                RETURN_IF_ERROR(_native_reader->append_dictionary_values(direct_matched_ids, _type,
+                                                                         projected_column));
+            }
+        }
+        if (_profile.reader_select_rows != nullptr) {
+            COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
+        }
+        update_reader_read_rows(*survivor_count);
+        update_reader_skip_rows(batch_rows - *survivor_count);
+        return Status::OK();
+    }
+
     const bool nullable = _type->is_nullable();
     DataTypePtr id_type = std::make_shared<DataTypeInt32>();
     if (nullable) {
@@ -551,13 +681,18 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
     }
     DORIS_CHECK(ids != nullptr);
 
-    if (!_matched_dictionary_ids) {
-        _matched_dictionary_ids = ColumnInt32::create();
+    ColumnInt32::Container* matched_ids = nullptr;
+    if (projected_column != nullptr) {
+        if (!_matched_dictionary_ids) {
+            _matched_dictionary_ids = ColumnInt32::create();
+        }
+        _matched_dictionary_ids->clear();
+        matched_ids = &assert_cast<ColumnInt32&>(*_matched_dictionary_ids).get_data();
+        matched_ids->reserve(selected_rows);
     }
-    _matched_dictionary_ids->clear();
-    auto& matched_ids = assert_cast<ColumnInt32&>(*_matched_dictionary_ids).get_data();
     row_filter->reserve(selected_rows);
     const auto& id_data = ids->get_data();
+    size_t fallback_survivor_count = 0;
     for (size_t row = 0; row < selected_rows; ++row) {
         bool keep = false;
         if (null_map == nullptr || (*null_map)[row] == 0) {
@@ -570,51 +705,138 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
             }
             keep = dictionary_filter[static_cast<size_t>(dictionary_id)] != 0;
             if (keep) {
-                matched_ids.push_back(dictionary_id);
+                ++fallback_survivor_count;
+                if (matched_ids != nullptr) {
+                    matched_ids->push_back(dictionary_id);
+                }
             }
         }
         row_filter->push_back(keep ? 1 : 0);
     }
 
-    const auto* matched_id_column = check_and_get_column<ColumnInt32>(*_matched_dictionary_ids);
-    DORIS_CHECK(matched_id_column != nullptr);
-    auto matched_values =
-            DORIS_TRY(_native_reader->materialize_dictionary_values(matched_id_column, _type));
-    RETURN_IF_ERROR(append_non_null_dictionary_values(column, std::move(matched_values)));
+    if (projected_column != nullptr) {
+        const auto* matched_id_column = check_and_get_column<ColumnInt32>(*_matched_dictionary_ids);
+        DORIS_CHECK(matched_id_column != nullptr);
+        RETURN_IF_ERROR(_native_reader->append_dictionary_values(matched_id_column, _type,
+                                                                 projected_column));
+    }
     if (_profile.reader_select_rows != nullptr) {
         COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
     }
-    update_reader_read_rows(cast_set<int64_t>(matched_ids.size()));
-    update_reader_skip_rows(batch_rows - cast_set<int64_t>(matched_ids.size()));
+    *survivor_count = cast_set<uint16_t>(fallback_survivor_count);
+    update_reader_read_rows(*survivor_count);
+    update_reader_skip_rows(batch_rows - *survivor_count);
     return Status::OK();
 }
 
-Status NativeColumnReader::select_with_plain_filter(const SelectionVector& selection,
-                                                    uint16_t selected_rows, int64_t batch_rows,
-                                                    const VExprSPtrs& conjuncts, int column_id,
-                                                    IColumn::Filter* row_filter,
-                                                    bool* used_filter) {
+Status NativeColumnReader::select_with_fixed_width_filter(
+        const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
+        const VExprSPtrs& conjuncts, int column_id, IColumn* projected_column,
+        IColumn::Filter* row_filter, bool* used_filter,
+        DirectPredicateExecutionKind* execution_kind) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK(execution_kind != nullptr);
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
-    RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
     const uint8_t* filter_data = nullptr;
     RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
     int64_t rows_read = 0;
-    RETURN_IF_ERROR(read_with_plain_filter(batch_rows, filter_data, selected_rows == 0, conjuncts,
-                                           column_id, row_filter, &rows_read, used_filter));
+    RETURN_IF_ERROR(read_with_fixed_width_filter(batch_rows, filter_data, selected_rows == 0,
+                                                 conjuncts, column_id, projected_column, row_filter,
+                                                 &rows_read, used_filter, execution_kind));
     if (!*used_filter) {
         return Status::OK();
     }
     DORIS_CHECK_EQ(rows_read, batch_rows);
     if (row_filter->size() != selected_rows) {
         return Status::Corruption(
-                "Native parquet PLAIN predicate returned {} selected rows, expected {} for {}",
+                "Native parquet fixed-width predicate returned {} selected rows, expected {} for "
+                "{}",
                 row_filter->size(), selected_rows, _name);
     }
     advance_selected_span(rows_read);
     update_reader_read_rows(selected_rows);
     update_reader_skip_rows(batch_rows - selected_rows);
+    return Status::OK();
+}
+
+Status NativeColumnReader::select_with_runtime_filter(
+        const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
+        const VExprContextSPtrs& conjuncts, int column_id, MutableColumnPtr* projected_column,
+        IColumn::Filter* row_filter, bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    RETURN_IF_ERROR(validate_selected_span(batch_rows));
+    row_filter->clear();
+    *used_filter = false;
+    if (_nested || conjuncts.empty() || !std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return conjunct != nullptr && conjunct->root() != nullptr &&
+                   conjunct->root()->is_rf_wrapper() &&
+                   conjunct->root()->can_execute_on_reader_values(_type, column_id);
+        })) {
+        return Status::OK();
+    }
+
+    const uint8_t* selection_filter = nullptr;
+    RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &selection_filter));
+    // The scan contract can synthesize NULL on conversion even for a required Parquet field.
+    // Always retain that effective nullability in the RF temporary instead of turning a
+    // permissive conversion failure into a DataQualityError.
+    const auto value_type = make_nullable(_type);
+    auto values = value_type->create_column();
+    int64_t rows_read = 0;
+    RETURN_IF_ERROR(read_with_filter(batch_rows, selection_filter, selected_rows == 0, values,
+                                     value_type, false, &rows_read));
+    DORIS_CHECK_EQ(rows_read, batch_rows);
+    DORIS_CHECK_EQ(values->size(), selected_rows);
+
+    row_filter->resize_fill(selected_rows, 1);
+    {
+        Block value_block;
+        const auto dummy_type = std::make_shared<DataTypeUInt8>();
+        for (int position = 0; position < column_id; ++position) {
+            value_block.insert({ColumnConst::create(ColumnUInt8::create(1, 0), selected_rows),
+                                dummy_type, "runtime_filter_dummy"});
+        }
+        value_block.insert({values->get_ptr(), value_type, "runtime_filter_value"});
+        for (const auto& conjunct : conjuncts) {
+            bool can_filter_all = false;
+            // Once eligibility is established, adaptive RF sampling may make a later batch a
+            // no-op but must not send this forward-only reader back to scheduler materialization.
+            RETURN_IF_ERROR(conjunct->root()->execute_filter(conjunct.get(), &value_block,
+                                                             row_filter->data(), selected_rows,
+                                                             false, &can_filter_all));
+            if (can_filter_all) {
+                row_filter->clear();
+                row_filter->resize_fill(selected_rows, 0);
+                break;
+            }
+        }
+    }
+
+    if (projected_column != nullptr) {
+        const bool target_is_nullable = is_column_nullable(**projected_column);
+        auto filtered_values = IColumn::mutate(values->filter(*row_filter, -1));
+        // A required file field may back a nullable table slot after schema evolution. Preserve
+        // the target wrapper even though reader-local RF evaluation uses the physical file type.
+        if (target_is_nullable && !is_column_nullable(*filtered_values)) {
+            auto null_map = ColumnUInt8::create(filtered_values->size(), 0);
+            filtered_values =
+                    ColumnNullable::create(std::move(filtered_values), std::move(null_map));
+        } else if (!target_is_nullable && is_column_nullable(*filtered_values)) {
+            const auto& nullable = assert_cast<const ColumnNullable&>(*filtered_values);
+            DORIS_CHECK(!nullable.has_null());
+            filtered_values = IColumn::mutate(nullable.get_nested_column_ptr());
+        }
+        *projected_column = std::move(filtered_values);
+    }
+    advance_selected_span(rows_read);
+    if (_profile.reader_select_rows != nullptr) {
+        COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
+    }
+    update_reader_read_rows(selected_rows);
+    update_reader_skip_rows(batch_rows - selected_rows);
+    *used_filter = true;
     return Status::OK();
 }
 

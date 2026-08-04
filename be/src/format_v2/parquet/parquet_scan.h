@@ -58,9 +58,17 @@ struct ParquetScanRange;
 class NativeParquetMetadata;
 
 namespace detail {
+struct PredicateConjunctStage {
+    VExprContextSPtr owner_context;
+    VExprSPtr expression;
+    std::vector<size_t> required_positions;
+};
+
 struct PredicateConjunctSchedule {
     std::map<size_t, VExprContextSPtrs> single_column_conjuncts;
     VExprContextSPtrs remaining_conjuncts;
+    std::vector<PredicateConjunctStage> remaining_stages;
+    bool supports_lazy_materialization = true;
 };
 
 struct AdaptivePredicateStats {
@@ -77,6 +85,8 @@ std::vector<size_t> adaptive_prefetch_prefix(
         const std::unordered_map<size_t, AdaptivePredicateStats>& stats,
         double minimum_reach_probability);
 bool should_sample_adaptive_predicate(size_t samples, size_t batch_sequence);
+Status validate_ephemeral_expr_result_column(size_t original_columns, int result_column_id,
+                                             size_t current_columns);
 Status build_native_prefetch_ranges(
         const tparquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -178,6 +188,8 @@ public:
         _enable_strict_mode = enable_strict_mode;
     }
     void set_runtime_state(RuntimeState* runtime_state) { _runtime_state = runtime_state; }
+    void set_scan_request(std::shared_ptr<format::FileScanRequest> request);
+    void queue_scan_request(std::shared_ptr<format::FileScanRequest> request);
     // Release row-group readers before the owning RuntimeProfile is reported. Native readers
     // publish their accumulated page/decode statistics from their destructor.
     void close() { reset_current_row_group(); }
@@ -194,19 +206,19 @@ public:
 
     Status read_next_batch(ParquetFileContext& file_context,
                            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-                           const format::FileScanRequest& request, Block* file_block, size_t* rows,
-                           bool* eof);
+                           Block* file_block, size_t* rows, bool* eof);
 
 private:
     static constexpr size_t PROFILE_FLUSH_BATCH_INTERVAL = 16;
 
     void reset_current_row_group();
+    void activate_pending_scan_request_at_row_group_boundary();
     void flush_current_reader_profiles();
     bool finish_current_reader_batch_profiles();
     const detail::PredicateConjunctSchedule& predicate_conjunct_schedule(
             const format::FileScanRequest& request);
     std::vector<format::LocalColumnIndex> adaptive_predicate_prefetch_columns(
-            const format::FileScanRequest& request) const;
+            const format::FileScanRequest& request);
 
     Status open_next_row_group(ParquetFileContext& file_context,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -300,9 +312,13 @@ private:
     SelectionVector _selection;
     std::vector<uint32_t> _read_column_positions_scratch;
     const format::FileScanRequest* _predicate_schedule_request = nullptr;
+    std::shared_ptr<format::FileScanRequest> _active_request;
+    std::shared_ptr<format::FileScanRequest> _pending_request;
+    bool _remaining_plans_need_replanning = false;
     detail::PredicateConjunctSchedule _predicate_schedule;
     std::vector<size_t> _predicate_positions_scratch;
     std::unordered_map<size_t, size_t> _predicate_indices_by_position_scratch;
+    std::unordered_set<size_t> _materialized_predicate_positions_scratch;
     std::vector<size_t> _ordered_predicate_positions_scratch;
     std::unordered_map<uint32_t, std::vector<SelectionVector::Index>>
             _predicate_column_selection_scratch;

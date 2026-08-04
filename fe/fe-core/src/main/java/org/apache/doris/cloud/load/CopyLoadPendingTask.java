@@ -34,7 +34,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
@@ -262,8 +262,8 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
         matchedFileNum = 0;
         loadedFileNum = 0;
         reachLimitStr = "";
-        StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+        StorageAdapter storageAdapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageAdapter);
         Preconditions.checkState(rawFs instanceof ObjFileSystem,
                 "Copy operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
         ObjFileSystem fs = (ObjFileSystem) rawFs;
@@ -347,8 +347,8 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
         }
         isBeginCopyDone = true;
         try {
-            StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-            org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+            StorageAdapter storageAdapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+            org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageAdapter);
             Preconditions.checkState(rawFs instanceof ObjFileSystem,
                     "Copy operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
             try (ObjFileSystem fs = (ObjFileSystem) rawFs) {

@@ -43,6 +43,13 @@ under the License.
             <groupId>io.trino</groupId>
             <artifactId>trino-main</artifactId>
         </dependency>
+        <!-- Shared Trino plugin bootstrap classes (org.apache.doris.trinoconnector.*), moved out of
+             fe-common; bundled into this scanner jar via package.xml (runtime scope). -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-trino-connector-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

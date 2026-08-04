@@ -270,10 +270,16 @@ Status JsonReader::open(std::shared_ptr<FileScanRequest> request) {
     DORIS_CHECK(_request != nullptr);
     RETURN_IF_ERROR(_build_requested_columns(*_request, &_requested_columns));
     _slot_name_to_index.clear();
+    _hive_slot_name_to_index.clear();
     _slot_name_to_index.reserve(_requested_columns.size());
+    _hive_slot_name_to_index.reserve(_requested_columns.size());
     for (size_t idx = 0; idx < _requested_columns.size(); ++idx) {
         auto name = _requested_columns[idx].slot_desc->col_name();
-        _slot_name_to_index.emplace(_is_hive_table ? lower_key(name) : name, idx);
+        if (_is_hive_table) {
+            _hive_slot_name_to_index.emplace(std::move(name), idx);
+        } else {
+            _slot_name_to_index.emplace(std::move(name), idx);
+        }
     }
     _previous_positions.clear();
     _reader_range = _json_range();
@@ -532,7 +538,9 @@ Status JsonReader::_read_one_document(size_t* size, bool* eof) {
         if (*eof) {
             return Status::OK();
         }
-        _document_buffer.assign(reinterpret_cast<const char*>(line), *size);
+        // The line reader owns this span until the next read, and parsing copies it immediately
+        // into the padded buffer. Borrowing it avoids a redundant line-sized string copy.
+        _document_view = std::string_view(reinterpret_cast<const char*>(line), *size);
         return Status::OK();
     }
     // Non-line mode treats the split as one JSON document. This supports a single object or an
@@ -558,6 +566,7 @@ Status JsonReader::_read_one_document(size_t* size, bool* eof) {
     Slice result(_document_buffer.data(), _document_buffer.size());
     RETURN_IF_ERROR(_physical_file_reader->read_at(_current_offset, result, size, _io_ctx.get()));
     _document_buffer.resize(*size);
+    _document_view = _document_buffer;
     if (*size == 0) {
         *eof = true;
     }
@@ -572,6 +581,7 @@ Status JsonReader::_read_one_document_from_pipe(size_t* read_size) {
     DorisUniqueBufferPtr<uint8_t> file_buf;
     RETURN_IF_ERROR(stream_load_pipe->read_one_message(&file_buf, read_size));
     _document_buffer.assign(reinterpret_cast<const char*>(file_buf.get()), *read_size);
+    _document_view = _document_buffer;
     if (!stream_load_pipe->is_chunked_transfer()) {
         return Status::OK();
     }
@@ -586,6 +596,7 @@ Status JsonReader::_read_one_document_from_pipe(size_t* read_size) {
         _document_buffer.append(reinterpret_cast<const char*>(next_buf.get()), next_size);
         *read_size += next_size;
     }
+    _document_view = _document_buffer;
     return Status::OK();
 }
 
@@ -594,10 +605,10 @@ Status JsonReader::_parse_next_json(size_t* size, bool* eof) {
     if (*eof || *size == 0) {
         return Status::OK();
     }
-    if (*size >= 3 && static_cast<unsigned char>(_document_buffer[0]) == 0xEF &&
-        static_cast<unsigned char>(_document_buffer[1]) == 0xBB &&
-        static_cast<unsigned char>(_document_buffer[2]) == 0xBF) {
-        _document_buffer.erase(0, 3);
+    if (*size >= 3 && static_cast<unsigned char>(_document_view[0]) == 0xEF &&
+        static_cast<unsigned char>(_document_view[1]) == 0xBB &&
+        static_cast<unsigned char>(_document_view[2]) == 0xBF) {
+        _document_view.remove_prefix(3);
         *size -= 3;
     }
     if (*size + simdjson::SIMDJSON_PADDING > _padded_size) {
@@ -606,7 +617,7 @@ Status JsonReader::_parse_next_json(size_t* size, bool* eof) {
     }
     // Ondemand values reference the input buffer. Keep the padded bytes in a member buffer until the
     // current document is fully materialized.
-    std::memcpy(_padding_buffer.data(), _document_buffer.data(), *size);
+    std::memcpy(_padding_buffer.data(), _document_view.data(), *size);
     _original_doc_size = *size;
     const auto error =
             _json_parser->iterate(std::string_view(_padding_buffer.data(), *size), _padded_size)
@@ -1120,32 +1131,39 @@ void JsonReader::_pop_back_last_inserted_value(Block* block, size_t column_index
 }
 
 size_t JsonReader::_column_index(std::string_view key, size_t key_index) {
-    std::string hive_key;
-    std::string_view lookup_key = key;
-    if (_is_hive_table) {
-        hive_key = lower_key(key);
-        lookup_key = hive_key;
-    }
     if (key_index < _previous_positions.size()) {
         // Most JSON lines share field order. Reuse the previous line's key-position mapping before
         // falling back to the hash table lookup.
         const auto previous = _previous_positions[key_index];
         if (previous < _requested_columns.size()) {
             const auto previous_name = _requested_columns[previous].slot_desc->col_name();
-            if ((_is_hive_table ? lower_key(previous_name) : previous_name) == lookup_key) {
+            if ((_is_hive_table && CaseInsensitiveStringEqual {}(previous_name, key)) ||
+                (!_is_hive_table && previous_name == key)) {
                 return previous;
             }
         }
     }
-    const auto it = _slot_name_to_index.find(std::string(lookup_key));
-    if (it == _slot_name_to_index.end()) {
+    // Transparent lookup keeps the common per-key path allocation-free; Hive case folding is
+    // performed by the map's hash/equality without constructing a lower-cased string.
+    const auto index = _is_hive_table ? ([&]() -> std::optional<size_t> {
+        const auto it = _hive_slot_name_to_index.find(key);
+        return it == _hive_slot_name_to_index.end() ? std::nullopt
+                                                    : std::optional<size_t>(it->second);
+    })()
+                                      : ([&]() -> std::optional<size_t> {
+                                            const auto it = _slot_name_to_index.find(key);
+                                            return it == _slot_name_to_index.end()
+                                                           ? std::nullopt
+                                                           : std::optional<size_t>(it->second);
+                                        })();
+    if (!index.has_value()) {
         return static_cast<size_t>(-1);
     }
     if (key_index >= _previous_positions.size()) {
         _previous_positions.resize(key_index + 1, static_cast<size_t>(-1));
     }
-    _previous_positions[key_index] = it->second;
-    return it->second;
+    _previous_positions[key_index] = *index;
+    return *index;
 }
 
 bool JsonReader::_is_root_path_for_column(const RequestedColumn& column) const {

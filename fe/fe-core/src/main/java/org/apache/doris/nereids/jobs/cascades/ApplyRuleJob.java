@@ -86,7 +86,8 @@ public class ApplyRuleJob extends Job {
                 }
                 CopyInResult result = context.getCascadesContext()
                         .getMemo()
-                        .copyIn(newPlan, groupExpression.getOwnerGroup(), false);
+                        .copyIn(newPlan, groupExpression.getOwnerGroup(), false,
+                                context.getCascadesContext().getStatementContext().isDpHyp());
                 if (!result.generateNewExpression) {
                     continue;
                 }

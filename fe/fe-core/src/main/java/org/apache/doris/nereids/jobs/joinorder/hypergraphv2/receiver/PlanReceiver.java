@@ -160,6 +160,18 @@ public class PlanReceiver extends AbstractReceiver {
         LogicalPlan logicalJoin = proposeJoin(joinType, leftPlan, rightPlan, hashConjuncts,
                 otherConjuncts);
 
+        // Reject join orders where cross-bitmap alias layers have an
+        // unresolvable dependency — a later layer references an alias from
+        // an earlier layer whose source spans both children.  The producer
+        // layer must be fully contained in one child before the consumer
+        // can be emitted, otherwise CheckAfterRewrite rejects the plan.
+        if (hyperGraph.hasUnresolvableAliasDependency(left, right)) {
+            if (fullKeyEmitted) {
+                missingEdgeFail = true;
+            }
+            return EmitState.CONTINUE;
+        }
+
         LogicalPlan logicalPlan = proposeProject(logicalJoin, edges, left, right);
 
         // Second, we copy all physical plan to Group and generate properties and calculate cost
@@ -211,29 +223,10 @@ public class PlanReceiver extends AbstractReceiver {
     // The root cause is hyper predicate should be encoded as one or more hyper edges in different scenarios.
     // But we are not able to do so in all cases (complex expression and outer joins).
     // So we use processMissedEdges to find all valid edges when join 0, 1, 2 as fallback plan.
+    // The logic is shared with Counter (see AbstractReceiver.processMissedEdges) so that
+    // GraphSimplifier's pair count matches what PlanReceiver actually emits.
     private boolean processMissedEdges(long left, long right, List<Edge> edges, List<Edge> missingEdges) {
-        // find all used edges
-        BitSet usedEdgesBitmap = new BitSet();
-        usedEdgesBitmap.or(usdEdges.get(left));
-        usedEdgesBitmap.or(usdEdges.get(right));
-        edges.forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
-
-        // find all referenced nodes
-        long allReferenceNodes = LongBitmap.or(left, right);
-
-        // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
-        for (Edge edge : hyperGraph.getJoinEdges()) {
-            if (LongBitmap.isSubset(edge.getReferenceNodes(), allReferenceNodes)
-                    && !usedEdgesBitmap.get(edge.getIndex())) {
-                if (edge.isEnforcedOrder()) {
-                    return false;
-                } else {
-                    // add the missed edge to edges
-                    missingEdges.add(edge);
-                }
-            }
-        }
-        return true;
+        return super.processMissedEdges(hyperGraph, usdEdges, left, right, edges, missingEdges);
     }
 
     private void proposeAllDistributedPlans(GroupExpression groupExpression) {
@@ -291,29 +284,86 @@ public class PlanReceiver extends AbstractReceiver {
 
     private LogicalPlan proposeProject(LogicalPlan join, List<Edge> edges, long left, long right) {
         Set<Slot> outputSet = join.getOutputSet();
-        // calculate required columns by all parents
-        Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
+        // calculate required columns by all parents (final outputs + unused edges)
+        Set<Slot> parentRequireSlots = calculateRequiredSlots(left, right, edges);
+        // Pending projected aliases may reference input slots (e.g., A.v, B.v for
+        // s=A.v+B.v) that are not in finalRequiredSlots or unused edges. Preserve
+        // them so the join output still contains the base columns needed to evaluate
+        // the alias expressions, both for aliases emitted at this stage and those
+        // deferred to a later join whose bitmap is a superset.
+        Set<Slot> aliasInputSlots = hyperGraph.getAllAliasInputSlotsForNodes(
+                LongBitmap.newBitmapUnion(left, right));
+        Set<Slot> requireSlots = new HashSet<>(parentRequireSlots);
+        requireSlots.addAll(aliasInputSlots);
         List<NamedExpression> allProjects = new ArrayList<>(outputSet.size());
         for (Slot slot : outputSet) {
             if (requireSlots.contains(slot)) {
                 allProjects.add(slot);
             }
         }
-        if (hyperGraph.hasLiteralAlias()) {
-            allProjects.addAll(hyperGraph.getLiteralAlias(left, right));
-        }
 
         if (allProjects.isEmpty()) {
             allProjects.add(new Alias(new ExprId(-1), new TinyIntLiteral((byte) 1)));
         }
 
-        // propose logical project
+        // propose logical project for the slot pass-through
         LogicalPlan logicalPlan;
         if (outputSet.equals(new HashSet<>(allProjects))) {
             logicalPlan = join;
         } else {
             logicalPlan = new LogicalProject<>(allProjects, join);
         }
+
+        // Emit projected aliases as a single LogicalProject node.
+        // Cross-layer references (e.g., z = x + 1 referencing x = COALESCE(v, 0))
+        // were already resolved at graph-build time, so only one Project is needed.
+        // Carry forward child slots still required by parents (e.g., join keys)
+        // or by deferred alias layers (e.g., B.w for a later y=B.w+1).
+        // Use the full requireSlots so that deferred-layer inputs survive
+        // through intermediate layers.
+        if (hyperGraph.hasProjectedAliases()) {
+            List<NamedExpression> aliases = hyperGraph.getProjectedAliases(left, right);
+            if (!aliases.isEmpty()) {
+                Set<ExprId> aliasExprIds = new HashSet<>();
+                for (NamedExpression a : aliases) {
+                    aliasExprIds.add(a.getExprId());
+                }
+                List<NamedExpression> mergedLayer = new ArrayList<>(aliases);
+                // Decide which raw base columns can be dropped from this alias
+                // layer's carry-forward.  A base column is an alias raw input
+                // that is consumed once every alias reading it has been
+                // materialized within this union.  It must be KEPT when:
+                //   - it is still required by the final output, or
+                //   - a deferred alias (source NOT inside this union) reads it
+                //     (that alias is materialized at a later join step and
+                //     reads the raw base column from the join output), or
+                //   - some join edge references it (e.g. a pushed-down hash
+                //     expression such as `col + 1 = key` reads the raw base
+                //     column from the join output).
+                // Every exclusion above is computed from the graph + union
+                // only, never from the left/right split, so all decompositions
+                // of the same bitmap produce the same plan output set (memo
+                // output-set consistency).  A split-dependent drop would let
+                // one ordering drop a column that another ordering still needs,
+                // producing "Input slot(s) not in child's output" failures.
+                Set<Slot> exclusivelyEmittedSlots = new HashSet<>(aliasInputSlots);
+                exclusivelyEmittedSlots.removeAll(finalRequiredSlots);
+                exclusivelyEmittedSlots.removeAll(hyperGraph.getDeferredAliasInputSlotsForNodes(
+                        LongBitmap.newBitmapUnion(left, right)));
+                for (Edge edge : hyperGraph.getJoinEdges()) {
+                    exclusivelyEmittedSlots.removeAll(edge.getInputSlots());
+                }
+                for (Slot childSlot : logicalPlan.getOutputSet()) {
+                    if (requireSlots.contains(childSlot)
+                            && !aliasExprIds.contains(childSlot.getExprId())
+                            && !exclusivelyEmittedSlots.contains(childSlot)) {
+                        mergedLayer.add(childSlot);
+                    }
+                }
+                logicalPlan = new LogicalProject<>(mergedLayer, logicalPlan);
+            }
+        }
+
         if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap
                 && !logicalPlan.getOutputSet().equals(new HashSet<>(finalProjects))) {
             logicalPlan = new LogicalProject<>(finalProjects, logicalPlan);

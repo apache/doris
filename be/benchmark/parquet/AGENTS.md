@@ -6,15 +6,20 @@ benchmark system described in the design document.
 
 ## What exists today
 
-The benchmark binary registers two groups:
+The benchmark binary registers five groups:
 
 - `ParquetDecoder`: native page decoder benchmarks using in-memory encoded pages.
+- `ParquetKernel`: isolated SIMD-sensitive decode and predicate kernels.
+- `ParquetSelection`: isolated selection initialization and predicate compaction paths.
 - `ParquetReader`: local-file benchmarks that call the format V2 Parquet reader directly.
+- `FileScannerExpr`: expression lifecycle benchmarks for split-local clone, prepare, and open.
 
 The relevant files are:
 
 - `benchmark_parquet_decoder.hpp`: deterministic page construction and decoder registration.
+- `benchmark_parquet_selection.hpp`: selection initialization and compaction registration.
 - `benchmark_parquet_reader.hpp`: deterministic local Parquet fixtures and reader registration.
+- `benchmark_file_scanner_expr.hpp`: runtime-filter expression lifecycle registration.
 - `parquet_benchmark_scenarios.h`: scenario definitions and the selected matrix.
 - `README.md`: short human-oriented build and invocation examples.
 - `be/test/format_v2/parquet/parquet_benchmark_scenarios_test.cpp`: matrix invariants.
@@ -22,7 +27,8 @@ The relevant files are:
 Do not describe this suite as end-to-end SQL, `FileScannerV2`, remote I/O, V1/V2 comparison, or a
 cross-engine benchmark. The reader benchmark starts at `format::parquet::ParquetReader` and does
 not include FE planning, scanner scheduling, `TableReader`, client latency, or Runtime Profile
-collection.
+collection. `FileScannerExpr` isolates expression lifecycle work and likewise does not execute a
+scanner or read a file.
 
 ## Build and list cases
 
@@ -36,13 +42,25 @@ List all Parquet cases and verify the expected registration counts:
 
 ```shell
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -E '^Parquet(Decoder|Reader)/'
+  | grep -E '^Parquet(Decoder|Kernel|Selection|Reader)/'
 
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -c '^ParquetDecoder/'  # currently 152
+  | grep '^FileScannerExpr/'
 
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -c '^ParquetReader/'   # currently 137
+  | grep -c '^ParquetDecoder/'  # currently 228
+
+be/output/lib/benchmark_test --benchmark_list_tests \
+  | grep -c '^ParquetKernel/'   # currently 92
+
+be/output/lib/benchmark_test --benchmark_list_tests \
+  | grep -c '^ParquetSelection/' # currently 25
+
+be/output/lib/benchmark_test --benchmark_list_tests \
+  | grep -c '^ParquetReader/'   # currently 167
+
+be/output/lib/benchmark_test --benchmark_list_tests \
+  | grep -c '^FileScannerExpr/' # currently 8
 ```
 
 When running the binary directly from `be/build_RELEASE/bin`, make sure the JVM and third-party
@@ -62,9 +80,27 @@ be/output/lib/benchmark_test \
   --benchmark_out_format=json
 
 be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetKernel/' \
+  --benchmark_min_time=0.001s \
+  --benchmark_out=parquet-kernel-smoke.json \
+  --benchmark_out_format=json
+
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetSelection/' \
+  --benchmark_min_time=0.001s \
+  --benchmark_out=parquet-selection-smoke.json \
+  --benchmark_out_format=json
+
+be/output/lib/benchmark_test \
   --benchmark_filter='^ParquetReader/' \
   --benchmark_min_time=0.001s \
   --benchmark_out=parquet-reader-smoke.json \
+  --benchmark_out_format=json
+
+be/output/lib/benchmark_test \
+  --benchmark_filter='^FileScannerExpr/' \
+  --benchmark_min_time=0.001s \
+  --benchmark_out=file-scanner-expr-smoke.json \
   --benchmark_out_format=json
 ```
 
@@ -98,8 +134,8 @@ cache to manufacture a cold run.
 
 ## Current scenario matrix
 
-`ParquetDecoder` contains 19 encoding/type pairs. Each pair is run at 1%, 10%, 50%, and 100%
-selection with clustered and alternating selection ranges, for 152 registered cases.
+`ParquetDecoder` contains 19 encoding/type pairs. Each pair is run at 0%, 1%, 10%, 50%, 90%, and
+100% selection with clustered and alternating selection ranges, for 228 registered cases.
 
 | Encoding | Physical types |
 |---|---|
@@ -110,10 +146,31 @@ selection with clustered and alternating selection ranges, for 152 registered ca
 | DELTA_LENGTH_BYTE_ARRAY | BYTE_ARRAY |
 | DELTA_BYTE_ARRAY | BYTE_ARRAY |
 
-`ParquetReader` deliberately uses a single-variable matrix rather than a Cartesian product. After
-deduplication it contains 137 cases covering:
+`ParquetKernel` contains 92 cases across six decode and selection stages: BYTE_STREAM_SPLIT,
+DELTA_PREFIX_SUM, DICTIONARY_GATHER, NULLABLE_EXPAND, RAW_PREDICATE, and NESTED_SELECTION. It covers
+the applicable four- and eight-byte types, three dictionary working-set sizes, 0% through 90% null
+rates with both placement patterns, 0% through 100% raw-predicate selectivities, and 1%, 10%, and
+50% nested parent-row selectivities with both placement patterns. Nested selection registers the
+legacy and fused implementations in the same binary and validates both against an independent
+source-level oracle before timing.
 
-- operations: open-to-first-block, full scan, predicate scan, limit 1, and limit 1000;
+`ParquetSelection` contains 25 cases that isolate the selection-vector work used by Parquet
+predicate evaluation. It measures identity initialization, one raw-row filter, and two successive
+filters. The filter matrix covers 0%, 1%, 10%, 50%, 90%, and 100% selectivity with clustered and
+alternating matches. These cases include `SelectionVector::resize()` in the timed region because
+initializing a new batch is part of the production predicate path.
+
+`FileScannerExpr` contains eight cases that clone, prepare, and open an already-prepared
+`VDirectInPredicate` with 128, 1,024, 8,192, or 65,536 integer set values. Each cardinality registers
+`impl_shared` and `impl_rematerialize` in the same binary. Set construction and the original
+fragment-level materialization are outside the timed region. The cases model the repeated
+split-local expression lifecycle only; they do not include scanner scheduling or file reads.
+
+`ParquetReader` deliberately uses a single-variable matrix rather than a Cartesian product. After
+deduplication it contains 167 cases covering:
+
+- operations: open-to-first-block, full scan, predicate scan, complex residual scan, limit 1, and
+  limit 1000;
 - file encodings: PLAIN, dictionary, BYTE_STREAM_SPLIT, and DELTA_BINARY_PACKED;
 - null ratios: 0%, 1%, 10%, 50%, and 90%;
 - null shapes: clustered and alternating;
@@ -146,10 +203,12 @@ generator, random seed, or manifest involved.
   and intentionally produces many one-row physical ranges.
 
 Page generation, selection construction, decoder creation, dictionary setup, and `set_data` are
-outside the timed decode call. The sinks consume decoder callbacks and prevent compiler removal,
-but they do not build a Doris `Column`. Consequently these cases isolate decoder traversal and
-selection cost; they do not measure definition-level decoding, nullable reconstruction, type
-conversion, or full column materialization.
+outside the timed decode call. Before timing, every decoder case verifies the consumed value count
+and a checksum of all selected values against the deterministic source generator. The timed sinks
+then consume decoder callbacks and prevent compiler removal, but they do not build a Doris
+`Column`. Consequently these cases isolate decoder traversal and selection cost; they do not
+measure definition-level decoding, nullable reconstruction, type conversion, or full column
+materialization.
 
 ## How reader Parquet files are generated
 
@@ -167,6 +226,9 @@ Fixture contents and writer settings are:
 - every non-null value is `row % 100`;
 - the predicate is `value < selectivity_percent`, so the threshold maps directly to the intended
   non-null selectivity;
+- the complex residual scan evaluates a production expression tree whose first child is
+  `c0 < selectivity_percent` and whose always-true second child is `c2 = c3`, exposing whether
+  later-only columns are decoded eagerly;
 - alternating nulls use a 101-row period and `(row * 37) % 101`, avoiding direct correlation with
   the 100-value predicate period;
 - clustered nulls use contiguous null prefixes inside each 1,024-row cluster;
@@ -234,13 +296,14 @@ The current matrix is not comprehensive. Preserve this distinction in PR descrip
 1. Add the design's `matrix.yaml`, deterministic corpus generator, `manifest.json`, checksum, and
    standalone corpus verifier. The current runtime-generated files cannot be shared unchanged with
    V1, StarRocks, or DuckDB.
-2. Add correctness oracles. Benchmarks must validate consumed counts and representative checksums
-   outside the timed region before their performance samples are trusted.
+2. Add full reader correctness oracles. Decoder cases validate consumed counts and selected-value
+   checksums outside the timed region, and kernel cases compare representative output. Reader cases
+   still need value checksums in addition to their output-row counters.
 3. Add reader-level INT64, FLOAT, DOUBLE, BYTE_ARRAY/string, FIXED_LEN_BYTE_ARRAY, DATE,
    TIMESTAMP, and DECIMAL cases. Today only nullable INT32 reaches the complete reader path.
-4. Extend decoder coverage with 0% and 90% selection, definition levels/null reconstruction,
-   dictionary conversion, and real Doris `Column` materialization. The current decoder sink does
-   not cover those costs or report decoded bytes per second.
+4. Extend decoder coverage with definition levels/null reconstruction, dictionary conversion, and
+   real Doris `Column` materialization. The current decoder sink does not cover those costs or
+   report decoded bytes per second.
 5. Add the representative nullable sparse corpus requested by the design: 32 INT64 columns, 128
    row groups, and enough rows to exercise many pages. The current 16K-row/four-row-group fixture
    is a smoke-sized workload.
@@ -277,10 +340,10 @@ be simulated by silently changing the local reader benchmark.
 
 ## Current validation record
 
-At commit `16e05dd5c71`, a Release build completed and the matrix unit test passed 4/4. A 1 ms smoke
-run executed 152 decoder and 137 reader cases with zero benchmark errors. This is an execution
-record only. It is not a reviewed performance baseline because repetitions, host isolation,
-warmups, cache control, `perf` data, variance, and before/after comparison were not collected.
+The current expected registration counts are 228 decoder, 92 kernel, 25 selection, 167 reader, and
+8 expression-lifecycle cases. A smoke run is an execution record only, not a reviewed performance
+baseline, because repetitions, host isolation, warmups, cache control, `perf` data, variance, and
+before/after comparison are not collected.
 
 ## Rules for extending the suite
 

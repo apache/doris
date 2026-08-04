@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.properties;
 
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
+
 import java.util.Map;
 
 /**
@@ -36,4 +38,25 @@ public interface HadoopStorageProperties {
      * @return Hadoop configuration key-value pairs for this storage provider
      */
     Map<String, String> toHadoopConfigurationMap();
+
+    /**
+     * Returns whether this configuration authenticates via Kerberos. HDFS-family
+     * providers override this; object storage never does.
+     */
+    default boolean isKerberos() {
+        return false;
+    }
+
+    /**
+     * Returns the authenticator that executes actions inside this configuration's
+     * authentication context (Kerberos doAs for HDFS-family providers).
+     *
+     * <p>Exposed on the properties model — not internalized into FileSystem — because
+     * Doris reuses the HDFS authenticator for metastore access (Iceberg/Paimon/HMS wrap
+     * it to reach the catalog with the same identity). Object storage keeps the default
+     * passthrough.</p>
+     */
+    default ExecutionAuthenticator getExecutionAuthenticator() {
+        return ExecutionAuthenticator.DIRECT;
+    }
 }

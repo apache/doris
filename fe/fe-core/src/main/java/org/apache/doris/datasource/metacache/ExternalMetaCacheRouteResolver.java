@@ -20,10 +20,6 @@ package org.apache.doris.datasource.metacache;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -36,11 +32,6 @@ import javax.annotation.Nullable;
  */
 public class ExternalMetaCacheRouteResolver {
     private static final String ENGINE_DEFAULT = "default";
-    private static final String ENGINE_HIVE = "hive";
-    private static final String ENGINE_HUDI = "hudi";
-    private static final String ENGINE_ICEBERG = "iceberg";
-    private static final String ENGINE_PAIMON = "paimon";
-    private static final String ENGINE_MAXCOMPUTE = "maxcompute";
     private static final String ENGINE_DORIS = "doris";
 
     private final ExternalMetaCacheRegistry registry;
@@ -64,26 +55,8 @@ public class ExternalMetaCacheRouteResolver {
     }
 
     private void addBuiltinRoutes(Set<ExternalMetaCache> resolved, CatalogIf<?> catalog) {
-        if (catalog instanceof IcebergExternalCatalog) {
-            resolved.add(registry.resolve(ENGINE_ICEBERG));
-            return;
-        }
-        if (catalog instanceof PaimonExternalCatalog) {
-            resolved.add(registry.resolve(ENGINE_PAIMON));
-            return;
-        }
-        if (catalog instanceof MaxComputeExternalCatalog) {
-            resolved.add(registry.resolve(ENGINE_MAXCOMPUTE));
-            return;
-        }
         if (catalog instanceof RemoteDorisExternalCatalog) {
             resolved.add(registry.resolve(ENGINE_DORIS));
-            return;
-        }
-        if (catalog instanceof HMSExternalCatalog) {
-            resolved.add(registry.resolve(ENGINE_HIVE));
-            resolved.add(registry.resolve(ENGINE_HUDI));
-            resolved.add(registry.resolve(ENGINE_ICEBERG));
             return;
         }
         if (catalog instanceof ExternalCatalog) {

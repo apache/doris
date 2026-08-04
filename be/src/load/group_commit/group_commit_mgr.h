@@ -166,7 +166,7 @@ public:
     Status get_first_block_load_queue(int64_t table_id, int64_t base_schema_version,
                                       int64_t index_size, const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                      int be_exe_version,
+                                      int be_exe_version, TGroupCommitMode::type group_commit_mode,
                                       std::shared_ptr<Dependency> create_plan_dep,
                                       std::shared_ptr<Dependency> put_block_dep);
     Status get_load_block_queue(const TUniqueId& instance_id,
@@ -177,6 +177,7 @@ public:
 
 private:
     Status _submit_create_group_commit_load();
+    Status _check_wal_backlog(TGroupCommitMode::type group_commit_mode);
     Status _create_group_commit_load(int be_exe_version,
                                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                                      std::shared_ptr<LoadBlockQueue>& created_load_block_queue);
@@ -222,7 +223,7 @@ public:
     Status get_first_block_load_queue(int64_t db_id, int64_t table_id, int64_t base_schema_version,
                                       int64_t index_size, const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                      int be_exe_version,
+                                      int be_exe_version, TGroupCommitMode::type group_commit_mode,
                                       std::shared_ptr<Dependency> create_plan_dep,
                                       std::shared_ptr<Dependency> put_block_dep);
     void remove_load_id(int64_t table_id, const UniqueId& load_id);

@@ -17,113 +17,37 @@
 
 package org.apache.doris.connector.api;
 
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-
 /**
- * Operations on tables within a connector catalog.
+ * Operations on tables within a connector catalog: the aggregate of the per-domain table interfaces.
+ *
+ * <p>This interface declares nothing itself. It exists so that {@link ConnectorMetadata} keeps one
+ * table-operations supertype and connectors keep compiling unchanged, while the operations themselves live in
+ * the domain each belongs to:</p>
+ *
+ * <ul>
+ * <li>{@link ConnectorTableMetadataOps} &mdash; resolving a table by name and reading what it looks like. The
+ *     one domain no connector can skip.</li>
+ * <li>{@link ConnectorViewOps} &mdash; views.</li>
+ * <li>{@link ConnectorTableDdlOps} &mdash; create / drop / rename / truncate.</li>
+ * <li>{@link ConnectorColumnEvolutionOps} &mdash; column schema evolution, flat and nested.</li>
+ * <li>{@link ConnectorSnapshotRefOps} &mdash; branches, tags and partition-spec evolution.</li>
+ * <li>{@link ConnectorPartitionListingOps} &mdash; enumerating partitions.</li>
+ * </ul>
+ *
+ * <p>Passing a SQL string through to the remote source is deliberately NOT here: it is the escape hatch of a
+ * connector whose source speaks SQL, not a table operation, and it lives in the optional
+ * {@link ConnectorPassthroughSqlOps}, which a connector implements or does not.</p>
+ *
+ * <p><b>Start with each domain's class javadoc: it states that domain's minimum implementation set</b>
+ * &mdash; which methods a connector must override to work at all, which become mandatory once a given
+ * capability is declared, and which are optional. Every method has a default body, so the compiler demands
+ * nothing; those lists are the only statement of what is actually required.</p>
  */
-public interface ConnectorTableOps {
-
-    /** Retrieves a table handle for the given database and table name. */
-    default Optional<ConnectorTableHandle> getTableHandle(
-            ConnectorSession session, String dbName,
-            String tableName) {
-        return Optional.empty();
-    }
-
-    /** Returns the schema (columns, format, etc.) for the given table. */
-    default ConnectorTableSchema getTableSchema(
-            ConnectorSession session, ConnectorTableHandle handle) {
-        throw new DorisConnectorException(
-                "getTableSchema not implemented");
-    }
-
-    /** Returns a name-to-handle map for all columns of the table. */
-    default Map<String, ConnectorColumnHandle> getColumnHandles(
-            ConnectorSession session, ConnectorTableHandle handle) {
-        throw new DorisConnectorException(
-                "getColumnHandles not implemented");
-    }
-
-    /** Lists all table names within the given database. */
-    default List<String> listTableNames(ConnectorSession session,
-            String dbName) {
-        return Collections.emptyList();
-    }
-
-    /** Creates a new table with the given schema and properties. */
-    default void createTable(ConnectorSession session,
-            ConnectorTableSchema schema,
-            Map<String, String> properties) {
-        throw new DorisConnectorException(
-                "CREATE TABLE not supported");
-    }
-
-    /** Drops the specified table. */
-    default void dropTable(ConnectorSession session,
-            ConnectorTableHandle handle) {
-        throw new DorisConnectorException(
-                "DROP TABLE not supported");
-    }
-
-    /** Returns the primary key column names for the given table. */
-    default List<String> getPrimaryKeys(ConnectorSession session,
-            String dbName, String tableName) {
-        return Collections.emptyList();
-    }
-
-    /** Returns a human-readable comment for the given table. */
-    default String getTableComment(ConnectorSession session,
-            String dbName, String tableName) {
-        return "";
-    }
-
-    /**
-     * Executes a DML statement (INSERT/UPDATE/DELETE) directly.
-     * Used for DML passthrough features like CALL EXECUTE_STMT.
-     */
-    default void executeStmt(ConnectorSession session, String stmt) {
-        throw new DorisConnectorException("executeStmt not supported");
-    }
-
-    /**
-     * Gets column metadata from a query string via PreparedStatement metadata.
-     * Used for table-valued functions like query().
-     */
-    default ConnectorTableSchema getColumnsFromQuery(ConnectorSession session, String query) {
-        throw new DorisConnectorException("getColumnsFromQuery not supported");
-    }
-
-    /**
-     * Builds the Thrift {@code TTableDescriptor} that BE needs for query execution.
-     *
-     * <p>Each connector constructs its own typed descriptor (e.g., {@code TJdbcTable},
-     * {@code TEsTable}) and wraps it in a {@code TTableDescriptor}. This keeps
-     * connector-specific Thrift logic out of fe-core.</p>
-     *
-     * <p>The Thrift classes are provided by fe-thrift at compile time and loaded
-     * from the parent classloader at runtime.</p>
-     *
-     * @param session connector session
-     * @param tableId Doris internal table ID
-     * @param tableName table display name
-     * @param dbName database name
-     * @param remoteName remote table name in the external data source
-     * @param numCols number of columns in the schema
-     * @param catalogId Doris internal catalog ID
-     * @return the table descriptor, or {@code null} if the connector does not
-     *         need a typed descriptor (fe-core will use a generic fallback)
-     */
-    default org.apache.doris.thrift.TTableDescriptor buildTableDescriptor(
-            ConnectorSession session,
-            long tableId, String tableName, String dbName,
-            String remoteName, int numCols, long catalogId) {
-        return null;
-    }
+public interface ConnectorTableOps extends
+        ConnectorTableMetadataOps,
+        ConnectorViewOps,
+        ConnectorTableDdlOps,
+        ConnectorColumnEvolutionOps,
+        ConnectorSnapshotRefOps,
+        ConnectorPartitionListingOps {
 }

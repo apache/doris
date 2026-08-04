@@ -86,6 +86,7 @@ TFileRangeDesc paimon_cpp_jni_range() {
     auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
     TPaimonFileDesc paimon_params;
     paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
+    paimon_params.__set_file_format("parquet");
     range.table_format_params.__set_paimon_params(std::move(paimon_params));
     return range;
 }
@@ -141,6 +142,18 @@ public:
 
 private:
     std::shared_ptr<RetryableCloseState> _state;
+};
+
+class CapturingSplitTableReader final : public format::TableReader {
+public:
+    Status prepare_split(const format::SplitReadOptions& options) override {
+        conjunct_count = options.conjuncts.has_value() ? options.conjuncts->size() : 0;
+        partition_prune_conjunct_count = options.partition_prune_conjuncts.size();
+        return Status::OK();
+    }
+
+    size_t conjunct_count = 0;
+    size_t partition_prune_conjunct_count = 0;
 };
 
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
@@ -332,7 +345,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"remote_doris", TFileFormatType::FORMAT_ARROW, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_WAL, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_WAL, std::nullopt, true},
             {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
             {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
@@ -417,11 +430,13 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
 
-    const std::vector<TFileFormatType::type> unsupported_formats {
-            TFileFormatType::FORMAT_WAL,
-            TFileFormatType::FORMAT_ES_HTTP,
-            TFileFormatType::FORMAT_LANCE,
-    };
+    params.__set_format_type(TFileFormatType::FORMAT_WAL);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP,
+                                                                  TFileFormatType::FORMAT_LANCE};
     for (const auto format : unsupported_formats) {
         params.__set_format_type(format);
         EXPECT_FALSE(
@@ -441,24 +456,77 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
-TEST(FileScannerV2Test, JniCompatibilityShapesForceLegacyScanner) {
+TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     TQueryOptions query_options;
     query_options.__set_enable_file_scanner_v2(true);
     query_options.__set_enable_paimon_cpp_reader(true);
 
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
-    // Rolling upgrades may carry the only Paimon marker and reader type on each split. Since the
-    // scan-level selector cannot inspect that split yet, JNI scans conservatively stay on V1.
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    const auto cpp_range = paimon_cpp_jni_range();
+    EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_range));
+    const auto cpp_status = FileScannerV2::TEST_validate_scan_range(params, cpp_range);
+    EXPECT_TRUE(cpp_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
 
-    // Older FEs can omit reader_type. The legacy scanner interprets this as Paimon JNI when the C++
-    // reader is disabled, so the scan-level choice must still stay on V1.
+    // Older FE plans without reader_type used Java whenever the C++ option was disabled.
     query_options.__set_enable_paimon_cpp_reader(false);
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(
-            FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+}
+
+// Scenario: one scan node is given ranges of two different table formats, which is what a connector
+// reading a table as a lake plus the log written after it produces -- its lake half planned by a
+// sibling connector, its own half by itself. The reader is format-specific, so it has to follow the
+// RANGE. Built once from the first range, it is later handed a foreign one and fails as whatever that
+// reader makes of it, not as a clean error; and since which ranges share a scanner is the engine's
+// assignment, the same query then succeeds or fails by how the ranges happened to be dealt out.
+TEST(FileScannerV2Test, TheTableReaderIsRebuiltWhenARangeChangesTableFormat) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2_reader_per_range");
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._params = &params;
+
+    const auto paimon_range = range_with_format("paimon", TFileFormatType::FORMAT_PARQUET);
+    const auto hive_range = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
+
+    // Nothing has been built yet, so the first range always builds.
+    bool rebuilt = false;
+    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(paimon_range, &rebuilt).ok());
+    EXPECT_TRUE(rebuilt);
+    EXPECT_EQ(scanner._table_reader_format, "paimon");
+    const auto* first_reader = scanner._table_reader.get();
+    ASSERT_NE(first_reader, nullptr);
+
+    // A second range of the same format reuses it. Rebuilding here would be wasteful rather than
+    // wrong, but it would also throw away per-reader state the next split expects to still be there.
+    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(paimon_range, &rebuilt).ok());
+    EXPECT_FALSE(rebuilt);
+    EXPECT_EQ(scanner._table_reader.get(), first_reader);
+
+    // A range of another format must not be handed to the reader built for the first one.
+    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(hive_range, &rebuilt).ok());
+    EXPECT_TRUE(rebuilt);
+    EXPECT_EQ(scanner._table_reader_format, "hive");
+    EXPECT_NE(scanner._table_reader.get(), first_reader);
+
+    // And back again, because the ranges of a mixed node arrive interleaved rather than grouped.
+    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(paimon_range, &rebuilt).ok());
+    EXPECT_TRUE(rebuilt);
+    EXPECT_EQ(scanner._table_reader_format, "paimon");
+
+    // The formats really do get different readers -- otherwise every assertion above would hold
+    // just as well for a scanner that never rebuilt anything.
+    std::unique_ptr<format::TableReader> as_paimon;
+    std::unique_ptr<format::TableReader> as_hive;
+    ASSERT_TRUE(scanner._create_table_reader_for_format(paimon_range, &as_paimon).ok());
+    ASSERT_TRUE(scanner._create_table_reader_for_format(hive_range, &as_hive).ok());
+    const format::TableReader& paimon_reader = *as_paimon;
+    const format::TableReader& hive_reader = *as_hive;
+    EXPECT_STRNE(typeid(paimon_reader).name(), typeid(hive_reader).name());
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
@@ -474,6 +542,54 @@ TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
     EXPECT_EQ(close_state->close_calls, 2);
     EXPECT_TRUE(scanner.close(&state).ok());
     EXPECT_EQ(close_state->close_calls, 2);
+}
+
+TEST(FileScannerV2Test, PartitionPruningRemainsEnabledWhenSessionSwitchIsFalse) {
+    TQueryOptions query_options;
+    query_options.__set_enable_runtime_filter_partition_prune(false);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple_descriptor;
+    tuple_descriptor.id = 0;
+    tuple_descriptor.byteSize = 0;
+    tuple_descriptor.numNullBytes = 0;
+    thrift_descriptors.tupleDescriptors.push_back(tuple_descriptor);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan_node;
+    plan_node.node_id = 0;
+    plan_node.node_type = TPlanNodeType::FILE_SCAN_NODE;
+    plan_node.num_children = 0;
+    plan_node.limit = -1;
+    plan_node.row_tuples.push_back(0);
+    plan_node.file_scan_node.tuple_id = 0;
+    plan_node.__isset.file_scan_node = true;
+    FileScanOperatorX parent(&pool, plan_node, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
+    RuntimeProfile profile("file_scanner_v2_partition_prune");
+    auto table_reader = std::make_unique<CapturingSplitTableReader>();
+    auto* captured = table_reader.get();
+    FileScannerV2 scanner(&state, &profile, std::move(table_reader));
+    scanner._local_state = &local_state;
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scanner._params = &params;
+    scanner._slot_id_to_global_index.emplace(7, format::GlobalIndex(0));
+    scanner._conjuncts = {VExprContext::create_shared(
+            slot_ref(7, 7, std::make_shared<DataTypeInt32>(), "partition_col"))};
+
+    const auto range = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(scanner._prepare_table_reader_split(range, {}).ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 0);
+
+    ASSERT_TRUE(scanner._prepare_table_reader_split(
+                               range, {{"partition_col", Field::create_field<TYPE_INT>(1)}})
+                        .ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 1);
 }
 
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back
@@ -563,6 +679,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
+            {TFileFormatType::FORMAT_WAL, format::FileFormat::WAL},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 

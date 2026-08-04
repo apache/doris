@@ -35,6 +35,7 @@ public final class StreamingJdbcUrlNormalizer {
     public static String normalize(DataSourceType sourceType, String jdbcUrl) {
         switch (sourceType) {
             case MYSQL:
+            case OCEANBASE:
                 return normalizeMysql(jdbcUrl);
             case POSTGRES:
                 return jdbcUrl;

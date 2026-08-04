@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -122,6 +123,39 @@ class CosFileSystemPropertiesTest {
         Assertions.assertEquals("cos-bucket", backendMap.get("AWS_BUCKET"));
         Assertions.assertEquals("cos-role", backendMap.get("AWS_ROLE_ARN"));
         Assertions.assertFalse(backendMap.keySet().stream().anyMatch(key -> key.startsWith("COS_")));
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // when static credentials are present the type is omitted (BE uses SimpleAWSCredentialsProvider).
+        Assertions.assertNull(backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toBackendProperties_emitsAnonymousProviderTypeWhenNoStaticCredentials() {
+        CosFileSystemProperties properties = CosFileSystemProperties.of(Map.of(
+                "cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // both access key and secret key blank => anonymous access.
+        Assertions.assertEquals("ANONYMOUS", backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toMaps_emitCosTuningDefaultsWhenNotConfigured() {
+        CosFileSystemProperties properties = CosFileSystemProperties.of(Map.of(
+                "cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com"));
+
+        // Parity with fe-core COSProperties defaults (100 / 10000 / 10000). Literal expected values
+        // (not DEFAULT_* constants) so that mutating a default in the main class fails this guard.
+        Map<String, String> beKv = properties.toMap();
+        Assertions.assertEquals("100", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("100", hadoopKv.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.timeout"));
     }
 
     @Test
@@ -172,5 +206,50 @@ class CosFileSystemPropertiesTest {
 
         Assertions.assertTrue(provider.supports(Map.of(
                 "AWS_ENDPOINT", "https://cos.ap-guangzhou.myqcloud.com")));
+    }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint/region (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2). Expected values are hardcoded from the
+    // legacy fe-core S3URI algorithm — do not "fix" them to look nicer.
+    // ------------------------------------------------------------------
+
+    @Test
+    void uriOnly_virtualHostedMyqcloudUri_derivesEndpointAndRegion() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.cos.ap-guangzhou.myqcloud.com/data/file.csv");
+        raw.put("cos.access_key", "ak");
+        raw.put("cos.secret_key", "sk");
+
+        CosFileSystemProperties properties = CosFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("cos.ap-guangzhou.myqcloud.com", properties.getEndpoint());
+        Assertions.assertEquals("ap-guangzhou", properties.getRegion());
+    }
+
+    @Test
+    void uriPlusExplicitEndpoint_explicitEndpointWins() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.cos.ap-guangzhou.myqcloud.com/data/file.csv");
+        raw.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        raw.put("cos.access_key", "ak");
+        raw.put("cos.secret_key", "sk");
+
+        CosFileSystemProperties properties = CosFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", properties.getEndpoint());
+        Assertions.assertEquals("ap-beijing", properties.getRegion());
+    }
+
+    @Test
+    void unparsableUri_isSwallowed_thenRegionNotSetFires() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "cos.ap-guangzhou.myqcloud.com/bucket/file.csv"); // no scheme
+        raw.put("cos.access_key", "ak");
+        raw.put("cos.secret_key", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CosFileSystemProperties.of(raw));
+        Assertions.assertTrue(exception.getMessage().contains("Region is not set"), exception.getMessage());
     }
 }

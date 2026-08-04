@@ -21,11 +21,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -174,7 +176,19 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public List<Column> getFullSchema() {
+        // NOT getFullSchema(Optional.empty()): an empty snapshot means "this reference has no pin" (=>
+        // latest), whereas the no-arg form means "I have no reference, resolve from the ambient context".
+        // Collapsing the two would strip the ambient resolution from every statement-global caller.
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+    }
+
+    /**
+     * The full schema AS OF {@code snapshot}. See {@link #getSchemaCacheValue(Optional)} for why the plan
+     * path must pass the reference's pin rather than relying on the ambient lookup.
+     */
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue(snapshot);
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
@@ -421,8 +435,33 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getSchemaCacheValue(this, new SchemaCacheKey(getOrBuildNameMapping()));
+        SchemaCacheKey key = new SchemaCacheKey(getOrBuildNameMapping());
+        if (catalog.shouldBypassSchemaCache(SessionContext.current())) {
+            // session=user + delegated credential: the remote loadTable returns PER-USER schema and authorizes
+            // per user, so the shared name-keyed schema cache must be bypassed (mirror the db/table-name-cache
+            // bypass) — read schema live under the current session's credential. This is exactly what the cache
+            // miss-loader would do (initSchemaAndUpdateTime); calling it directly just skips the shared cache so
+            // one user's schema is never served to another who could list but not load the table.
+            return initSchemaAndUpdateTime(key);
+        }
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCacheValue(this, key);
+    }
+
+    /**
+     * The schema AS OF {@code snapshot}, for a caller that knows WHICH table reference it is resolving for
+     * (the reference's {@code @branch}/{@code @tag}/FOR-TIME selector already resolved to a pin). A table
+     * whose schema cannot vary by version ignores {@code snapshot} — only an MVCC table overrides this.
+     *
+     * <p>Prefer this over the no-arg {@link #getSchemaCacheValue()} in the PLAN path: the no-arg form
+     * resolves the pin from the ambient {@code ConnectContext} WITHOUT knowing the reference, so a statement
+     * pinning one table at two versions cannot be disambiguated there and degrades to the LATEST schema —
+     * a schema no reference asked for. The no-arg form remains correct for statement-global callers (MTMV
+     * refresh, preload, the write sink) that have no per-reference version to pass.
+     *
+     * @param snapshot the pin resolved for THIS reference, or empty for a caller with no reference
+     */
+    public Optional<SchemaCacheValue> getSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        return getSchemaCacheValue();
     }
 
     @Override
@@ -480,15 +519,22 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     /**
-     * Get sorted partition ranges for binary search filtering.
-     * Subclasses can override this method to provide sorted partition ranges
-     * for efficient partition pruning.
+     * Cross-query cache of the pre-built {@link SortedPartitionRanges} for binary-search partition
+     * pruning. Tables that implement {@link SupportBinarySearchFilteringPartitions} (external MVCC:
+     * iceberg/paimon) route through the shared {@link NereidsSortedPartitionsCacheManager}, keyed by the
+     * pinned connector snapshot; others return empty (the caller falls back to building ranges fresh).
      *
      * @param scan the catalog relation
      * @return sorted partition ranges, or empty if not supported
      */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
-        return Optional.empty();
+        if (!(this instanceof SupportBinarySearchFilteringPartitions)) {
+            return Optional.empty();
+        }
+        Optional<SortedPartitionRanges<?>> cached = Env.getCurrentEnv().getSortedPartitionsCacheManager()
+                .get((SupportBinarySearchFilteringPartitions) this, scan);
+        return (Optional) cached;
     }
 
     @Override

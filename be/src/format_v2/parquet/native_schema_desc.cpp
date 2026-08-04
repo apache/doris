@@ -207,10 +207,6 @@ static bool is_struct_list_node(const tparquet::SchemaElement& schema,
     return schema.name == "array" || schema.name == enclosing_list_name + "_tuple";
 }
 
-static bool has_logical_annotation(const tparquet::SchemaElement& schema) {
-    return schema.__isset.logicalType || schema.__isset.converted_type;
-}
-
 std::string NativeFieldSchema::debug_string() const {
     std::stringstream ss;
     ss << "NativeFieldSchema(name=" << name << ", R=" << repetition_level
@@ -625,9 +621,17 @@ Status NativeFieldDescriptor::parse_list_field(
     if (num_children > 0) {
         const bool structural_wrapper = is_struct_list_node(second_level, first_level.name);
         const auto& only_child = t_schemas[curr_pos + 2];
-        if (num_children == 1 && !structural_wrapper && has_logical_annotation(second_level)) {
+        const bool single_key_set_wrapper =
+                second_level.__isset.converted_type &&
+                second_level.converted_type == tparquet::ConvertedType::MAP_KEY_VALUE &&
+                !is_repeated_node(only_child);
+        const bool nested_collection_annotation =
+                is_list_node(second_level) ||
+                (is_map_node(second_level) && !single_key_set_wrapper);
+        if (num_children == 1 && !structural_wrapper && nested_collection_annotation) {
             // The repeated node is already the outer LIST element. Preserve its own LIST/MAP
-            // annotation, but do not interpret its REPEATED marker as another outer array.
+            // annotation. A MAP_KEY_VALUE node with a repeated child is the legacy uncontained
+            // MAP shape; only its direct, non-repeated child denotes the enclosing SET key.
             set_child_node_level(list_field, list_field->definition_level);
             if (is_list_node(second_level)) {
                 RETURN_IF_ERROR(parse_list_field(t_schemas, curr_pos + 1, list_child, true));

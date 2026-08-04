@@ -45,11 +45,15 @@ import org.junit.rules.ExpectedException;
 
 import java.time.Instant;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
+
 
 public class PropertyAnalyzerTest {
     @Rule
@@ -522,6 +526,214 @@ public class PropertyAnalyzerTest {
             PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.UNIQUE_KEYS);
         } catch (AnalysisException e) {
             Assert.fail();
+        }
+    }
+
+    @Test
+    public void testStorageCooldownTimeWithTzOffset() throws AnalysisException {
+        // A known UTC instant: 2027-06-15 12:30:00 UTC
+        ZonedDateTime zdt = ZonedDateTime.of(2027, 6, 15, 12, 30, 0, 0, ZoneOffset.UTC);
+        long expectedMillis = zdt.toInstant().toEpochMilli();
+
+        // +00:00 suffix — must be parsed as an instant via TZ_FORMATTER
+        String cooldownStr = "2027-06-15 12:30:00+00:00";
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr);
+        DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("TZ offset +00:00 should parse as exact UTC instant",
+                expectedMillis, dp.getCooldownTimeMs());
+
+        // -05:00 offset — same instant, different representation
+        String cooldownStr2 = "2027-06-15 07:30:00-05:00";
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr2);
+        DataProperty dp2 = PropertyAnalyzer.analyzeDataProperty(properties2,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("TZ offset -05:00 should parse as same UTC instant",
+                expectedMillis, dp2.getCooldownTimeMs());
+    }
+
+    @Test
+    public void testStorageCooldownTimeWithTzOffsetFractionalSeconds() throws AnalysisException {
+        // A known UTC instant with fractional seconds: 2027-06-15 12:30:00.123456 UTC
+        ZonedDateTime zdt = ZonedDateTime.of(2027, 6, 15, 12, 30, 0, 123456000, ZoneOffset.UTC);
+        long expectedMillis = zdt.toInstant().toEpochMilli();
+
+        // TIMESTAMPTZ(6) style string with +00:00 suffix
+        String cooldownStr = "2027-06-15 12:30:00.123456+00:00";
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr);
+        DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("Fractional seconds with TZ offset should parse correctly",
+                expectedMillis, dp.getCooldownTimeMs());
+
+        // TIMESTAMPTZ(0) — no fractional seconds, with +00:00
+        String cooldownStr2 = "2027-06-15 12:30:00+00:00";
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr2);
+        DataProperty dp2 = PropertyAnalyzer.analyzeDataProperty(properties2,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("No fractional seconds (precision 0) should still parse",
+                ZonedDateTime.of(2027, 6, 15, 12, 30, 0, 0, ZoneOffset.UTC)
+                        .toInstant().toEpochMilli(),
+                dp2.getCooldownTimeMs());
+    }
+
+    @Test
+    public void testStorageCooldownTimeInvalidTzFormat() throws AnalysisException {
+        // A value that looks like it has a TZ offset but is malformed
+        // (missing minutes in offset) — should fall back to MAX_COOLDOWN_TIME_MS
+        // instead of throwing an exception.
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, "2027-06-15 12:30:00+00");
+        DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("Malformed TZ offset should fall back to MAX",
+                DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
+    }
+
+    @Test
+    public void testStorageCooldownTimeStrictDateValidation() throws AnalysisException {
+        // An invalid calendar date with a valid TZ offset (Feb 29 in a
+        // non-leap year) must be rejected by the STRICT resolver rather
+        // than silently normalized to Feb 28, and should fall back to
+        // MAX_COOLDOWN_TIME_MS.
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                "2027-02-29 00:00:00+00:00");
+        DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("Invalid date (Feb 29 in non-leap year) should fall back to MAX",
+                DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
+
+        // Also test an impossible month (month=13)
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                "2027-13-01 00:00:00+00:00");
+        DataProperty dp2 = PropertyAnalyzer.analyzeDataProperty(properties2,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("Invalid month (13) should fall back to MAX",
+                DataProperty.MAX_COOLDOWN_TIME_MS, dp2.getCooldownTimeMs());
+    }
+
+    @Test
+    public void testStorageCooldownTimeDstFallbackDistinctInstants() throws AnalysisException {
+        // Two different UTC instants that would map to the same wall-clock
+        // hour during America/Chicago DST fall-back (e.g. on 2026-11-01,
+        // 01:30 CDT = 06:30 UTC and 01:30 CST = 07:30 UTC) must produce
+        // different cooldown timestamps when expressed with explicit +00:00.
+        //
+        // Use dynamically-derived dates 5 years ahead so the test never
+        // ages past System.currentTimeMillis() and gets rejected by the
+        // future-time policy in analyzeDataProperty().
+        ZonedDateTime baseUtc = ZonedDateTime.now(ZoneOffset.UTC).plusYears(5)
+                .withHour(6).withMinute(30).withSecond(0).withNano(0);
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
+
+        // Earlier instant (e.g. 06:30 UTC)
+        String earlierStr = fmt.format(baseUtc) + "+00:00";
+        Map<String, String> propsEarlier = Maps.newHashMap();
+        propsEarlier.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        propsEarlier.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, earlierStr);
+        DataProperty dpEarlier = PropertyAnalyzer.analyzeDataProperty(propsEarlier,
+                new DataProperty(TStorageMedium.SSD));
+        long earlierMillis = baseUtc.toInstant().toEpochMilli();
+        Assert.assertEquals("Explicit +00:00 should parse earlier DST hour correctly",
+                earlierMillis, dpEarlier.getCooldownTimeMs());
+
+        // Later instant (1 hour later, e.g. 07:30 UTC)
+        ZonedDateTime laterUtc = baseUtc.plusHours(1);
+        String laterStr = fmt.format(laterUtc) + "+00:00";
+        Map<String, String> propsLater = Maps.newHashMap();
+        propsLater.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        propsLater.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, laterStr);
+        DataProperty dpLater = PropertyAnalyzer.analyzeDataProperty(propsLater,
+                new DataProperty(TStorageMedium.SSD));
+        long laterMillis = laterUtc.toInstant().toEpochMilli();
+        Assert.assertEquals("Explicit +00:00 should parse later DST hour correctly",
+                laterMillis, dpLater.getCooldownTimeMs());
+
+        // The two instants must be distinct (1 hour apart).
+        Assert.assertEquals("DST fall-back hours must differ by exactly 1 hour",
+                3600000L, laterMillis - earlierMillis);
+    }
+
+    @Test
+    public void testStorageCooldownTimeTzZoneIdsWinterTarget() throws AnalysisException {
+        // Regression: when the session/JVM timezone is in DST (e.g.
+        // America/Chicago in July = UTC-5), a cooldown value with Z/UTC/GMT
+        // suffix pointing to a winter month (e.g. 2027-01 = CST, UTC-6) went
+        // through the legacy DATETIME path because TZ_OFFSET_PATTERN only
+        // matched numeric ±HH:MM offsets.  DateLiteralUtils.createDateLiteral()
+        // first shifted the UTC instant using the current DST offset (-05:00),
+        // then unixTimestamp() applied the target date's winter offset (-06:00),
+        // producing a double-shifted wrong result.
+        //
+        // The fix normalizes Z/UTC/GMT to +00:00 and routes through
+        // TZ_FORMATTER (instant-aware parse), bypassing the legacy path
+        // entirely.
+        TimeZone originalTimezone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Chicago"));
+
+            // Winter-target instant: 2027-01-01 00:00:00 UTC.
+            ZonedDateTime winterZdt = ZonedDateTime.of(
+                    2027, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+            long expectedMillis = winterZdt.toInstant().toEpochMilli();
+
+            // Test with Z suffix
+            Map<String, String> propsZ = Maps.newHashMap();
+            propsZ.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+            propsZ.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                    "2027-01-01 00:00:00Z");
+            DataProperty dpZ = PropertyAnalyzer.analyzeDataProperty(propsZ,
+                    new DataProperty(TStorageMedium.SSD));
+            Assert.assertEquals("'Z' suffix winter target must parse as UTC instant",
+                    expectedMillis, dpZ.getCooldownTimeMs());
+
+            // Test with UTC suffix
+            Map<String, String> propsUtc = Maps.newHashMap();
+            propsUtc.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+            propsUtc.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                    "2027-01-01 00:00:00UTC");
+            DataProperty dpUtc = PropertyAnalyzer.analyzeDataProperty(propsUtc,
+                    new DataProperty(TStorageMedium.SSD));
+            Assert.assertEquals("'UTC' suffix winter target must parse as UTC instant",
+                    expectedMillis, dpUtc.getCooldownTimeMs());
+
+            // Test with GMT suffix
+            Map<String, String> propsGmt = Maps.newHashMap();
+            propsGmt.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+            propsGmt.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                    "2027-01-01 00:00:00GMT");
+            DataProperty dpGmt = PropertyAnalyzer.analyzeDataProperty(propsGmt,
+                    new DataProperty(TStorageMedium.SSD));
+            Assert.assertEquals("'GMT' suffix winter target must parse as UTC instant",
+                    expectedMillis, dpGmt.getCooldownTimeMs());
+
+            // Summer-target Z with summer-time JVM must also work (baseline).
+            ZonedDateTime summerZdt = ZonedDateTime.of(
+                    2027, 7, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+            long expectedSummer = summerZdt.toInstant().toEpochMilli();
+            Map<String, String> propsSummer = Maps.newHashMap();
+            propsSummer.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+            propsSummer.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                    "2027-07-01 00:00:00Z");
+            DataProperty dpSummer = PropertyAnalyzer.analyzeDataProperty(propsSummer,
+                    new DataProperty(TStorageMedium.SSD));
+            Assert.assertEquals("Summer target with JVM summer must also work",
+                    expectedSummer, dpSummer.getCooldownTimeMs());
+        } finally {
+            TimeZone.setDefault(originalTimezone);
         }
     }
 }

@@ -2855,13 +2855,6 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.readUnlock();
         }
 
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)
-                && !(olapTable.getPartitionInfo().enableAutomaticPartition()
-                        && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
-            throw new UserException("Only AUTO RANGE PARTITION table could set "
-                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
-        }
-
         String inMemory = properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY);
         int isInMemory = -1; // < 0 means don't update inMemory properties
         if (inMemory != null) {
@@ -2997,6 +2990,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         olapTable.writeLockOrDdlException();
         try {
+            checkPartitionRetentionCount(olapTable, properties);
             Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
         } finally {
             olapTable.writeUnlock();
@@ -3004,6 +2998,24 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // after modifyTableProperties, buildPartitionRetentionCount has been done.
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
+    }
+
+    protected void checkPartitionRetentionCount(OlapTable olapTable, Map<String, String> properties)
+            throws UserException {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            return;
+        }
+        if (!(olapTable.getPartitionInfo().enableAutomaticPartition()
+                && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
+            throw new UserException("Only AUTO RANGE PARTITION table could set "
+                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+        }
+        // Dynamic partition creation and retention-count cleanup are mutually exclusive scheduler modes.
+        if (olapTable.dynamicPartitionExists()
+                && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+            throw new UserException("Can not use partition.retention_count and "
+                    + "dynamic_partition properties at the same time");
+        }
     }
 
     /**

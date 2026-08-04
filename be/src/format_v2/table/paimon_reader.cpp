@@ -104,7 +104,27 @@ Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options
     // timer around the first native or JNI child and double-count that initialization.
     RETURN_IF_ERROR(_ensure_current_split_reader(options));
     DORIS_CHECK(_current_split_reader != nullptr);
+    if (!_is_jni_split(options.current_range)) {
+        auto native_options = options;
+        // Legacy FE plans wrap native files in FORMAT_JNI; normalize the child contract so the
+        // physical reader does not overwrite its recovered Parquet/ORC format with that wrapper.
+        RETURN_IF_ERROR(
+                _to_file_format(options.current_range, &native_options.current_split_format));
+        return _current_split_reader->prepare_split(native_options);
+    }
     return _current_split_reader->prepare_split(options);
+}
+
+Status PaimonHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(std::move(conjuncts)));
+    if (_current_split_reader == nullptr) {
+        return Status::OK();
+    }
+    VExprContextSPtrs child_conjuncts;
+    RETURN_IF_ERROR(_clone_conjuncts(&child_conjuncts));
+    // The hybrid wrapper owns no physical reader; forward a clone so the active child, rather than
+    // only the wrapper snapshot, observes late predicates for the remainder of this split.
+    return _current_split_reader->refresh_conjuncts(std::move(child_conjuncts));
 }
 
 Status PaimonHybridReader::get_block(Block* block, bool* eos) {
@@ -152,6 +172,13 @@ void PaimonHybridReader::set_batch_size(size_t batch_size) {
     }
 }
 
+int64_t PaimonHybridReader::condition_cache_hit_count() const {
+    // Both children survive split switches, so the wrapper must publish their cumulative totals;
+    // returning only the active child would make FileScannerV2's monotonic delta go backwards.
+    return (_native_reader == nullptr ? 0 : _native_reader->condition_cache_hit_count()) +
+           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count());
+}
+
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     if (_is_jni_split(options.current_range)) {
         DCHECK(options.current_split_format == format::FileFormat::JNI);
@@ -171,7 +198,10 @@ Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadO
     } else {
         format::FileFormat file_format;
         RETURN_IF_ERROR(_to_file_format(options.current_range, &file_format));
-        DCHECK(options.current_split_format == file_format);
+        // Old FE plans encoded a native file as FORMAT_JNI without paimon_split and carried the
+        // physical format only in paimon_params.file_format.
+        DCHECK(options.current_split_format == file_format ||
+               options.current_split_format == format::FileFormat::JNI);
         DCHECK(file_format == format::FileFormat::PARQUET ||
                file_format == format::FileFormat::ORC);
         if (_native_reader == nullptr) {
@@ -229,16 +259,30 @@ Status PaimonHybridReader::_clone_conjuncts(VExprContextSPtrs* conjuncts) const 
 }
 
 bool PaimonHybridReader::_is_jni_split(const TFileRangeDesc& range) {
-    return range.__isset.table_format_params && range.table_format_params.__isset.paimon_params &&
-           range.table_format_params.paimon_params.__isset.reader_type &&
-           range.table_format_params.paimon_params.reader_type == TPaimonReaderType::PAIMON_JNI;
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& params = range.table_format_params.paimon_params;
+    return params.__isset.paimon_split &&
+           (!params.__isset.reader_type || params.reader_type == TPaimonReaderType::PAIMON_JNI);
 }
 
 Status PaimonHybridReader::_to_file_format(const TFileRangeDesc& range,
                                            format::FileFormat* file_format) {
     DORIS_CHECK(file_format != nullptr);
-    const auto format_type =
+    auto format_type =
             range.__isset.format_type ? range.format_type : TFileFormatType::FORMAT_PARQUET;
+    // JNI splits also carry file_format metadata; only a split without paimon_split can use
+    // FORMAT_JNI as the legacy encoding of a native file.
+    if (format_type == TFileFormatType::FORMAT_JNI && !_is_jni_split(range) &&
+        range.__isset.table_format_params && range.table_format_params.__isset.paimon_params) {
+        const auto& params = range.table_format_params.paimon_params;
+        if (params.__isset.file_format && params.file_format == "orc") {
+            format_type = TFileFormatType::FORMAT_ORC;
+        } else if (params.__isset.file_format && params.file_format == "parquet") {
+            format_type = TFileFormatType::FORMAT_PARQUET;
+        }
+    }
     switch (format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         *file_format = format::FileFormat::PARQUET;

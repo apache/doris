@@ -19,5 +19,6 @@ package org.apache.doris.cdcclient.source.factory;
 
 public enum DataSource {
     MYSQL,
-    POSTGRES
+    POSTGRES,
+    OCEANBASE
 }

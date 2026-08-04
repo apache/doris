@@ -1284,13 +1284,18 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
         return field_ptr;
     };
 
+    static_assert(sizeof("0123456789abcdef0123456789abcdef") - 1 > StringView::kInlineSize);
+    const std::string binary_default = "0123456789abcdef0123456789abcdef";
+
     schema::external::TStructField root_field;
-    root_field.__set_fields({make_field("added_timestamp", 1, TPrimitiveType::DATETIMEV2,
-                                        "2024-01-01 00:00:00.123456", -1, 6, false),
-                             make_field("added_binary", 2, TPrimitiveType::VARBINARY,
-                                        "Ej5FZ+ibEtOkVkJmFBdAAA==", 16, -1, true),
-                             make_field("added_string_binary", 3, TPrimitiveType::STRING,
-                                        "AAEC/w==", -1, -1, true)});
+    root_field.__set_fields(
+            {make_field("added_timestamp", 1, TPrimitiveType::DATETIMEV2,
+                        "2024-01-01 00:00:00.123456", -1, 6, false),
+             make_field("added_binary", 2, TPrimitiveType::VARBINARY,
+                        "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+                        static_cast<int32_t>(binary_default.size()), -1, true),
+             make_field("added_string_binary", 3, TPrimitiveType::STRING,
+                        "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", -1, -1, true)});
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(-1);
     current_schema.__set_root_field(root_field);
@@ -1312,7 +1317,8 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
                                 &runtime_state, cache.get());
 
     const auto timestamp_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
-    const auto varbinary_type = make_nullable(std::make_shared<DataTypeVarbinary>(16));
+    const auto varbinary_type = make_nullable(
+            std::make_shared<DataTypeVarbinary>(static_cast<int32_t>(binary_default.size())));
     const auto string_type = make_nullable(std::make_shared<DataTypeString>());
     Block block;
     block.insert({timestamp_type->create_column(), timestamp_type, "added_timestamp"});
@@ -1335,10 +1341,8 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
     ASSERT_EQ(block.rows(), 3);
     EXPECT_EQ(timestamp_type->to_string(*block.get_by_position(0).column, 0),
               "2024-01-01 00:00:00.123456");
-    EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(1).column, 0),
-              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
-    EXPECT_EQ(string_type->to_string(*block.get_by_position(2).column, 0),
-              std::string("\x00\x01\x02\xff", 4));
+    EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(1).column, 0), binary_default);
+    EXPECT_EQ(string_type->to_string(*block.get_by_position(2).column, 0), binary_default);
     EXPECT_FALSE(is_column_const(*block.get_by_position(0).column));
     EXPECT_FALSE(is_column_const(*block.get_by_position(1).column));
     EXPECT_FALSE(is_column_const(*block.get_by_position(2).column));

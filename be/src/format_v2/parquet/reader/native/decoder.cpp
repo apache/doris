@@ -122,7 +122,10 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
     switch (encoding) {
     case tparquet::Encoding::PLAIN:
         return create_plain_decoder(type, decoder);
+    case tparquet::Encoding::PLAIN_DICTIONARY:
     case tparquet::Encoding::RLE_DICTIONARY:
+        // PLAIN_DICTIONARY is the legacy page enum for the same RLE/bit-packed id stream; accepting
+        // it here keeps every dictionary decode entry point consistent with ColumnChunkReader.
         return create_dictionary_decoder(type, decoder);
     case tparquet::Encoding::RLE:
         if (type != tparquet::Type::BOOLEAN) {

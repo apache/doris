@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.es;
 
+import org.apache.doris.connector.api.ConnectorSession;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,10 +41,13 @@ public class EsMetadataFetcher {
 
     private final EsConnectorRestClient restClient;
     private final EsMetadataState state;
+    private final ConnectorSession session;
 
-    public EsMetadataFetcher(EsConnectorRestClient restClient, EsMetadataState state) {
+    public EsMetadataFetcher(EsConnectorRestClient restClient, EsMetadataState state,
+            ConnectorSession session) {
         this.restClient = restClient;
         this.state = state;
+        this.session = session;
     }
 
     /**
@@ -55,7 +60,12 @@ public class EsMetadataFetcher {
     }
 
     private void fetchMapping() {
-        String indexMapping = restClient.getMapping(state.getSourceIndex());
+        // Share the raw index mapping with the schema path via the per-statement scope: one
+        // getMapping per index per statement (ES-F2). The field-context derivation below stays
+        // per-scan (it depends on the projected columnNames).
+        String indexMapping = EsStatementScope.sharedIndexMapping(
+                session, state.getSourceIndex(),
+                () -> restClient.getMapping(state.getSourceIndex()));
         EsFieldContext fieldContext = EsMappingUtils.resolveFieldContext(
                 state.getColumnNames(),
                 state.getSourceIndex(),

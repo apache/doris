@@ -90,6 +90,8 @@ private:
     RuntimeProfile::Counter* _io_time = nullptr;
     RuntimeProfile::Counter* _materialize_time = nullptr;
     RuntimeProfile::Counter* _filter_time = nullptr;
+    RuntimeState* _runtime_state = nullptr;
+    int _flight_timeout_seconds = 300;
     std::unique_ptr<RemoteDorisStream> _stream;
     std::unordered_map<std::string, LocalColumnId> _col_name_to_file_id;
 };

@@ -80,6 +80,18 @@ Status HudiHybridReader::prepare_split(const format::SplitReadOptions& options) 
     return _current_split_reader->prepare_split(options);
 }
 
+Status HudiHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(std::move(conjuncts)));
+    if (_current_split_reader == nullptr) {
+        return Status::OK();
+    }
+    VExprContextSPtrs child_conjuncts;
+    RETURN_IF_ERROR(_clone_conjuncts(&child_conjuncts));
+    // The hybrid wrapper owns no physical reader; forward a clone so the active child, rather than
+    // only the wrapper snapshot, observes late predicates for the remainder of this split.
+    return _current_split_reader->refresh_conjuncts(std::move(child_conjuncts));
+}
+
 Status HudiHybridReader::get_block(Block* block, bool* eos) {
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->get_block(block, eos);
@@ -123,6 +135,13 @@ void HudiHybridReader::set_batch_size(size_t batch_size) {
     if (_jni_reader != nullptr) {
         _jni_reader->set_batch_size(_batch_size);
     }
+}
+
+int64_t HudiHybridReader::condition_cache_hit_count() const {
+    // Keep the wrapper count cumulative across native/JNI dispatch so scanner-level delta
+    // accounting neither loses a child hit nor observes a counter reset on a split switch.
+    return (_native_reader == nullptr ? 0 : _native_reader->condition_cache_hit_count()) +
+           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count());
 }
 
 Status HudiHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {

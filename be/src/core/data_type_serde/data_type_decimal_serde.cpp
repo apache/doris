@@ -40,6 +40,7 @@
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
+#include "exec/common/endian.h"
 #include "exprs/function/cast/cast_to_decimal.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "orc/Int128.hh"
@@ -72,6 +73,15 @@ NativeType decode_big_endian_signed_integer(const uint8_t* data, int length) {
         }
         return static_cast<NativeType>(value);
     }
+}
+
+template <typename NativeType>
+NativeType decode_big_endian_full_width_integer(const uint8_t* data) {
+    using UnsignedNativeType =
+            std::conditional_t<std::is_same_v<NativeType, Int128>, unsigned __int128,
+                               std::make_unsigned_t<NativeType>>;
+    return static_cast<NativeType>(
+            to_endian<std::endian::big>(unaligned_load<UnsignedNativeType>(data)));
 }
 
 template <PrimitiveType T>
@@ -262,7 +272,13 @@ public:
     DecimalParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
                            UInt32 target_precision, int32_t target_scale,
                            ParquetMaterializationState* state = nullptr)
-            : _data(assert_cast<ColumnDecimal<T>&>(column).get_data()),
+            : DecimalParquetConsumer(assert_cast<ColumnDecimal<T>&>(column).get_data(), context,
+                                     target_precision, target_scale, state) {}
+
+    DecimalParquetConsumer(typename ColumnDecimal<T>::Container& data,
+                           const ParquetDecodeContext& context, UInt32 target_precision,
+                           int32_t target_scale, ParquetMaterializationState* state = nullptr)
+            : _data(data),
               _context(context),
               _target_precision(target_precision),
               _target_scale(target_scale),
@@ -282,6 +298,19 @@ public:
                                         static_cast<int>(_context.physical_type));
         }
         DORIS_CHECK_EQ(value_width, static_cast<size_t>(_context.type_length));
+        if (_context.decimal_scale == _target_scale) {
+            // Same-scale values may use a narrow signed type selected by physical width, but
+            // target-precision validation must still happen before narrowing the result.
+            if (value_width <= sizeof(int32_t)) {
+                return append_same_scale_fixed_binary<int32_t>(values, num_values, value_width);
+            }
+            if (value_width <= sizeof(int64_t)) {
+                return append_same_scale_fixed_binary<int64_t>(values, num_values, value_width);
+            }
+            if (value_width <= sizeof(Int128)) {
+                return append_same_scale_fixed_binary<Int128>(values, num_values, value_width);
+            }
+        }
         const size_t old_size = _data.size();
         _data.resize(old_size + num_values);
         for (size_t row = 0; row < num_values; ++row) {
@@ -341,12 +370,63 @@ public:
 
 private:
     template <typename SourceType>
+    Status append_same_scale_fixed_binary(const uint8_t* values, size_t num_values,
+                                          size_t value_width) {
+        if (value_width == sizeof(SourceType)) {
+            return append_same_scale_fixed_binary_impl<SourceType, true>(values, num_values,
+                                                                         value_width);
+        }
+        return append_same_scale_fixed_binary_impl<SourceType, false>(values, num_values,
+                                                                      value_width);
+    }
+
+    template <typename SourceType, bool full_width>
+    Status append_same_scale_fixed_binary_impl(const uint8_t* values, size_t num_values,
+                                               size_t value_width) {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        const auto wide_limit = parquet_decimal_limit<T>(_target_precision);
+        const auto source_max = wide::Int256(std::numeric_limits<SourceType>::max());
+        const auto fixed_width = cast_set<int>(value_width);
+        const auto decode = [&](const uint8_t* value) {
+            if constexpr (full_width) {
+                return decode_big_endian_full_width_integer<SourceType>(value);
+            }
+            return decode_big_endian_signed_integer<SourceType>(value, fixed_width);
+        };
+        // A limit above signed max also covers the asymmetric minimum (-max - 1), so the whole
+        // source domain is safe to narrow without a per-row precision branch.
+        if (wide_limit > source_max) {
+            for (size_t row = 0; row < num_values; ++row) {
+                const auto source_value = decode(values + row * value_width);
+                _data[old_size + row] = FieldType {static_cast<NativeType>(source_value)};
+            }
+            return Status::OK();
+        }
+
+        const auto limit = static_cast<SourceType>(wide_limit);
+        for (size_t row = 0; row < num_values; ++row) {
+            const auto source_value = decode(values + row * value_width);
+            if (LIKELY(source_value >= -limit && source_value <= limit)) {
+                _data[old_size + row] = FieldType {static_cast<NativeType>(source_value)};
+                continue;
+            }
+            if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                _data[old_size + row] = FieldType();
+                continue;
+            }
+            _data.resize(old_size);
+            return Status::DataQualityError("Parquet decimal value is out of range");
+        }
+        return Status::OK();
+    }
+
+    template <typename SourceType>
     Status append_integers(const uint8_t* values, size_t num_values) {
         const size_t old_size = _data.size();
         _data.resize(old_size + num_values);
-        constexpr int32_t SOURCE_DIGITS = std::numeric_limits<SourceType>::digits10 + 1;
-        if (_context.decimal_scale == _target_scale &&
-            SOURCE_DIGITS <= static_cast<int32_t>(_target_precision)) {
+        constexpr UInt32 SOURCE_DIGITS = std::numeric_limits<SourceType>::digits10 + 1;
+        if (_context.decimal_scale == _target_scale && SOURCE_DIGITS <= _target_precision) {
             // The complete physical domain fits the target at the same scale, so narrowing cannot
             // precede a failure check and the hot same-scale path needs no wide arithmetic.
             for (size_t row = 0; row < num_values; ++row) {
@@ -395,6 +475,62 @@ private:
     UInt32 _target_precision;
     int32_t _target_scale;
     ParquetMaterializationState* _state;
+};
+
+template <PrimitiveType T>
+class DecimalPredicateParquetConsumer final : public ParquetFixedValueConsumer,
+                                              public ParquetBinaryValueConsumer {
+public:
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
+
+    DecimalPredicateParquetConsumer(const ParquetDecodeContext& context, UInt32 target_precision,
+                                    int32_t target_scale, bool enable_strict_mode,
+                                    ParquetLogicalValueConsumer& consumer,
+                                    typename ColumnDecimal<T>::Container& logical_values,
+                                    IColumn::Filter& conversion_nulls)
+            : _context(context),
+              _target_precision(target_precision),
+              _target_scale(target_scale),
+              _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        return convert_and_publish(num_values, [&](DecimalParquetConsumer<T>& converter) {
+            return converter.consume(values, num_values, value_width);
+        });
+    }
+
+    Status consume(const StringRef* values, size_t num_values) override {
+        return convert_and_publish(num_values, [&](DecimalParquetConsumer<T>& converter) {
+            return converter.consume(values, num_values);
+        });
+    }
+
+private:
+    template <typename Convert>
+    Status convert_and_publish(size_t num_values, Convert&& convert) {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        DecimalParquetConsumer<T> converter(_logical_values, _context, _target_precision,
+                                            _target_scale, &state);
+        RETURN_IF_ERROR(convert(converter));
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(FieldType), _conversion_nulls.data());
+    }
+
+    const ParquetDecodeContext& _context;
+    UInt32 _target_precision;
+    int32_t _target_scale;
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    typename ColumnDecimal<T>::Container& _logical_values;
+    IColumn::Filter& _conversion_nulls;
 };
 
 } // namespace
@@ -788,6 +924,36 @@ Status DataTypeDecimalSerDe<T>::read_column_from_parquet(IColumn& column,
         state.dictionary_generation = source.dictionary_generation();
     }
     return state.materialize_dictionary(column, source, num_values);
+}
+
+template <PrimitiveType T>
+bool DataTypeDecimalSerDe<T>::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    if (context.encoding == ParquetValueEncoding::DICTIONARY ||
+        context.logical_type != ParquetLogicalType::DECIMAL) {
+        return false;
+    }
+    return context.physical_type == ParquetPhysicalType::INT32 ||
+           context.physical_type == ParquetPhysicalType::INT64 ||
+           context.physical_type == ParquetPhysicalType::BYTE_ARRAY ||
+           context.physical_type == ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY;
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if (!supports_parquet_raw_predicate(context)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
+                                    get_name());
+    }
+    DecimalPredicateParquetConsumer<T> predicate_consumer(
+            context, static_cast<UInt32>(precision), scale, enable_strict_mode, consumer,
+            _parquet_predicate_values, _parquet_predicate_nulls);
+    if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
+        return source.decode_binary_values(num_values, predicate_consumer);
+    }
+    return source.decode_fixed_values(num_values, predicate_consumer);
 }
 
 template <PrimitiveType T>

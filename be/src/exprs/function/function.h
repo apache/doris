@@ -57,6 +57,7 @@ namespace doris {
 
 struct FunctionAttr {
     bool new_version_unix_timestamp {false};
+    bool new_version_bitmap_op_count {false};
 };
 
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                             \
@@ -679,6 +680,9 @@ using FunctionPtr = std::shared_ptr<IFunction>;
   * Or ColumnConst(ColumnNullable) if the result is always NULL or if the result is constant and always not NULL.
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           size_t input_rows_count);
+ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           const NullableColumnInfos& nullable_column_infos,
                            size_t input_rows_count);
 
 } // namespace doris

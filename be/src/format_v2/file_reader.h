@@ -57,6 +57,7 @@ enum class FileFormat {
     JNI,
     NATIVE,
     ARROW,
+    WAL,
 };
 
 struct FileScanRequest {
@@ -302,6 +303,15 @@ public:
     virtual Status open(std::shared_ptr<FileScanRequest> request) {
         _request = std::move(request);
         return Status::OK();
+    }
+
+    // Readers opt in only when they can keep an immutable request for the active physical
+    // granule and switch a newer snapshot at a well-defined boundary.
+    virtual bool supports_scan_request_refresh() const { return false; }
+
+    virtual Status queue_scan_request(std::shared_ptr<FileScanRequest> request) {
+        (void)request;
+        return Status::NotSupported("FileReader does not support scan request refresh");
     }
 
     virtual Status get_block(Block* file_block, size_t* rows, bool* eof) {

@@ -395,7 +395,7 @@ std::string TableColumnMapperOptions::debug_string() const {
     std::ostringstream out;
     out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
         << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
-        << "}";
+        << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns << "}";
     return out.str();
 }
 
@@ -2004,7 +2004,12 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
-    const auto row_lineage_type = row_lineage_virtual_column_type(table_column, _options.mode);
+    // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
+    // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
+    const auto row_lineage_type =
+            _options.enable_row_lineage_virtual_columns
+                    ? row_lineage_virtual_column_type(table_column, _options.mode)
+                    : TableVirtualColumnType::INVALID;
     if (const auto* partition_value = find_partition_value(table_column, _partition_values);
         table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.
@@ -2156,13 +2161,20 @@ Status TableColumnMapper::_build_filter_entries(const FileScanRequest& file_requ
 Status TableColumnMapper::create_scan_request(
         const std::vector<TableFilter>& table_filters,
         const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
-        RuntimeState* runtime_state) {
+        RuntimeState* runtime_state,
+        const std::map<LocalColumnId, LocalIndex>* fixed_local_positions) {
     // FileReader evaluates expressions against a file-local block. This mapper owns the
     // table-column to file-column conversion, so it also owns the file-local block positions.
     file_request->predicate_columns.clear();
     file_request->non_predicate_columns.clear();
     file_request->predicate_only_columns.clear();
     file_request->local_positions.clear();
+    if (fixed_local_positions != nullptr) {
+        // A refreshed predicate may promote a lazy column, but the active split's block slots are
+        // immutable. Seed their positions before rebuilding expressions so every rewritten SlotRef
+        // continues to address the same physical column.
+        file_request->local_positions = *fixed_local_positions;
+    }
     file_request->conjuncts.clear();
     file_request->delete_conjuncts.clear();
     _filter_entries.clear();
