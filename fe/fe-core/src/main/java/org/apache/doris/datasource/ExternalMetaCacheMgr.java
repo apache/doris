@@ -21,14 +21,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
+import org.apache.doris.connector.metacache.spi.MetaCacheEntryDef;
+import org.apache.doris.connector.metacache.spi.MetaCacheEntryInvalidation;
+import org.apache.doris.connector.metacache.spi.MetaCacheEntryStats;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRouteResolver;
-import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
-import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
-import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.fs.FileSystemCache;
 
 import com.github.benmanes.caffeine.cache.stats.CacheStats;

@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
 import org.apache.doris.connector.iceberg.IcebergPartitionUtils.IcebergRawPartition;
+import org.apache.doris.connector.metacache.MetaCacheEntry;
+import org.apache.doris.connector.metacache.spi.CacheSpec;
 
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;

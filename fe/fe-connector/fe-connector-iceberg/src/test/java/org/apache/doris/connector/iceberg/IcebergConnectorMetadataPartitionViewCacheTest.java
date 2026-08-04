@@ -21,7 +21,7 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.metacache.ConnectorMetadataCache;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;

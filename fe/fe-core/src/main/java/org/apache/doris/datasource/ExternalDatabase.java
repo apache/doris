@@ -31,11 +31,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.metacache.IdNameIndex;
+import org.apache.doris.connector.metacache.MetaCacheEntry;
+import org.apache.doris.connector.metacache.spi.CacheSpec;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
-import org.apache.doris.datasource.metacache.CacheSpec;
-import org.apache.doris.datasource.metacache.IdNameIndex;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -174,7 +174,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 namesSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 true,
-                MetaCacheEntry.singleKeyStripeCount());
+                false,
+                MetaCacheEntry.singleKeyStripeCount(),
+                Config.external_cache_refresh_time_minutes * 60,
+                true);
 
         CacheSpec objectSpec = CacheSpec.of(
                 true,
@@ -194,7 +197,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 objectSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 false,
-                MetaCacheEntry.defaultObjectStripeCount());
+                false,
+                Config.external_meta_cache_object_entry_lock_stripes,
+                Config.external_cache_refresh_time_minutes * 60,
+                true);
     }
 
     private List<Pair<String, String>> listTableNames() {

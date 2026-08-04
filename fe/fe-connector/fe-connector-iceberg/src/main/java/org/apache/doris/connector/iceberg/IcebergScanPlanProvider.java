@@ -29,7 +29,7 @@ import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
-import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.metacache.spi.CacheSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
