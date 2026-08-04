@@ -16,6 +16,9 @@
 // under the License.
 
 suite("set_preagg") {
+    // preagg_t4 gets two loads of the same full key (1,1,1,1,1,1) to create
+    // duplicate full keys across rowsets: storage SUM merges v7 to 1+1=2 while
+    // pre-agg ON would expose the raw {1,1} rows (used by the DISTINCT SUM test).
     multi_sql """
         set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
         set forbid_unknown_col_stats=false;
@@ -23,6 +26,7 @@ suite("set_preagg") {
         drop table if exists preagg_t1;
         drop table if exists preagg_t2;
         drop table if exists preagg_t3;
+        drop table if exists preagg_t4;
 
         create table preagg_t1(
             k1 int null,
@@ -67,6 +71,19 @@ suite("set_preagg") {
         aggregate key (k1,k2,k3,k4,k5,k6)
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
+        create table preagg_t4(
+            k1 int null,
+            k2 int null,
+            k3 int null,
+            k4 int null,
+            k5 int null,
+            k6 int null,
+            v7 bigint SUM,
+            v9 bigint MAX
+        )
+        aggregate key (k1,k2,k3,k4,k5,k6)
+        distributed BY hash(k1) buckets 3
+        properties("replication_num" = "1");
 
         insert into preagg_t1 values
             (1,1,1,1,1,1, 10, 100, 1000),
@@ -80,6 +97,9 @@ suite("set_preagg") {
         insert into preagg_t3 values
             (1,1,1,1,1,1, 80, 800, 8000),
             (2,0,0,0,0,0, 90, 900, 7000);
+        insert into preagg_t4 values (1,1,1,1,1,1, 1, 100);
+        insert into preagg_t4 values (1,1,1,1,1,1, 1, 200);
+        insert into preagg_t4 values (2,0,0,0,0,0, 5, 300);
     """
 
     explain {
@@ -938,6 +958,30 @@ suite("set_preagg") {
         select max(if(l.k1 > 0, l.v9, r.v9))
         from preagg_t1 l
         inner join preagg_t2 r on l.k1 = r.k1;
+    """
+
+    // Negative: sum(DISTINCT ...) with a nested-aggregate condition slot.
+    //   sum(distinct if(t.c > 0, r.v7, 0))
+    // t.c = sum(t.v7) has no OriginalColumn, so splitKeyValueSlots drops it from
+    // the condition check (it is unclassified). Previously this let the route
+    // reach visitSum, which did NOT reject DISTINCT, so preagg_t4 was wrongly
+    // turned ON. Storage SUM would then merge the duplicate full key (v7=1+1=2)
+    // and break DISTINCT semantics: ON sees {1,1} → 1 while OFF sees merged 2.
+    // KeyAndValueSlotsAggChecker.visitSum must reject sum.isDistinct() exactly
+    // like OneValueSlotAggChecker.visitSum does.
+    explain {
+        sql("""
+            select sum(distinct if(t.c > 0, r.v7, 0))
+            from (select k1, sum(v7) as c from preagg_t1 group by k1) t
+            inner join preagg_t4 r on t.k1 = r.k1;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        notContains "(preagg_t4), PREAGGREGATION: ON"
+    }
+    order_qt_q35 """
+        select sum(distinct if(t.c > 0, r.v7, 0))
+        from (select k1, sum(v7) as c from preagg_t1 group by k1) t
+        inner join preagg_t4 r on t.k1 = r.k1;
     """
 
 }

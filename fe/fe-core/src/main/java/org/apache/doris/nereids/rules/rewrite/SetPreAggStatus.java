@@ -786,6 +786,13 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
             @Override
             public PreAggStatus visitSum(Sum sum, List<Expression> returnValues) {
+                // DISTINCT breaks pre-agg: storage SUM merges duplicate full keys
+                // first (e.g. two rowsets with v7=1 become 2), so sum(DISTINCT ...)
+                // over the merged value differs from DISTINCT over the raw rows.
+                // Reject like OneValueSlotAggChecker.visitSum does.
+                if (sum.isDistinct()) {
+                    return PreAggStatus.off(String.format("%s is not supported.", sum.toSql()));
+                }
                 for (Expression value : returnValues) {
                     if (!(isAggTypeMatched(value, AggregateType.SUM) || value.isZeroLiteral()
                             || value.isNullLiteral())) {
