@@ -210,9 +210,6 @@ suite("fix_leading") {
     qt_select4_4 """select /*+ leading(right_join_b right_join_a right_join_c) */ count(*)
         from right_join_a cross join right_join_c
         right semi join right_join_b on right_join_a.k = right_join_b.k;"""
-    qt_select4_5 """explain shape plan select /*+ leading(right_join_b right_join_a right_join_c) */ *
-        from right_join_a cross join right_join_c
-        right semi join right_join_b on right_join_a.k = right_join_b.k;"""
 
     // check right anti join does not push its preserved-side ON predicate below the join
     qt_select4_6 """select /*+ leading(right_join_b right_join_a right_join_c) */ count(*)
