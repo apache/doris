@@ -29,6 +29,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
+#include "io/fs/s3_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
@@ -36,6 +37,7 @@
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/defer_op.h"
+#include "util/s3_util.h"
 #include "util/uid_util.h"
 
 namespace doris {

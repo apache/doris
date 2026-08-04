@@ -21,6 +21,8 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "io/fs/remote_file_system.h"
+#include "io/fs/s3_file_system.h"
+#include "util/s3_util.h"
 
 namespace doris {
 using namespace cloud;
