@@ -154,6 +154,50 @@ public class HiveWritePlanProviderTest {
                 "partition keys must be tagged PARTITION_KEY and appended after the data columns");
     }
 
+    @Test
+    public void planWriteRejectsSchemaReorderAfterBinding() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder()
+                .columns(Arrays.asList(col("b", "int"), col("a", "int")))
+                .build();
+        WriteHandle boundHandle = handle()
+                .boundTargetColumns(Arrays.asList(col("a", "int"), col("b", "int")));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), boundHandle));
+
+        Assertions.assertTrue(ex.getMessage().contains("schema changed after the write was bound"),
+                "a live HMS reorder must fail before BE can index bound expressions by stale ordinals");
+    }
+
+    @Test
+    public void planWriteRejectsDataAndPartitionRoleChangeAfterBinding() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder()
+                .columns(Arrays.asList(col("a", "int"), col("b", "int")))
+                .partitionKeys(Collections.emptyList())
+                .build();
+        WriteHandle boundHandle = handle()
+                .boundWriteMetadataIdentity("bound-partitioned-schema");
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), boundHandle),
+                "the same flattened columns are unsafe when their data/partition roles changed");
+    }
+
+    @Test
+    public void planWriteUsesOneFreshTableGenerationForTransactionAndSink() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().build();
+
+        planSink(client, new RecordingConnectorContext(), handle());
+
+        Assertions.assertEquals(1, Collections.frequency(client.calls, "getTableFresh:" + DB + "." + TBL),
+                "reloading after validation would let transaction state and sink columns straddle HMS schemas");
+        Assertions.assertFalse(client.calls.contains("getTable:" + DB + "." + TBL),
+                "write planning must bypass a stale connector-side table cache");
+    }
+
     // ───────────────────────────── bucket ─────────────────────────────
 
     @Test
@@ -579,6 +623,8 @@ public class HiveWritePlanProviderTest {
     private static final class WriteHandle implements ConnectorWriteHandle {
         private final ConnectorTableHandle tableHandle;
         private boolean overwrite;
+        private List<ConnectorColumn> boundTargetColumns = Collections.emptyList();
+        private String boundWriteMetadataIdentity;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -586,6 +632,16 @@ public class HiveWritePlanProviderTest {
 
         WriteHandle overwrite(boolean v) {
             this.overwrite = v;
+            return this;
+        }
+
+        WriteHandle boundWriteMetadataIdentity(String identity) {
+            this.boundWriteMetadataIdentity = identity;
+            return this;
+        }
+
+        WriteHandle boundTargetColumns(List<ConnectorColumn> columns) {
+            this.boundTargetColumns = columns;
             return this;
         }
 
@@ -600,6 +656,11 @@ public class HiveWritePlanProviderTest {
         }
 
         @Override
+        public List<ConnectorColumn> getBoundTargetColumns() {
+            return boundTargetColumns;
+        }
+
+        @Override
         public boolean isOverwrite() {
             return overwrite;
         }
@@ -607,6 +668,11 @@ public class HiveWritePlanProviderTest {
         @Override
         public Map<String, String> getStaticPartitionSpec() {
             return Collections.emptyMap();
+        }
+
+        @Override
+        public String getBoundWriteMetadataIdentity() {
+            return boundWriteMetadataIdentity;
         }
     }
 
@@ -702,6 +768,15 @@ public class HiveWritePlanProviderTest {
         @Override
         public HmsTableInfo getTable(String dbName, String tableName) {
             calls.add("getTable:" + dbName + "." + tableName);
+            if (table == null) {
+                throw new UnsupportedOperationException("no canned table");
+            }
+            return table;
+        }
+
+        @Override
+        public HmsTableInfo getTableFresh(String dbName, String tableName) {
+            calls.add("getTableFresh:" + dbName + "." + tableName);
             if (table == null) {
                 throw new UnsupportedOperationException("no canned table");
             }

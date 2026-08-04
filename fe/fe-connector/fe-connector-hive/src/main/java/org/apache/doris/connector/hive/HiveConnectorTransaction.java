@@ -199,6 +199,19 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
      * only pre-commit point that has the table — so the full-ACID reject (D7) can run here.
      */
     public void beginWrite(ConnectorSession session, String db, String tableName, HiveWriteContext ctx) {
+        HmsTableInfo table;
+        try {
+            table = context.executeAuthenticated(
+                    () -> hmsClient.getTableFresh(db, tableName));
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to begin write for hive table " + tableName + ": " + e.getMessage(), e);
+        }
+        beginWrite(session, db, tableName, ctx, table);
+    }
+
+    void beginWrite(ConnectorSession session, String db, String tableName, HiveWriteContext ctx,
+            HmsTableInfo table) {
         this.session = session;
         this.queryId = ctx.getQueryId();
         this.isOverwrite = ctx.isOverwrite();
@@ -207,12 +220,8 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
                 ? Optional.empty() : Optional.of(ctx.getWritePath());
         this.nameMapping = new NameMapping(context.getCatalogId(), db, tableName, db, tableName);
         try {
-            context.executeAuthenticated(() -> {
-                HmsTableInfo table = hmsClient.getTable(db, tableName);
-                rejectTransactionalWrite(table.getParameters());
-                this.hmsTableInfo = table;
-                return null;
-            });
+            rejectTransactionalWrite(table.getParameters());
+            this.hmsTableInfo = table;
         } catch (Exception e) {
             throw new DorisConnectorException(
                     "Failed to begin write for hive table " + tableName + ": " + e.getMessage(), e);

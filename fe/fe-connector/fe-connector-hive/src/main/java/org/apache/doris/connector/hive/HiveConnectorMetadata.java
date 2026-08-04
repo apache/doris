@@ -554,7 +554,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
 
         return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties,
-                perTableCapabilities);
+                perTableCapabilities, HiveWritePlanProvider.writeMetadataIdentity(tableInfo));
     }
 
     /**

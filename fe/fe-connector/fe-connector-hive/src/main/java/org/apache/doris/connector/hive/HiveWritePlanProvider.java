@@ -52,6 +52,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -62,8 +63,8 @@ import java.util.UUID;
  *
  * <p>Builds the opaque {@link THiveTableSink} for a bound write and binds the write to the current
  * {@link HiveConnectorTransaction}: it loads the table under the catalog auth context, opens the write via
- * {@link HiveConnectorTransaction#beginWrite} (which re-loads the table and applies the begin-guards, incl.
- * the transactional-table reject), then assembles the sink Thrift from the loaded table. The Thrift is
+ * {@link HiveConnectorTransaction#beginWrite} (which applies the begin-guards, incl. the transactional-table
+ * reject), then assembles the sink Thrift from the same loaded table. The Thrift is
  * byte-identical to the legacy fe-core {@code planner.HiveTableSink.bindDataSink} (zero BE change), so the
  * BE writer is unaffected by the migration.</p>
  *
@@ -99,17 +100,73 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         HiveTableHandle tableHandle = (HiveTableHandle) handle.getTableHandle();
         HiveConnectorTransaction transaction = currentTransaction(session);
 
-        // Load the table under the catalog auth context; it drives both the location resolution
-        // (buildWriteContext) and the sink assembly (buildSink). beginWrite re-loads it for its own
-        // begin-guard — the double-load is accepted (mirrors iceberg), keeping the flow simple.
+        // One fresh table generation drives validation, transaction state, location resolution, and sink
+        // assembly. Reloading in beginWrite would reopen a TOCTOU window after the schema fence.
         HmsTableInfo table = loadTable(tableHandle);
+        validateBoundWriteMetadata(table, handle);
         HiveWriteContext writeContext = buildWriteContext(session, tableHandle, table, handle);
-        transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
+        transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext, table);
 
         THiveTableSink sink = buildSink(session, tableHandle, table, handle, writeContext);
         TDataSink dataSink = new TDataSink(TDataSinkType.HIVE_TABLE_SINK);
         dataSink.setHiveTableSink(sink);
         return new ConnectorSinkPlan(dataSink);
+    }
+
+    private static void validateBoundWriteMetadata(HmsTableInfo table, ConnectorWriteHandle handle) {
+        String boundIdentity = handle.getBoundWriteMetadataIdentity();
+        if (boundIdentity != null && !boundIdentity.equals(writeMetadataIdentity(table))) {
+            // Bound expressions and live THiveTableSink ordinals must describe one HMS schema generation;
+            // accepting a reorder here silently writes each value under another column name.
+            throw new DorisConnectorException(
+                    "Hive write metadata changed after the write was bound; retry the statement");
+        }
+
+        List<ConnectorColumn> boundColumns = handle.getBoundTargetColumns();
+        int liveColumnCount = table.getColumns().size() + table.getPartitionKeys().size();
+        if (boundColumns.isEmpty()) {
+            return;
+        }
+        if (boundColumns.size() != liveColumnCount) {
+            throw schemaChangedException();
+        }
+        for (int i = 0; i < boundColumns.size(); i++) {
+            ConnectorColumn live = i < table.getColumns().size()
+                    ? table.getColumns().get(i)
+                    : table.getPartitionKeys().get(i - table.getColumns().size());
+            if (!boundColumns.get(i).getName().equalsIgnoreCase(live.getName())) {
+                throw schemaChangedException();
+            }
+        }
+    }
+
+    private static DorisConnectorException schemaChangedException() {
+        return new DorisConnectorException(
+                "Hive table schema changed after the write was bound; retry the statement");
+    }
+
+    static String writeMetadataIdentity(HmsTableInfo table) {
+        StringBuilder identity = new StringBuilder();
+        appendMetadataToken(identity, "data-columns");
+        for (ConnectorColumn column : table.getColumns()) {
+            appendColumnIdentity(identity, column);
+        }
+        appendMetadataToken(identity, "partition-columns");
+        for (ConnectorColumn column : table.getPartitionKeys()) {
+            appendColumnIdentity(identity, column);
+        }
+        return identity.toString();
+    }
+
+    private static void appendColumnIdentity(StringBuilder identity, ConnectorColumn column) {
+        appendMetadataToken(identity, column.getName().toLowerCase(Locale.ROOT));
+        appendMetadataToken(identity, column.getType());
+        appendMetadataToken(identity, column.isNullable());
+    }
+
+    private static void appendMetadataToken(StringBuilder identity, Object value) {
+        String token = String.valueOf(value);
+        identity.append(token.length()).append(':').append(token);
     }
 
     @Override
@@ -366,7 +423,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
     private HmsTableInfo loadTable(HiveTableHandle tableHandle) {
         try {
             return context.executeAuthenticated(
-                    () -> hmsClient.getTable(tableHandle.getDbName(), tableHandle.getTableName()));
+                    () -> hmsClient.getTableFresh(tableHandle.getDbName(), tableHandle.getTableName()));
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to load hive table "
                     + tableHandle.getDbName() + "." + tableHandle.getTableName() + ": " + e.getMessage(), e);

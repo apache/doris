@@ -1477,6 +1477,23 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void resolvedEmptySnapshotDerivedMetadataTablesIgnoreConcurrentFirstAppend() {
+        for (String systemTable : Arrays.asList("snapshots", "history", "refs")) {
+            Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+            IcebergTableHandle emptyRead = IcebergTableHandle.forSystemTable(
+                    "db1", "t1", systemTable, -1L, null, table.schema().schemaId(), true);
+            table.newAppend().appendFile(
+                    dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+            IcebergScanPlanProvider provider =
+                    new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+            Assertions.assertTrue(provider.planScan(null,
+                    ConnectorScanRequest.builder(emptyRead, Collections.emptyList()).build()).isEmpty(),
+                    systemTable + " must preserve the resolved-empty boundary across the first append");
+        }
+    }
+
+    @Test
     public void resolvedEmptyAllFilesDoesNotExposeConcurrentFirstAppend() {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         IcebergTableHandle emptyAllFiles = IcebergTableHandle.forSystemTable(

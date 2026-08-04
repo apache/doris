@@ -1175,16 +1175,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 && type != MetadataTableType.ALL_ENTRIES;
     }
 
-    /** Metadata tables whose rows describe table metadata rather than files reachable from a data snapshot. */
+    /** Metadata tables whose rows exist independently of a data snapshot. */
     private static boolean isSnapshotIndependentSystemTable(IcebergTableHandle handle) {
         if (!handle.isSystemTable()) {
             return false;
         }
         MetadataTableType type = MetadataTableType.from(handle.getSysTableName());
-        return type == MetadataTableType.HISTORY
-                || type == MetadataTableType.SNAPSHOTS
-                || type == MetadataTableType.REFS
-                || type == MetadataTableType.METADATA_LOG_ENTRIES;
+        // Only metadata_log_entries has a creation row before the first data snapshot; every other metadata
+        // table must preserve the resolved-empty fence or a concurrent first append becomes visible.
+        return type == MetadataTableType.METADATA_LOG_ENTRIES;
     }
 
     /**

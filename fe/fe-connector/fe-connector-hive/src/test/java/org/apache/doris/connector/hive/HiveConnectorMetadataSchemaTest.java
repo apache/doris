@@ -196,6 +196,24 @@ public class HiveConnectorMetadataSchemaTest {
     }
 
     @Test
+    public void testWriteMetadataIdentityPreservesDataAndPartitionRoles() {
+        ConnectorTableSchema partitioned = schemaOf(HmsTableInfo.builder()
+                .dbName("db").tableName("t").inputFormat(PARQUET_INPUT_FORMAT)
+                .columns(Collections.singletonList(col("a", "INT")))
+                .partitionKeys(Collections.singletonList(col("b", "INT")))
+                .parameters(Collections.emptyMap()).build());
+        ConnectorTableSchema unpartitioned = schemaOf(HmsTableInfo.builder()
+                .dbName("db").tableName("t").inputFormat(PARQUET_INPUT_FORMAT)
+                .columns(Arrays.asList(col("a", "INT"), col("b", "INT")))
+                .partitionKeys(Collections.emptyList())
+                .parameters(Collections.emptyMap()).build());
+
+        Assertions.assertNotNull(partitioned.getWriteMetadataIdentity());
+        Assertions.assertNotEquals(partitioned.getWriteMetadataIdentity(), unpartitioned.getWriteMetadataIdentity(),
+                "the write fence must distinguish equal flattened columns with different partition roles");
+    }
+
+    @Test
     public void testUnpartitionedTableEmitsNoPartitionColumnsProperty() {
         HmsTableInfo tableInfo = HmsTableInfo.builder()
                 .dbName("db").tableName("t")
