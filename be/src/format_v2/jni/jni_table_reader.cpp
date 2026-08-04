@@ -456,9 +456,7 @@ Status JniTableReader::_open_jni_scanner() {
     if (_runtime_state != nullptr && _batch_size == 0) {
         _batch_size = _runtime_state->batch_size();
     }
-    if (_runtime_state != nullptr) {
-        _scanner_params["time_zone"] = _runtime_state->timezone();
-    }
+    _apply_common_scanner_params();
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
@@ -478,6 +476,14 @@ Status JniTableReader::_open_jni_scanner() {
         return open_status;
     }
     return Status::OK();
+}
+
+void JniTableReader::_apply_common_scanner_params() {
+    if (_runtime_state != nullptr) {
+        // A connector-specific zone must win over the query default. Hudi uses this to keep JNI
+        // and native file slices on the same catalog-level INT96 interpretation.
+        _scanner_params.try_emplace("time_zone", _runtime_state->timezone());
+    }
 }
 
 void JniTableReader::set_batch_size(size_t batch_size) {

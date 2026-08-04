@@ -480,6 +480,7 @@ int64_t find_struct_child_index(const ::orc::Type& type, const std::string& fiel
 struct RoundedOrcTimestamp {
     int64_t seconds;
     uint64_t microseconds;
+    bool carry;
 };
 
 Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
@@ -500,6 +501,7 @@ Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
         return Status::DataQualityError("ORC timestamp overflows after microsecond rounding");
     }
     result->microseconds = cast_set<uint64_t>(rounded_microseconds % MICROS_PER_SECOND);
+    result->carry = rounded_microseconds >= MICROS_PER_SECOND;
     return Status::OK();
 }
 
@@ -529,9 +531,17 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
             data.resize(old_data_size);
             return status;
         }
-        value.from_unixtime(timestamp.seconds, timezone);
-        value.set_microsecond(timestamp.microseconds);
+        value.from_unixtime(orc_batch->data[source_row], timezone);
         if (!value.is_valid_date()) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC timestamp is outside the target timezone range");
+        }
+        value.set_microsecond(timestamp.microseconds);
+        // Plain ORC TIMESTAMP is a civil value. Carry after timezone conversion so a fractional
+        // round does not jump backward or skip an hour at a daylight-saving transition.
+        if (timestamp.carry &&
+            !value.date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, 1, false})) {
             data.resize(old_data_size);
             return Status::DataQualityError(
                     "Decoded ORC timestamp is outside the target timezone range");

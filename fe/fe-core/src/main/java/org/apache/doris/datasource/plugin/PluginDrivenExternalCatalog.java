@@ -219,14 +219,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        checkHiveParquetTimeZone(catalogProperty);
         String catalogType = getType();
-        if ("hms".equalsIgnoreCase(catalogType) || "hudi".equalsIgnoreCase(catalogType)) {
-            String hiveParquetTimeZone = catalogProperty.getOrDefault(
-                    FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, null);
-            if (hiveParquetTimeZone != null) {
-                FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
-            }
-        }
         try {
             ConnectorFactory.validateProperties(catalogType, catalogProperty.getProperties());
         } catch (IllegalArgumentException e) {
@@ -245,6 +239,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         candidate.putAll(updatedProperties);
         CatalogProperty candidateProperty = new CatalogProperty(null, candidate);
         super.checkProperties(candidateProperty);
+        // Validate the detached candidate before journaling so every accepted ALTER remains
+        // readable by the scan-planning path that parses the same catalog property later.
+        checkHiveParquetTimeZone(candidateProperty);
         try {
             // Connector validation must observe the complete candidate without making it visible
             // to concurrent catalog initialization; the provider handles legacy-value compatibility.
@@ -254,6 +251,17 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
+    }
+
+    private void checkHiveParquetTimeZone(CatalogProperty property) throws DdlException {
+        String catalogType = getType();
+        if ("hms".equalsIgnoreCase(catalogType) || "hudi".equalsIgnoreCase(catalogType)) {
+            String hiveParquetTimeZone = property.getOrDefault(
+                    FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, null);
+            if (hiveParquetTimeZone != null) {
+                FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+            }
+        }
     }
 
     @Override

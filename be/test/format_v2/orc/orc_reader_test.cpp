@@ -10263,7 +10263,8 @@ TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsRoundsToMicroseconds) {
 }
 
 Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool use_timestamp_tz,
-                                     const cctz::time_zone& timezone = cctz::utc_time_zone()) {
+                                     const cctz::time_zone& timezone = cctz::utc_time_zone(),
+                                     std::string* decoded_value = nullptr) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             use_timestamp_tz ? "timestamp with local time zone" : "timestamp"));
     ::orc::TimestampVectorBatch batch(1, *::orc::getDefaultPool());
@@ -10279,11 +10280,85 @@ Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool 
     if (use_timestamp_tz) {
         DataTypeTimeStampTz data_type(6);
         auto column = data_type.create_column();
-        return data_type.get_serde()->read_column_from_orc(*column, view);
+        auto status = data_type.get_serde()->read_column_from_orc(*column, view);
+        if (status.ok() && decoded_value != nullptr) {
+            *decoded_value = data_type.to_string(*column, 0);
+        }
+        return status;
     }
     DataTypeDateTimeV2 data_type(6);
     auto column = data_type.create_column();
-    return data_type.get_serde()->read_column_from_orc(*column, view);
+    auto status = data_type.get_serde()->read_column_from_orc(*column, view);
+    if (status.ok() && decoded_value != nullptr) {
+        *decoded_value = data_type.to_string(*column, 0);
+    }
+    return status;
+}
+
+TEST_F(NewOrcReaderTest, PlainTimestampRoundsCarryInCivilTimeAcrossDstTransitions) {
+    TimezoneUtils::load_timezones_to_cache();
+    cctz::time_zone los_angeles;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("America/Los_Angeles", los_angeles));
+
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    std::string decoded_value;
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, false, los_angeles,
+                                              &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "2021-11-07 02:00:00.000000");
+
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, false, los_angeles,
+                                              &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "2021-03-14 02:00:00.000000");
+}
+
+TEST_F(NewOrcReaderTest, TimestampInstantKeepsEpochCarryAcrossDstTransitions) {
+    TimezoneUtils::load_timezones_to_cache();
+    cctz::time_zone los_angeles;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("America/Los_Angeles", los_angeles));
+
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    std::string decoded_value;
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, true, los_angeles,
+                                              &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "2021-11-07 09:00:00.000000+00:00");
+
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, true, los_angeles,
+                                              &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "2021-03-14 10:00:00.000000+00:00");
+}
+
+TEST_F(NewOrcReaderTest, PlainTimestampDstCarryMatchesStripeStatistics) {
+    const auto file_path = (_test_dir / "timestamp_dst_carry_statistics.orc").string();
+    constexpr int64_t BEFORE_DST_ROLLBACK = 1636275599;
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    write_two_stripe_constant_timestamp_file(file_path, BEFORE_DST_ROLLBACK, BEFORE_DST_ROLLBACK,
+                                             "America/Los_Angeles", ROUNDING_CARRY_NANOS);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+    auto reader = create_reader_for_path(file_path);
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+    aggregate_request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
+    format::FileAggregateResult aggregate_result;
+    ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &aggregate_result).ok());
+    ASSERT_EQ(aggregate_result.columns.size(), 1);
+    const auto expected = make_datetime_v2(2021, 11, 7, 2, 0, 0);
+    EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATETIMEV2>(), expected);
+    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(), expected);
 }
 
 TEST_F(NewOrcReaderTest, TimestampAcceptsDorisYearZeroBoundary) {

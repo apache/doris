@@ -93,6 +93,10 @@ Status HudiJniReader::build_scanner_params(std::map<std::string, std::string>* p
     (*params)["instant_time"] = hudi_params.instant_time;
     (*params)["serde"] = hudi_params.serde;
     (*params)["input_format"] = hudi_params.input_format;
+    (*params)["time_zone"] = _scan_params->__isset.hive_parquet_time_zone &&
+                                             !_scan_params->hive_parquet_time_zone.empty()
+                                     ? _scan_params->hive_parquet_time_zone
+                                     : "UTC";
     if (_runtime_state != nullptr) {
         (*params)["query_id"] = print_id(_runtime_state->query_id());
     }

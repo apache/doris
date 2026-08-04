@@ -56,7 +56,13 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
                               {"instant_time", hudi_params.instant_time},
                               {"serde", hudi_params.serde},
                               {"input_format", hudi_params.input_format},
-                              {"time_zone", state->timezone_obj().name()}};
+                              // An unset catalog zone means raw INT96 wall time, represented by UTC
+                              // in JNI, rather than inheriting an unrelated query session zone.
+                              {"time_zone",
+                               scan_params.__isset.hive_parquet_time_zone &&
+                                               !scan_params.hive_parquet_time_zone.empty()
+                                       ? scan_params.hive_parquet_time_zone
+                                       : "UTC"}};
                       for (const auto& kv : scan_params.properties) {
                           if (kv.first.starts_with(HOODIE_CONF_PREFIX)) {
                               params[kv.first] = kv.second;
