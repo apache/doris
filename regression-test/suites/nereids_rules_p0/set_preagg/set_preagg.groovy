@@ -28,6 +28,8 @@ suite("set_preagg") {
         drop table if exists preagg_t3;
         drop table if exists preagg_t4;
         drop table if exists preagg_t5;
+        drop table if exists preagg_f_l;
+        drop table if exists preagg_f_r;
         drop table if exists preagg_asof_l;
         drop table if exists preagg_asof_r;
 
@@ -94,6 +96,22 @@ suite("set_preagg") {
         aggregate key (k1)
         distributed BY hash(k1) buckets 1
         properties("replication_num" = "1");
+        create table preagg_f_l(
+            k1 int null,
+            v9 bigint MAX,
+            v9m bigint MIN
+        )
+        aggregate key (k1)
+        distributed BY hash(k1) buckets 1
+        properties("replication_num" = "1");
+        create table preagg_f_r(
+            k1 int null,
+            v9 bigint MAX,
+            v9m bigint MIN
+        )
+        aggregate key (k1)
+        distributed BY hash(k1) buckets 1
+        properties("replication_num" = "1");
         create table preagg_asof_l(
             grp int null,
             ts datetime null
@@ -127,6 +145,12 @@ suite("set_preagg") {
         insert into preagg_t4 values (2,0,0,0,0,0, 5, 300);
         insert into preagg_t5 values (1, -1e-300);
         insert into preagg_t5 values (1, 0.0);
+        insert into preagg_f_l values (1, 100, 100);
+        insert into preagg_f_l values (-1, 50, 50);
+        insert into preagg_f_r values (1, 1000, 1000);
+        insert into preagg_f_r values (1, 2000, 2000);
+        insert into preagg_f_r values (-1, 500, 500);
+        insert into preagg_f_r values (-1, 600, 600);
         insert into preagg_asof_l values (1,'2020-01-01 00:00:00'),(2,'2020-01-01 00:00:00');
         insert into preagg_asof_r values (1,'2020-01-01 00:00:00',100);
         insert into preagg_asof_r values (1,'2020-01-01 00:00:00',200);
@@ -1035,13 +1059,15 @@ suite("set_preagg") {
     // preagg_asof_r holds the same full key (grp=1, ts) in two loads with
     // v9=100 and v9=200; storage MAX merges to 200. If r were ON, ASOF would
     // see two equal-time rows and could pick the 100 partial before the upper
-    // MAX runs, returning 100 instead of 200. The selected side must stay OFF.
-    // l(1)↔r(1, v9=200), l(2)↔r(2, v9=300) → max(200, 300) = 300.
+    // MAX runs, returning 100 instead of 200. The query is restricted to
+    // l.grp = 1 so the result (200 when correctly merged) actually observes
+    // the stale-selected-row regression. The selected side must stay OFF.
     explain {
         sql("""
             select max(if(l.grp > 0, r.v9, 0))
             from preagg_asof_l l asof left join preagg_asof_r r
-                MATCH_CONDITION(l.ts >= r.ts) on l.grp = r.grp;
+                MATCH_CONDITION(l.ts >= r.ts) on l.grp = r.grp
+            where l.grp = 1;
         """)
         contains "(preagg_asof_l), PREAGGREGATION: ON"
         notContains "(preagg_asof_r), PREAGGREGATION: ON"
@@ -1049,7 +1075,46 @@ suite("set_preagg") {
     order_qt_q37 """
         select max(if(l.grp > 0, r.v9, 0))
         from preagg_asof_l l asof left join preagg_asof_r r
-            MATCH_CONDITION(l.ts >= r.ts) on l.grp = r.grp;
+            MATCH_CONDITION(l.ts >= r.ts) on l.grp = r.grp
+        where l.grp = 1;
+    """
+
+    // Positive MAX foreign-branch fanout: preagg_f_l has a non-positive key
+    // (k1=-1) so if(l.k1 > 0, l.v9, r.v9) actually evaluates the foreign branch
+    // r.v9, and preagg_f_r repeats BOTH full keys across separate loads
+    // (k1=1: v9=1000,2000; k1=-1: v9=500,600), so PREAGG ON would expose
+    // duplicate full-key partial rows. MAX is idempotent, so the foreign value
+    // fanout cannot change the result: merged r is k1=1→2000, k1=-1→600;
+    // max(if(1>0, 100, ...)=100, if(-1>0, ..., 600)=600) = 600, and ON over
+    // partials gives max(100, 100, 500, 600) = 600 too. Both scans may be ON.
+    explain {
+        sql("""
+            select max(if(l.k1 > 0, l.v9, r.v9))
+            from preagg_f_l l inner join preagg_f_r r on l.k1 = r.k1;
+        """)
+        contains "(preagg_f_l), PREAGGREGATION: ON"
+        contains "(preagg_f_r), PREAGGREGATION: ON"
+    }
+    order_qt_q38 """
+        select max(if(l.k1 > 0, l.v9, r.v9))
+        from preagg_f_l l inner join preagg_f_r r on l.k1 = r.k1;
+    """
+
+    // MIN symmetry of the foreign-branch fanout, on the MIN column v9m:
+    // min(if(l.k1 > 0, l.v9m, r.v9m)). Merged r is k1=1→min(1000,2000)=1000,
+    // k1=-1→min(500,600)=500; min(100, 500) = 100, and ON over partials gives
+    // min(100, 100, 500, 600) = 100 too. Both scans ON.
+    explain {
+        sql("""
+            select min(if(l.k1 > 0, l.v9m, r.v9m))
+            from preagg_f_l l inner join preagg_f_r r on l.k1 = r.k1;
+        """)
+        contains "(preagg_f_l), PREAGGREGATION: ON"
+        contains "(preagg_f_r), PREAGGREGATION: ON"
+    }
+    order_qt_q39 """
+        select min(if(l.k1 > 0, l.v9m, r.v9m))
+        from preagg_f_l l inner join preagg_f_r r on l.k1 = r.k1;
     """
 
 }
