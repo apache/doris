@@ -76,7 +76,7 @@ VExprContextSPtr create_prepared_topn_expr(MockRuntimeState* state, const DataTy
 
     TExprNode node;
     node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-    node.__set_is_nullable(false);
+    node.__set_is_nullable(data_type->is_nullable());
     auto expr = VTopNPred::create_shared(node, SOURCE_NODE_ID, nullptr);
     expr->add_child(VSlotRef::create_shared(SLOT_ID, 0, -1, data_type, "topn_column"));
     auto context = VExprContext::create_shared(std::move(expr));
@@ -304,6 +304,39 @@ TEST(RuntimePredicateTest, NullableNullsFirstTopNSupportsRawNullSemantics) {
     EXPECT_TRUE(context->root()->raw_predicate_result_for_null());
     EXPECT_FALSE(context->root()->can_evaluate_dictionary_filter());
     context->close();
+}
+
+TEST(RuntimePredicateTest, TopNPredicateNormalizesConstNullableComparisonResult) {
+    constexpr size_t rows = 3;
+    const auto type = make_nullable(std::make_shared<DataTypeInt32>());
+
+    for (const bool nulls_first : {false, true}) {
+        SCOPED_TRACE(nulls_first ? "NULLS FIRST" : "NULLS LAST");
+        MockRuntimeState state;
+        auto context = create_prepared_topn_expr(&state, type, Field::create_field<TYPE_INT>(3),
+                                                 true, nulls_first);
+
+        Block block;
+        block.insert(
+                {ColumnNullable::create(ColumnInt32::create(rows, 0), ColumnUInt8::create(rows, 1)),
+                 type, "topn_column"});
+
+        ColumnPtr result_column;
+        auto status = context->root()->execute_column(context.get(), &block, nullptr, block.rows(),
+                                                      result_column);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_TRUE(is_column_const(*result_column));
+        EXPECT_FALSE(result_column->is_null_at(0));
+        EXPECT_EQ(result_column->get_bool(0), nulls_first);
+
+        IColumn::Filter filter(rows, 1);
+        bool can_filter_all = false;
+        status = context->execute_filter(&block, filter.data(), rows, false, &can_filter_all);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(filter, IColumn::Filter(rows, nulls_first));
+        EXPECT_EQ(can_filter_all, !nulls_first);
+        context->close();
+    }
 }
 
 } // namespace doris
