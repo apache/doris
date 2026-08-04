@@ -319,10 +319,6 @@ uint32_t canonical_crc32c_hash(VariantRef value, uint32_t seed) {
     return sink.digest();
 }
 
-void replace_subcolumn(ColumnVariantV2& column, size_t target, ColumnPtr replacement) {
-    ColumnVariantV2::TestAccess::replace_encoded_subcolumn(column, target, std::move(replacement));
-}
-
 ColumnPtr nullable_int32(std::span<const int32_t> values, std::span<const uint8_t> null_map) {
     EXPECT_EQ(values.size(), null_map.size());
     auto nested = ColumnInt32::create();
@@ -1793,7 +1789,7 @@ TEST(ColumnVariantV2Test, EncodedRowCountInvariant) {
             {
                 auto column = ColumnVariantV2::create();
                 insert_encoded_field(*column, encode_json("1"));
-                replace_subcolumn(*column, 2, ColumnString::create());
+                ColumnVariantV2::TestAccess::replace_values(*column, ColumnString::create());
                 column->sanity_check();
             },
             "encoded row counts differ");
@@ -1806,7 +1802,7 @@ TEST(ColumnVariantV2Test, MetadataIdInvariant) {
                 insert_encoded_field(*column, encode_json("1"));
                 auto invalid_ids = MetaIdsColumn::create();
                 invalid_ids->insert_value(9);
-                replace_subcolumn(*column, 1, invalid_ids->get_ptr());
+                ColumnVariantV2::TestAccess::replace_metadata_ids(*column, std::move(invalid_ids));
                 column->sanity_check();
             },
             "metadata id is out of range");
