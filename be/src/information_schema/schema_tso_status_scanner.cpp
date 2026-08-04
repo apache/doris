@@ -62,12 +62,16 @@ Status SchemaTsoStatusScanner::_get_tso_status_block_from_fe() {
             },
             _rpc_timeout_ms));
 
+    return _process_tso_status_result(result);
+}
+
+Status SchemaTsoStatusScanner::_process_tso_status_result(
+        const TFetchSchemaTableDataResult& result) {
     Status status(Status::create(result.status));
     if (!status.ok()) {
         LOG(WARNING) << "fetch TSO status from FE failed, errmsg=" << status;
         return status;
     }
-    std::vector<TRow> result_data = result.data_batch;
 
     _tso_status_block = Block::create_unique();
     for (int i = 0; i < _s_tso_status_columns.size(); ++i) {
@@ -77,16 +81,18 @@ Status SchemaTsoStatusScanner::_get_tso_status_block_from_fe() {
                                                         _s_tso_status_columns[i].name));
     }
 
-    _tso_status_block->reserve(result_data.size());
-    for (const TRow& row : result_data) {
+    _tso_status_block->reserve(result.data_batch.size());
+    for (const TRow& row : result.data_batch) {
         if (row.column_value.size() != _s_tso_status_columns.size()) {
-            return Status::InternalError<false>("TSO status schema does not match between FE and BE");
+            return Status::InternalError<false>(
+                    "TSO status schema does not match between FE and BE");
         }
         for (int i = 0; i < _s_tso_status_columns.size(); ++i) {
             RETURN_IF_ERROR(insert_block_column(row.column_value[i], i, _tso_status_block.get(),
                                                 _s_tso_status_columns[i].type));
         }
     }
+    _total_rows = static_cast<int>(_tso_status_block->rows());
     return Status::OK();
 }
 
@@ -101,7 +107,6 @@ Status SchemaTsoStatusScanner::get_next_block_internal(Block* block, bool* eos) 
 
     if (_tso_status_block == nullptr) {
         RETURN_IF_ERROR(_get_tso_status_block_from_fe());
-        _total_rows = (int)_tso_status_block->rows();
     }
 
     if (_row_idx == _total_rows) {

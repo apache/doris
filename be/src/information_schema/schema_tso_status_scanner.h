@@ -27,6 +27,7 @@ namespace doris {
 
 class RuntimeState;
 class Block;
+class TFetchSchemaTableDataResult;
 
 class SchemaTsoStatusScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaTsoStatusScanner);
@@ -40,6 +41,7 @@ public:
 
 private:
     Status _get_tso_status_block_from_fe();
+    Status _process_tso_status_result(const TFetchSchemaTableDataResult& result);
 
     int _block_rows_limit = 4096;
     int _row_idx = 0;
