@@ -150,6 +150,9 @@ exercise_generic_recovery_dispatch() {
     local args_file="${generic}/build-args.txt"
     local output_file="${generic}/build-output.txt"
     local external_builder_called="${generic}/external-builder-called"
+    local fake_mvn="${generic}/fake-mvn"
+    local non_native_status=79
+    local non_native_target
     local status
     local flag
     local parallel
@@ -159,14 +162,26 @@ exercise_generic_recovery_dispatch() {
     local extra
 
     mkdir -p "${thirdparty_dir}/installed/lib/hadoop_hdfs/native" \
-        "${external_thirdparty_dir}/installed/lib/hadoop_hdfs/native"
+        "${external_thirdparty_dir}/installed/lib/hadoop_hdfs/native" \
+        "${generic}/gensrc" "${generic}/fe" "${generic}/be/build_Release" \
+        "${generic}/be/output"
     cp "${ROOT}/../build.sh" "${generic}/build.sh"
     cp "${ROOT}/arrow-paimon-vars.sh" "${thirdparty_dir}/arrow-paimon-vars.sh"
     touch "${thirdparty_dir}/installed/lib/hadoop_hdfs/native/libhdfs.a"
     touch "${external_thirdparty_dir}/installed/lib/hadoop_hdfs/native/libhdfs.a"
+    printf '%s\n' 'clean: ; @:' >"${generic}/gensrc/Makefile"
+    # shellcheck disable=SC2016
+    printf '%s\n' '#!/usr/bin/env bash' '[[ "$1" == "clean" ]]' >"${fake_mvn}"
+    chmod +x "${fake_mvn}"
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        printf 'exit %q\n' "${non_native_status}"
+    } >"${generic}/generated-source.sh"
+    chmod +x "${generic}/generated-source.sh"
     {
         printf '%s\n' 'DORIS_BUILD_PROFILE=0'
         printf '%s\n' 'TARGET_SYSTEM=Linux'
+        printf 'MVN_CMD=%q\n' "${fake_mvn}"
     } >"${generic}/env.sh"
     {
         printf '%s\n' '#!/usr/bin/env bash'
@@ -176,6 +191,37 @@ exercise_generic_recovery_dispatch() {
         # shellcheck disable=SC2016
         printf '%s\n' 'exit "${RECOVERY_EXIT_STATUS:-73}"'
     } >"${thirdparty_dir}/build-thirdparty.sh"
+
+    DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
+        bash "${generic}/build.sh" --clean >"${output_file}" 2>&1 ||
+        fail "bare clean failed before reaching its clean-only exit"
+    [[ ! -e "${args_file}" ]] || fail "bare clean invoked the thirdparty builder"
+    [[ ! -d "${generic}/be/build_Release" && ! -d "${generic}/be/output" ]] ||
+        fail "bare clean did not remove BE build outputs"
+
+    for non_native_target in --fe --hive-udf; do
+        if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
+            bash "${generic}/build.sh" "${non_native_target}" >"${output_file}" 2>&1; then
+            fail "${non_native_target} did not reach the generated-source sentinel"
+        else
+            status=$?
+        fi
+        [[ "${status}" -eq "${non_native_status}" ]] ||
+            fail "${non_native_target} failed before the generated-source sentinel"
+        [[ ! -e "${args_file}" ]] ||
+            fail "${non_native_target} invoked the native Arrow/Paimon builder"
+    done
+
+    if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
+        bash "${generic}/build.sh" --fe --clean >"${output_file}" 2>&1; then
+        fail "--fe --clean did not reach the generated-source sentinel"
+    else
+        status=$?
+    fi
+    [[ "${status}" -eq "${non_native_status}" ]] ||
+        fail "--fe --clean failed before the generated-source sentinel"
+    [[ ! -e "${args_file}" ]] ||
+        fail "--fe --clean invoked the native Arrow/Paimon builder"
 
     if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
         bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then

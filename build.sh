@@ -447,6 +447,14 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
+
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
+    clean_gensrc
+    clean_be
+    clean_fe
+    exit 0
+fi
+
 # build thirdparty libraries if necessary. check last thirdparty lib installation
 if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     LAST_THIRDPARTY_LIB='libbrotlienc.a'
@@ -458,9 +466,11 @@ fi
 # distinguish an older prebuilt whose Arrow/Paimon closure predates the selected sources.
 # shellcheck source=thirdparty/arrow-paimon-vars.sh
 . "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
-ARROW_PAIMON_THIRDPARTY_VALID=false
-if arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
-    ARROW_PAIMON_THIRDPARTY_VALID=true
+NEED_ARROW_PAIMON_THIRDPARTY=false
+if [[ "${BUILD_BE}" -eq 1 || "${BUILD_CLOUD}" -eq 1 ||
+    "${BUILD_META_TOOL}" == "ON" || "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
+    "${BUILD_INDEX_TOOL}" == "ON" ]]; then
+    NEED_ARROW_PAIMON_THIRDPARTY=true
 fi
 
 rebuild_thirdparty_libraries() {
@@ -501,7 +511,8 @@ rebuild_thirdparty_libraries() {
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
     rebuild_thirdparty_libraries true
-elif [[ "${ARROW_PAIMON_THIRDPARTY_VALID}" != "true" ]]; then
+elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]] &&
+    ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
     echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
     rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
 fi
@@ -541,13 +552,6 @@ update_submodule() {
         curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
-
-if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
-    clean_gensrc
-    clean_be
-    clean_fe
-    exit 0
-fi
 
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
