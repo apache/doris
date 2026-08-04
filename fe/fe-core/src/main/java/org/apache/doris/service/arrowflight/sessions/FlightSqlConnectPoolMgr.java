@@ -61,7 +61,15 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
         // the context from the pool.
         FlightSqlChannel flightSqlChannel = ctx.getFlightSqlChannel();
         if (flightSqlChannel != null) {
-            flightSqlChannel.close();
+            try {
+                flightSqlChannel.close();
+            } catch (Throwable t) {
+                // RootAllocator.close() marks the allocator closed before it reports outstanding
+                // bytes. The error is actionable, but session teardown must still release the
+                // coordinator, transaction and pool/token bookkeeping below.
+                LOG.warn("failed to close Flight SQL channel while unregistering connection {}, peer identity {}",
+                        ctx.getConnectionId(), ctx.getPeerIdentity(), t);
+            }
         }
         // Finalize any Arrow Flight query whose coordinator was kept alive across the
         // GetFlightInfo -> DoGet phases (see #62259), releasing its resources (e.g. external-table
