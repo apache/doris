@@ -3617,6 +3617,11 @@ public class Config extends ConfigBase {
             + "for example: s3_load_endpoint_white_list=a,b,c"})
     public static String[] s3_load_endpoint_white_list = {};
 
+    @ConfField(description = {
+            "The default scheme for S3 endpoints without an explicit scheme. Valid values are http and https."},
+            options = {"http", "https"})
+    public static String s3_client_http_scheme = "https";
+
     @ConfField(mutable = true, description = {
             "对于确定性的 S3 路径（无通配符如 *, ?），使用 HEAD 请求代替 ListObjects 来避免需要 ListBucket 权限。"
             + "花括号模式 {1,2,3} 和非否定方括号模式 [abc] 会展开为具体路径。"
