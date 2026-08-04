@@ -114,7 +114,7 @@ public:
         auto* concat_state = reinterpret_cast<ConcatState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!concat_state) {
-            return Status::RuntimeError("funciton context for function '{}' must have ConcatState;",
+            return Status::RuntimeError("function context for function '{}' must have ConcatState;",
                                         get_name());
         }
         if (concat_state->use_state) {

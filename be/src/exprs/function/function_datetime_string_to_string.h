@@ -162,7 +162,7 @@ public:
         auto* format_state = reinterpret_cast<FormatState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!format_state) {
-            return Status::RuntimeError("funciton context for function '{}' must have FormatState;",
+            return Status::RuntimeError("function context for function '{}' must have FormatState;",
                                         get_name());
         }
 

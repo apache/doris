@@ -1566,7 +1566,7 @@ void VTabletWriter::_send_batch_process() {
         }
 
         // for auto partition tables, there's a situation: we haven't open any node channel but decide to cancel the task.
-        // then the judge in front will never be true because opened_nodes won't increase. so we have to specially check wether we called close.
+        // then the judge in front will never be true because opened_nodes won't increase. so we have to specially check whether we called close.
         // we must RECHECK opened_nodes below, after got closed signal, because it may changed. Think of this:
         //      checked opened_nodes = 0 ---> new block arrived ---> task finished, close() was called ---> we got _try_close here
         // if we don't check again, we may lose the last package.

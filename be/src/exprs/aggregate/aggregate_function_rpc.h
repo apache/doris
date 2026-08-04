@@ -326,7 +326,7 @@ public:
             break;
         }
         default:
-            LOG(ERROR) << "failed to get result cause unkown return type";
+            LOG(ERROR) << "failed to get result cause unknown return type";
             to.insert_default();
         }
         return Status::OK();

@@ -376,7 +376,7 @@ static int alter_instance_obj_store_info_by_id(InstanceInfoPB& instance,
         } else {
             if (!ak.empty() || !sk.empty()) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+                msg = "invalid argument, both set ak/sk and role_arn is not allowed";
                 LOG(INFO) << msg;
                 return -1;
             }
@@ -1133,7 +1133,7 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
 
     if (obj_info.has_role_arn() && (obj_info.has_ak() || obj_info.has_sk())) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+        msg = "invalid argument, both set ak/sk and role_arn is not allowed";
         LOG(WARNING) << msg;
         return -1;
     }
@@ -1281,7 +1281,7 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     } else {
         if (obj.has_ak() || obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+            msg = "invalid argument, both set ak/sk and role_arn is not allowed";
             return -1;
         }
 

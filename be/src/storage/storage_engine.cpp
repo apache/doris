@@ -1413,7 +1413,7 @@ void StorageEngine::add_unused_delete_bitmap_key_ranges(int64_t tablet_id,
     _unused_delete_bitmap.push_back(std::make_tuple(tablet_id, rowsets, key_ranges));
 }
 
-// TODO(zc): refactor this funciton
+// TODO(zc): refactor this function
 Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile) {
     // Get all available stores, use ref_root_path if the caller specified
     std::vector<DataDir*> stores;

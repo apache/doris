@@ -2699,7 +2699,7 @@ PipelineFragmentContext::collect_realtime_profile() const {
     std::vector<std::shared_ptr<TRuntimeProfileTree>> res;
 
     // we do not have mutex to protect pipeline_id_to_profile
-    // so we need to make sure this funciton is invoked after fragment context
+    // so we need to make sure this function is invoked after fragment context
     // has already been prepared.
     if (!_prepared) {
         std::string msg =
@@ -2727,7 +2727,7 @@ PipelineFragmentContext::collect_realtime_profile() const {
 std::shared_ptr<TRuntimeProfileTree>
 PipelineFragmentContext::collect_realtime_load_channel_profile() const {
     // we do not have mutex to protect pipeline_id_to_profile
-    // so we need to make sure this funciton is invoked after fragment context
+    // so we need to make sure this function is invoked after fragment context
     // has already been prepared.
     if (!_prepared) {
         std::string msg =

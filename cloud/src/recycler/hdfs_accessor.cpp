@@ -301,7 +301,7 @@ public:
     }
 
 private:
-    // Return null if error occured, return emtpy DirEntries if dir is empty or doesn't exist.
+    // Return null if error occurred, return emtpy DirEntries if dir is empty or doesn't exist.
     std::optional<DirEntries> list_directory(const char* dir_path) {
         int num_entries = 0;
         SCOPED_BVAR_LATENCY(hdfs_list_dir);
