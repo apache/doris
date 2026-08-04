@@ -106,6 +106,16 @@ public:
 
     void set_index_id(int64_t index_id) { _rowset_meta_pb.set_index_id(index_id); }
 
+    bool has_inverted_index_storage_format() const {
+        return _rowset_meta_pb.has_inverted_index_storage_format();
+    }
+
+    InvertedIndexStorageFormatPB inverted_index_storage_format() const {
+        return _rowset_meta_pb.inverted_index_storage_format();
+    }
+
+    void set_inverted_index_storage_format(InvertedIndexStorageFormatPB format);
+
     TabletUid tablet_uid() const { return _rowset_meta_pb.tablet_uid(); }
 
     void set_tablet_uid(TabletUid tablet_uid) {

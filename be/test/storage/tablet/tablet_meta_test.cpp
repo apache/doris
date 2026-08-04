@@ -81,6 +81,56 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
     }
 }
 
+TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_table_id(1);
+    tablet_meta_pb.set_index_id(2);
+    tablet_meta_pb.set_partition_id(3);
+    tablet_meta_pb.set_tablet_id(4);
+    tablet_meta_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    tablet_meta_pb.mutable_schema()->set_schema_version(7);
+    tablet_meta_pb.mutable_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    TabletMeta tablet_meta;
+    tablet_meta.init_from_pb(tablet_meta_pb);
+
+    ASSERT_TRUE(tablet_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, tablet_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              tablet_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    TabletMetaPB serialized;
+    tablet_meta.to_meta_pb(&serialized, false);
+    ASSERT_TRUE(serialized.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.schema().inverted_index_storage_format());
+}
+
+TEST(TabletMetaTest, LegacySchemaInvertedIndexFormatIsFallback) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_table_id(1);
+    tablet_meta_pb.set_index_id(2);
+    tablet_meta_pb.set_partition_id(3);
+    tablet_meta_pb.set_tablet_id(4);
+    tablet_meta_pb.mutable_schema()->set_schema_version(7);
+    tablet_meta_pb.mutable_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    TabletMeta tablet_meta;
+    tablet_meta.init_from_pb(tablet_meta_pb);
+
+    EXPECT_FALSE(tablet_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, tablet_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              tablet_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    TabletMetaPB serialized;
+    tablet_meta.to_meta_pb(&serialized, false);
+    EXPECT_FALSE(serialized.has_inverted_index_storage_format());
+}
+
 TEST(TabletMetaTest, SerializeToMemoryWithSmallBuffer) {
     TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);

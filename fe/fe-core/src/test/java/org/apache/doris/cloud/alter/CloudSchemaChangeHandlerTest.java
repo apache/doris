@@ -29,10 +29,13 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DynamicPartitionUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -437,6 +440,94 @@ public class CloudSchemaChangeHandlerTest {
         Mockito.verifyNoInteractions(backendServiceProxy);
     }
 
+    @Test
+    public void testUpdatePartitionInvertedIndexStorageFormatDoesNotScanPartitions() throws Exception {
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Env env = Mockito.mock(Env.class);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+
+        Mockito.when(database.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+
+        boolean previousRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<DynamicPartitionUtil> dynamicPartitionUtil =
+                        Mockito.mockStatic(DynamicPartitionUtil.class)) {
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            config.when(Config::isCloudMode).thenReturn(true);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            new CloudSchemaChangeHandler().updateTableProperties(database, "tbl", properties);
+
+            Mockito.verify(env).modifyTableProperties(database, table, properties);
+            Mockito.verify(table, Mockito.never()).getAllPartitions();
+            Mockito.verify(table, Mockito.never()).getPartitionInfo();
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
+        }
+    }
+
+    @Test
+    public void testUpdatePartitionInvertedIndexStorageFormatReturnsWhenFormatUnchanged() throws Exception {
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Env env = Mockito.mock(Env.class);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "v3");
+
+        Mockito.when(database.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.getPartitionInvertedIndexFileStorageFormat())
+                .thenReturn(TInvertedIndexFileStorageFormat.V3);
+
+        boolean previousRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            config.when(Config::isCloudMode).thenReturn(true);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            new CloudSchemaChangeHandler().updateTableProperties(database, "tbl", properties);
+
+            Mockito.verify(env, Mockito.never()).modifyTableProperties(database, table, properties);
+            Mockito.verify(table).readLock();
+            Mockito.verify(table).readUnlock();
+            Assert.assertEquals("v3", properties.get(
+                    PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
+        }
+    }
+
+    @Test
+    public void testUpdatePartitionInvertedIndexStorageFormatIsIgnoredWhenRolloutDisabled() throws Exception {
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Env env = Mockito.mock(Env.class);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+
+        Mockito.when(database.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.getPartitionInvertedIndexFileStorageFormat())
+                .thenReturn(TInvertedIndexFileStorageFormat.V2);
+
+        boolean previousRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Config.enable_partition_inverted_index_storage_format_rollout = false;
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            new CloudSchemaChangeHandler().updateTableProperties(database, "tbl", properties);
+
+            Mockito.verify(env, Mockito.never()).modifyTableProperties(database, table, properties);
+            Mockito.verify(table, Mockito.never()).getPartitionInvertedIndexFileStorageFormat();
+            Assert.assertEquals("SNII", properties.get(
+                    PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
+        }
+    }
+
     private Cloud.UpdateTabletResponse okUpdateTabletResponse() {
         return Cloud.UpdateTabletResponse.newBuilder()
                 .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
@@ -475,4 +566,5 @@ public class CloudSchemaChangeHandlerTest {
                 .setSyncedTablets(1)
                 .build();
     }
+
 }

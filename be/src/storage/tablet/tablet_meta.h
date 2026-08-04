@@ -334,6 +334,15 @@ public:
 
     EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
 
+    bool has_inverted_index_storage_format() const {
+        return _inverted_index_storage_format.has_value();
+    }
+
+    InvertedIndexStorageFormatPB inverted_index_storage_format() const {
+        return _inverted_index_storage_format.value_or(
+                _schema->get_inverted_index_storage_format());
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
     void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
@@ -403,6 +412,9 @@ private:
     // Persisted storage format for this tablet (e.g. V2, V3). Used to derive
     // schema-level defaults such as external ColumnMeta usage.
     TStorageFormat::type _storage_format = TStorageFormat::V2;
+    // The schema KV is shared by (index_id, schema_version). Keep the tablet's
+    // immutable file format outside that shared identity.
+    std::optional<InvertedIndexStorageFormatPB> _inverted_index_storage_format;
 
     mutable std::shared_mutex _meta_lock;
 };

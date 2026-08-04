@@ -114,7 +114,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
             .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
-            .add("RowCount").add("BinlogSize")
+            .add("RowCount").add("BinlogSize").add("InvertedIndexStorageFormat")
             .build();
 
     private Database db;
@@ -657,6 +657,11 @@ public class PartitionsProcDir implements ProcDirInterface {
                         + binlogSizePair.second;
                 partitionInfo.add(readableBinlogSize);
                 trow.addToColumnValue(new TCell().setStringVal(readableBinlogSize));
+
+                String invertedIndexStorageFormat =
+                        olapTable.getInvertedIndexFileStorageFormatForPartition(partitionId).name();
+                partitionInfo.add(invertedIndexStorageFormat);
+                trow.addToColumnValue(new TCell().setStringVal(invertedIndexStorageFormat));
 
                 partitionInfos.add(Pair.of(partitionInfo, trow));
             }
