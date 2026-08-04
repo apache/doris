@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.lance.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalUtil;
@@ -26,6 +27,7 @@ import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -46,6 +48,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -92,16 +95,22 @@ public class LanceScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
+        List<Column> sourceColumns;
+        if (isExternalSearch()) {
+            sourceColumns = desc.getTable().getColumns();
+        } else {
+            lanceTable = (LanceExternalTable) desc.getTable();
+            Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
+            plannedMetadata = lanceTable.getMetadata(relationSnapshot);
+            sourceColumns = lanceTable.getFullSchema(relationSnapshot);
+        }
         super.doInitialize();
+        ExternalUtil.initSchemaInfo(params, -1L, sourceColumns);
 
         if (isExternalSearch()) {
             // Search output comes from the FunctionGenTable because it adds generated columns such
             // as _distance. The real Lance table is still retained for storage and metadata access.
-            ExternalUtil.initSchemaInfo(params, -1L, desc.getTable().getColumns());
             params.setExternalSearchRequest(externalSearchRequest.deepCopy());
-        } else {
-            lanceTable = (LanceExternalTable) desc.getTable();
-            ExternalUtil.initSchemaInfo(params, -1L, lanceTable.getColumns());
         }
     }
 
@@ -112,7 +121,6 @@ public class LanceScanNode extends FileQueryScanNode {
             // evaluated by Lance before vector search. Outer WHERE conjuncts have different
             // semantics: Doris must keep them here and evaluate them after Lance returns TopK.
         } else {
-            plannedMetadata = lanceTable.loadMetadata();
             LancePredicateConverter.ConversionResult result =
                     new LancePredicateConverter(plannedMetadata.getSchema()).convert(conjuncts);
             lanceSubstraitFilter = result.getSubstraitFilter();
@@ -142,12 +150,7 @@ public class LanceScanNode extends FileQueryScanNode {
                     plannedMetadata.getDatasetUri(), plannedMetadata.getVersion(),
                     plannedMetadata.getRowCount()));
         } else {
-            LanceTableMetadata metadata;
-            try {
-                metadata = plannedMetadata == null ? lanceTable.loadMetadata() : plannedMetadata;
-            } catch (RuntimeException e) {
-                throw new UserException("Failed to plan Lance fragments: " + e.getMessage(), e);
-            }
+            LanceTableMetadata metadata = plannedMetadata;
             plannedVersion = metadata.getVersion();
             plannedFragments = metadata.getFragments().size();
             Set<Long> fragmentIds = new HashSet<>();
@@ -217,9 +220,7 @@ public class LanceScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() {
-        LanceExternalCatalog catalog = (LanceExternalCatalog) lanceTable.getCatalog();
-        return plannedMetadata == null
-                ? catalog.getBackendStorageOptions() : plannedMetadata.getBackendStorageOptions();
+        return plannedMetadata.getBackendStorageOptions();
     }
 
     @Override

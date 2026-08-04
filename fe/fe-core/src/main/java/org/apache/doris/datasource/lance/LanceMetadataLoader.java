@@ -26,6 +26,7 @@ import org.lance.ReadOptions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 
 /** Loads one fixed Lance dataset snapshot through the Lance Java SDK. */
 public final class LanceMetadataLoader {
@@ -53,21 +54,50 @@ public final class LanceMetadataLoader {
      */
     public static LanceTableMetadata load(String datasetUri, Map<String, String> javaStorageOptions,
             Map<String, String> backendStorageOptions, BufferAllocator allocator) throws Exception {
-        ReadOptions readOptions = new ReadOptions.Builder()
-                .setStorageOptions(javaStorageOptions)
-                .setIndexCacheSizeBytes(0)
-                .setMetadataCacheSizeBytes(METADATA_CACHE_SIZE)
-                .build();
+        return load(datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.empty(), allocator);
+    }
+
+    /** Load metadata from an explicitly selected Lance version. */
+    public static LanceTableMetadata load(String datasetUri, Map<String, String> javaStorageOptions,
+            Map<String, String> backendStorageOptions, long version, BufferAllocator allocator) throws Exception {
+        return load(datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.of(version), allocator);
+    }
+
+    /** Resolve the latest Lance version whose commit time does not exceed the requested timestamp. */
+    public static long resolveVersionAtOrBefore(String datasetUri, Map<String, String> javaStorageOptions,
+            long timestampMillis, BufferAllocator allocator) throws Exception {
+        ReadOptions readOptions = readOptions(javaStorageOptions, OptionalLong.empty());
         try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
                 .readOptions(readOptions).build()) {
-            long version = dataset.version();
+            return LanceSnapshotResolver.versionAtOrBefore(dataset.listVersions(), timestampMillis);
+        }
+    }
+
+    private static LanceTableMetadata load(String datasetUri, Map<String, String> javaStorageOptions,
+            Map<String, String> backendStorageOptions, OptionalLong version,
+            BufferAllocator allocator) throws Exception {
+        ReadOptions readOptions = readOptions(javaStorageOptions, version);
+        try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
+                .readOptions(readOptions).build()) {
+            long resolvedVersion = dataset.version();
             List<LanceTableMetadata.LanceFragmentInfo> fragments = new ArrayList<>();
             for (Fragment fragment : dataset.getFragments()) {
                 fragments.add(new LanceTableMetadata.LanceFragmentInfo(
                         fragment.getId(), fragment.metadata().getNumRows()));
             }
-            return new LanceTableMetadata(datasetUri, version, dataset.getSchema(), fragments,
+            return new LanceTableMetadata(datasetUri, resolvedVersion, dataset.getSchema(), fragments,
                     backendStorageOptions);
         }
+    }
+
+    private static ReadOptions readOptions(Map<String, String> javaStorageOptions, OptionalLong version) {
+        ReadOptions.Builder builder = new ReadOptions.Builder()
+                .setStorageOptions(javaStorageOptions)
+                .setIndexCacheSizeBytes(0)
+                .setMetadataCacheSizeBytes(METADATA_CACHE_SIZE);
+        if (version.isPresent()) {
+            builder.setVersion(version.getAsLong());
+        }
+        return builder.build();
     }
 }

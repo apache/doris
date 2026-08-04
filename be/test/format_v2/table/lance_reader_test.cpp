@@ -17,13 +17,19 @@
 
 #include "format_v2/table/lance_reader.h"
 
+#include <arrow/array/util.h>
+#include <arrow/c/bridge.h>
+#include <arrow/record_batch.h>
 #include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
 #include <lance/lance.h>
 
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <chrono>
 #include <filesystem>
+#include <lance/lance.hpp>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -50,6 +56,7 @@
 #include "exprs/vexpr.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "util/timezone_utils.h"
 #include "util/url_coding.h"
 
@@ -568,15 +575,13 @@ TEST(LanceTableReaderSchemaTest, FetchesSchemaWithoutFragmentIdsOrScanInitializa
 
     const auto embedding = std::find(column_names.begin(), column_names.end(), "embedding");
     ASSERT_NE(column_names.end(), embedding);
-    const auto embedding_idx =
-            static_cast<size_t>(std::distance(column_names.begin(), embedding));
+    const auto embedding_idx = static_cast<size_t>(std::distance(column_names.begin(), embedding));
     ASSERT_NE(nullptr, column_types[embedding_idx]);
     EXPECT_EQ(TYPE_ARRAY, column_types[embedding_idx]->get_primitive_type());
 
     const auto binary_value = std::find(column_names.begin(), column_names.end(), "binary_value");
     ASSERT_NE(column_names.end(), binary_value);
-    const auto binary_idx =
-            static_cast<size_t>(std::distance(column_names.begin(), binary_value));
+    const auto binary_idx = static_cast<size_t>(std::distance(column_names.begin(), binary_value));
     ASSERT_NE(nullptr, column_types[binary_idx]);
     const auto binary_type = remove_nullable(column_types[binary_idx]);
     ASSERT_EQ(TYPE_VARBINARY, binary_type->get_primitive_type());
@@ -585,8 +590,8 @@ TEST(LanceTableReaderSchemaTest, FetchesSchemaWithoutFragmentIdsOrScanInitializa
 }
 
 TEST(LanceTableReaderSchemaTest, PreservesUnsupportedFieldsAndExtensionSemantics) {
-    const auto extension_metadata = arrow::KeyValueMetadata::Make(
-            {"ARROW:extension:name"}, {"doris.test.extension"});
+    const auto extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"doris.test.extension"});
     const auto extension_item =
             arrow::field("item", arrow::float32())->WithMetadata(extension_metadata);
     const auto arrow_schema = arrow::schema({
@@ -615,6 +620,44 @@ TEST(LanceTableReaderSchemaTest, PreservesUnsupportedFieldsAndExtensionSemantics
     EXPECT_EQ(INVALID_TYPE, column_types[3]->get_primitive_type());
     EXPECT_EQ(INVALID_TYPE, column_types[4]->get_primitive_type());
     EXPECT_EQ(TYPE_STRING, column_types[5]->get_primitive_type());
+}
+
+TEST(LanceTableReaderSchemaTest, FetchesNegativeScaleDecimalAsUnsupported) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto dataset_uri =
+            std::filesystem::temp_directory_path() /
+            ("doris_lance_negative_decimal_scale_" + std::to_string(unique_suffix) + ".lance");
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(dataset_uri, error);
+    }};
+
+    const auto decimal_type = arrow::decimal128(10, -2);
+    const auto arrow_schema = arrow::schema({arrow::field("negative_scale_decimal", decimal_type)});
+    auto array = arrow::MakeArrayOfNull(decimal_type, 1);
+    ASSERT_TRUE(array.ok()) << array.status().ToString();
+    const auto batch = arrow::RecordBatch::Make(arrow_schema, 1, {std::move(array).ValueUnsafe()});
+    auto batch_reader = arrow::RecordBatchReader::Make({batch}, arrow_schema);
+    ASSERT_TRUE(batch_reader.ok()) << batch_reader.status().ToString();
+
+    ArrowArrayStream stream {};
+    const auto export_status =
+            arrow::ExportRecordBatchReader(std::move(batch_reader).ValueUnsafe(), &stream);
+    ASSERT_TRUE(export_status.ok()) << export_status.ToString();
+    static_cast<void>(
+            ::lance::Dataset::write(dataset_uri.string(), &stream, ::lance::WriteMode::Create));
+
+    TFileScanRangeParams scan_params;
+    std::vector<std::string> column_names;
+    std::vector<DataTypePtr> column_types;
+    LanceTableReader reader;
+    const auto status = reader.fetch_schema(make_latest_lance_range(dataset_uri), scan_params,
+                                            &column_names, &column_types);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<std::string> {"negative_scale_decimal"}), column_names);
+    ASSERT_EQ(1, column_types.size());
+    ASSERT_NE(nullptr, column_types[0]);
+    EXPECT_EQ(INVALID_TYPE, column_types[0]->get_primitive_type());
 }
 
 TEST(LanceTableReaderScanTest, ReadsLatestSnapshotWithoutFragmentIds) {

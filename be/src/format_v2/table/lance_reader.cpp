@@ -20,6 +20,7 @@
 #include <arrow/c/bridge.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
 #include <lance/lance.h>
 
 #include <bit>
@@ -100,8 +101,9 @@ Status check_arrow_field_semantics(const std::shared_ptr<arrow::Field>& field) {
     if (field->HasMetadata()) {
         const auto extension_name = field->metadata()->Get(ARROW_EXTENSION_NAME);
         if (extension_name.ok() && !extension_name.ValueUnsafe().empty()) {
-            return Status::NotSupported("unsupported Lance Arrow extension type '{}' for field '{}'",
-                                        extension_name.ValueUnsafe(), field->name());
+            return Status::NotSupported(
+                    "unsupported Lance Arrow extension type '{}' for field '{}'",
+                    extension_name.ValueUnsafe(), field->name());
         }
     }
     if (field->type()->id() == arrow::Type::DICTIONARY) {
@@ -170,11 +172,18 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
     case arrow::Type::DECIMAL256: {
         const auto decimal = std::static_pointer_cast<arrow::DecimalType>(arrow_type);
         const int precision = decimal->precision();
+        const int scale = decimal->scale();
+        if (precision <= 0 || precision > arrow::Decimal256Type::kMaxPrecision || scale < 0 ||
+            scale > precision) {
+            return Status::NotSupported(
+                    "unsupported Lance Arrow decimal type for field '{}': precision={}, scale={}",
+                    field->name(), precision, scale);
+        }
         const PrimitiveType doris_decimal_type = precision <= 9    ? TYPE_DECIMAL32
                                                  : precision <= 18 ? TYPE_DECIMAL64
                                                  : precision <= 38 ? TYPE_DECIMAL128I
                                                                    : TYPE_DECIMAL256;
-        return nullable_primitive(doris_decimal_type, precision, decimal->scale());
+        return nullable_primitive(doris_decimal_type, precision, scale);
     }
     case arrow::Type::LIST:
     case arrow::Type::LARGE_LIST:

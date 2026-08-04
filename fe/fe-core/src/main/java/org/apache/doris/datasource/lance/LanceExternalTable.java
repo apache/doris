@@ -17,9 +17,14 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -34,7 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 
-public class LanceExternalTable extends ExternalTable {
+public class LanceExternalTable extends ExternalTable implements MvccTable {
     public LanceExternalTable(long id, String name, String remoteName, LanceExternalCatalog catalog,
             LanceExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.LANCE_EXTERNAL_TABLE);
@@ -42,7 +47,10 @@ public class LanceExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema() {
-        LanceTableMetadata metadata = loadMetadata();
+        return Optional.of(new SchemaCacheValue(toDorisColumns(loadMetadata())));
+    }
+
+    static List<Column> toDorisColumns(LanceTableMetadata metadata) {
         List<Column> columns = new ArrayList<>(metadata.getSchema().getFields().size());
         int position = 0;
         for (Field field : metadata.getSchema().getFields()) {
@@ -50,16 +58,51 @@ public class LanceExternalTable extends ExternalTable {
             columns.add(new Column(field.getName(), LanceTypeConverter.toDorisType(field), false,
                     null, field.isNullable(), comment, true, position++));
         }
-        return Optional.of(new SchemaCacheValue(columns));
+        return columns;
     }
 
     public LanceTableMetadata loadMetadata() {
         return ((LanceExternalCatalog) catalog).loadTableMetadata(db.getRemoteName(), remoteName);
     }
 
+    private LanceTableMetadata loadMetadata(Optional<TableSnapshot> tableSnapshot) {
+        return ((LanceExternalCatalog) catalog).loadTableMetadata(
+                db.getRemoteName(), remoteName, tableSnapshot);
+    }
+
+    public LanceTableMetadata getMetadata(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent()) {
+            return ((LanceMvccSnapshot) snapshot.get()).getMetadata();
+        }
+        return loadMetadata();
+    }
+
+    @Override
+    public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        return new LanceMvccSnapshot(loadMetadata(tableSnapshot));
+    }
+
+    @Override
+    public List<Column> getFullSchema() {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotForTableMetadataFromContext(this);
+        if (snapshot.isPresent()) {
+            return getFullSchema(snapshot);
+        }
+        return super.getFullSchema();
+    }
+
+    @Override
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent()) {
+            return toDorisColumns(getMetadata(snapshot));
+        }
+        return getFullSchema();
+    }
+
     @Override
     public long fetchRowCount() {
-        long rowCount = loadMetadata().getRowCount();
+        long rowCount = getMetadata(MvccUtil.getSnapshotForTableMetadataFromContext(this)).getRowCount();
         return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
     }
 

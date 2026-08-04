@@ -17,7 +17,9 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -47,6 +49,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -443,6 +446,11 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName) {
+        return loadTableMetadata(dbName, tableName, Optional.empty());
+    }
+
+    public LanceTableMetadata loadTableMetadata(String dbName, String tableName,
+            Optional<TableSnapshot> tableSnapshot) {
         makeSureInitialized();
         DescribeTableResponse table = describeTable(dbName, tableName);
         if (Boolean.TRUE.equals(table.getManagedVersioning())) {
@@ -461,6 +469,23 @@ public class LanceExternalCatalog extends ExternalCatalog {
         Map<String, String> tableBackendStorageOptions = LanceStorageOptions.forBackend(
                 backendStorageOptions, table.getStorageOptions());
         try {
+            if (tableSnapshot.isPresent()) {
+                TableSnapshot snapshot = tableSnapshot.get();
+                long version;
+                if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                    version = LanceSnapshotResolver.parseVersion(snapshot.getValue());
+                } else {
+                    long timestamp = TimeUtils.timeStringToLong(snapshot.getValue(), TimeUtils.getTimeZone());
+                    if (timestamp < 0) {
+                        throw new IllegalArgumentException(
+                                "Cannot parse Lance FOR TIME AS OF value '" + snapshot.getValue() + "'");
+                    }
+                    version = LanceMetadataLoader.resolveVersionAtOrBefore(
+                            datasetUri, storageOptions, timestamp, allocator);
+                }
+                return LanceMetadataLoader.load(datasetUri, storageOptions,
+                        tableBackendStorageOptions, version, allocator);
+            }
             return LanceMetadataLoader.load(datasetUri, storageOptions,
                     tableBackendStorageOptions, allocator);
         } catch (Exception e) {

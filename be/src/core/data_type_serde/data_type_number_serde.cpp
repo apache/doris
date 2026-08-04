@@ -254,6 +254,9 @@ Status read_widened_arrow_integer_values(IColumn& column, const arrow::Array* ar
         return Status::InvalidArgument("Expected a compatible Arrow numeric array for {}, got {}",
                                        column.get_name(), arrow_array->type()->name());
     }
+    if (config::enable_arrow_input_validation) {
+        check_arrow_fixed_width_buffer(*source, sizeof(typename ArrowArrayType::value_type));
+    }
 
     auto& data =
             assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
@@ -862,6 +865,10 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
             if (concrete_array == nullptr) {
                 return Status::InvalidArgument("Expected Arrow HalfFloatArray, got {}",
                                                arrow_array->type()->name());
+            }
+            if (config::enable_arrow_input_validation) {
+                check_arrow_fixed_width_buffer(*concrete_array,
+                                               sizeof(arrow::HalfFloatArray::value_type));
             }
             for (int64_t i = start; i < end; ++i) {
                 const auto value =
