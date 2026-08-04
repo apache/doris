@@ -77,6 +77,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
+import org.apache.doris.mtmv.ivm.DryRunLimit;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddBackendClauseContext;
 import org.apache.doris.nereids.DorisParser.AddBrokerClauseContext;
@@ -318,6 +319,7 @@ import org.apache.doris.nereids.DorisParser.RefreshCatalogContext;
 import org.apache.doris.nereids.DorisParser.RefreshDatabaseContext;
 import org.apache.doris.nereids.DorisParser.RefreshDictionaryContext;
 import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
+import org.apache.doris.nereids.DorisParser.RefreshMTMVDryRunContext;
 import org.apache.doris.nereids.DorisParser.RefreshMethodContext;
 import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
 import org.apache.doris.nereids.DorisParser.RefreshTableContext;
@@ -1880,6 +1882,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(new TableNameInfo(nameParts), partitions,
                 RefreshMode.valueOf(refreshPolicy.refreshMethod.name()), refreshPolicy.allowFallback);
         return new RefreshMTMVCommand(refreshMTMVInfo);
+    }
+
+    @Override
+    public LogicalPlan visitRefreshMTMVDryRun(RefreshMTMVDryRunContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(
+                new TableNameInfo(nameParts), ImmutableList.of(), RefreshMode.INCREMENTAL);
+        Optional<DryRunLimit> dryRunLimit = Optional.empty();
+        if (ctx.limitClause() != null) {
+            Pair<Long, Long> limitAndOffset = parseLimitClause(ctx.limitClause());
+            dryRunLimit = Optional.of(new DryRunLimit(limitAndOffset.second, limitAndOffset.first));
+        }
+        return new RefreshMTMVCommand(refreshMTMVInfo, false, true, dryRunLimit);
     }
 
     private DropMTMVCommand visitDropMTMV(DropMVContext ctx) {
@@ -4586,17 +4601,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withLimit(LogicalPlan input, Optional<LimitClauseContext> limitCtx) {
         return input.optionalMap(limitCtx, () -> {
-            long limit = Long.parseLong(limitCtx.get().limit.getText());
-            if (limit < 0) {
-                throw new ParseException("Limit requires non-negative number", limitCtx.get());
-            }
-            long offset = 0;
-            Token offsetToken = limitCtx.get().offset;
-            if (offsetToken != null) {
-                offset = Long.parseLong(offsetToken.getText());
-            }
-            return new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, input);
+            Pair<Long, Long> limitAndOffset = parseLimitClause(limitCtx.get());
+            return new LogicalLimit<>(limitAndOffset.first, limitAndOffset.second, LimitPhase.ORIGIN, input);
         });
+    }
+
+    // Parse a LIMIT clause into (limit, offset). Supports "LIMIT n", "LIMIT n OFFSET m" and "LIMIT m, n".
+    private Pair<Long, Long> parseLimitClause(LimitClauseContext limitCtx) {
+        long limit = Long.parseLong(limitCtx.limit.getText());
+        if (limit < 0) {
+            throw new ParseException("Limit requires non-negative number", limitCtx);
+        }
+        long offset = 0;
+        Token offsetToken = limitCtx.offset;
+        if (offsetToken != null) {
+            offset = Long.parseLong(offsetToken.getText());
+        }
+        return Pair.of(limit, offset);
     }
 
     /**

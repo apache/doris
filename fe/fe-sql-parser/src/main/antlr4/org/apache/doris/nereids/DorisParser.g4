@@ -85,6 +85,8 @@ materializedViewStatement
         AS? query                                                                               #createMTMV
     | explain REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
         explainRefreshPolicy                                                                     #explainRefreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier INCREMENTAL WITH DRY RUN
+        limitClause?                                                                              #refreshMTMVDryRun
     | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
         (partitionSpec | refreshPolicy)                                                           #refreshMTMV
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
@@ -2130,6 +2132,7 @@ nonReserved
     | DORIS_INTERNAL_TABLE_ID
     | DOW
     | DOY
+    | DRY
     | DUAL
     | DYNAMIC
     | E
@@ -2333,6 +2336,7 @@ nonReserved
     | ROTATE
     | ROUTINE
     | RULE
+    | RUN
     | S3
     | SAMPLE
     | SAN
