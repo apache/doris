@@ -29,16 +29,9 @@ import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
-import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -102,27 +95,6 @@ public class InsertUtilsTest {
         List<List<NamedExpression>> rows = normalizedValues.getConstantExprsList();
         Assertions.assertEquals("2", rows.get(0).get(0).child(0).toSql());
         Mockito.verify(table, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
-    }
-
-    @Test
-    public void testVariantInlineValueUsesComputeV2BeforeCommonTypeCoercion() {
-        Column variant = new Column("payload", VariantType.INSTANCE.toCatalogDataType());
-        Alias integerValue = new Alias(new IntegerLiteral(1), "payload");
-        DataType enabledType = InsertUtils.targetTypeForInlineValue(variant, integerValue, true, true);
-        Assertions.assertEquals(VariantType.COMPUTE_V2_INSTANCE, enabledType);
-        Assertions.assertNull(
-                InsertUtils.targetTypeForInlineValue(variant, integerValue, true, false));
-
-        Alias variantValue = new Alias(
-                new Cast(new StringLiteral("{}"), VariantType.INSTANCE), "payload");
-        Assertions.assertNull(
-                InsertUtils.targetTypeForInlineValue(variant, variantValue, true, true));
-
-        Column nested = new Column(
-                "payloads", ArrayType.of(VariantType.INSTANCE).toCatalogDataType());
-        Assertions.assertEquals(
-                ArrayType.of(VariantType.COMPUTE_V2_INSTANCE),
-                InsertUtils.targetTypeForInlineValue(nested, integerValue, true, true));
     }
 
     private String generateString(int length) {

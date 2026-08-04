@@ -479,13 +479,52 @@ public class TypeCoercionUtils {
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
-        } else if (VariantType.isNoOpCastCompatible(input.getDataType(), targetType)
+        } else if (isNoOpCastCompatible(input.getDataType(), targetType)
                 || (input.getDataType().isStringLikeType()) && targetType.isStringLikeType()) {
             return input;
         } else {
             checkCanCastTo(input.getDataType(), targetType);
             return unSafeCast(input, targetType);
         }
+    }
+
+    /** Whether two types share an execution layout and therefore need no runtime cast. */
+    public static boolean isNoOpCastCompatible(DataType left, DataType right) {
+        if (left.equals(right)) {
+            return true;
+        }
+        if (left instanceof VariantType && right instanceof VariantType) {
+            return ((VariantType) left).isCastCompatibleWith((VariantType) right);
+        }
+        if (left instanceof ArrayType && right instanceof ArrayType) {
+            return isNoOpCastCompatible(
+                    ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType());
+        }
+        if (left instanceof MapType && right instanceof MapType) {
+            MapType leftMap = (MapType) left;
+            MapType rightMap = (MapType) right;
+            return isNoOpCastCompatible(leftMap.getKeyType(), rightMap.getKeyType())
+                    && isNoOpCastCompatible(leftMap.getValueType(), rightMap.getValueType());
+        }
+        if (left instanceof StructType && right instanceof StructType) {
+            List<StructField> leftFields = ((StructType) left).getFields();
+            List<StructField> rightFields = ((StructType) right).getFields();
+            if (leftFields.size() != rightFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < leftFields.size(); i++) {
+                StructField leftField = leftFields.get(i);
+                StructField rightField = rightFields.get(i);
+                if (leftField.isNullable() != rightField.isNullable()
+                        || !leftField.getName().equals(rightField.getName())
+                        || !isNoOpCastCompatible(
+                                leftField.getDataType(), rightField.getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     /**

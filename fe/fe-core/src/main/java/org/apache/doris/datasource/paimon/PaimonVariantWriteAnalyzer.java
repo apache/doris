@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.types.VariantType;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** Analysis checks for the V2-only Paimon Variant write protocol. */
 public final class PaimonVariantWriteAnalyzer {
@@ -44,35 +46,57 @@ public final class PaimonVariantWriteAnalyzer {
             List<Column> writeColumns,
             Map<String, NamedExpression> columnToOutput,
             boolean enableVariantV2) throws AnalysisException {
-        boolean targetContainsVariant = writeColumns.stream()
-                .map(column -> writeTarget.getColumnTypes().get(column.getName()))
-                .filter(type -> type != null)
-                .map(DataType::fromCatalogType)
-                .anyMatch(VariantType::containsVariant);
-        if (!targetContainsVariant) {
-            return;
-        }
-        if (!enableVariantV2) {
-            throw new AnalysisException(
-                    "Paimon VARIANT write only supports Variant V2; "
-                            + "set enable_variant_v2=true");
-        }
-
         for (Column column : writeColumns) {
-            NamedExpression output = columnToOutput.get(column.getName());
             Type targetCatalogType = writeTarget.getColumnTypes().get(column.getName());
-            if (output == null || targetCatalogType == null) {
+            if (targetCatalogType == null) {
                 continue;
             }
-            validateVariantConversion(
-                    output.getDataType(),
-                    DataType.fromCatalogType(targetCatalogType),
-                    column.getName());
+            DataType targetType = DataType.fromCatalogType(targetCatalogType);
+            if (!VariantType.containsVariant(targetType)) {
+                continue;
+            }
+            if (!enableVariantV2) {
+                throw new AnalysisException(
+                        "Paimon VARIANT write only supports Variant V2; "
+                                + "set enable_variant_v2=true");
+            }
+            NamedExpression output = columnToOutput.get(column.getName());
+            if (output != null) {
+                validateVariantConversion(output.getDataType(), targetType, column.getName());
+            }
         }
+    }
+
+    /**
+     * Selects the target used before an inline table computes a common type for each VALUES
+     * column. An empty result defers coercion until sink binding can validate the resolved source.
+     */
+    public static Optional<DataType> resolveInlineCoercionTarget(
+            DataType targetType, NamedExpression value, boolean enableVariantV2) {
+        if (!VariantType.containsVariant(targetType)) {
+            return Optional.of(targetType);
+        }
+        if (!enableVariantV2) {
+            return Optional.empty();
+        }
+        try {
+            if (VariantType.containsVariant(value.getDataType())) {
+                // Preserve the source layout so final analysis can distinguish V1 from V2.
+                return Optional.empty();
+            }
+        } catch (UnboundException ignored) {
+            // Expression analysis will resolve this source after the target cast is attached.
+        }
+        // Preserve each non-Variant VALUES row before common-type coercion. Otherwise (1), ('x')
+        // would first become STRING and the integer would be encoded as a Variant string.
+        return Optional.of(VariantType.toComputeV2(targetType));
     }
 
     private static void validateVariantConversion(
             DataType sourceType, DataType targetType, String path) throws AnalysisException {
+        if (!VariantType.containsVariant(targetType)) {
+            return;
+        }
         if (targetType instanceof VariantType) {
             validateVariantSource(sourceType, path);
             return;
@@ -108,9 +132,7 @@ public final class PaimonVariantWriteAnalyzer {
 
         // A shape-changing cast can bypass the matching container branches above. Validate its
         // complete source against the leaf conversion contract before sink coercion adds a cast.
-        if (VariantType.containsVariant(targetType)) {
-            validateVariantSource(sourceType, path);
-        }
+        validateVariantSource(sourceType, path);
     }
 
     private static void validateVariantSource(

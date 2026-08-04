@@ -372,52 +372,6 @@ public class VariantType extends PrimitiveType {
                 || dataType.isIPType();
     }
 
-    /**
-     * Whether converting between two types requires no execution-time cast.
-     *
-     * <p>Variant V2 layout properties describe storage/materialization behavior, but every
-     * compute-only V2 value is the same value/metadata pair. Legacy Variant values still require
-     * exact type equality because their execution layout depends on those properties. Complex
-     * containers recurse so nested V2 leaves get the same treatment.</p>
-     */
-    public static boolean isNoOpCastCompatible(DataType left, DataType right) {
-        if (left.equals(right)) {
-            return true;
-        }
-        if (left instanceof VariantType && right instanceof VariantType) {
-            return ((VariantType) left).isCastCompatibleWith((VariantType) right);
-        }
-        if (left instanceof ArrayType && right instanceof ArrayType) {
-            return isNoOpCastCompatible(
-                    ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType());
-        }
-        if (left instanceof MapType && right instanceof MapType) {
-            MapType leftMap = (MapType) left;
-            MapType rightMap = (MapType) right;
-            return isNoOpCastCompatible(leftMap.getKeyType(), rightMap.getKeyType())
-                    && isNoOpCastCompatible(leftMap.getValueType(), rightMap.getValueType());
-        }
-        if (left instanceof StructType && right instanceof StructType) {
-            List<StructField> leftFields = ((StructType) left).getFields();
-            List<StructField> rightFields = ((StructType) right).getFields();
-            if (leftFields.size() != rightFields.size()) {
-                return false;
-            }
-            for (int i = 0; i < leftFields.size(); i++) {
-                StructField leftField = leftFields.get(i);
-                StructField rightField = rightFields.get(i);
-                if (leftField.isNullable() != rightField.isNullable()
-                        || !leftField.getName().equals(rightField.getName())
-                        || !isNoOpCastCompatible(
-                                leftField.getDataType(), rightField.getDataType())) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        return false;
-    }
-
     /** Selects the compute-only Variant representation in a possibly nested type. */
     public static DataType toComputeV2(DataType dataType) {
         if (dataType instanceof VariantType) {

@@ -176,8 +176,8 @@ public class TypeCoercionUtilsTest {
 
         Assertions.assertTrue(v1.hasCommonExecutionTypeWith(anotherV1));
         Assertions.assertFalse(v1.isCastCompatibleWith(anotherV1));
-        Assertions.assertFalse(VariantType.isNoOpCastCompatible(v1, anotherV1));
-        Assertions.assertTrue(VariantType.isNoOpCastCompatible(v2, anotherV2));
+        Assertions.assertFalse(TypeCoercionUtils.isNoOpCastCompatible(v1, anotherV1));
+        Assertions.assertTrue(TypeCoercionUtils.isNoOpCastCompatible(v2, anotherV2));
 
         Assertions.assertEquals(anotherV1,
                 TypeCoercionUtils.findWiderTypeForTwo(v1, anotherV1, false, true).get());

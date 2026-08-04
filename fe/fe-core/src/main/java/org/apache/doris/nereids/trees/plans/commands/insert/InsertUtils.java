@@ -30,6 +30,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.paimon.PaimonVariantWriteAnalyzer;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -49,7 +50,6 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
@@ -72,7 +72,6 @@ import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
@@ -500,36 +499,13 @@ public class InsertUtils {
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
     }
 
-    static DataType targetTypeForInlineValue(
+    private static DataType targetTypeForInlineValue(
             Column column, NamedExpression value, boolean isPaimonSink, boolean enableVariantV2) {
         DataType targetType = DataType.fromCatalogType(column.getType());
-        if (isPaimonSink && VariantType.containsVariant(targetType)) {
-            // Defer all Paimon Variant coercion to BindSink. This preserves the source shape so
-            // PaimonVariantWriteAnalyzer can reject V1 (including nested V1) before the generic
-            // inline-table coercion reports an unrelated Variant layout cast failure.
-            if (!enableVariantV2) {
-                return null;
-            }
-            Expression source = value instanceof Alias || value instanceof UnboundAlias
-                    ? value.child(0) : value;
-            try {
-                if (VariantType.containsVariant(source.getDataType())) {
-                    // Keep Variant-shaped expressions intact until session-aware analysis. At
-                    // this point parse_to_variant and explicit CAST may still expose their legacy
-                    // signature; wrapping them in compute V2 would either reject a valid V2 value
-                    // prematurely or hide an actual V1 source from the Paimon analyzer.
-                    return null;
-                }
-            } catch (UnboundException ignored) {
-                // The normal expression analysis pass will determine and validate this source.
-            }
-            // Cast non-Variant VALUES before LogicalInlineTable chooses a common column type.
-            // Otherwise heterogeneous inputs such as (1), ('x') are first unified as STRING,
-            // irreversibly changing the integer into a Variant string. Complex targets recurse
-            // so nested Variant leaves receive the same compute-V2 steering.
-            return VariantType.toComputeV2(targetType);
-        }
-        return targetType;
+        return isPaimonSink
+                ? PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                        targetType, value, enableVariantV2).orElse(null)
+                : targetType;
     }
 
     /** buildAnalyzer */

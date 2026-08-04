@@ -176,6 +176,39 @@ void preflight_json(const IColumn& column, size_t start, size_t end,
             });
 }
 
+void validate_paimon_variant_primitive(VariantPrimitiveId primitive_id) {
+    switch (primitive_id) {
+    case VariantPrimitiveId::NULL_VALUE:
+    case VariantPrimitiveId::TRUE_VALUE:
+    case VariantPrimitiveId::FALSE_VALUE:
+    case VariantPrimitiveId::INT8:
+    case VariantPrimitiveId::INT16:
+    case VariantPrimitiveId::INT32:
+    case VariantPrimitiveId::INT64:
+    case VariantPrimitiveId::DOUBLE:
+    case VariantPrimitiveId::DECIMAL4:
+    case VariantPrimitiveId::DECIMAL8:
+    case VariantPrimitiveId::DECIMAL16:
+    case VariantPrimitiveId::DATE:
+    case VariantPrimitiveId::TIMESTAMP_MICROS:
+    case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
+    case VariantPrimitiveId::FLOAT:
+    case VariantPrimitiveId::BINARY:
+    case VariantPrimitiveId::STRING:
+    case VariantPrimitiveId::UUID:
+        return;
+    case VariantPrimitiveId::TIME_NTZ_MICROS:
+    case VariantPrimitiveId::TIMESTAMP_NANOS:
+    case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Paimon does not support Variant primitive id {}",
+                        static_cast<uint8_t>(primitive_id));
+    }
+    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                    "Paimon does not support unknown Variant primitive id {}",
+                    static_cast<uint8_t>(primitive_id));
+}
+
 void validate_paimon_variant_value(VariantRef value, uint32_t depth = 0) {
     if (depth > VARIANT_MAX_NESTING_DEPTH) {
         throw Exception(ErrorCode::CORRUPTION, "Variant value exceeds maximum nesting depth {}",
@@ -189,39 +222,9 @@ void validate_paimon_variant_value(VariantRef value, uint32_t depth = 0) {
     }
 
     switch (value.basic_type()) {
-    case VariantBasicType::PRIMITIVE: {
-        const auto primitive_id = value.primitive_id();
-        switch (primitive_id) {
-        case VariantPrimitiveId::NULL_VALUE:
-        case VariantPrimitiveId::TRUE_VALUE:
-        case VariantPrimitiveId::FALSE_VALUE:
-        case VariantPrimitiveId::INT8:
-        case VariantPrimitiveId::INT16:
-        case VariantPrimitiveId::INT32:
-        case VariantPrimitiveId::INT64:
-        case VariantPrimitiveId::DOUBLE:
-        case VariantPrimitiveId::DECIMAL4:
-        case VariantPrimitiveId::DECIMAL8:
-        case VariantPrimitiveId::DECIMAL16:
-        case VariantPrimitiveId::DATE:
-        case VariantPrimitiveId::TIMESTAMP_MICROS:
-        case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
-        case VariantPrimitiveId::FLOAT:
-        case VariantPrimitiveId::BINARY:
-        case VariantPrimitiveId::STRING:
-        case VariantPrimitiveId::UUID:
-            return;
-        case VariantPrimitiveId::TIME_NTZ_MICROS:
-        case VariantPrimitiveId::TIMESTAMP_NANOS:
-        case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
-            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                            "Paimon does not support Variant primitive id {}",
-                            static_cast<uint8_t>(primitive_id));
-        }
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                        "Paimon does not support unknown Variant primitive id {}",
-                        static_cast<uint8_t>(primitive_id));
-    }
+    case VariantBasicType::PRIMITIVE:
+        validate_paimon_variant_primitive(value.primitive_id());
+        return;
     case VariantBasicType::SHORT_STRING:
         return;
     case VariantBasicType::OBJECT:

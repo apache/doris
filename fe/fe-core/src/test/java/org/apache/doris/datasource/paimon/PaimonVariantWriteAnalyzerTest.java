@@ -19,7 +19,11 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -74,6 +78,27 @@ public class PaimonVariantWriteAnalyzerTest {
                 Collections.singletonList(target.getColumn("payload")),
                 outputs("payload", VariantType.COMPUTE_V2_INSTANCE),
                 true);
+    }
+
+    @Test
+    public void testInlineCoercionPreservesValuesBeforeCommonTypeResolution() {
+        Alias integerValue = new Alias(new IntegerLiteral(1), "payload");
+        Assert.assertEquals(
+                VariantType.COMPUTE_V2_INSTANCE,
+                PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                        VariantType.INSTANCE, integerValue, true).get());
+        Assert.assertFalse(PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                VariantType.INSTANCE, integerValue, false).isPresent());
+
+        Alias variantValue = new Alias(
+                new Cast(new StringLiteral("{}"), VariantType.INSTANCE), "payload");
+        Assert.assertFalse(PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                VariantType.INSTANCE, variantValue, true).isPresent());
+
+        Assert.assertEquals(
+                ArrayType.of(VariantType.COMPUTE_V2_INSTANCE),
+                PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                        ArrayType.of(VariantType.INSTANCE), integerValue, true).get());
     }
 
     @Test
