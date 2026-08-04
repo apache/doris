@@ -55,6 +55,9 @@ struct VariantShreddedTypedValue {
     // retain the decoded leaf without copying it or depending on scanner lifetime.
     ColumnPtr column;
     DataTypePtr type;
+    // Physical identities such as binary annotations cannot use the typed scalar state. In that
+    // case the format reader may return an exact Nullable<VariantV2> leaf instead.
+    ColumnPtr normalized;
 };
 
 // Format readers keep their native shredded representation behind this interface. Core Variant
@@ -78,6 +81,8 @@ public:
                                                                size_t length) const = 0;
     virtual std::shared_ptr<VariantShreddedState> select_indices(
             const uint32_t* indices_begin, const uint32_t* indices_end) const = 0;
+    // False means the state contains only projected leaves and cannot reconstruct root values.
+    virtual bool can_materialize() const = 0;
     // Appends another state only when both format-owned physical layouts have identical semantics.
     // An incompatible source must leave this state unchanged and return false.
     virtual bool try_append(const VariantShreddedState& source) = 0;
