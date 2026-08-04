@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
+import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -680,72 +681,138 @@ public class ExpressionUtils {
     }
 
     /**
-     * canInferNotNullForMarkSlot
+     * infer the null and false behavior of each mark join slot in the predicate.
+     * the predicate is first simplified by TrySimplifyPredicateWithMarkJoinSlot, which
+     * replaces the conjuncts without any mark slot in And with true and in Or with false,
+     * then both the original predicate and the simplified predicate are evaluated.
+     * return a map from mark join slot to a pair:
+     * Pair.first: whether the simplified predicate taking false or null always
+     *             evaluates to a value that is either false or null, i.e. the
+     *             target mark slot's null value can be replaced by false
+     * Pair.second: whether the original predicate taking false or null always
+     *              evaluates to a value that is either false or null, and taking
+     *              true always evaluates to true, i.e. the predicate is equivalent
+     *              to the target mark slot being true, so the mark slot can be
+     *              replaced by the true literal
      */
-    public static boolean canInferNotNullForMarkSlot(Expression predicate, ExpressionRewriteContext ctx) {
-        /*
-         * assume predicate is from LogicalFilter
-         * the idea is replacing each mark join slot with null and false literal then run FoldConstant rule
-         * if the evaluate result are:
-         * 1. all true
-         * 2. all null and false (in logicalFilter, we discard both null and false values)
-         * the mark slot can be non-nullable boolean
-         * and in semi join, we can safely change the mark conjunct to hash conjunct
-         */
-        ImmutableList<Literal> literals = ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
+    public static Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> inferMarkSlotNotNullMap(
+            Expression predicate, ExpressionRewriteContext ctx) {
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
+        Expression simplifiedPredicate = TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(predicate,
+                rewriteContext);
+        Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> result = Maps.newLinkedHashMap();
         List<MarkJoinSlotReference> markJoinSlotReferenceList = new ArrayList<>(
                 (predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
         int maxMarkSlotCount = 4;
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
         if (markSlotSize > 0 && markSlotSize <= maxMarkSlotCount) {
-            Map<Expression, Expression> replaceMap = Maps.newHashMap();
-            boolean meetTrue = false;
-            boolean meetNullOrFalse = false;
-            /*
-             * markSlotSize = 1 -> loopCount = 2 ---- 0, 1
-             * markSlotSize = 2 -> loopCount = 4 ---- 00, 01, 10, 11
-             * markSlotSize = 3 -> loopCount = 8 ---- 000, 001, 010, 011, 100, 101, 110, 111
-             * markSlotSize = 4 -> loopCount = 16 ---- 0000, 0001, ... 1111
-             */
-            int loopCount = 1 << markSlotSize;
-            for (int i = 0; i < loopCount; ++i) {
-                replaceMap.clear();
-                /*
-                 * replace each mark slot with null or false
-                 * literals.get(0) -> NullLiteral(BooleanType.INSTANCE)
-                 * literals.get(1) -> BooleanLiteral.FALSE
-                 */
-                for (int j = 0; j < markSlotSize; ++j) {
-                    replaceMap.put(markJoinSlotReferenceList.get(j), literals.get((i >> j) & 1));
-                }
-                Expression evalResult = FoldConstantRule.evaluate(
-                        ExpressionUtils.replace(predicate, replaceMap),
-                        ctx);
-
-                if (evalResult.equals(BooleanLiteral.TRUE)) {
-                    if (meetNullOrFalse) {
-                        return false;
-                    } else {
-                        meetTrue = true;
-                    }
-                } else if ((isNullOrFalse(evalResult))) {
-                    if (meetTrue) {
-                        return false;
-                    } else {
-                        meetNullOrFalse = true;
-                    }
-                } else {
-                    return false;
-                }
+            for (int targetIdx = 0; targetIdx < markSlotSize; ++targetIdx) {
+                result.put(markJoinSlotReferenceList.get(targetIdx),
+                        inferMarkSlotNotNullForTargetMarkSlot(
+                                predicate, simplifiedPredicate, markJoinSlotReferenceList, targetIdx, ctx));
             }
-            return true;
         }
-        return false;
+        return result;
     }
 
-    private static boolean isNullOrFalse(Expression expression) {
-        return expression.isNullLiteral() || expression.equals(BooleanLiteral.FALSE);
+    /**
+     * infer the null and false behavior of the target mark slot
+     * replace the target slot with true, false and null, and replace other mark slots with
+     * true, false and null, and evaluate both the original predicate and the simplified
+     * predicate for every combination of other mark slots' values
+     * return a pair:
+     * Pair.first: whether the simplified predicate taking false or null always evaluates to
+     *             a value that is either false or null
+     * Pair.second: whether the original predicate taking false or null always evaluates to
+     *              a value that is either false or null, and taking true always evaluates
+     *              to true
+     */
+    private static Pair<Boolean, Boolean> inferMarkSlotNotNullForTargetMarkSlot(Expression predicate,
+            Expression simplifiedPredicate,
+            List<MarkJoinSlotReference> markJoinSlotReferenceList, int targetIdx, ExpressionRewriteContext ctx) {
+        int markSlotSize = markJoinSlotReferenceList.size();
+        /*
+         * target slot enumerates true, false and null, other mark slots enumerate true, false and null
+         * markSlotSize = 1 -> otherMarkSlotCount = 0 -> loopCount = 1
+         * markSlotSize = 2 -> otherMarkSlotCount = 1 -> loopCount = 3
+         * markSlotSize = 3 -> otherMarkSlotCount = 2 -> loopCount = 9
+         * markSlotSize = 4 -> otherMarkSlotCount = 3 -> loopCount = 27
+         */
+        int otherMarkSlotCount = markSlotSize - 1;
+        int loopCount = 1;
+        for (int i = 0; i < otherMarkSlotCount; ++i) {
+            loopCount *= 3;
+        }
+        ImmutableList<Literal> otherLiterals = ImmutableList.of(
+                BooleanLiteral.TRUE, BooleanLiteral.FALSE, NullLiteral.BOOLEAN_INSTANCE);
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        boolean sameResultForFalseAndNull = true;
+        boolean simplifiedForFalseAndNull = true;
+        boolean predicateTrueForTrue = true;
+        for (int i = 0; i < loopCount; ++i) {
+            replaceMap.clear();
+            /*
+             * replace other mark slots with true, false or null
+             * otherLiterals.get(0) -> BooleanLiteral.TRUE
+             * otherLiterals.get(1) -> BooleanLiteral.FALSE
+             * otherLiterals.get(2) -> NullLiteral(BooleanType.INSTANCE)
+             */
+            int code = i;
+            for (int j = 0; j < markSlotSize; ++j) {
+                if (j == targetIdx) {
+                    continue;
+                }
+                replaceMap.put(markJoinSlotReferenceList.get(j), otherLiterals.get(code % 3));
+                code /= 3;
+            }
+            // evaluate the original predicate with target slot taking true
+            replaceMap.put(markJoinSlotReferenceList.get(targetIdx), BooleanLiteral.TRUE);
+            Expression evalResultWithTrue = FoldConstantRule.evaluate(
+                    ExpressionUtils.replace(predicate, replaceMap), ctx);
+            // evaluate the original predicate with target slot taking false
+            replaceMap.put(markJoinSlotReferenceList.get(targetIdx), BooleanLiteral.FALSE);
+            Expression evalResultWithFalse = FoldConstantRule.evaluate(
+                    ExpressionUtils.replace(predicate, replaceMap), ctx);
+            // evaluate the simplified predicate with target slot taking false
+            Expression simplifiedEvalResultWithFalse = FoldConstantRule.evaluate(
+                    ExpressionUtils.replace(simplifiedPredicate, replaceMap), ctx);
+            // evaluate the original predicate with target slot taking null
+            replaceMap.put(markJoinSlotReferenceList.get(targetIdx), NullLiteral.BOOLEAN_INSTANCE);
+            Expression evalResultWithNull = FoldConstantRule.evaluate(
+                    ExpressionUtils.replace(predicate, replaceMap), ctx);
+            // evaluate the simplified predicate with target slot taking null
+            Expression simplifiedEvalResultWithNull = FoldConstantRule.evaluate(
+                    ExpressionUtils.replace(simplifiedPredicate, replaceMap), ctx);
+            /*
+             * if the original predicate taking false or null evaluates to neither false nor null,
+             * the target slot cannot be inferred to make the predicate false or null
+             */
+            if (!isFalseOrNull(evalResultWithFalse) || !isFalseOrNull(evalResultWithNull)) {
+                sameResultForFalseAndNull = false;
+            }
+
+            /*
+             * if the simplified predicate taking false or null evaluates to neither false nor null,
+             * the target slot's null value cannot be replaced by false
+             */
+            if (!isFalseOrNull(simplifiedEvalResultWithFalse) || !isFalseOrNull(simplifiedEvalResultWithNull)) {
+                simplifiedForFalseAndNull = false;
+            }
+
+            /*
+             * if the original predicate taking true does not evaluate to true,
+             * the target slot cannot be inferred to make the predicate true
+             */
+            if (!BooleanLiteral.TRUE.equals(evalResultWithTrue)) {
+                predicateTrueForTrue = false;
+            }
+        }
+        return Pair.of(simplifiedForFalseAndNull, sameResultForFalseAndNull && predicateTrueForTrue);
+    }
+
+    private static boolean isFalseOrNull(Expression expression) {
+        return expression.isNullLiteral() || BooleanLiteral.FALSE.equals(expression);
     }
 
     /**

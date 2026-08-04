@@ -24,7 +24,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
@@ -64,6 +63,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -118,20 +118,16 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                 ctx.statementContext, shouldOutputMarkJoinSlot.get(i));
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(oldConjuncts.get(i), context);
-                        // TODO: The way to optimize null aware mark join is not right.
-                        //   remove it temporary until we refactor it.
-                        // ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
-                        // boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
-                        //                 ? ExpressionUtils.canInferNotNullForMarkSlot(
-                        //                         TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct,
-                        //                                 rewriteContext), rewriteContext)
-                        //                 : false;
-                        boolean isMarkSlotNotNull = false;
+                        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
+                        Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
+                                simplifyConjunctWithMarkJoinSlot(conjunct, rewriteContext);
+                        conjunct = simplifyResult.first;
+                        Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo = simplifyResult.second;
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(subqueryExprs.stream()
                                     .collect(ImmutableList.toImmutableList()), tmpPlan,
                                 context.getSubqueryToMarkJoinSlot(),
                                 ctx.cascadesContext,
-                                Optional.of(conjunct), isMarkSlotNotNull);
+                                Optional.of(conjunct), markSlotsInfo);
                         applyPlan = result.first;
                         tmpPlan = applyPlan;
                         newConjuncts.add(result.second.isPresent() ? result.second.get() : conjunct);
@@ -173,7 +169,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     Pair<LogicalPlan, Optional<Expression>> result =
                             subqueryToApply(Utils.fastToImmutableList(subqueryExprs), childPlan,
                                     context.getSubqueryToMarkJoinSlot(), ctx.cascadesContext,
-                                    Optional.of(newProject), false);
+                                    Optional.of(newProject), Maps.newHashMap());
                     applyPlan = result.first;
                     childPlan = applyPlan;
                     newProjects.add(
@@ -237,28 +233,17 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         ReplaceSubquery replaceSubquery = new ReplaceSubquery(ctx.statementContext, true);
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(subqueryConjuncts.get(i), context);
-                        /*
-                        * the idea is replacing each mark join slot with null and false literal
-                        * then run FoldConstant rule, if the evaluate result are:
-                        * 1. all true
-                        * 2. all null and false (in logicalFilter, we discard both null and false values)
-                        * the mark slot can be non-nullable boolean
-                        * we pass this info to LogicalApply. And in InApplyToJoin rule
-                        * if it's semi join with non-null mark slot
-                        * we can safely change the mark conjunct to hash conjunct
-                        */
                         ExpressionRewriteContext rewriteContext
                                 = new ExpressionRewriteContext(join, ctx.cascadesContext);
-                        boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
-                                ? ExpressionUtils.canInferNotNullForMarkSlot(
-                                    TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct, rewriteContext),
-                                    rewriteContext)
-                                : false;
+                        Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
+                                simplifyConjunctWithMarkJoinSlot(conjunct, rewriteContext);
+                        conjunct = simplifyResult.first;
+                        Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo = simplifyResult.second;
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(
                                 subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
                                 relatedInfoList.get(i) == RelatedInfo.RelatedToLeft ? leftChildPlan : rightChildPlan,
                                 context.getSubqueryToMarkJoinSlot(),
-                                ctx.cascadesContext, Optional.of(conjunct), isMarkSlotNotNull);
+                                ctx.cascadesContext, Optional.of(conjunct), markSlotsInfo);
                         applyPlan = result.first;
                         if (relatedInfoList.get(i) == RelatedInfo.RelatedToLeft) {
                             leftChildPlan = applyPlan;
@@ -355,7 +340,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     private Pair<LogicalPlan, Optional<Expression>> subqueryToApply(
             List<SubqueryExpr> subqueryExprs, LogicalPlan childPlan,
             Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
-            CascadesContext ctx, Optional<Expression> correlatedOuterExpr, boolean isMarkJoinSlotNotNull) {
+            CascadesContext ctx, Optional<Expression> correlatedOuterExpr,
+            Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo) {
         Pair<LogicalPlan, Optional<Expression>> tmpPlan = Pair.of(childPlan, correlatedOuterExpr);
         for (int i = 0; i < subqueryExprs.size(); ++i) {
             SubqueryExpr subqueryExpr = subqueryExprs.get(i);
@@ -368,7 +354,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
             if (!ctx.subqueryIsAnalyzed(subqueryExpr)) {
                 tmpPlan = addApply(subqueryExpr, tmpPlan.first,
-                    subqueryToMarkJoinSlot, ctx, tmpPlan.second, isMarkJoinSlotNotNull);
+                    subqueryToMarkJoinSlot, ctx, tmpPlan.second, markSlotsInfo);
             }
         }
         return tmpPlan;
@@ -385,7 +371,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
     private Pair<LogicalPlan, Optional<Expression>> addApply(SubqueryExpr subquery, LogicalPlan childPlan,
             Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
-            CascadesContext ctx, Optional<Expression> correlatedOuterExpr, boolean isMarkJoinSlotNotNull) {
+            CascadesContext ctx, Optional<Expression> correlatedOuterExpr,
+            Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo) {
         ctx.setSubqueryExprIsAnalyzed(subquery, true);
         Optional<MarkJoinSlotReference> markJoinSlot = subqueryToMarkJoinSlot.get(subquery);
         boolean needAddScalarSubqueryOutputToProjects = isScalarSubqueryOutputUsedInOuterScope(
@@ -462,6 +449,14 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         } else {
             throw new AnalysisException(String.format("Unsupported subquery : %s", subquery.toString()));
         }
+        boolean isMarkJoinSlotNotNull = false;
+        if (markJoinSlot.isPresent() && markSlotsInfo.containsKey(markJoinSlot.get())) {
+            Pair<Boolean, Boolean> info = markSlotsInfo.get(markJoinSlot.get());
+            isMarkJoinSlotNotNull = info.first;
+            if (info.second) {
+                markJoinSlot = Optional.empty();
+            }
+        }
         LogicalApply newApply = new LogicalApply(
                 subquery.getCorrelateSlots(),
                 subQueryType, isNot, compareExpr, subquery.getTypeCoercionExpr(), Optional.empty(),
@@ -501,6 +496,39 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         }
 
         return Pair.of(logicalProject, newCorrelatedOuterExpr);
+    }
+
+    /**
+     * infer the null and false behavior of each mark join slot in the conjunct,
+     * replace the mark slots whose predicate is equivalent to being true with the
+     * true literal, and return the rewritten conjunct together with the mark slots info.
+     * the idea is replacing each mark join slot with null and false literal
+     * then run FoldConstant rule, if the evaluate result are:
+     * 1. all true
+     * 2. all null and false (in logicalFilter, we discard both null and false values)
+     * the mark slot can be non-nullable boolean
+     * we pass this info to LogicalApply. And in InApplyToJoin rule
+     * if it's semi join with non-null mark slot
+     * we can safely change the mark conjunct to hash conjunct
+     */
+    private Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyConjunctWithMarkJoinSlot(
+            Expression conjunct, ExpressionRewriteContext rewriteContext) {
+        Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo;
+        if (conjunct.containsType(MarkJoinSlotReference.class)) {
+            markSlotsInfo = ExpressionUtils.inferMarkSlotNotNullMap(conjunct, rewriteContext);
+        } else {
+            markSlotsInfo = Maps.newHashMap();
+        }
+        Map<MarkJoinSlotReference, BooleanLiteral> replaceMap = Maps.newHashMap();
+        for (Map.Entry<MarkJoinSlotReference, Pair<Boolean, Boolean>> entry : markSlotsInfo.entrySet()) {
+            if (entry.getValue().second) {
+                replaceMap.put(entry.getKey(), BooleanLiteral.TRUE);
+            }
+        }
+        if (!replaceMap.isEmpty()) {
+            conjunct = ExpressionUtils.replace(conjunct, replaceMap);
+        }
+        return Pair.of(conjunct, markSlotsInfo);
     }
 
     /**
