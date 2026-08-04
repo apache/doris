@@ -480,9 +480,9 @@ Status JniTableReader::_open_jni_scanner() {
 
 void JniTableReader::_apply_common_scanner_params() {
     if (_runtime_state != nullptr) {
-        // A connector-specific zone must win over the query default. Hudi uses this to keep JNI
-        // and native file slices on the same catalog-level INT96 interpretation.
-        _scanner_params.try_emplace("time_zone", _runtime_state->timezone());
+        // time_zone is query-scoped: overwrite copied catalog properties so JNI materialization
+        // and predicate evaluation always use the same session timezone.
+        _scanner_params["time_zone"] = _runtime_state->timezone();
     }
 }
 

@@ -168,6 +168,25 @@ TEST(JniTableReaderTest, GenericConnectorUsesQuerySessionTimezone) {
     EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
 }
 
+TEST(JniTableReaderTest, CatalogTimezoneCannotOverrideQuerySessionTimezone) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+    FakeJniTableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+    reader._scanner_params["time_zone"] = "UTC";
+
+    reader._apply_common_scanner_params();
+
+    EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
+}
+
 TEST(HudiJniReaderTest, CatalogInt96TimezoneDoesNotOverrideSessionTimezone) {
     TFileScanRangeParams scan_params;
     scan_params.__set_hive_parquet_time_zone("Asia/Shanghai");
