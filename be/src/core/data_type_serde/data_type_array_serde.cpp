@@ -358,7 +358,7 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
                                            arrow_array->type()->name());
         }
         if (config::enable_arrow_input_validation) {
-            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_large_list_offsets(*concrete_array, start, end);
         }
         return read_list(concrete_array);
     }

@@ -210,6 +210,10 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
             return Status::InvalidArgument("Expected Arrow Date64Array, got {}",
                                            arrow_array->type()->name());
         }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_fixed_width_buffer(*concrete_array, sizeof(arrow::Date64Array::value_type));
+        }
         for (int64_t value_i = start; value_i < end; ++value_i) {
             if (concrete_array->IsNull(value_i)) {
                 col_data.emplace_back(DateV2Value<DateV2ValueType>());

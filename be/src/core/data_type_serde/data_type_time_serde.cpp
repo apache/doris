@@ -22,9 +22,11 @@
 
 #include <limits>
 
+#include "common/config.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/value/time_value.h"
@@ -287,12 +289,18 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
 Status DataTypeTimeV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone&) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_array_range(*arrow_array, start, end);
+    }
     auto& data = assert_cast<ColumnTimeV2&>(column).get_data();
     if (arrow_array->type_id() == arrow::Type::TIME32) {
         const auto* time_array = dynamic_cast<const arrow::Time32Array*>(arrow_array);
         if (time_array == nullptr) {
             return Status::InvalidArgument("Expected Arrow Time32Array, got {}",
                                            arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_fixed_width_buffer(*time_array, sizeof(arrow::Time32Array::value_type));
         }
         const auto type = std::static_pointer_cast<arrow::Time32Type>(arrow_array->type());
         int64_t micros_per_unit = 0;
@@ -330,6 +338,9 @@ Status DataTypeTimeV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
         if (time_array == nullptr) {
             return Status::InvalidArgument("Expected Arrow Time64Array, got {}",
                                            arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_fixed_width_buffer(*time_array, sizeof(arrow::Time64Array::value_type));
         }
         const auto type = std::static_pointer_cast<arrow::Time64Type>(arrow_array->type());
         int64_t units_per_day = 0;

@@ -378,7 +378,7 @@ Status DataTypeTimeStampTzSerDe::read_column_from_arrow(IColumn& column,
                                                         int64_t start, int64_t end,
                                                         const cctz::time_zone& ctz) const {
     if (config::enable_arrow_input_validation) {
-        check_arrow_no_offset(*arrow_array);
+        check_arrow_array_range(*arrow_array, start, end);
     }
     if (arrow_array->type()->id() != arrow::Type::TIMESTAMP) {
         LOG(WARNING) << "not support convert to timestamptz from arrow type:"
@@ -387,6 +387,9 @@ Status DataTypeTimeStampTzSerDe::read_column_from_arrow(IColumn& column,
                                      arrow_array->type()->id());
     }
     const auto* concrete_array = assert_cast<const arrow::TimestampArray*>(arrow_array);
+    if (config::enable_arrow_input_validation) {
+        check_arrow_fixed_width_buffer(*concrete_array, sizeof(arrow::TimestampArray::value_type));
+    }
     const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
     // Scale each unit to the microseconds the column stores. NANO is divided rather than refused:
     // sub-microsecond precision is beyond what any Doris datetime type keeps, and rejecting the
