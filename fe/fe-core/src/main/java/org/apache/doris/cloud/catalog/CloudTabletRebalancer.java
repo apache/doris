@@ -553,7 +553,11 @@ public class CloudTabletRebalancer extends MasterDaemon {
             indexBalanced = true;
             tableBalanced = true;
 
-            performBalancing();
+            try {
+                performBalancing();
+            } finally {
+                releaseSchedulingIndexes();
+            }
 
             checkDecommissionState(clusterToBes);
             inited = true;
@@ -673,6 +677,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 globalBalance();
             }
         }
+    }
+
+    private void releaseSchedulingIndexes() {
+        // These indexes are no longer used after balancing. Replace their top-level maps instead of clearing
+        // every entry so the complete tablet membership graphs can become collectible without an O(N) traversal.
+        partitionToTablets = new ConcurrentHashMap<>();
+        futurePartitionToTablets = new ConcurrentHashMap<>();
+        beToTabletsInTable = new ConcurrentHashMap<>();
+        futureBeToTabletsInTable = new ConcurrentHashMap<>();
     }
 
     private boolean shouldForceInactivePhase(boolean activeBalanced) {

@@ -705,6 +705,66 @@ public class CloudTabletRebalancerTest {
         Assertions.assertEquals(List.of(0, 0), rebalancer.globalTabletSetInitialCapacities);
     }
 
+    @Test
+    public void testReleaseSchedulingIndexesKeepsGlobalRoutesAndAllowsNextRebuild() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long srcBe = 10_001L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        RouteMaps current = new RouteMaps();
+        RouteMaps future = new RouteMaps();
+        initializeRouteMaps(rebalancer, current, future, srcBe, tableId, partitionId, indexId, tabletId);
+
+        invokePrivate(rebalancer, "releaseSchedulingIndexes", new Class<?>[] {}, new Object[] {});
+
+        ConcurrentHashMap<Long, Set<Long>> currentGlobal = getField(rebalancer, "beToTabletsGlobal");
+        ConcurrentHashMap<Long, Set<Long>> futureGlobal = getField(rebalancer, "futureBeToTabletsGlobal");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> releasedCurrentByTable =
+                getField(rebalancer, "beToTabletsInTable");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> releasedFutureByTable =
+                getField(rebalancer, "futureBeToTabletsInTable");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                releasedCurrentByPartition = getField(rebalancer, "partitionToTablets");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                releasedFutureByPartition = getField(rebalancer, "futurePartitionToTablets");
+        Assertions.assertSame(current.global, currentGlobal);
+        Assertions.assertSame(future.global, futureGlobal);
+        Assertions.assertNotSame(current.byTable, releasedCurrentByTable);
+        Assertions.assertNotSame(future.byTable, releasedFutureByTable);
+        Assertions.assertNotSame(current.byPartition, releasedCurrentByPartition);
+        Assertions.assertNotSame(future.byPartition, releasedFutureByPartition);
+        Assertions.assertTrue(releasedCurrentByTable.isEmpty());
+        Assertions.assertTrue(releasedFutureByTable.isEmpty());
+        Assertions.assertTrue(releasedCurrentByPartition.isEmpty());
+        Assertions.assertTrue(releasedFutureByPartition.isEmpty());
+
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(srcBe)));
+        setField(rebalancer, "allBes", Set.of(srcBe));
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe)) {
+            rebalancer.statRouteInfo();
+        }
+
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> rebuiltCurrentByTable =
+                getField(rebalancer, "beToTabletsInTable");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> rebuiltFutureByTable =
+                getField(rebalancer, "futureBeToTabletsInTable");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                rebuiltCurrentByPartition = getField(rebalancer, "partitionToTablets");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                rebuiltFutureByPartition = getField(rebalancer, "futurePartitionToTablets");
+        Assertions.assertEquals(Set.of(tabletId), rebuiltCurrentByTable.get(tableId).get(srcBe));
+        Assertions.assertEquals(Set.of(tabletId), rebuiltFutureByTable.get(tableId).get(srcBe));
+        Assertions.assertEquals(Set.of(tabletId),
+                rebuiltCurrentByPartition.get(partitionId).get(indexId).get(srcBe));
+        Assertions.assertEquals(Set.of(tabletId),
+                rebuiltFutureByPartition.get(partitionId).get(indexId).get(srcBe));
+    }
+
     private static void initializeRouteMaps(TestRebalancer rebalancer, RouteMaps current, RouteMaps future,
             Long srcBe, Long tableId, Long partitionId, Long indexId, Long tabletId) throws Exception {
         rebalancer.fillBeToTablets(srcBe, tableId, partitionId, indexId, tabletId,
