@@ -2365,7 +2365,7 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         // External query (flink/spark read tablets) not need to report to FE.
         if (req.done) {
             // Without a coordinator acknowledgement no external-write file may escape rollback.
-            req.runtime_state->finalize_iceberg_report_cleanup(false);
+            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
         }
         return;
     }
@@ -2388,7 +2388,7 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
                 PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
         if (req.done) {
-            req.runtime_state->finalize_iceberg_report_cleanup(false);
+            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
         }
         return;
     }
@@ -2562,7 +2562,7 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             params, req.runtime_state->coordinator_thrift_message_limit());
     if (!report_size_status.ok()) {
         if (req.done) {
-            req.runtime_state->finalize_iceberg_report_cleanup(false);
+            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
         }
         req.cancel_fn(report_size_status);
         return;
@@ -2570,6 +2570,7 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
 
     TReportExecStatusResult res;
     Status rpc_status;
+    bool report_outcome_ambiguous = false;
 
     VLOG_DEBUG << "reportExecStatus params is "
                << apache::thrift::ThriftDebugString(params).c_str();
@@ -2582,14 +2583,18 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         try {
             (*coord)->reportExecStatus(res, params);
         } catch (apache::thrift::transport::TTransportException& e) {
+            report_outcome_ambiguous = true;
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
             rpc_status = coord->reopen();
 
             if (!rpc_status.ok()) {
+                // The first request may have been consumed; keep files until metadata or orphan cleanup wins.
+                report_outcome_ambiguous = true;
                 if (req.done) {
-                    req.runtime_state->finalize_iceberg_report_cleanup(false);
+                    req.runtime_state->finalize_iceberg_report_cleanup(
+                            IcebergReportOutcome::AMBIGUOUS);
                 }
                 req.cancel_fn(rpc_status);
                 return;
@@ -2599,23 +2604,34 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
 
         rpc_status = Status::create<false>(res.status);
     } catch (apache::thrift::TException& e) {
+        report_outcome_ambiguous = true;
         rpc_status = Status::InternalError("ReportExecStatus() to {} failed: {}",
                                            PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
+    const bool requires_external_file_ack = params.__isset.iceberg_commit_datas;
+    if (rpc_status.ok() && requires_external_file_ack &&
+        (!res.__isset.external_file_commit_data_accepted ||
+         !res.external_file_commit_data_accepted)) {
+        rpc_status = Status::InternalError(
+                "Coordinator did not accept ownership of the external-file report");
+    }
+
     if (!rpc_status.ok()) {
-        if (req.done) {
-            req.runtime_state->finalize_iceberg_report_cleanup(false);
+        if (req.done && !report_outcome_ambiguous) {
+            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+        } else if (req.done) {
+            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::AMBIGUOUS);
         }
         LOG_INFO("Going to cancel query {} since report exec status got rpc failed: {}",
                  print_id(req.query_id), rpc_status.to_string());
         req.cancel_fn(rpc_status);
     } else if (req.done && req.status.ok()) {
         // Files remain rollback-owned until the coordinator has acknowledged the final metadata report.
-        req.runtime_state->finalize_iceberg_report_cleanup(true);
+        req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::ACKNOWLEDGED);
     } else if (req.done) {
         // An acknowledged error report confirms that FE will not publish this write's files.
-        req.runtime_state->finalize_iceberg_report_cleanup(false);
+        req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
     }
 }
 
@@ -2672,7 +2688,7 @@ Status PipelineFragmentContext::send_report(bool done) {
             });
     if (!submit_status.ok() && req.done) {
         // A rejected final callback can never transfer ownership to the coordinator.
-        req.runtime_state->finalize_iceberg_report_cleanup(false);
+        req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
     }
     return submit_status;
 }

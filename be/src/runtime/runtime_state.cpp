@@ -100,12 +100,16 @@ void RuntimeState::add_failed_iceberg_report_cleanup(std::function<void()> clean
     _iceberg_commit_data_budget->failed_report_cleanups.emplace_back(std::move(cleanup));
 }
 
-void RuntimeState::finalize_iceberg_report_cleanup(bool report_acknowledged) {
+void RuntimeState::finalize_iceberg_report_cleanup(IcebergReportOutcome outcome) {
     std::vector<std::function<void()>> cleanups;
     {
         std::lock_guard lock(_iceberg_commit_data_budget->mutex);
-        if (report_acknowledged) {
+        if (outcome == IcebergReportOutcome::ACKNOWLEDGED) {
             _iceberg_commit_data_budget->failed_report_cleanups.clear();
+            return;
+        }
+        if (outcome == IcebergReportOutcome::AMBIGUOUS) {
+            // A consumed request with a lost ACK may already be publishing these files.
             return;
         }
         cleanups.swap(_iceberg_commit_data_budget->failed_report_cleanups);

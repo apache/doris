@@ -23,6 +23,8 @@
 
 namespace doris {
 
+class Block;
+
 struct IcebergSorterReserveMemory {
     size_t retained_growth = 0;
     size_t transient_workspace = 0;
@@ -50,6 +52,8 @@ inline size_t iceberg_reserve_size(
     return std::min(std::numeric_limits<size_t>::max() - sorter_reserve, incoming_block_bytes) +
            sorter_reserve;
 }
+
+size_t iceberg_cold_writer_reserve_size(const Block& block, size_t writer_workspace_bytes);
 
 inline size_t iceberg_spill_merge_workspace(size_t spill_file_count, size_t spill_buffer_bytes,
                                             size_t merge_limit_bytes) {

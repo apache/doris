@@ -501,7 +501,7 @@ class AzureObjStorageExtensionTest {
     }
 
     @Test
-    void completeMultipartUpload_reacquiresExpiredLeaseBeforePublication() throws Exception {
+    void completeMultipartUpload_expiredLeaseFailsClosedAfterCollidingWriterStagesAndReleases() throws Exception {
         BlockBlobClient blockClient = Mockito.mock(BlockBlobClient.class);
         BlobClient blobClient = Mockito.mock(BlobClient.class);
         Mockito.when(blobClient.getBlockBlobClient()).thenReturn(blockClient);
@@ -509,21 +509,35 @@ class AzureObjStorageExtensionTest {
         Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(blobClient);
         BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
         Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
-        BlobLeaseClient leaseClient = Mockito.mock(BlobLeaseClient.class);
+        BlobLeaseClient staleLeaseClient = Mockito.mock(BlobLeaseClient.class);
+        BlobLeaseClient competingLeaseClient = Mockito.mock(BlobLeaseClient.class);
         BlobStorageException expiredLease = Mockito.mock(BlobStorageException.class);
         Mockito.when(expiredLease.getStatusCode()).thenReturn(409);
-        Mockito.when(leaseClient.renewLease()).thenThrow(expiredLease);
-        Mockito.when(leaseClient.acquireLease(60)).thenReturn("lease-id");
-        TestableAzureObjStorage storage =
-                new TestableAzureObjStorage(buildBasicProps(), serviceClient, leaseClient);
+        Mockito.when(staleLeaseClient.renewLease()).thenThrow(expiredLease);
+        TestableAzureObjStorage staleStorage =
+                new TestableAzureObjStorage(buildBasicProps(), serviceClient, staleLeaseClient);
+        TestableAzureObjStorage competingStorage =
+                new TestableAzureObjStorage(buildBasicProps(), serviceClient, competingLeaseClient);
+        String staleUpload = "doris-azure-lease-v1:09492e3d-e231-4ed9-bf84-b6fc772cda54";
+        String competingUpload = "doris-azure-lease-v1:06996d15-1c2e-4ddd-8853-43816ea84a07";
+        String collidingBlockId = AzureObjStorage.multipartBlockId(staleUpload, 1);
 
-        storage.completeMultipartUpload(
+        competingStorage.uploadPart(
                 "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
-                "doris-azure-lease-v1:lease-id",
-                Collections.singletonList(new UploadPartResult(1, "AQAAAA==")));
+                competingUpload, 1, RequestBody.of(new ByteArrayInputStream(new byte[]{2}), 1));
+        competingStorage.abortMultipartUpload(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob", competingUpload);
 
-        Mockito.verify(leaseClient).acquireLease(60);
-        Mockito.verify(blockClient).commitBlockListWithResponse(
+        Assertions.assertThrows(IOException.class, () -> staleStorage.completeMultipartUpload(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
+                staleUpload, Collections.singletonList(new UploadPartResult(1, collidingBlockId))));
+
+        Mockito.verify(blockClient).stageBlockWithResponse(Mockito.eq(collidingBlockId),
+                Mockito.any(java.io.InputStream.class), Mockito.eq(1L), Mockito.isNull(),
+                Mockito.eq("06996d15-1c2e-4ddd-8853-43816ea84a07"), Mockito.isNull(), Mockito.any());
+        Mockito.verify(competingLeaseClient).releaseLease();
+        Mockito.verify(staleLeaseClient, Mockito.never()).acquireLease(Mockito.anyInt());
+        Mockito.verify(blockClient, Mockito.never()).commitBlockListWithResponse(
                 Mockito.any(BlockBlobCommitBlockListOptions.class), Mockito.isNull(), Mockito.any());
     }
 

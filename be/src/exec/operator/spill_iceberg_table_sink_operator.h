@@ -43,7 +43,7 @@ public:
     Status open(RuntimeState* state) override;
 
     bool is_blockable() const override;
-    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos, const Block* block);
     Status revoke_memory(RuntimeState* state);
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
@@ -67,7 +67,7 @@ public:
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
-    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos, const Block* block) override;
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 

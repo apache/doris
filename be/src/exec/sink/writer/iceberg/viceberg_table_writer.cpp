@@ -56,6 +56,13 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _operator_profile = profile;
 
+    if (!state->query_options().__isset.supports_external_file_report_ack ||
+        !state->query_options().supports_external_file_report_ack) {
+        // Do not create files unless the coordinator can make ownership transfer retry-safe.
+        return Status::NotSupported(
+                "Iceberg writes require a coordinator that acknowledges external-file reports");
+    }
+
     // Get target file size from query options
     // If value is 0 or not set, use config::iceberg_sink_max_file_size
     _target_file_size_bytes = config::iceberg_sink_max_file_size;

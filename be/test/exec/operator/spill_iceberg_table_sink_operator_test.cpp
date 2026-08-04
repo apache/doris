@@ -19,7 +19,11 @@
 
 #include <deque>
 #include <memory>
+#include <string>
 
+#include "core/block/block.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type_string.h"
 #include "exec/operator/iceberg_sorter_reserve_memory.h"
 #include "exec/sink/writer/async_writer_queue_admission.h"
 #include "exec/sink/writer/hive_multipart_compatibility.h"
@@ -45,6 +49,18 @@ TEST(SpillIcebergTableSinkOperatorTest, ReservesIncomingBlockBeforeAnyPartitionW
     std::vector<IcebergSorterReserveMemory> no_published_sorters;
 
     EXPECT_EQ(6 * 1024 * 1024, iceberg_reserve_size(no_published_sorters, 6 * 1024 * 1024));
+}
+
+TEST(SpillIcebergTableSinkOperatorTest, ColdWriterReserveUsesFirstBlockLargerThanOperatorFloor) {
+    constexpr size_t operator_floor = 32 * 1024 * 1024;
+    auto strings = ColumnString::create();
+    std::string payload(40 * 1024 * 1024, 'x');
+    strings->insert_data(payload.data(), payload.size());
+    Block block;
+    block.insert({std::move(strings), std::make_shared<DataTypeString>(), "payload"});
+
+    ASSERT_GT(block.allocated_bytes(), operator_floor);
+    EXPECT_GT(iceberg_cold_writer_reserve_size(block, operator_floor), 2 * block.allocated_bytes());
 }
 
 TEST(SpillIcebergTableSinkOperatorTest, ReservesAllMergeInputsAndOutputAtEos) {

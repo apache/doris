@@ -5379,6 +5379,7 @@ public class SessionVariable implements Serializable, Writable {
         TQueryOptions tResult = new TQueryOptions();
         // Fragment reports are decoded by FE, whose limit can be lower than a rolling-upgrade BE's.
         tResult.setCoordinatorThriftMaxMessageSize(Config.thrift_max_message_size);
+        tResult.setSupportsExternalFileReportAck(true);
         tResult.setMemLimit(maxExecMemByte);
         tResult.setMaxScanMemRatio(maxScanMemRatio);
         tResult.setEnableAdaptiveScan(enableAdaptiveScan);

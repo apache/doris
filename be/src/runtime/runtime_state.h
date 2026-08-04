@@ -85,6 +85,8 @@ private:
     std::vector<std::function<void()>> failed_report_cleanups;
 };
 
+enum class IcebergReportOutcome { ACKNOWLEDGED, REJECTED, AMBIGUOUS };
+
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
 class RuntimeState {
@@ -545,7 +547,7 @@ public:
 
     void add_failed_iceberg_report_cleanup(std::function<void()> cleanup);
 
-    void finalize_iceberg_report_cleanup(bool report_acknowledged);
+    void finalize_iceberg_report_cleanup(IcebergReportOutcome outcome);
 
     void set_iceberg_commit_data_budget(std::shared_ptr<IcebergCommitDataBudget> budget) {
         _iceberg_commit_data_budget = std::move(budget);

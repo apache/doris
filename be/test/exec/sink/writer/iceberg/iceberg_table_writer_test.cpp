@@ -24,6 +24,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -85,6 +86,17 @@ protected:
         writer->_publish_active_writers();
     }
 };
+
+TEST_F(VIcebergTableWriterTest, RejectsCoordinatorWithoutExternalFileReportAck) {
+    VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
+    RuntimeState state;
+    RuntimeProfile profile("test");
+
+    Status status = writer.open(&state, &profile);
+
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    EXPECT_NE(std::string::npos, status.to_string().find("acknowledges external-file reports"));
+}
 
 TEST_F(VIcebergTableWriterTest, SelectBlockUsesRowPermutation) {
     VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);

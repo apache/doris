@@ -77,8 +77,6 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
 
     private static final int HTTP_NOT_FOUND = 404;
-    private static final int HTTP_CONFLICT = 409;
-    private static final int HTTP_PRECONDITION_FAILED = 412;
     private static final int MULTIPART_LEASE_SECONDS = 60;
     private static final String MULTIPART_LEASE_PREFIX = "doris-azure-lease-v1:";
     /** Validity period for presigned (SAS) URLs, in seconds. */
@@ -262,7 +260,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             if (leaseId == null) {
                 blockBlobClient.stageBlock(blockId, body.content(), body.contentLength());
             } else {
-                renewOrReacquireLease(blobClient, leaseId);
+                renewMultipartLease(blobClient, leaseId);
                 blockBlobClient.stageBlockWithResponse(blockId, body.content(), body.contentLength(),
                         null, leaseId, null, Context.NONE);
             }
@@ -297,7 +295,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             if (leaseId == null) {
                 blockBlobClient.commitBlockList(blockIds);
             } else {
-                BlobLeaseClient leaseClient = renewOrReacquireLease(blobClient, leaseId);
+                BlobLeaseClient leaseClient = renewMultipartLease(blobClient, leaseId);
                 BlobRequestConditions conditions = new BlobRequestConditions().setLeaseId(leaseId);
                 blockBlobClient.commitBlockListWithResponse(
                         new BlockBlobCommitBlockListOptions(blockIds).setRequestConditions(conditions),
@@ -338,18 +336,10 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return new BlobLeaseClientBuilder().blobClient(blobClient).leaseId(leaseId).buildClient();
     }
 
-    private BlobLeaseClient renewOrReacquireLease(BlobClient blobClient, String leaseId) {
+    private BlobLeaseClient renewMultipartLease(BlobClient blobClient, String leaseId) {
         BlobLeaseClient leaseClient = createLeaseClient(blobClient, leaseId);
-        try {
-            leaseClient.renewLease();
-        } catch (BlobStorageException e) {
-            if (e.getStatusCode() != HTTP_CONFLICT && e.getStatusCode() != HTTP_PRECONDITION_FAILED) {
-                throw e;
-            }
-            // A finite lease may expire while FE waits for every writer. Reacquiring the same ID is safe:
-            // it succeeds only if no competing writer currently owns the target.
-            leaseClient.acquireLease(MULTIPART_LEASE_SECONDS);
-        }
+        // A renewal failure loses the upload-generation fence even if the same ID is acquirable later.
+        leaseClient.renewLease();
         return leaseClient;
     }
 

@@ -18,11 +18,26 @@
 #include "exec/operator/spill_iceberg_table_sink_operator.h"
 
 #include "common/status.h"
+#include "core/block/block.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
 namespace doris {
+
+size_t iceberg_cold_writer_reserve_size(const Block& block, size_t writer_workspace_bytes) {
+    const size_t block_bytes = block.allocated_bytes();
+    const size_t row_index_bytes =
+            std::min(std::numeric_limits<size_t>::max() / sizeof(size_t), block.rows()) *
+            sizeof(size_t);
+    const size_t selected_and_retained_bytes =
+            std::min(std::numeric_limits<size_t>::max() / 2, block_bytes) * 2;
+    size_t reserve = std::min(std::numeric_limits<size_t>::max() - writer_workspace_bytes,
+                              selected_and_retained_bytes) +
+                     writer_workspace_bytes;
+    // Cold dispatch may allocate a selected block and a retained sorter copy before publication.
+    return std::min(std::numeric_limits<size_t>::max() - reserve, row_index_bytes) + reserve;
+}
 
 SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperatorXBase* parent,
                                                                  RuntimeState* state)
@@ -53,7 +68,8 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
     return true;
 }
 
-size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
+size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                             const Block* block) {
     if (!_writer) {
         return 0;
     }
@@ -70,8 +86,11 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
     }
     // Column growth remains in every touched sorter, while sorting workspace is reused by serial dispatch.
     // The final queued item may contain rows and also owns the reservation used by async finish().
-    return iceberg_reserve_size(per_partition_reservations,
-                                state->minimum_operator_memory_required_bytes());
+    const size_t incoming_reserve =
+            block == nullptr ? state->minimum_operator_memory_required_bytes()
+                             : iceberg_cold_writer_reserve_size(
+                                       *block, state->minimum_operator_memory_required_bytes());
+    return iceberg_reserve_size(per_partition_reservations, incoming_reserve);
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
@@ -142,9 +161,10 @@ Status SpillIcebergTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_
     return local_state.sink(state, in_block, eos);
 }
 
-size_t SpillIcebergTableSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+size_t SpillIcebergTableSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                            const Block* block) {
     auto& local_state = get_local_state(state);
-    return local_state.get_reserve_mem_size(state, eos);
+    return local_state.get_reserve_mem_size(state, eos, block);
 }
 
 size_t SpillIcebergTableSinkOperatorX::revocable_mem_size(RuntimeState* state) const {

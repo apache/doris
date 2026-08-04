@@ -406,5 +406,6 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertTrue(queryOptions.isSetCoordinatorThriftMaxMessageSize());
         Assertions.assertEquals(Config.thrift_max_message_size,
                 queryOptions.getCoordinatorThriftMaxMessageSize());
+        Assertions.assertTrue(queryOptions.isSupportsExternalFileReportAck());
     }
 }

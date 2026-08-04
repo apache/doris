@@ -91,14 +91,20 @@ TEST(RuntimeStateIcebergCommitDataTest, RetainsFileCleanupUntilReportAcknowledge
     int cleanup_count = 0;
     task_state.add_failed_iceberg_report_cleanup([&] { ++cleanup_count; });
 
-    coordinator_state.finalize_iceberg_report_cleanup(false);
-    coordinator_state.finalize_iceberg_report_cleanup(false);
+    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
 
     EXPECT_EQ(1, cleanup_count);
 
     task_state.add_failed_iceberg_report_cleanup([&] { ++cleanup_count; });
-    coordinator_state.finalize_iceberg_report_cleanup(true);
+    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::ACKNOWLEDGED);
     EXPECT_EQ(1, cleanup_count);
+
+    task_state.add_failed_iceberg_report_cleanup([&] { ++cleanup_count; });
+    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::AMBIGUOUS);
+    EXPECT_EQ(1, cleanup_count);
+    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+    EXPECT_EQ(2, cleanup_count);
 }
 
 // ---------------------------------------------------------------------------
