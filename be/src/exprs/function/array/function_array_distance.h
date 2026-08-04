@@ -138,7 +138,8 @@ public:
 
         // Check inner nullable (array elements)
         const auto& array_col = assert_cast<const ColumnArray&>(*raw);
-        if (is_column_nullable(*array_col.get_data_ptr()) && array_col.get_data_ptr()->has_null()) {
+        const auto& nested_nullable = assert_cast<const ColumnNullable&>(array_col.get_data());
+        if (nested_nullable.has_null()) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "{} for function {} cannot have null", arg_name, func_name);
         }

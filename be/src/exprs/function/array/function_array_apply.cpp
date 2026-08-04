@@ -33,8 +33,9 @@
 #include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_array_view.h"
 #include "core/column/column_const.h"
-#include "core/column/column_nullable.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -82,7 +83,6 @@ public:
                     fmt::format("unsupported types for function {}({})", get_name(),
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
-        const auto& src_offsets = src_column_array->get_offsets();
         const auto* src_nested_column = &src_column_array->get_data();
         DCHECK(src_nested_column != nullptr);
 
@@ -95,7 +95,7 @@ public:
                 static_cast<const ColumnConst&>(*block.get_by_position(arguments[2]).column.get());
         ColumnPtr result_ptr;
         RETURN_IF_CATCH_EXCEPTION(
-                RETURN_IF_ERROR(_execute(*src_nested_column, nested_type, src_offsets, condition,
+                RETURN_IF_ERROR(_execute(src_column, *src_nested_column, nested_type, condition,
                                          rhs_value_column, &result_ptr)));
         block.replace_by_position(result, std::move(result_ptr));
         return Status::OK();
@@ -135,37 +135,30 @@ private:
     }
 
     // need exception safety
-    template <typename T, ApplyOp op>
-    ColumnPtr _apply_internal(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    template <PrimitiveType PType, ApplyOp op>
+    ColumnPtr _apply_internal(const ColumnArrayView<PType>& array_view, const IColumn& src_column,
                               const ColumnConst& cmp) const {
+        using T = typename PrimitiveTypeTraits<PType>::CppType;
         T rhs_val = *reinterpret_cast<const T*>(cmp.get_data_at(0).data);
         auto column_filter = ColumnUInt8::create(src_column.size(), 0);
         auto& column_filter_data = column_filter->get_data();
-        const char* src_column_data_ptr = nullptr;
-        const uint8_t* null_map_data = nullptr;
-        if (!is_column_nullable(src_column)) {
-            src_column_data_ptr = src_column.get_raw_data().data;
-        } else {
-            const auto* nullable_col = assert_cast<const ColumnNullable*>(&src_column);
-            src_column_data_ptr = nullable_col->get_nested_column().get_raw_data().data;
-            null_map_data = nullable_col->get_null_map_data().data();
-        }
-        const T* src_column_data_t_ptr = reinterpret_cast<const T*>(src_column_data_ptr);
+        const T* src_column_data_t_ptr = reinterpret_cast<const T*>(array_view.get_data());
+        const UInt8* null_map_data = array_view.get_null_map_data();
         const size_t src_column_size = src_column.size();
         for (size_t i = 0; i < src_column_size; ++i) {
-            if (null_map_data && null_map_data[i]) {
+            if (null_map_data[i]) {
                 continue; // null elements should not pass the filter
             }
             column_filter_data[i] = apply<T, op>(src_column_data_t_ptr[i], rhs_val);
         }
         const IColumn::Filter& filter = column_filter_data;
         ColumnPtr filtered = src_column.filter(filter, src_column.size());
-        auto column_offsets = ColumnArray::ColumnOffsets::create(src_offsets.size());
+        auto column_offsets = ColumnArray::ColumnOffsets::create(array_view.offsets.size());
         ColumnArray::Offsets64& dst_offsets = column_offsets->get_data();
         size_t in_pos = 0;
         size_t out_pos = 0;
-        for (size_t i = 0; i < src_offsets.size(); ++i) {
-            for (; in_pos < src_offsets[i]; ++in_pos) {
+        for (size_t i = 0; i < array_view.offsets.size(); ++i) {
+            for (; in_pos < array_view.offsets[i]; ++in_pos) {
                 if (filter[in_pos]) {
                     ++out_pos;
                 }
@@ -176,14 +169,14 @@ private:
     }
 
     template <ApplyOp OP>
-    void dispatch_array_scalar(DataTypePtr nested_type, const IColumn& src_column,
-                               const ColumnArray::Offsets64& src_offsets, const ColumnConst& cmp,
+    void dispatch_array_scalar(const ColumnPtr& array_column, DataTypePtr nested_type,
+                               const IColumn& src_column, const ColumnConst& cmp,
                                ColumnPtr* dst) const {
         auto call = [&](const auto& type) -> bool {
             using DispatchType = std::decay_t<decltype(type)>;
             constexpr PrimitiveType PType = DispatchType::PType;
-            *dst = _apply_internal<typename PrimitiveTypeTraits<PType>::CppType, OP>(
-                    src_column, src_offsets, cmp);
+            auto array_view = ColumnArrayView<PType>::create(array_column);
+            *dst = _apply_internal<PType, OP>(array_view, src_column, cmp);
             return true;
         };
 
@@ -195,27 +188,27 @@ private:
         }
     }
     // need exception safety
-    Status _execute(const IColumn& nested_src, DataTypePtr nested_type,
-                    const ColumnArray::Offsets64& offsets, const std::string& condition,
+    Status _execute(const ColumnPtr& array_column, const IColumn& nested_src,
+                    DataTypePtr nested_type, const std::string& condition,
                     const ColumnConst& rhs_value_column, ColumnPtr* dst) const {
         if (condition == "=") {
-            dispatch_array_scalar<ApplyOp::EQ>(nested_type, nested_src, offsets, rhs_value_column,
-                                               dst);
+            dispatch_array_scalar<ApplyOp::EQ>(array_column, nested_type, nested_src,
+                                               rhs_value_column, dst);
         } else if (condition == "!=") {
-            dispatch_array_scalar<ApplyOp::NE>(nested_type, nested_src, offsets, rhs_value_column,
-                                               dst);
+            dispatch_array_scalar<ApplyOp::NE>(array_column, nested_type, nested_src,
+                                               rhs_value_column, dst);
         } else if (condition == "<") {
-            dispatch_array_scalar<ApplyOp::LT>(nested_type, nested_src, offsets, rhs_value_column,
-                                               dst);
+            dispatch_array_scalar<ApplyOp::LT>(array_column, nested_type, nested_src,
+                                               rhs_value_column, dst);
         } else if (condition == "<=") {
-            dispatch_array_scalar<ApplyOp::LE>(nested_type, nested_src, offsets, rhs_value_column,
-                                               dst);
+            dispatch_array_scalar<ApplyOp::LE>(array_column, nested_type, nested_src,
+                                               rhs_value_column, dst);
         } else if (condition == ">") {
-            dispatch_array_scalar<ApplyOp::GT>(nested_type, nested_src, offsets, rhs_value_column,
-                                               dst);
+            dispatch_array_scalar<ApplyOp::GT>(array_column, nested_type, nested_src,
+                                               rhs_value_column, dst);
         } else if (condition == ">=") {
-            dispatch_array_scalar<ApplyOp::GE>(nested_type, nested_src, offsets, rhs_value_column,
-                                               dst);
+            dispatch_array_scalar<ApplyOp::GE>(array_column, nested_type, nested_src,
+                                               rhs_value_column, dst);
         } else {
             return Status::RuntimeError(
                     fmt::format("execute failed, unsupported op {} for function {})", condition,

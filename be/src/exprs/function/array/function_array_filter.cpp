@@ -28,6 +28,7 @@
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_array_view.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/types.h"
@@ -66,25 +67,13 @@ public:
         //TODO: maybe need optimize not convert
         auto first_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto second_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto second_array_view =
+                ColumnArrayView<TYPE_BOOLEAN>::create(block.get_by_position(arguments[1]).column);
 
         const ColumnArray& first_col_array = assert_cast<const ColumnArray&>(*first_column);
         const auto& first_off_data = first_col_array.get_offsets_column().get_data();
         const auto& first_nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
-
-        const ColumnArray& second_col_array = assert_cast<const ColumnArray&>(*second_column);
-        const auto& second_off_data = second_col_array.get_offsets_column().get_data();
-        const auto& second_nested_null_map_data =
-                assert_cast<const ColumnNullable&>(*second_col_array.get_data_ptr())
-                        .get_null_map_column()
-                        .get_data();
-        const auto& second_nested_column =
-                assert_cast<const ColumnNullable&>(*second_col_array.get_data_ptr())
-                        .get_nested_column();
-        const auto& second_nested_data =
-                assert_cast<const ColumnUInt8&>(second_nested_column).get_data();
 
         auto result_data_column = first_nested_nullable_column.clone_empty();
         auto result_offset_column = ColumnArray::ColumnOffsets::create();
@@ -97,18 +86,18 @@ public:
             unsigned long count = 0;
             auto first_offset_start = first_off_data[row - 1];
             auto first_offset_end = first_off_data[row];
-            auto second_offset_start = second_off_data[row - 1];
-            auto second_offset_end = second_off_data[row];
-            auto move_off = second_offset_start;
+            auto filter_data = second_array_view[row];
+            const auto* filter_values = filter_data.get_data();
+            const auto* filter_null_map = filter_data.get_null_map_data();
+            size_t filter_pos = 0;
             for (auto off = first_offset_start;
-                 off < first_offset_end && move_off < second_offset_end; // not out range
-                 ++off) {
-                if (second_nested_null_map_data[move_off] == 0 && // not null
-                    second_nested_data[move_off] == 1) {          // not 0
+                 off < first_offset_end && filter_pos < filter_data.size(); // not out range
+                 ++off, ++filter_pos) {
+                if (!filter_null_map[filter_pos] &&   // not null
+                    filter_values[filter_pos] == 1) { // not 0
                     count++;
                     selector.push_back(off);
                 }
-                move_off++;
             }
             result_offset_data.push_back(count + result_offset_data.back());
         }

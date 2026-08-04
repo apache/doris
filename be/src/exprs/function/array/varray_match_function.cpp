@@ -20,12 +20,10 @@
 #include <utility>
 
 #include "common/status.h"
-#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
-#include "core/column/column.h"
-#include "core/column/column_array.h"
+#include "core/column/column_array_view.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
@@ -58,39 +56,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         // here is executed by array_map filtered and arg[0] is bool result column
-        const auto& [src_column, src_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const ColumnArray* array_column = nullptr;
-        const UInt8* array_null_map = nullptr;
-        if (const auto* nullable_array = check_and_get_column<ColumnNullable>(src_column.get())) {
-            array_column = assert_cast<const ColumnArray*>(&nullable_array->get_nested_column());
-            array_null_map = nullable_array->get_null_map_column().get_data().data();
-        } else {
-            array_column = assert_cast<const ColumnArray*>(src_column.get());
-        }
-
-        if (!array_column) {
-            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
-                                        block.get_by_position(arguments[0]).type->get_name());
-        }
-
-        const auto& offsets = array_column->get_offsets();
-        ColumnPtr nested_column = nullptr;
-        const UInt8* nested_null_map = nullptr;
-        if (const auto* nested_null_column =
-                    check_and_get_column<ColumnNullable>(&array_column->get_data())) {
-            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
-            nested_column = nested_null_column->get_nested_column_ptr();
-        } else {
-            nested_column = array_column->get_data_ptr();
-        }
-
-        if (!nested_column) {
-            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
-                                        block.get_by_position(arguments[0]).type->get_name());
-        }
-
-        const auto& nested_data = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+        auto array_view =
+                ColumnArrayView<TYPE_BOOLEAN>::create(block.get_by_position(arguments[0]).column);
 
         // result is nullable bool column for every array column
         auto result_data_column = ColumnUInt8::create(input_rows_count, 1);
@@ -98,7 +65,7 @@ public:
 
         // iterate over all arrays with bool elements
         for (int row = 0; row < input_rows_count; ++row) {
-            if (array_null_map && array_null_map[row]) {
+            if (array_view.is_null_at(row)) {
                 // current array is null, this is always null
                 result_null_column->get_data()[row] = 1;
                 result_data_column->get_data()[row] = 0;
@@ -108,11 +75,14 @@ public:
                 bool has_null_elem = false;
                 // res for current array
                 bool res_for_array = MATCH_ALL;
-                for (auto off = offsets[row - 1]; off < offsets[row]; ++off) {
-                    if (nested_null_map && nested_null_map[off]) {
+                auto array_data = array_view[row];
+                const auto* data = array_data.get_data();
+                const auto* null_map = array_data.get_null_map_data();
+                for (size_t pos = 0; pos < array_data.size(); ++pos) {
+                    if (null_map[pos]) {
                         has_null_elem = true;
                     } else {
-                        if (nested_data[off] != MATCH_ALL) { // not match
+                        if (data[pos] != MATCH_ALL) { // not match
                             res_for_array = !MATCH_ALL;
                             break;
                         } // default is MATCH_ALL

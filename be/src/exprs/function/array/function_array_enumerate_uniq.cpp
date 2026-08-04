@@ -121,8 +121,6 @@ public:
         ColumnPtr src_offsets;
         Columns src_columns; // to keep ownership
 
-        const ColumnArray* first_column_array = nullptr;
-
         for (size_t i = 0; i < arguments.size(); i++) {
             src_columns.emplace_back(
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const());
@@ -137,7 +135,6 @@ public:
 
             const ColumnArray::Offsets64& cur_offsets = array->get_offsets();
             if (i == 0) {
-                first_column_array = array;
                 offsets = &cur_offsets;
                 src_offsets = array->get_offsets_ptr();
             } else if (*offsets != cur_offsets) {
@@ -149,11 +146,10 @@ public:
         }
 
         const NullMapType* null_map = nullptr;
-        if (arguments.size() == 1 &&
-            (nullptr != check_and_get_column<ColumnNullable>(data_columns[0]))) {
-            const auto* nullable = check_and_get_column<ColumnNullable>(data_columns[0]);
+        if (arguments.size() == 1) {
+            const auto* nullable = assert_cast<const ColumnNullable*>(data_columns[0]);
             data_columns[0] = nullable->get_nested_column_ptr().get();
-            null_map = &nullable->get_null_map_column().get_data();
+            null_map = &nullable->get_null_map_data();
         }
 
         auto dst_nested_column = ColumnInt64::create();
@@ -188,11 +184,9 @@ public:
                     data_columns, *offsets, nullptr, dst_values);
         }
 
-        ColumnPtr nested_column = dst_nested_column->get_ptr();
-        if (is_column_nullable(first_column_array->get_data())) {
-            nested_column = ColumnNullable::create(nested_column,
-                                                   ColumnUInt8::create(nested_column->size(), 0));
-        }
+        auto dst_null_map = ColumnUInt8::create(dst_nested_column->size(), 0);
+        ColumnPtr nested_column =
+                ColumnNullable::create(std::move(dst_nested_column), std::move(dst_null_map));
         ColumnPtr res_column = ColumnArray::create(std::move(nested_column), src_offsets);
         if (arguments.size() == 1) {
             auto left_column =

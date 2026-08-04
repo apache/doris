@@ -35,6 +35,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_array_view.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
@@ -143,47 +144,39 @@ private:
     }
 
     template <PrimitiveType Element, PrimitiveType Result>
-    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
-                                       const IColumn& nested_column,
-                                       ColumnPtr nested_null_map) const {
-        using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
+    ColumnPtr _execute_number_expanded(const ColumnArrayView<Element>& array_view) const {
         using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
         typename ColVecResult::MutablePtr res_nested = nullptr;
 
-        const auto& src_data = reinterpret_cast<const ColVecType&>(nested_column).get_data();
+        const auto& src_data = array_view.element_data.data;
         if constexpr (is_decimal(Result)) {
             res_nested = ColVecResult::create(0, src_data.get_scale());
         } else {
             res_nested = ColVecResult::create();
         }
-        auto size = nested_column.size();
+        auto size = array_view.element_data.size();
         typename ColVecResult::Container& res_values = res_nested->get_data();
         res_values.resize(size);
 
         size_t pos = 0;
-        for (auto offset : offsets) {
+        for (auto offset : array_view.offsets) {
             impl(src_data.data(), res_values.data(), pos, offset);
             pos = offset;
         }
-        if (nested_null_map) {
-            auto null_map_col = ColumnUInt8::create(size, 0);
-            auto& null_map_col_data = null_map_col->get_data();
-            auto nested_colum_data = static_cast<const ColumnUInt8*>(nested_null_map.get());
-            VectorizedUtils::update_null_map(null_map_col_data, nested_colum_data->get_data());
-            for (size_t row = 0; row < offsets.size(); ++row) {
-                auto off = offsets[row - 1];
-                auto len = offsets[row] - off;
-                auto nested_pos = len ? len - 1 : 0;
-                for (; nested_pos > 0; --nested_pos) {
-                    if (null_map_col_data[nested_pos + off - 1]) {
-                        null_map_col_data[nested_pos + off] = 1;
-                    }
+        auto null_map_col = ColumnUInt8::create(size, 0);
+        auto& null_map_col_data = null_map_col->get_data();
+        VectorizedUtils::update_null_map(null_map_col_data, array_view.nested_null_map);
+        for (size_t row = 0; row < array_view.offsets.size(); ++row) {
+            auto off = array_view.offsets[row - 1];
+            auto len = array_view.offsets[row] - off;
+            auto nested_pos = len ? len - 1 : 0;
+            for (; nested_pos > 0; --nested_pos) {
+                if (null_map_col_data[nested_pos + off - 1]) {
+                    null_map_col_data[nested_pos + off] = 1;
                 }
             }
-            return ColumnNullable::create(std::move(res_nested), std::move(null_map_col));
-        } else {
-            return res_nested;
         }
+        return ColumnNullable::create(std::move(res_nested), std::move(null_map_col));
     }
 
     ColumnPtr _execute_non_nullable(const ColumnWithTypeAndName& arg,
@@ -194,72 +187,61 @@ private:
         const auto& offsets = array_column.get_offsets();
         DCHECK(offsets.size() == input_rows_count);
 
-        ColumnPtr nested_column = nullptr;
-        ColumnPtr nested_null_map = nullptr;
-        if (is_column_nullable(array_column.get_data())) {
-            const auto& nested_null_column =
-                    reinterpret_cast<const ColumnNullable&>(array_column.get_data());
-            nested_column = nested_null_column.get_nested_column_ptr();
-            nested_null_map = nested_null_column.get_null_map_column_ptr();
-        } else {
-            nested_column = array_column.get_data_ptr();
-        }
-
         ColumnPtr res = nullptr;
         auto left_element_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*arg.type).get_nested_type());
         switch (left_element_type->get_primitive_type()) {
         case TYPE_BOOLEAN:
-            res = _execute_number_expanded<TYPE_BOOLEAN, TYPE_SMALLINT>(offsets, *nested_column,
-                                                                        nested_null_map);
+            res = _execute_number_expanded<TYPE_BOOLEAN, TYPE_SMALLINT>(
+                    ColumnArrayView<TYPE_BOOLEAN>::create(left_column));
             break;
         case TYPE_TINYINT:
-            res = _execute_number_expanded<TYPE_TINYINT, TYPE_SMALLINT>(offsets, *nested_column,
-                                                                        nested_null_map);
+            res = _execute_number_expanded<TYPE_TINYINT, TYPE_SMALLINT>(
+                    ColumnArrayView<TYPE_TINYINT>::create(left_column));
             break;
         case TYPE_SMALLINT:
-            res = _execute_number_expanded<TYPE_SMALLINT, TYPE_INT>(offsets, *nested_column,
-                                                                    nested_null_map);
+            res = _execute_number_expanded<TYPE_SMALLINT, TYPE_INT>(
+                    ColumnArrayView<TYPE_SMALLINT>::create(left_column));
             break;
         case TYPE_INT:
-            res = _execute_number_expanded<TYPE_INT, TYPE_BIGINT>(offsets, *nested_column,
-                                                                  nested_null_map);
+            res = _execute_number_expanded<TYPE_INT, TYPE_BIGINT>(
+                    ColumnArrayView<TYPE_INT>::create(left_column));
             break;
         case TYPE_BIGINT:
-            res = _execute_number_expanded<TYPE_BIGINT, TYPE_LARGEINT>(offsets, *nested_column,
-                                                                       nested_null_map);
+            res = _execute_number_expanded<TYPE_BIGINT, TYPE_LARGEINT>(
+                    ColumnArrayView<TYPE_BIGINT>::create(left_column));
             break;
         case TYPE_LARGEINT:
-            res = _execute_number_expanded<TYPE_LARGEINT, TYPE_LARGEINT>(offsets, *nested_column,
-                                                                         nested_null_map);
+            res = _execute_number_expanded<TYPE_LARGEINT, TYPE_LARGEINT>(
+                    ColumnArrayView<TYPE_LARGEINT>::create(left_column));
             break;
         case TYPE_FLOAT:
-            res = _execute_number_expanded<TYPE_FLOAT, TYPE_DOUBLE>(offsets, *nested_column,
-                                                                    nested_null_map);
+            res = _execute_number_expanded<TYPE_FLOAT, TYPE_DOUBLE>(
+                    ColumnArrayView<TYPE_FLOAT>::create(left_column));
             break;
         case TYPE_DOUBLE:
-            res = _execute_number_expanded<TYPE_DOUBLE, TYPE_DOUBLE>(offsets, *nested_column,
-                                                                     nested_null_map);
+            res = _execute_number_expanded<TYPE_DOUBLE, TYPE_DOUBLE>(
+                    ColumnArrayView<TYPE_DOUBLE>::create(left_column));
             break;
         case TYPE_DECIMAL32:
-            res = _execute_number_expanded<TYPE_DECIMAL32, TYPE_DECIMAL32>(offsets, *nested_column,
-                                                                           nested_null_map);
+            res = _execute_number_expanded<TYPE_DECIMAL32, TYPE_DECIMAL32>(
+                    ColumnArrayView<TYPE_DECIMAL32>::create(left_column));
             break;
         case TYPE_DECIMAL64:
-            res = _execute_number_expanded<TYPE_DECIMAL64, TYPE_DECIMAL64>(offsets, *nested_column,
-                                                                           nested_null_map);
+            res = _execute_number_expanded<TYPE_DECIMAL64, TYPE_DECIMAL64>(
+                    ColumnArrayView<TYPE_DECIMAL64>::create(left_column));
             break;
         case TYPE_DECIMAL128I:
             res = _execute_number_expanded<TYPE_DECIMAL128I, TYPE_DECIMAL128I>(
-                    offsets, *nested_column, nested_null_map);
+                    ColumnArrayView<TYPE_DECIMAL128I>::create(left_column));
             break;
         case TYPE_DECIMALV2:
-            res = _execute_number_expanded<TYPE_DECIMALV2, TYPE_DECIMALV2>(offsets, *nested_column,
-                                                                           nested_null_map);
+            res = _execute_number_expanded<TYPE_DECIMALV2, TYPE_DECIMALV2>(
+                    ColumnArrayView<TYPE_DECIMALV2>::create(left_column));
             break;
         case TYPE_DECIMAL256:
             res = _execute_number_expanded<TYPE_DECIMAL256, TYPE_DECIMAL256>(
-                    offsets, *nested_column, nested_null_map);
+                    ColumnArrayView<TYPE_DECIMAL256>::create(left_column));
             break;
         default:
             return nullptr;
