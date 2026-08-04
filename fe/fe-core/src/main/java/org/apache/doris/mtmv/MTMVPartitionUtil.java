@@ -51,6 +51,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -615,14 +616,23 @@ public class MTMVPartitionUtil {
         throw new AnalysisException("can not getPartitionColumnType by:" + col);
     }
 
-    public static MTMVBaseVersions getBaseVersions(MTMV mtmv) throws AnalysisException {
-        return new MTMVBaseVersions(getTableVersions(mtmv), getPartitionVersions(mtmv));
+    public static MTMVBaseVersions getBaseVersions(MTMV mtmv,
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings) throws AnalysisException {
+        return new MTMVBaseVersions(getTableVersions(mtmv), getPartitionVersions(mtmv, partitionMappings));
     }
 
-    private static Map<MTMVRelatedTableIf, Map<String, Long>> getPartitionVersions(MTMV mtmv) throws AnalysisException {
+    private static Map<MTMVRelatedTableIf, Map<String, Long>> getPartitionVersions(MTMV mtmv,
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings) throws AnalysisException {
         Map<MTMVRelatedTableIf, Map<String, Long>> res = Maps.newHashMap();
         if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
             return res;
+        }
+        Map<MTMVRelatedTableIf, Set<String>> mappedPartitionNames = Maps.newHashMap();
+        for (Map<MTMVRelatedTableIf, Set<String>> mapping : partitionMappings.values()) {
+            for (Entry<MTMVRelatedTableIf, Set<String>> entry : mapping.entrySet()) {
+                mappedPartitionNames.computeIfAbsent(entry.getKey(), key -> Sets.newHashSet())
+                        .addAll(entry.getValue());
+            }
         }
         Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
         for (MTMVRelatedTableIf pctTable : pctTables) {
@@ -630,7 +640,10 @@ public class MTMVPartitionUtil {
                 continue;
             }
             Map<String, Long> onePctResult = Maps.newHashMap();
-            List<Partition> partitions = Lists.newArrayList(((OlapTable) pctTable).getPartitions());
+            List<Partition> partitions = Lists.newArrayList();
+            for (String partitionName : mappedPartitionNames.getOrDefault(pctTable, Collections.emptySet())) {
+                partitions.add(((OlapTable) pctTable).getPartitionOrAnalysisException(partitionName));
+            }
             List<Long> versions = null;
             try {
                 versions = Partition.getVisibleVersions(partitions);
