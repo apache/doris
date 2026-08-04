@@ -399,7 +399,13 @@ public class Alter {
         long updateTime = System.currentTimeMillis();
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof ModifyTablePropertiesClause) {
-                setExternalTableAutoAnalyzePolicy(table, alterClauses);
+                Map<String, String> properties = alterClause.getProperties();
+                if (properties.size() == 1
+                        && properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+                    setExternalTableAutoAnalyzePolicy(table, alterClauses);
+                } else {
+                    table.getCatalog().updateTableProperties(table, properties);
+                }
             } else if (alterClause instanceof CreateOrReplaceBranchClause) {
                 table.getCatalog().createOrReplaceBranch(
                         table,

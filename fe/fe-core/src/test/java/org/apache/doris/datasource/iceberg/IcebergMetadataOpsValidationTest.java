@@ -35,6 +35,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -111,6 +112,30 @@ public class IcebergMetadataOpsValidationTest {
         Column column = new Column("int_col", Type.INT, true);
         NestedField currentCol = Types.NestedField.required(1, "int_col", Types.IntegerType.get());
         invokeValidateForModifyColumn(column, currentCol);
+    }
+
+    @Test
+    public void testUpdateTablePropertiesCommitsAllProperties() throws Exception {
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateProperties updateProperties = Mockito.mock(UpdateProperties.class);
+        Mockito.when(icebergTable.updateProperties()).thenReturn(updateProperties);
+        Mockito.when(icebergTable.name()).thenReturn("db.tbl");
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put("write.target-file-size-bytes", "134217728");
+        properties.put("commit.manifest.min-count-to-merge", "50");
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.updateTableProperties(dorisTable, properties);
+        }
+
+        Mockito.verify(updateProperties).set("write.target-file-size-bytes", "134217728");
+        Mockito.verify(updateProperties).set("commit.manifest.min-count-to-merge", "50");
+        Mockito.verify(updateProperties).commit();
     }
 
     @Test
