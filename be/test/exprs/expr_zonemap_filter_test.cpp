@@ -20,6 +20,8 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <bit>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <memory>
@@ -461,6 +463,78 @@ TEST(ExprZonemapFilterTest, FloatingPointNanBloomProbeIsConservative) {
                Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN()));
     check_type(std::make_shared<DataTypeFloat64>(),
                Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN()));
+}
+
+TEST(ExprZonemapFilterTest, FloatingPointNanEqualityIgnoresFiniteOnlyRangeBounds) {
+    const auto check_type =
+            []<PrimitiveType Type, typename DataType, typename UInt>(UInt nan_bits) {
+                using T = typename PrimitiveTypeTraits<Type>::CppType;
+                auto type = std::make_shared<DataType>();
+                auto slot = make_slot(0, type);
+                const auto nan_field = Field::create_field<Type>(std::bit_cast<T>(nan_bits));
+                auto nan_literal =
+                        std::make_shared<VLiteral>(create_texpr_node_from(nan_field, Type, 0, 0));
+
+                segment_v2::ZoneMap zone_map;
+                zone_map.min_value = Field::create_field<Type>(T {0});
+                zone_map.max_value = Field::create_field<Type>(T {0});
+                zone_map.has_not_null = true;
+                auto ctx = make_context(std::move(zone_map), type);
+                ctx.slots.at(0).floating_nan_count_unknown = true;
+
+                FunctionComparison<EqualsOp, NameEquals> equals;
+                EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                          equals.evaluate_zonemap_filter(ctx, {slot, nan_literal}));
+
+                const auto finite_field = Field::create_field<Type>(T {10});
+                EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                          expr_zonemap::eval_in_zonemap(ctx, slot, false, {finite_field, nan_field},
+                                                        finite_field, nan_field));
+
+                ctx.slots.at(0).floating_nan_count_unknown = false;
+                EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+                          equals.evaluate_zonemap_filter(ctx, {slot, nan_literal}));
+                EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+                          expr_zonemap::eval_in_zonemap(ctx, slot, false, {finite_field, nan_field},
+                                                        finite_field, nan_field));
+            };
+
+    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(uint32_t {0x7fc00002U});
+    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(uint64_t {0x7ff8000000000002ULL});
+}
+
+TEST(ExprZonemapFilterTest, DirectInRawFixedKeepsEqualNanPayloadFromLargeSet) {
+    const auto check_type = []<PrimitiveType Type, typename DataType, typename UInt>(
+                                    UInt stored_bits, UInt probe_bits) {
+        using T = typename PrimitiveTypeTraits<Type>::CppType;
+        auto type = std::make_shared<DataType>();
+        std::shared_ptr<HybridSetBase> filter(create_set(Type, false));
+        for (int value = 0; value < FIXED_CONTAINER_MAX_SIZE; ++value) {
+            T finite = static_cast<T>(value);
+            filter->insert(&finite);
+        }
+        const T stored_nan = std::bit_cast<T>(stored_bits);
+        filter->insert(&stored_nan);
+        ASSERT_EQ(FIXED_CONTAINER_MAX_SIZE + 1, filter->size());
+
+        VDirectInPredicate predicate(make_in_predicate_node(false, 1), filter, true);
+        predicate.add_child(make_slot(0, type));
+        ASSERT_TRUE(predicate.can_execute_on_raw_fixed_values(type, 0));
+
+        const T probe_nan = std::bit_cast<T>(probe_bits);
+        uint8_t match = 1;
+        ASSERT_TRUE(
+                predicate
+                        .execute_on_raw_fixed_values(reinterpret_cast<const uint8_t*>(&probe_nan),
+                                                     1, sizeof(T), type, 0, &match)
+                        .ok());
+        EXPECT_EQ(1, match);
+    };
+
+    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(uint32_t {0x7fc00001U},
+                                                                uint32_t {0x7fc00002U});
+    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(uint64_t {0x7ff8000000000001ULL},
+                                                                 uint64_t {0x7ff8000000000002ULL});
 }
 
 TEST(ExprZonemapFilterTest, FloatingPointSignedZeroBloomProbeChecksBothEncodings) {

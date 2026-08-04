@@ -1815,6 +1815,78 @@ TEST_F(ParquetExprTest, floating_point_bloom_filter_preserves_doris_equality) {
             std::bit_cast<double>(uint64_t {0x7ff8000000000002ULL}));
 }
 
+TEST_F(ParquetExprTest, floating_nan_predicates_ignore_finite_only_parquet_ranges) {
+    const auto check_type = [this]<PrimitiveType Type, typename UInt>(int col_idx, UInt nan_bits) {
+        using T = typename PrimitiveTypeTraits<Type>::CppType;
+        const T nan = std::bit_cast<T>(nan_bits);
+        const T finite_bound = T {0};
+        const std::string encoded_bound(reinterpret_cast<const char*>(&finite_bound), sizeof(T));
+        const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+        ComparisonPredicateBase<Type, PredicateType::EQ> eq_pred(col_idx, "",
+                                                                 Field::create_field<Type>(nan));
+        auto set = std::make_shared<HybridSet<Type>>(false);
+        for (int value = 10; value < 10 + FIXED_CONTAINER_MAX_SIZE; ++value) {
+            T finite = static_cast<T>(value);
+            set->insert(&finite);
+        }
+        set->insert(&nan);
+        InListPredicateBase<Type, PredicateType::IN_LIST, 0> in_pred(col_idx, "", set, false);
+
+        const auto check_footer = [&](const auto& predicate) {
+            ParquetPredicate::ColumnStat stat;
+            stat.ctz = &ctz;
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                    [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                        EXPECT_EQ(col_idx, cid);
+                        current_stat->col_schema = col_schema;
+                        current_stat->has_null = false;
+                        current_stat->is_all_null = false;
+                        current_stat->encoded_min_value = encoded_bound;
+                        current_stat->encoded_max_value = encoded_bound;
+                        return true;
+                    };
+            stat.get_stat_func = &get_stat_func;
+            int bloom_loader_calls = 0;
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                    [&](ParquetPredicate::ColumnStat*, int) {
+                        ++bloom_loader_calls;
+                        return false;
+                    };
+            stat.get_bloom_filter_func = &get_bloom_filter_func;
+            EXPECT_TRUE(predicate.evaluate_and(&stat));
+            EXPECT_EQ(1, bloom_loader_calls);
+        };
+        check_footer(eq_pred);
+        check_footer(in_pred);
+
+        ParquetPredicate::CachedPageIndexStat cached_page_index;
+        cached_page_index.ctz = &ctz;
+        cached_page_index.row_group_range = {0, 5};
+        ParquetPredicate::PageIndexStat page_stat;
+        page_stat.available = true;
+        page_stat.num_of_pages = 1;
+        page_stat.encoded_min_value = {encoded_bound};
+        page_stat.encoded_max_value = {encoded_bound};
+        page_stat.has_null = {false};
+        page_stat.is_all_null = {false};
+        page_stat.col_schema = col_schema;
+        page_stat.ranges = {{0, 5}};
+        cached_page_index.stats.emplace(col_idx, std::move(page_stat));
+        install_page_index_getter(&cached_page_index);
+
+        RowRanges eq_ranges;
+        EXPECT_TRUE(eq_pred.evaluate_and(&cached_page_index, &eq_ranges));
+        assert_single_range(&eq_ranges, 0, 5);
+        RowRanges in_ranges;
+        EXPECT_TRUE(in_pred.evaluate_and(&cached_page_index, &in_ranges));
+        assert_single_range(&in_ranges, 0, 5);
+    };
+
+    check_type.template operator()<TYPE_FLOAT>(3, uint32_t {0x7fc00002U});
+    check_type.template operator()<TYPE_DOUBLE>(4, uint64_t {0x7ff8000000000002ULL});
+}
+
 TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;

@@ -42,6 +42,7 @@
 #include "core/field.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vcompound_pred.h"
+#include "exprs/function/functions_comparison.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -145,6 +146,47 @@ private:
     std::shared_ptr<VSlotRef> _slot;
     Field _value;
     const std::string _expr_name = "BloomEqExpr";
+};
+
+class MetadataFloatingEqualityExpr final : public VExpr {
+public:
+    enum class Mode { EQ, IN };
+
+    MetadataFloatingEqualityExpr(int column_id, DataTypePtr data_type, Field nan_value, Mode mode)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _slot(VSlotRef::create_shared(0, column_id, -1, data_type, "c0")),
+              _nan_literal(VLiteral::create_shared(create_texpr_node_from(
+                      nan_value, remove_nullable(data_type)->get_primitive_type(), 0, 0))),
+              _mode(mode),
+              _values {Field::create_field<TYPE_DOUBLE>(10.0), std::move(nan_value)} {
+        if (remove_nullable(data_type)->get_primitive_type() == TYPE_FLOAT) {
+            _values[0] = Field::create_field<TYPE_FLOAT>(10.0F);
+        }
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataFloatingEqualityExpr is metadata-only");
+    }
+    bool can_evaluate_zonemap_filter() const override { return true; }
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        if (_mode == Mode::EQ) {
+            return comparison_zonemap_detail::evaluate(ctx, {_slot, _nan_literal},
+                                                       comparison_zonemap_detail::Op::EQ);
+        }
+        return expr_zonemap::eval_in_zonemap(ctx, _slot, false, _values, _values[0], _values[1]);
+    }
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        _slot->collect_slot_column_ids(column_ids);
+    }
+
+private:
+    VExprSPtr _slot;
+    VExprSPtr _nan_literal;
+    Mode _mode;
+    std::vector<Field> _values;
+    const std::string _expr_name = "MetadataFloatingEqualityExpr";
 };
 
 class DictionaryStringInExpr final : public VExpr {
@@ -411,6 +453,91 @@ TEST(NativeParquetStatisticsTest, InvalidNullableDateBoundsDisableMinMax) {
     const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
             column_schema, &statistics, 1, nullptr);
     EXPECT_FALSE(result.has_min_max);
+}
+
+TEST(NativeParquetStatisticsTest, FloatingNanEqualityKeepsFiniteOnlyFooterAndPageRanges) {
+    const auto check_type = []<PrimitiveType Type, typename DataType, typename UInt>(
+                                    tparquet::Type::type physical_type, UInt nan_bits) {
+        using T = typename PrimitiveTypeTraits<Type>::CppType;
+        auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+        column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        column_schema->local_id = 0;
+        column_schema->leaf_column_id = 0;
+        column_schema->type = std::make_shared<DataType>();
+        column_schema->type_descriptor.doris_type = column_schema->type;
+        column_schema->type_descriptor.physical_type = physical_type;
+        std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+        schema.push_back(std::move(column_schema));
+
+        const T finite_bound = T {0};
+        const std::string encoded_bound(reinterpret_cast<const char*>(&finite_bound), sizeof(T));
+        tparquet::Statistics statistics;
+        statistics.__set_min_value(encoded_bound);
+        statistics.__set_max_value(encoded_bound);
+        statistics.__set_null_count(0);
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_type(physical_type);
+        column_metadata.__set_num_values(2);
+        column_metadata.__set_total_compressed_size(0);
+        column_metadata.__set_statistics(statistics);
+        tparquet::ColumnChunk chunk;
+        chunk.__set_meta_data(column_metadata);
+        tparquet::RowGroup row_group;
+        row_group.__set_columns({chunk});
+        row_group.__set_num_rows(2);
+        tparquet::ColumnOrder order;
+        order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+        tparquet::FileMetaData metadata;
+        metadata.__set_column_orders({order});
+        metadata.__set_row_groups({row_group});
+
+        format::parquet::NativeParquetPageIndex page_index;
+        page_index.column_index.__set_min_values({encoded_bound});
+        page_index.column_index.__set_max_values({encoded_bound});
+        page_index.column_index.__set_null_pages({false});
+        page_index.column_index.__set_null_counts({0});
+        tparquet::PageLocation location;
+        location.__set_offset(0);
+        location.__set_compressed_page_size(10);
+        location.__set_first_row_index(0);
+        page_index.offset_index.__set_page_locations({location});
+        std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+        page_indexes.emplace(0, std::move(page_index));
+
+        const auto nan_field = Field::create_field<Type>(std::bit_cast<T>(nan_bits));
+        for (const auto mode :
+             {MetadataFloatingEqualityExpr::Mode::EQ, MetadataFloatingEqualityExpr::Mode::IN}) {
+            format::FileScanRequest request;
+            request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+            request.predicate_columns = {
+                    format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+            request.conjuncts = {
+                    VExprContext::create_shared(std::make_shared<MetadataFloatingEqualityExpr>(
+                            0, schema[0]->type, nan_field, mode))};
+
+            std::vector<int> selected_row_groups;
+            ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                                metadata, schema, request, nullptr, &selected_row_groups, false,
+                                nullptr)
+                                .ok());
+            EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+            std::vector<format::parquet::RowRange> selected_ranges;
+            std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+            ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                                metadata, page_indexes, schema, request, 2, &selected_ranges,
+                                &skip_plans, nullptr)
+                                .ok());
+            ASSERT_EQ(1, selected_ranges.size());
+            EXPECT_EQ(0, selected_ranges[0].start);
+            EXPECT_EQ(2, selected_ranges[0].length);
+        }
+    };
+
+    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(tparquet::Type::FLOAT,
+                                                                uint32_t {0x7fc00002U});
+    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(tparquet::Type::DOUBLE,
+                                                                 uint64_t {0x7ff8000000000002ULL});
 }
 
 TEST(NativeParquetStatisticsTest, InvalidNullableDecimalBoundsDisableMinMax) {

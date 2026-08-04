@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <roaring/roaring.hh>
 
@@ -121,6 +122,7 @@ public:
         _values = other._values;
         _min_value = other._min_value;
         _max_value = other._max_value;
+        _contains_nan = other._contains_nan;
         DCHECK(_segment_id_to_value_in_dict_flags.empty());
     }
     InListPredicateBase(const InListPredicateBase<Type, PT, N>& other) = delete;
@@ -246,10 +248,12 @@ public:
 
     bool camp_field(const Field& min_field, const Field& max_field) const {
         if constexpr (PT == PredicateType::IN_LIST) {
-            return (Compare::less_equal(min_field.template get<Type>(), _max_value) &&
-                    Compare::greater_equal(max_field.template get<Type>(), _min_value)) ||
-                   (Compare::greater_equal(max_field.template get<Type>(), _min_value) &&
-                    Compare::less_equal(min_field.template get<Type>(), _max_value));
+            // Parquet range bounds may exclude NaNs from a mixed-value chunk.
+            if (_contains_nan) {
+                return true;
+            }
+            return Compare::less_equal(min_field.template get<Type>(), _max_value) &&
+                   Compare::greater_equal(max_field.template get<Type>(), _min_value);
         } else {
             return true;
         }
@@ -623,6 +627,12 @@ private:
     }
 
     void _update_min_max(const T& value) {
+        if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
+            if (std::isnan(value)) {
+                _contains_nan = true;
+                return;
+            }
+        }
         if (Compare::greater(value, _max_value)) {
             _max_value = value;
         }
@@ -636,6 +646,7 @@ private:
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
+    bool _contains_nan = false;
 };
 #include "common/compile_check_end.h"
 } //namespace doris

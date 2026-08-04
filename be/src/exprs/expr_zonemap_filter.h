@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <compare>
 #include <map>
 #include <optional>
@@ -108,6 +109,19 @@ Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataT
 
 inline bool field_types_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     return lhs == rhs || (is_string_type(lhs) && is_string_type(rhs));
+}
+
+inline bool field_is_nan(const Field& field, PrimitiveType type) {
+    if (field.is_null()) {
+        return false;
+    }
+    if (type == TYPE_FLOAT) {
+        return std::isnan(field.get<TYPE_FLOAT>());
+    }
+    if (type == TYPE_DOUBLE) {
+        return std::isnan(field.get<TYPE_DOUBLE>());
+    }
+    return false;
 }
 
 inline bool data_types_compatible(const DataTypePtr& lhs, const DataTypePtr& rhs) {
