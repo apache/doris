@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 public class CloudTabletRebalancerTest {
 
@@ -75,6 +76,30 @@ public class CloudTabletRebalancerTest {
         }
     }
 
+    private static class CountingConcurrentHashMap<K, V> extends ConcurrentHashMap<K, V> {
+        private int computeIfAbsentCalls;
+        private int getCalls;
+        private int putIfAbsentCalls;
+
+        @Override
+        public V computeIfAbsent(K key, Function<? super K, ? extends V> mappingFunction) {
+            computeIfAbsentCalls++;
+            return super.computeIfAbsent(key, mappingFunction);
+        }
+
+        @Override
+        public V get(Object key) {
+            getCalls++;
+            return super.get(key);
+        }
+
+        @Override
+        public V putIfAbsent(K key, V value) {
+            putIfAbsentCalls++;
+            return super.putIfAbsent(key, value);
+        }
+    }
+
     private static void setField(Object obj, String name, Object value) throws Exception {
         Field f = CloudTabletRebalancer.class.getDeclaredField(name);
         f.setAccessible(true);
@@ -92,6 +117,50 @@ public class CloudTabletRebalancerTest {
         Method m = CloudTabletRebalancer.class.getDeclaredMethod(method, types);
         m.setAccessible(true);
         return (T) m.invoke(obj, args);
+    }
+
+    @Test
+    public void testFillBeToTabletsUsesComputedContainers() {
+        TestRebalancer rebalancer = new TestRebalancer();
+        long beId = 1L;
+        long tableId = 2L;
+        long partitionId = 3L;
+        long indexId = 4L;
+
+        CountingConcurrentHashMap<Long, Set<Long>> globalBeToTablets = new CountingConcurrentHashMap<>();
+        CountingConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable =
+                new CountingConcurrentHashMap<>();
+        CountingConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable = new CountingConcurrentHashMap<>();
+        beToTabletsInTable.put(tableId, beToTabletsOfTable);
+
+        CountingConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                partToTablets = new CountingConcurrentHashMap<>();
+        CountingConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets =
+                new CountingConcurrentHashMap<>();
+        CountingConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex = new CountingConcurrentHashMap<>();
+        partToTablets.put(partitionId, indexToTablets);
+        indexToTablets.put(indexId, beToTabletsOfIndex);
+
+        rebalancer.fillBeToTablets(beId, tableId, partitionId, indexId, 5L,
+                globalBeToTablets, beToTabletsInTable, partToTablets);
+        rebalancer.fillBeToTablets(beId, tableId, partitionId, indexId, 6L,
+                globalBeToTablets, beToTabletsInTable, partToTablets);
+
+        assertComputedContainerUsed(globalBeToTablets);
+        assertComputedContainerUsed(beToTabletsInTable);
+        assertComputedContainerUsed(beToTabletsOfTable);
+        assertComputedContainerUsed(partToTablets);
+        assertComputedContainerUsed(indexToTablets);
+        assertComputedContainerUsed(beToTabletsOfIndex);
+        Assertions.assertEquals(Set.of(5L, 6L), globalBeToTablets.get(beId));
+        Assertions.assertEquals(Set.of(5L, 6L), beToTabletsOfTable.get(beId));
+        Assertions.assertEquals(Set.of(5L, 6L), beToTabletsOfIndex.get(beId));
+    }
+
+    private static void assertComputedContainerUsed(CountingConcurrentHashMap<?, ?> map) {
+        Assertions.assertEquals(2, map.computeIfAbsentCalls);
+        Assertions.assertEquals(0, map.putIfAbsentCalls);
+        Assertions.assertEquals(0, map.getCalls);
     }
 
     @Test
