@@ -82,8 +82,8 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         Constraint constraint;
         List<MTMV> dependentMtmvs;
         if (table instanceof OlapTable) {
-            DatabaseIf<? extends TableIf> database = table.getDatabase();
-            database.readLock();
+            DatabaseIf<? extends TableIf> database =
+                    ConstraintCommandUtils.lockCurrentDatabase(tableNameInfo);
             try {
                 TableIf currentTable = database.getTableOrDdlException(tableNameInfo.getTbl());
                 constraint = getConstraintOrThrow(tableNameInfo);

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -178,9 +179,10 @@ class RequestPropertyDeriverTest {
             GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(leftGroup, rightGroup));
             new Group(null, groupExpression, null);
 
-            RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
-            List<List<PhysicalProperties>> actual
-                    = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+            RequestPropertyDeriver requestPropertyDeriver =
+                    new RequestPropertyDeriver(testConnectContext, jobContext);
+            List<List<PhysicalProperties>> actual =
+                    requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
             List<List<PhysicalProperties>> expected = Lists.newArrayList();
             expected.add(Lists.newArrayList(
@@ -191,6 +193,37 @@ class RequestPropertyDeriverTest {
             ));
             expected.add(Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.REPLICATED));
             Assertions.assertEquals(expected, actual);
+
+            sessionVariable.enableColocateMappingConstraint = true;
+            List<List<PhysicalProperties>> enabled =
+                    requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+            expected.add(1, Lists.newArrayList(
+                    new PhysicalProperties(new DistributionSpecHash(
+                            Lists.newArrayList(leftKey.getExprId()),
+                            ShuffleType.COLOCATE_MAPPING_REQUIRE)),
+                    new PhysicalProperties(new DistributionSpecHash(
+                            Lists.newArrayList(rightKey.getExprId()),
+                            ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+            Assertions.assertEquals(expected, enabled);
+
+            PhysicalHashJoin<GroupPlan, GroupPlan> expressionJoin = new PhysicalHashJoin<>(
+                    JoinType.INNER_JOIN,
+                    ImmutableList.of(new EqualTo(leftKey, new Add(rightKey, Literal.of(1)))),
+                    ExpressionUtils.EMPTY_CONDITION,
+                    new DistributeHint(DistributeType.NONE),
+                    Optional.empty(),
+                    logicalProperties,
+                    leftPlan,
+                    rightPlan);
+            GroupExpression expressionJoinGroup =
+                    new GroupExpression(expressionJoin, Lists.newArrayList(leftGroup, rightGroup));
+            new Group(null, expressionJoinGroup, null);
+
+            List<List<PhysicalProperties>> expressionJoinRequests =
+                    requestPropertyDeriver.getRequestChildrenPropertyList(expressionJoinGroup);
+            Assertions.assertEquals(
+                    Lists.newArrayList(expected.get(0), expected.get(2)),
+                    expressionJoinRequests);
         }
     }
 

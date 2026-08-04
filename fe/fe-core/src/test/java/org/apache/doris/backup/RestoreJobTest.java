@@ -34,6 +34,8 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -138,6 +140,7 @@ public class RestoreJobTest {
 
         Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
         Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(db);
+        Mockito.when(catalog.getDbOrMetaException(Mockito.anyLong())).thenReturn(db);
         Mockito.when(env.getNextId()).thenAnswer(inv -> id.getAndIncrement());
         Mockito.when(env.getEditLog()).thenReturn(editLog);
 
@@ -297,5 +300,35 @@ public class RestoreJobTest {
         Partition localPart = remoteTbl.getPartition(partName);
         Assert.assertEquals(localPart.getVisibleVersion(), visibleVersion);
         Assert.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
+    }
+
+    @Test
+    public void testReplayRestoreRebuildsConstraintIndex() {
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        TabletInvertedIndex invertedIndex = Mockito.mock(TabletInvertedIndex.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
+        Deencapsulation.setField(job, "restoredTbls", Lists.newArrayList(expectedRestoreTbl));
+
+        Deencapsulation.invoke(job, "replayCheckAndPrepareMeta");
+
+        Mockito.verify(constraintManager).restoreTableConstraints(
+                Mockito.any(), Mockito.same(expectedRestoreTbl));
+    }
+
+    @Test
+    public void testCancelRestoreDropsConstraintIndex() {
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        TabletInvertedIndex invertedIndex = Mockito.mock(TabletInvertedIndex.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
+        db.registerTable(expectedRestoreTbl);
+        Deencapsulation.setField(job, "restoredTbls", Lists.newArrayList(expectedRestoreTbl));
+
+        job.cleanMetaObjects(false);
+
+        Mockito.verify(constraintManager).dropTableConstraints(Mockito.any());
     }
 }

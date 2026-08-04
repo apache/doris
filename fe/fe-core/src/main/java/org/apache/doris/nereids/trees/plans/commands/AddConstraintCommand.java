@@ -100,8 +100,8 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
                     extractColumnsAndTable(ctx, constraint.toDistributionProject());
             Preconditions.checkState(table.getId() == distributionColumnsAndTable.second.getId(),
                     "determinant and distribution columns must belong to the same table");
-            DatabaseIf<? extends TableIf> database = table.getDatabase();
-            database.readLock();
+            DatabaseIf<? extends TableIf> database =
+                    ConstraintCommandUtils.lockCurrentDatabase(tableNameInfo);
             try {
                 TableIf currentTable = database.getTableOrDdlException(tableNameInfo.getTbl());
                 Preconditions.checkState(currentTable instanceof OlapTable,

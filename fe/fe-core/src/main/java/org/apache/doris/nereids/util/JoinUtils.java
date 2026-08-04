@@ -334,18 +334,13 @@ public class JoinUtils {
 
     private static boolean couldColocateJoinOnDistributionColumns(DistributionSpecHash leftHashSpec,
             DistributionSpecHash rightHashSpec, List<Expression> conjuncts) {
+        if (!areAllSlotEqualPredicates(conjuncts)) {
+            return false;
+        }
         Set<Integer> equalIndices = new HashSet<>();
         for (Expression expr : conjuncts) {
-            // only simple equal predicate can use colocate join
-            if (!(expr instanceof EqualPredicate)) {
-                return false;
-            }
             Expression leftChild = ((EqualPredicate) expr).left();
             Expression rightChild = ((EqualPredicate) expr).right();
-            if (!(leftChild instanceof SlotReference) || !(rightChild instanceof SlotReference)) {
-                return false;
-            }
-
             SlotReference leftSlot = (SlotReference) leftChild;
             SlotReference rightSlot = (SlotReference) rightChild;
             Integer leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(leftSlot.getExprId());
@@ -376,14 +371,12 @@ public class JoinUtils {
             Map<ExprId, Integer> leftDistributionExprToIndex, List<DistributionMapping> leftMappings,
             Map<ExprId, Integer> rightDistributionExprToIndex, List<DistributionMapping> rightMappings,
             int distributionKeyCount, List<Expression> conjuncts) {
+        if (!areAllSlotEqualPredicates(conjuncts)) {
+            return false;
+        }
         List<Pair<ExprId, ExprId>> equalExprIds = Lists.newArrayList();
         Set<Integer> coveredIndices = new HashSet<>();
         for (Expression expr : conjuncts) {
-            if (!(expr instanceof EqualPredicate)
-                    || !(((EqualPredicate) expr).left() instanceof SlotReference)
-                    || !(((EqualPredicate) expr).right() instanceof SlotReference)) {
-                return false;
-            }
             ExprId first = ((SlotReference) ((EqualPredicate) expr).left()).getExprId();
             ExprId second = ((SlotReference) ((EqualPredicate) expr).right()).getExprId();
             equalExprIds.add(Pair.of(first, second));
@@ -427,6 +420,14 @@ public class JoinUtils {
             }
         }
         return true;
+    }
+
+    /** Whether every conjunct is a simple slot-to-slot equality supported by colocate proof. */
+    public static boolean areAllSlotEqualPredicates(List<? extends Expression> conjuncts) {
+        return conjuncts.stream().allMatch(expr ->
+                expr instanceof EqualPredicate
+                        && ((EqualPredicate) expr).left() instanceof SlotReference
+                        && ((EqualPredicate) expr).right() instanceof SlotReference);
     }
 
     private static boolean containsEqualPair(List<Pair<ExprId, ExprId>> equalExprIds, ExprId left, ExprId right) {
