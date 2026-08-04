@@ -218,7 +218,7 @@ ZoneMapFilterResult VInPredicate::evaluate_bloom_filter(const BloomFilterEvalCon
 
 bool VInPredicate::can_evaluate_bloom_filter() const {
     return _zonemap_materialized && !_is_not_in &&
-           std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+           expr_zonemap::extract_bloom_filter_probe(get_child(0)).has_value();
 }
 
 bool VInPredicate::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,

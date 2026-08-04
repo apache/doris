@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/simple_function_factory.h"
@@ -63,6 +64,19 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                              const VExprSPtrs& arguments) const override {
+        auto slot_literal = expr_zonemap::extract_bloom_filter_slot_and_literal(arguments);
+        DORIS_CHECK(slot_literal.has_value());
+        return expr_zonemap::eval_eq_bloom_filter(ctx, *slot_literal);
+    }
+
+    bool can_evaluate_bloom_filter(const VExprSPtrs& arguments) const override {
+        // Parquet Bloom filters do not encode null membership, so null-safe equality can only use
+        // them when its literal is non-null and ordinary equality semantics apply.
+        return expr_zonemap::can_evaluate_bloom_filter_equality(arguments);
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
