@@ -546,15 +546,16 @@ jobs:
 
           ## Final response format
           - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
-          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
+          - Before submitting the final GitHub review, write PLACEHOLDER_CONTEXT_DIR/review_decision.json. It must contain exactly one JSON object with exactly one field: {"decision":"PASS"} when there are no accepted blocking issues, or {"decision":"FAIL"} when there are accepted blocking issues. Write this file before the GitHub review and do not finish without it.
+          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), first write {"decision":"PASS"}, then submit a COMMENTED review using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
               - Note that when submitting review comments in this way, the content will not be escaped, so you need to input multi-line text with line breaks directly, rather than using `\n`.
-          - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
+          - If accepted blocking issues are found, first write {"decision":"FAIL"}, then submit a COMMENTED review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
               - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
               - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
               - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
               - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
               - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
-              - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+              - The JSON file should contain: {"event":"COMMENT","body":"<summary>","comments":[...]}
           PROMPT
 
           sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
@@ -718,15 +719,37 @@ jobs:
           fi
 
           if [ -z "$failure_reason" ]; then
+            decision_file="$REVIEW_CONTEXT_DIR/review_decision.json"
+            if ! decision="$(jq -ser '
+              select(length == 1)
+              | .[0]
+              | if type == "object" and keys == ["decision"] and
+                   (.decision == "PASS" or .decision == "FAIL")
+                then .decision
+                else error("review decision must be PASS or FAIL")
+                end
+            ' "$decision_file")"; then
+              failure_reason="Codex completed, but did not write a valid review decision."
+            else
+              echo "decision=$decision" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          if [ -z "$failure_reason" ]; then
             reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
             reviews_api_ok=false
             review_verified=false
             for attempt in 1 2 3 4 5 6; do
               if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
                 reviews_api_ok=true
-                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" --arg reviewer "github-actions[bot]" '
                   (add // [])
-                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
+                  | map(select(
+                      (.submitted_at // "") >= $started_at and
+                      (.commit_id // "") == $head_sha and
+                      (.user.login // "") == $reviewer and
+                      (.state // "") == "COMMENTED"
+                    ))
                   | length > 0
                 ' "$reviews_file" >/dev/null; then
                   review_verified=true
@@ -847,16 +870,27 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           REPO: ${{ github.repository }}
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
+          REVIEW_DECISION: ${{ steps.review.outputs.decision }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
         run: |
-          state="pending"
-          summary="Trigger /review to start automated review for ${HEAD_SHA}."
+          state="failure"
+          summary="Automated review did not complete for ${HEAD_SHA}."
 
           if [ "$JOB_STATUS" = "success" ] && \
              [ "$REVIEW_CONTEXT_OUTCOME" = "success" ] && \
              [ "$REVIEW_OUTCOME" = "success" ]; then
-            state="success"
-            summary="Automated review was triggered for ${HEAD_SHA}."
+            case "$REVIEW_DECISION" in
+              PASS)
+                state="success"
+                summary="Automated review passed for ${HEAD_SHA}."
+                ;;
+              FAIL)
+                summary="Automated review reported blocking issues for ${HEAD_SHA}."
+                ;;
+              *)
+                summary="Automated review completed without a valid decision for ${HEAD_SHA}."
+                ;;
+            esac
           fi
 
           gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
