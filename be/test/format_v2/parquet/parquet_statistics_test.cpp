@@ -987,6 +987,17 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
                         .ok());
     EXPECT_TRUE(selected_row_groups.empty());
 
+    // The same predicate can be localized after an earlier unsafe conjunct. Metadata pruning must
+    // preserve that earlier expression's row-level error instead of skipping the whole row group.
+    request.metadata_pruning_safe_conjunct_count = 0;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        footer_only_metadata, schema, request, nullptr, &selected_row_groups, false,
+                        nullptr, nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+    request.metadata_pruning_safe_conjunct_count = request.conjuncts.size();
+
     auto leaf_projection = format::LocalColumnIndex::partial_local(0);
     auto typed_object_projection = format::LocalColumnIndex::partial_local(2);
     auto field_projection = format::LocalColumnIndex::partial_local(0);
@@ -1082,6 +1093,16 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
     EXPECT_EQ(selected_ranges[0].length, 50);
     EXPECT_EQ(pruning_stats.page_index_read_calls, 1);
     EXPECT_EQ(pruning_stats.filtered_page_rows, 50);
+
+    request.metadata_pruning_safe_conjunct_count = 0;
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 100);
+    request.metadata_pruning_safe_conjunct_count = request.conjuncts.size();
 
     // Direct Variant numeric comparisons coerce integral literals to a wide DECIMAL domain.
     request.conjuncts = {variant_path_gt_conjunct(50, false, true)};

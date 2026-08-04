@@ -1055,8 +1055,15 @@ Status TableReader::_build_table_filters_from_conjuncts() {
         if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
             in_safe_prefix = false;
         }
+        const size_t first_new_filter = _table_filters.size();
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
+        for (size_t filter_idx = first_new_filter; filter_idx < _table_filters.size();
+             ++filter_idx) {
+            // Preserve the original conjunct-order fence even when the unsafe expression itself
+            // had no slot and therefore produced no TableFilter entry.
+            _table_filters[filter_idx].metadata_pruning_safe = in_safe_prefix;
+        }
         if (in_safe_prefix) {
             _constant_pruning_safe_filter_count = _table_filters.size();
         }
@@ -1066,47 +1073,29 @@ Status TableReader::_build_table_filters_from_conjuncts() {
 
 namespace {
 
-bool same_scan_projection(const LocalColumnIndex& lhs, const LocalColumnIndex& rhs) {
-    if (lhs.index != rhs.index || lhs.project_all_children != rhs.project_all_children ||
-        lhs.children.size() != rhs.children.size()) {
+bool same_scan_projections(const std::vector<LocalColumnIndex>& lhs,
+                           const std::vector<LocalColumnIndex>& rhs) {
+    if (lhs.size() != rhs.size()) {
         return false;
     }
-    for (size_t index = 0; index < lhs.children.size(); ++index) {
-        if (!same_scan_projection(lhs.children[index], rhs.children[index])) {
+    for (const auto& lhs_projection : lhs) {
+        const auto rhs_it = std::ranges::find_if(rhs, [&](const LocalColumnIndex& rhs_projection) {
+            return rhs_projection.column_id() == lhs_projection.column_id();
+        });
+        if (rhs_it == rhs.end() || !same_local_column_index(lhs_projection, *rhs_it)) {
             return false;
         }
     }
     return true;
-}
-
-const LocalColumnIndex* find_scan_projection(const FileScanRequest& request,
-                                             LocalColumnId column_id) {
-    const auto find_by_id = [column_id](const std::vector<LocalColumnIndex>& projections) {
-        return std::ranges::find_if(projections, [column_id](const LocalColumnIndex& projection) {
-            return projection.column_id() == column_id;
-        });
-    };
-    auto it = find_by_id(request.predicate_columns);
-    if (it != request.predicate_columns.end()) {
-        return &*it;
-    }
-    it = find_by_id(request.non_predicate_columns);
-    return it == request.non_predicate_columns.end() ? nullptr : &*it;
 }
 
 bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest& rhs) {
-    if (lhs.local_positions != rhs.local_positions) {
-        return false;
-    }
-    for (const auto& [column_id, _] : lhs.local_positions) {
-        const auto* lhs_projection = find_scan_projection(lhs, column_id);
-        const auto* rhs_projection = find_scan_projection(rhs, column_id);
-        if (lhs_projection == nullptr || rhs_projection == nullptr ||
-            !same_scan_projection(*lhs_projection, *rhs_projection)) {
-            return false;
-        }
-    }
-    return true;
+    // Deferred complex roots occupy independent output slots. Comparing only eager positions can
+    // accept a refresh whose second Variant root now aliases or overruns the active block layout.
+    return lhs.local_positions == rhs.local_positions &&
+           lhs.non_predicate_positions == rhs.non_predicate_positions &&
+           same_scan_projections(lhs.predicate_columns, rhs.predicate_columns) &&
+           same_scan_projections(lhs.non_predicate_columns, rhs.non_predicate_columns);
 }
 
 } // namespace
@@ -1135,7 +1124,9 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     auto refreshed_request = std::make_shared<FileScanRequest>();
     RETURN_IF_ERROR(refreshed_mapper->create_scan_request(
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
-            _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
+            _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions,
+            _file_scan_request == nullptr ? nullptr
+                                          : &_file_scan_request->non_predicate_positions));
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&

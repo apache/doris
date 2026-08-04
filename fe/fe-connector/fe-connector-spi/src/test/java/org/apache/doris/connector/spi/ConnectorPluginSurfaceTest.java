@@ -19,6 +19,7 @@ package org.apache.doris.connector.spi;
 
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -84,6 +85,7 @@ public class ConnectorPluginSurfaceTest {
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,
+            ConnectorScanPlanProvider.class,
             ConnectorWriteHandle.class,
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,

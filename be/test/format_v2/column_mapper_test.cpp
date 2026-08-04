@@ -4187,6 +4187,67 @@ TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredVariantRootProjection) 
     EXPECT_TRUE(request.is_predicate_only(LocalColumnId(0)));
 }
 
+TEST(ColumnMapperTest, RowGroupRefreshPreservesTwoDeferredVariantRootLayouts) {
+    auto make_file_variant = [](const std::string& name, int32_t field_id, int32_t local_id) {
+        auto field_wrapper = struct_name_col(
+                "typed_col", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)},
+                0);
+        auto typed_value = struct_name_col("typed_value", {std::move(field_wrapper)}, 2);
+        auto variant = field_id_col(name, field_id, variant_v2(), local_id);
+        variant.children = {name_col("metadata", varbinary(), 0), name_col("value", varbinary(), 1),
+                            std::move(typed_value)};
+        return variant;
+    };
+    auto first = field_id_col("v1", 10, variant_v2());
+    first.has_predicate_access_paths = true;
+    first.predicate_variant_access_paths = {{"typed_col"}};
+    auto second = field_id_col("v2", 11, variant_v2());
+    second.has_predicate_access_paths = true;
+    second.predicate_variant_access_paths = {{"typed_col"}};
+    const std::vector<ColumnDefinition> table_columns {first, second};
+    const std::vector<ColumnDefinition> file_columns {make_file_variant("v1", 10, 0),
+                                                      make_file_variant("v2", 11, 1)};
+
+    std::vector<TableFilter> filters;
+    for (int32_t index = 0; index < 2; ++index) {
+        auto typed_col = element_at(
+                table_slot(index, index, table_columns[index].type, table_columns[index].name),
+                variant_v2(), "typed_col");
+        auto predicate = binary_predicate(TExprOpcode::GT, cast_expr(typed_col, i64()),
+                                          literal(i64(), Field::create_field<TYPE_BIGINT>(0)));
+        filters.push_back({.conjunct = VExprContext::create_shared(predicate),
+                           .global_indices = {GlobalIndex(index)}});
+    }
+
+    ParquetColumnMapper initial_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(initial_mapper.create_mapping(table_columns, {}, file_columns).ok());
+    FileScanRequest initial_request;
+    ASSERT_TRUE(initial_mapper.create_scan_request(filters, table_columns, &initial_request).ok());
+    EXPECT_EQ(initial_request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
+    EXPECT_EQ(initial_request.non_predicate_position(LocalColumnId(0)), LocalIndex(1));
+    EXPECT_EQ(initial_request.local_positions.at(LocalColumnId(1)), LocalIndex(2));
+    EXPECT_EQ(initial_request.non_predicate_position(LocalColumnId(1)), LocalIndex(3));
+
+    ParquetColumnMapper refreshed_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(refreshed_mapper.create_mapping(table_columns, {}, file_columns).ok());
+    FileScanRequest refreshed_request;
+    ASSERT_TRUE(refreshed_mapper
+                        .create_scan_request(filters, table_columns, &refreshed_request, nullptr,
+                                             &initial_request.local_positions,
+                                             &initial_request.non_predicate_positions)
+                        .ok());
+    EXPECT_EQ(refreshed_request.local_positions, initial_request.local_positions);
+    EXPECT_EQ(refreshed_request.non_predicate_positions, initial_request.non_predicate_positions);
+    ASSERT_EQ(refreshed_request.predicate_columns.size(), 2);
+    ASSERT_EQ(refreshed_request.non_predicate_columns.size(), 2);
+    for (size_t index = 0; index < 2; ++index) {
+        EXPECT_TRUE(same_local_column_index(refreshed_request.predicate_columns[index],
+                                            initial_request.predicate_columns[index]));
+        EXPECT_TRUE(same_local_column_index(refreshed_request.non_predicate_columns[index],
+                                            initial_request.non_predicate_columns[index]));
+    }
+}
+
 TEST(ColumnMapperTest, NestedVariantAccessPathProjectsPhysicalTypedLeaf) {
     auto table_variant = field_id_col("payload", 2, variant_v2());
     table_variant.variant_access_paths = {{"typed_col"}};

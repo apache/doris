@@ -205,7 +205,8 @@ public:
             const std::vector<TableFilter>& table_filters,
             const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
             RuntimeState* runtime_state = nullptr,
-            const std::map<LocalColumnId, LocalIndex>* fixed_local_positions = nullptr);
+            const std::map<LocalColumnId, LocalIndex>* fixed_local_positions = nullptr,
+            const std::map<LocalColumnId, LocalIndex>* fixed_non_predicate_positions = nullptr);
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with

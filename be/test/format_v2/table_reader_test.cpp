@@ -1588,6 +1588,48 @@ TEST(TableReaderTest, ConstantPruningStopsAtUnsafeSlotlessPredicate) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(TableReaderTest, MetadataPruningBoundaryKeepsUnsafeSlotlessBarrier) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    bool predicate_executed = false;
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(
+            reader
+                    .init({
+                            .projected_columns = projected_columns,
+                            .conjuncts =
+                                    {prepared_conjunct(
+                                             &state,
+                                             std::make_shared<NonDeterministicPartitionPredicate>(
+                                                     &predicate_executed)),
+                                     prepared_conjunct(&state,
+                                                       table_int32_greater_than_expr(0, 0, 10))},
+                            .format = FileFormat::PARQUET,
+                            .scan_params = nullptr,
+                            .io_ctx = nullptr,
+                            .runtime_state = &state,
+                            .scanner_profile = nullptr,
+                    })
+                    .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->last_request, nullptr);
+    ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
+    EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));

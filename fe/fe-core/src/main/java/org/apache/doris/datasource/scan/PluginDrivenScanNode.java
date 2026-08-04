@@ -34,6 +34,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -131,6 +132,7 @@ import java.util.stream.Collectors;
  * </ol>
  */
 public class PluginDrivenScanNode extends FileQueryScanNode {
+    private static final int SUPPORT_ICEBERG_VARIANT_EXEC_VERSION = 12;
 
     private static final Logger LOG = LogManager.getLogger(PluginDrivenScanNode.class);
 
@@ -202,6 +204,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
+        // Compatibility must inspect the snapshot-specific handle: latest metadata may answer
+        // COUNT(*) while an older time-travel snapshot still requires a Variant data scan.
+        pinMvccSnapshot();
         checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
     }
 
@@ -211,11 +216,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (isTableLevelCountStarPushdown() && conjuncts.isEmpty() && scanProvider != null) {
             metadataCountProven = onPluginClassLoader(scanProvider,
-                    () -> scanProvider.canServeMetadataOnlyCount(
-                            connectorSession, currentHandle, Optional.empty()));
+                    () -> canServeMetadataOnlyCount(scanProvider, connectorSession, currentHandle));
         }
         checkVariantBackendCompatibility(
                 !metadataCountProven && projectsComputeVariant(desc), backends);
+    }
+
+    static boolean canServeMetadataOnlyCount(ConnectorScanPlanProvider scanProvider,
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return scanProvider.canServeMetadataOnlyCount(session, handle, Optional.empty());
     }
 
     static boolean projectsComputeVariant(TupleDescriptor tuple) {
@@ -246,6 +255,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             throws UserException {
         if (!projectsVariant) {
             return;
+        }
+        if (Config.be_exec_version < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
+            // The query-wide execution version covers every eligible backend, including ordinary
+            // rolling-upgrade nodes that are not marked as cloud smooth-upgrade sources.
+            throw new UserException("Iceberg Variant requires backend execution version "
+                    + SUPPORT_ICEBERG_VARIANT_EXEC_VERSION + " or newer during rolling upgrade");
         }
         for (Backend backend : backends) {
             if (backend.isSmoothUpgradeSrc()) {

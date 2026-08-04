@@ -2255,7 +2255,8 @@ Status TableColumnMapper::create_scan_request(
         const std::vector<TableFilter>& table_filters,
         const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
         RuntimeState* runtime_state,
-        const std::map<LocalColumnId, LocalIndex>* fixed_local_positions) {
+        const std::map<LocalColumnId, LocalIndex>* fixed_local_positions,
+        const std::map<LocalColumnId, LocalIndex>* fixed_non_predicate_positions) {
     // FileReader evaluates expressions against a file-local block. This mapper owns the
     // table-column to file-column conversion, so it also owns the file-local block positions.
     file_request->predicate_columns.clear();
@@ -2269,7 +2270,13 @@ Status TableColumnMapper::create_scan_request(
         file_request->local_positions = *fixed_local_positions;
     }
     file_request->non_predicate_positions.clear();
+    if (fixed_non_predicate_positions != nullptr) {
+        // Deferred output slots are part of the active reader's immutable block layout, just like
+        // eager slots; retaining only local_positions can shift a later complex root out of bounds.
+        file_request->non_predicate_positions = *fixed_non_predicate_positions;
+    }
     file_request->conjuncts.clear();
+    file_request->metadata_pruning_safe_conjunct_count = 0;
     file_request->delete_conjuncts.clear();
     _filter_entries.clear();
     // 1. Build referenced non-predicate columns
@@ -2496,6 +2503,9 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
             RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
             file_request->conjuncts.push_back(std::move(localized_conjunct));
+            if (table_filter.metadata_pruning_safe) {
+                ++file_request->metadata_pruning_safe_conjunct_count;
+            }
             for (const auto global_index : table_filter.global_indices) {
                 const auto* mapping = _find_filter_mapping(global_index);
                 if (mapping != nullptr && mapping->file_local_id.has_value() &&

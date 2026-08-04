@@ -377,6 +377,17 @@ suite("test_iceberg_variant_read",
         WHERE v['n'] > 3000
     """
 
+    // A later Variant metadata predicate must not prune away an earlier error-producing conjunct.
+    test {
+        sql """
+            SELECT COUNT(*)
+            FROM variant_page_pruning
+            WHERE assert_true(id != 1, 'variant_metadata_error_barrier')
+              AND v['n'] > 5000
+        """
+        exception "variant_metadata_error_barrier"
+    }
+
     order_qt_variant_aggregate """
         SELECT CAST(v['ok'] AS BOOLEAN),
                COUNT(*),
@@ -440,13 +451,10 @@ suite("test_iceberg_variant_read",
 
     // Signed integer selectors are array indexes, even when a shredded object has a key with the
     // same serialized token. The ambiguous scanner path must retain enough state for both results.
-    List<List<Object>> signedSelectorRows = sql """
+    order_qt_variant_signed_selector """
         SELECT CAST(v[-1] AS INT), CAST(v['-1'] AS INT)
         FROM variant_signed_selector
     """
-    assertEquals(1, signedSelectorRows.size())
-    assertEquals(null, signedSelectorRows[0][0])
-    assertEquals("41", signedSelectorRows[0][1].toString())
 
     order_qt_variant_nested_expressions """
         SELECT id,

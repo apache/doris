@@ -483,6 +483,28 @@ TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeSkipsCardinalityState) {
     EXPECT_TRUE(sink->_matched_row_positions.empty());
 }
 
+TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeRejectsDeleteOnlyWriterOmission) {
+    ObjectPool pool;
+    MockRuntimeState state;
+    state.set_be_exec_version(SUPPORT_ICEBERG_VARIANT_VERSION - 1);
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto t_sink = build_sink();
+    t_sink.iceberg_merge_sink.__set_writes_data_files(false);
+    auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("rolling_upgrade_delete_only_iceberg_merge_sink");
+    const Status status = sink->open(&state, &profile);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+}
+
 TEST_F(VIcebergMergeSinkTest, TestErrorCloseRemovesRolledDataFiles) {
     ObjectPool pool;
     IcebergWriteMockRuntimeState state;

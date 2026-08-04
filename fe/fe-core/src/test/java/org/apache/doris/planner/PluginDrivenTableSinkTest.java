@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -270,6 +271,26 @@ public class PluginDrivenTableSinkTest {
         // Delete-only MERGE must bypass data-file validation while retaining cardinality enforcement.
         Assert.assertFalse(provider.seenHandle.isWritesDataFiles());
         Assert.assertTrue(provider.seenHandle.isRequireMergeCardinalityCheck());
+    }
+
+    @Test
+    public void deleteOnlyMergeRejectsOldQueryWideExecutionVersion() {
+        int original = Config.be_exec_version;
+        try {
+            Config.be_exec_version = 11;
+            RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                    new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
+            PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                    null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                    null, WriteOperation.MERGE, false, true);
+
+            AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                    () -> sink.bindDataSink(Optional.empty()));
+            Assert.assertTrue(exception.getMessage().contains("rolling upgrade"));
+            Assert.assertNull(provider.seenHandle);
+        } finally {
+            Config.be_exec_version = original;
+        }
     }
 
     @Test

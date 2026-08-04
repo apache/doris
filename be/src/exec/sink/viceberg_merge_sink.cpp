@@ -71,6 +71,14 @@ Status VIcebergMergeSink::init_properties(ObjectPool* pool, const RowDescriptor&
 Status VIcebergMergeSink::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
+    if (!_writes_data_files && state->be_exec_version() < SUPPORT_ICEBERG_VARIANT_VERSION) {
+        // The query-wide version keeps delete-only writer omission all-or-nothing; an older BE
+        // would ignore writes_data_files and parse the unsupported Variant data-writer schema.
+        return Status::NotSupported(
+                "Delete-only Iceberg MERGE requires backend execution version {}",
+                SUPPORT_ICEBERG_VARIANT_VERSION);
+    }
+
     _written_rows_counter = ADD_COUNTER(profile, "RowsWritten", TUnit::UNIT);
     _insert_rows_counter = ADD_COUNTER(profile, "InsertRows", TUnit::UNIT);
     _delete_rows_counter = ADD_COUNTER(profile, "DeleteRows", TUnit::UNIT);

@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -57,6 +58,7 @@ import java.util.Set;
  * specific {@code T*TableSink} dialect lives entirely inside the connector.</p>
  */
 public class PluginDrivenTableSink extends BaseExternalTableDataSink {
+    private static final int SUPPORT_ICEBERG_VARIANT_EXEC_VERSION = 12;
 
     private final PluginDrivenExternalTable targetTable;
     // Plan-provider mode (W5): the connector builds its own opaque TDataSink via planWrite().
@@ -277,6 +279,13 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     @Override
     public void bindDataSink(Optional<InsertCommandContext> insertCtx)
             throws AnalysisException {
+        if (writeOperation == WriteOperation.MERGE && !writesDataFiles
+                && Config.be_exec_version < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
+            // Older BEs ignore writes_data_files and instantiate the omitted data writer, so reject
+            // the all-or-nothing query before a Variant schema reaches any rolling-upgrade backend.
+            throw new AnalysisException("Delete-only Iceberg MERGE with Variant is unavailable "
+                    + "during rolling upgrade");
+        }
         boolean overwrite = false;
         Map<String, String> writeContext = Collections.emptyMap();
         Optional<String> branchName = Optional.empty();

@@ -79,6 +79,9 @@ true	5	170	4.17
 -- !variant_nested_filter --
 1
 
+-- !variant_signed_selector --
+\N	41
+
 -- !variant_nested_expressions --
 1	11	inside	open	\N	true	1002
 2	\N	\N	\N	202	false	2003

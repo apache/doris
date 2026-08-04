@@ -17,16 +17,23 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.system.Backend;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Collections;
+import java.util.Optional;
 
 /** Tests the mixed-version safety gate for plugin-driven Variant scans. */
 public class PluginDrivenScanNodeCompatibilityTest {
+
+    private static final int VARIANT_EXEC_VERSION = 12;
 
     @Test
     public void computeVariantRejectsSmoothUpgradeSourceBackend() {
@@ -46,5 +53,39 @@ public class PluginDrivenScanNodeCompatibilityTest {
 
         PluginDrivenScanNode.checkVariantBackendCompatibility(
                 false, Collections.singletonList(backend));
+    }
+
+    @Test
+    public void computeVariantRejectsOldQueryWideExecutionVersion() {
+        int original = Config.be_exec_version;
+        try {
+            Config.be_exec_version = VARIANT_EXEC_VERSION - 1;
+            Backend backend = new Backend(8L, "127.0.0.1", 9050);
+
+            UserException exception = Assert.assertThrows(UserException.class,
+                    () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
+                            true, Collections.singletonList(backend)));
+            Assert.assertTrue(exception.getMessage().contains("execution version"));
+        } finally {
+            Config.be_exec_version = original;
+        }
+    }
+
+    @Test
+    public void metadataCountCapabilityUsesPinnedHandle() {
+        ConnectorSession session = org.mockito.Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle latest = new ConnectorTableHandle() { };
+        ConnectorTableHandle pinned = new ConnectorTableHandle() { };
+        ConnectorScanPlanProvider provider =
+                org.mockito.Mockito.mock(ConnectorScanPlanProvider.class);
+        org.mockito.Mockito.doAnswer(invocation -> invocation.getArgument(1) == latest)
+                .when(provider).canServeMetadataOnlyCount(org.mockito.Mockito.same(session),
+                        org.mockito.Mockito.any(ConnectorTableHandle.class),
+                        org.mockito.Mockito.eq(Optional.empty()));
+
+        Assert.assertTrue(PluginDrivenScanNode.canServeMetadataOnlyCount(
+                provider, session, latest));
+        Assert.assertFalse(PluginDrivenScanNode.canServeMetadataOnlyCount(
+                provider, session, pinned));
     }
 }

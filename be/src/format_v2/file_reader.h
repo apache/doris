@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -83,6 +84,9 @@ struct FileScanRequest {
     std::map<LocalColumnId, LocalIndex> non_predicate_positions;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
+    // Only this leading subset may participate in footer/page metadata pruning. The boundary is
+    // inherited from table-conjunct order so an omitted slotless unsafe expression remains a fence.
+    size_t metadata_pruning_safe_conjunct_count = std::numeric_limits<size_t>::max();
     // Delete predicates converted to file-local expressions. A TRUE result means that the row is
     // deleted, so readers must invert each result when building their keep filter.
     VExprContextSPtrs delete_conjuncts;
