@@ -21,6 +21,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/frontend_info.h"
 #include "runtime/workload_group/workload_group_manager.h"
 
 namespace doris {

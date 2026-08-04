@@ -31,6 +31,7 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/fs_file_cache_storage.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_request.h"
 #include "util/slice.h"

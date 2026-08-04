@@ -29,6 +29,7 @@
 #include <filesystem>
 
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_service.h"
 #include "service/http/ev_http_server.h"

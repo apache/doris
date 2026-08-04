@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/spill/spill_file_manager.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_query_statistics_mgr.h"

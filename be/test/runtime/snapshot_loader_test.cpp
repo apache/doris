@@ -45,6 +45,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/cluster_info.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"

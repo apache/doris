@@ -28,6 +28,7 @@
 #include <memory>
 #include <vector>
 
+#include "io/fs/local_file_system.h"
 #include "testutil/creators.h"
 
 namespace doris {
