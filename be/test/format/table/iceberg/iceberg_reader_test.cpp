@@ -315,9 +315,14 @@ void write_iceberg_idless_nested_struct_parquet_file(
         const std::string& file_path, const std::vector<int32_t>& ids,
         const std::vector<int32_t>& values, const std::vector<bool>& parent_nulls,
         const std::string& parent_name, const std::string& child_name,
-        std::optional<int32_t> child_id = std::nullopt) {
+        std::optional<int32_t> child_id = std::nullopt,
+        std::optional<int32_t> id_field_id = std::nullopt) {
     DORIS_CHECK(ids.size() == values.size());
     auto id_field = arrow::field("id", arrow::int32(), false);
+    if (id_field_id.has_value()) {
+        id_field = id_field->WithMetadata(
+                arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(*id_field_id)}));
+    }
     auto child_field = arrow::field(child_name, arrow::int32(), false);
     if (child_id.has_value()) {
         child_field = child_field->WithMetadata(
@@ -464,17 +469,19 @@ void write_iceberg_id_and_nested_struct_orc_file(const std::string& file_path,
     output.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
-void write_iceberg_idless_nested_struct_orc_file(const std::string& file_path,
-                                                 const std::vector<int64_t>& ids,
-                                                 const std::vector<int64_t>& values,
-                                                 const std::vector<bool>& parent_nulls,
-                                                 const std::string& parent_name,
-                                                 const std::string& child_name,
-                                                 std::optional<int32_t> child_id = std::nullopt) {
+void write_iceberg_idless_nested_struct_orc_file(
+        const std::string& file_path, const std::vector<int64_t>& ids,
+        const std::vector<int64_t>& values, const std::vector<bool>& parent_nulls,
+        const std::string& parent_name, const std::string& child_name,
+        std::optional<int32_t> child_id = std::nullopt,
+        std::optional<int32_t> id_field_id = std::nullopt) {
     DORIS_CHECK(ids.size() == values.size());
     DORIS_CHECK(values.size() == parent_nulls.size());
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             "struct<id:int," + parent_name + ":struct<" + child_name + ":int>>"));
+    if (id_field_id.has_value()) {
+        type->getSubtype(0)->setAttribute("iceberg.id", std::to_string(*id_field_id));
+    }
     if (child_id.has_value()) {
         type->getSubtype(1)->getSubtype(0)->setAttribute("iceberg.id", std::to_string(*child_id));
     }
@@ -3149,12 +3156,12 @@ TEST_F(IcebergReaderTest, missing_nested_equality_key_under_idless_wrapper_prese
         if (is_parquet) {
             write_iceberg_idless_nested_struct_parquet_file(data_file, {1, 2, 3}, {10, 20, 30},
                                                             {false, true, false}, "payload",
-                                                            "existing", 2);
+                                                            "existing", 2, 0);
             write_iceberg_nested_struct_parquet_file(delete_file, {7}, {false}, "k", 3);
         } else {
             write_iceberg_idless_nested_struct_orc_file(data_file, {1, 2, 3}, {10, 20, 30},
                                                         {false, true, false}, "payload", "existing",
-                                                        2);
+                                                        2, 0);
             write_iceberg_nested_struct_orc_file(delete_file, {7}, {false}, "k", 3);
         }
 
@@ -3582,11 +3589,11 @@ TEST_F(IcebergReaderTest, v1_parquet_uses_descendant_id_for_hidden_nested_equali
     std::filesystem::create_directories(test_dir);
     const auto data_file = (test_dir / "data.parquet").string();
     const auto delete_file = (test_dir / "equality-delete.parquet").string();
-    // Every top-level Parquet field is ID-less, but the renamed nested equality key retains ID 2.
-    // Authoritative empty name mappings ensure only descendant-ID matching can locate it.
+    // The wrapper is ID-less, but the renamed nested equality key retains ID 2. Authoritative
+    // empty name mappings ensure only descendant-ID matching can locate the wrapper.
     write_iceberg_idless_nested_struct_parquet_file(data_file, {1, 2, 3}, {5, 7, 9},
                                                     {false, false, false}, "legacy_payload",
-                                                    "legacy_key", 2);
+                                                    "legacy_key", 2, 0);
     write_iceberg_int_equality_delete_parquet_file(delete_file, "delete_key", 2, 7);
 
     auto current_key = make_external_int_field("current_key", 2, "99", {}, true);

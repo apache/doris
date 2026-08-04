@@ -743,7 +743,7 @@ TEST(MockTableSchemaChangeHelper,
 
     FieldSchema file_id;
     file_id.name = "id";
-    file_id.field_id = -1;
+    file_id.field_id = 1;
     file_id.data_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     FieldSchema file_child;
     file_child.name = "a";
@@ -1033,6 +1033,7 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcDescendantIdRetainsIdlessWrapper) {
     std::unique_ptr<orc::Type> orc_type(
             orc::Type::buildTypeFromString("struct<id:int,s:struct<a:int>>"));
     const auto& attribute = IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE;
+    orc_type->getSubtype(0)->setAttribute(attribute, "20");
     orc_type->getSubtype(1)->getSubtype(0)->setAttribute(attribute, "1");
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
