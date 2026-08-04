@@ -1379,18 +1379,10 @@ std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
         char buf[8] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", field.get<T>());
         return std::string(buf);
-    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
-        auto v = field.get<T>();
-        // inf/nan are stored as zone-map flags, not in min/max strings; route them
-        // through CastToString to keep the "Infinity"/"NaN" spelling used elsewhere.
-        if (std::isinf(v) || std::isnan(v)) {
-            return CastToString::from_number(v);
-        }
-        // CastToString uses digits10 + 1 significant digits, which may lose precision.
-        // ZoneMap bounds must round-trip exactly, so use fmt's shortest round-trippable form.
-        return fmt::format("{}", v);
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
-                         T == TYPE_BIGINT) {
+                         T == TYPE_BIGINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        // Floating number to string is now handled correctly by CastToString::from_number
+        // in PR https://github.com/apache/doris/pull/65609, special handing here is not necessary now.
         return CastToString::from_number(field.get<T>());
     } else if constexpr (T == TYPE_LARGEINT) {
         auto value = field.get<T>();
