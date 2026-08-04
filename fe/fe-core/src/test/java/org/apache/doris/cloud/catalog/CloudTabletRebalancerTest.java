@@ -17,7 +17,13 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
@@ -257,6 +263,67 @@ public class CloudTabletRebalancerTest {
         }
     }
 
+    @Test
+    public void testWarmupRollbackReusesInflightBoxedTabletIdAfterRouteRebuild() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long srcBe = 10_001L;
+        Long destBe = 10_002L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        RouteMaps current = new RouteMaps();
+        RouteMaps future = new RouteMaps();
+        initializeRouteMaps(rebalancer, current, future, srcBe, tableId, partitionId, indexId, tabletId);
+        setField(rebalancer, "cloudSystemInfoService", mockBackendService(srcBe, destBe));
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(srcBe, destBe)));
+        setField(rebalancer, "allBes", Set.of(srcBe, destBe));
+        Config.cloud_warm_up_batch_size = 10;
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe)) {
+            boolean moved = invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
+                    new Object[] {tabletId, srcBe, destBe, clusterId,
+                            CloudTabletRebalancer.BalanceType.GLOBAL});
+            Assertions.assertTrue(moved);
+
+            Map<?, ?> warmupBatches = getField(rebalancer, "warmupBatches");
+            Object batch = warmupBatches.values().iterator().next();
+            Field tasksField = batch.getClass().getDeclaredField("tasks");
+            tasksField.setAccessible(true);
+            Object task = ((List<?>) tasksField.get(batch)).get(0);
+
+            rebalancer.statRouteInfo();
+            invokePrivate(rebalancer, "handleWarmupBatchFailure",
+                    new Class<?>[] {List.class, Exception.class},
+                    new Object[] {Collections.singletonList(task), null});
+            invokePrivate(rebalancer, "processFailedWarmupTasks", new Class<?>[] {}, new Object[] {});
+
+            ConcurrentHashMap<Long, Set<Long>> rebuiltCurrentGlobal = getField(rebalancer, "beToTabletsGlobal");
+            ConcurrentHashMap<Long, Set<Long>> rebuiltFutureGlobal = getField(
+                    rebalancer, "futureBeToTabletsGlobal");
+            ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> rebuiltCurrentByTable = getField(
+                    rebalancer, "beToTabletsInTable");
+            ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> rebuiltFutureByTable = getField(
+                    rebalancer, "futureBeToTabletsInTable");
+            ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                    rebuiltCurrentByPartition = getField(rebalancer, "partitionToTablets");
+            ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                    rebuiltFutureByPartition = getField(rebalancer, "futurePartitionToTablets");
+            Long currentTabletId = getStoredId(tabletId, rebuiltCurrentGlobal.get(srcBe));
+            Long futureTabletId = getStoredId(tabletId, rebuiltFutureGlobal.get(srcBe));
+            Assertions.assertSame(currentTabletId, futureTabletId);
+            assertSameStoredId(currentTabletId, rebuiltCurrentByTable.get(tableId).get(srcBe));
+            assertSameStoredId(currentTabletId, rebuiltFutureByTable.get(tableId).get(srcBe));
+            assertSameStoredId(currentTabletId,
+                    rebuiltCurrentByPartition.get(partitionId).get(indexId).get(srcBe));
+            assertSameStoredId(currentTabletId,
+                    rebuiltFutureByPartition.get(partitionId).get(indexId).get(srcBe));
+        }
+    }
+
     private static void initializeRouteMaps(TestRebalancer rebalancer, RouteMaps current, RouteMaps future,
             Long srcBe, Long tableId, Long partitionId, Long indexId, Long tabletId) throws Exception {
         rebalancer.fillBeToTablets(srcBe, tableId, partitionId, indexId, tabletId,
@@ -287,6 +354,50 @@ public class CloudTabletRebalancerTest {
         return mockedEnv;
     }
 
+    private static MockedStatic<Env> mockRouteEnvironment(Long dbId, Long tableId, Long partitionId,
+            Long indexId, Long tabletId, String clusterId, Long srcBe) {
+        Env env = Mockito.mock(Env.class);
+        TabletInvertedIndex invertedIndex = Mockito.mock(TabletInvertedIndex.class);
+        TabletMeta tabletMeta = Mockito.mock(TabletMeta.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        ColocateTableIndex colocateTableIndex = Mockito.mock(ColocateTableIndex.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        Tablet tablet = Mockito.mock(Tablet.class);
+        CloudReplica replica = Mockito.mock(CloudReplica.class);
+        Backend primaryBackend = Mockito.mock(Backend.class);
+
+        Mockito.when(env.getTabletInvertedIndex()).thenReturn(invertedIndex);
+        Mockito.when(invertedIndex.getTabletMeta(tabletId)).thenReturn(tabletMeta);
+        Mockito.when(tabletMeta.getTableId()).thenReturn(tableId);
+        Mockito.when(tabletMeta.getPartitionId()).thenReturn(partitionId);
+        Mockito.when(tabletMeta.getIndexId()).thenReturn(indexId);
+        Mockito.when(catalog.getDbIds()).thenReturn(Collections.singletonList(dbId));
+        Mockito.when(catalog.getDbNullable(dbId)).thenReturn(database);
+        Mockito.when(database.getTables()).thenReturn(Collections.singletonList(table));
+        Mockito.when(database.getId()).thenReturn(dbId);
+        Mockito.when(table.isManagedTable()).thenReturn(true);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getAllPartitions()).thenReturn(Collections.singletonList(partition));
+        Mockito.when(partition.getId()).thenReturn(partitionId);
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
+                .thenReturn(Collections.singletonList(index));
+        Mockito.when(index.getId()).thenReturn(indexId);
+        Mockito.when(index.getTablets()).thenReturn(Collections.singletonList(tablet));
+        Mockito.when(tablet.getId()).thenReturn(tabletId);
+        Mockito.when(tablet.getReplicas()).thenReturn(Collections.singletonList(replica));
+        Mockito.when(replica.getPrimaryBackend(clusterId, false)).thenReturn(primaryBackend);
+        Mockito.when(primaryBackend.getId()).thenReturn(srcBe);
+
+        MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+        mockedEnv.when(Env::getCurrentColocateIndex).thenReturn(colocateTableIndex);
+        return mockedEnv;
+    }
+
     private static CloudSystemInfoService mockBackendService(Long srcBe, Long destBe) {
         CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
         Mockito.when(systemInfoService.getBackend(srcBe)).thenReturn(Mockito.mock(Backend.class));
@@ -313,8 +424,11 @@ public class CloudTabletRebalancerTest {
     }
 
     private static void assertSameStoredId(Long expected, Set<Long> ids) {
-        Long stored = ids.stream().filter(expected::equals).findFirst().orElseThrow();
-        Assertions.assertSame(expected, stored);
+        Assertions.assertSame(expected, getStoredId(expected, ids));
+    }
+
+    private static Long getStoredId(Long expected, Set<Long> ids) {
+        return ids.stream().filter(expected::equals).findFirst().orElseThrow();
     }
 
     @Test

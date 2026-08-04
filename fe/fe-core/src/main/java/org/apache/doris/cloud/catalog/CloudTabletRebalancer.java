@@ -1238,10 +1238,11 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     InfightTablet taskKey = new InfightTablet(tabletId, cluster);
                     InfightTask task = tabletToInfightTask.get(taskKey);
                     Long futureBeId = task == null ? beId : Long.valueOf(task.destBe);
-                    fillBeToTablets(beId, tableId, partitionId, indexId, tabletId,
+                    Long routeTabletId = task == null ? tabletId : task.pickedTabletId;
+                    fillBeToTablets(beId, tableId, partitionId, indexId, routeTabletId,
                             tmpBeToTabletsGlobal, beToTabletsInTable, this.partitionToTablets);
 
-                    fillBeToTablets(futureBeId, tableId, partitionId, indexId, tabletId,
+                    fillBeToTablets(futureBeId, tableId, partitionId, indexId, routeTabletId,
                             tmpFutureBeToTabletsGlobal, futureBeToTabletsInTable, futurePartitionToTablets);
                 }
             }
