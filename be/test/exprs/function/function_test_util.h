@@ -492,7 +492,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 // invocation is needed.
 template <typename ReturnType, bool nullable = false>
 void check_function_all_arg_comb(const std::string& func_name, const InputTypeSet& base_types,
-                                 const DataSet& data_set) {
+                                 const DataSet& data_set, int result_scale = -1,
+                                 int result_precision = -1) {
     TestCaseInfo::func_call_index++;
     size_t arg_cnt = base_types.size();
     // Consider each parameter as a bit, if the j-th bit is 1, the j-th parameter is const; otherwise, it is not.
@@ -522,13 +523,13 @@ void check_function_all_arg_comb(const std::string& func_name, const InputTypeSe
                 DataSet tmp_set {line};
                 // check_function_all_arg_comb is ONE call. adding here and minuing in check_function to make it consistent.
                 TestCaseInfo::func_call_index--;
-                static_cast<void>(
-                        check_function<ReturnType, nullable>(func_name, input_types, tmp_set));
+                static_cast<void>(check_function<ReturnType, nullable>(
+                        func_name, input_types, tmp_set, result_scale, result_precision));
             }
         } else {
             TestCaseInfo::func_call_index--;
-            static_cast<void>(
-                    check_function<ReturnType, nullable>(func_name, input_types, data_set));
+            static_cast<void>(check_function<ReturnType, nullable>(func_name, input_types, data_set,
+                                                                   result_scale, result_precision));
         }
     }
 }
