@@ -244,6 +244,43 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     }
 
     @Test
+    void replayInvalidatesSqlCacheOnlyForDistributionMappingConstraint() throws Exception {
+        TableIf table = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        PrimaryKeyConstraint primaryKey = new PrimaryKeyConstraint(
+                "pk_replay_epoch", com.google.common.collect.ImmutableSet.of("k1"));
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_replay_epoch", "mapping_replay_epoch", List.of("k2"), List.of("k1"));
+        long initialEpoch = Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch();
+
+        replayConstraint(OperationType.OP_ADD_CONSTRAINT, tableNameInfo, primaryKey);
+        Assertions.assertEquals(initialEpoch,
+                Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
+        replayConstraint(OperationType.OP_DROP_CONSTRAINT, tableNameInfo, primaryKey);
+        Assertions.assertEquals(initialEpoch,
+                Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
+
+        replayConstraint(OperationType.OP_ADD_CONSTRAINT, tableNameInfo, mapping);
+        Assertions.assertEquals(initialEpoch + 1,
+                Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
+        replayConstraint(OperationType.OP_DROP_CONSTRAINT, tableNameInfo, mapping);
+        Assertions.assertEquals(initialEpoch + 2,
+                Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
+        Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
+    }
+
+    private void replayConstraint(short operationType, TableNameInfo tableNameInfo, Constraint constraint)
+            throws Exception {
+        JournalEntity journal = new JournalEntity();
+        journal.setData(new AlterConstraintLog(constraint, tableNameInfo));
+        journal.setOpCode(operationType);
+        EditLog.loadJournal(Env.getCurrentEnv(), 0L, journal);
+    }
+
+    @Test
     void addConstraintLogPersistForExternalTableTest() throws Exception {
         Config.edit_log_type = "local";
         FeConstants.runningUnitTest = true;

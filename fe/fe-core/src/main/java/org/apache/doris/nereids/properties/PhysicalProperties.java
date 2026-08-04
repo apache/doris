@@ -165,6 +165,13 @@ public class PhysicalProperties {
         return naturalDistributionMappingSpec;
     }
 
+    /** Whether a missing property can be produced by adding physical enforcers. */
+    public boolean isEnforceable() {
+        return !(distributionSpec instanceof DistributionSpecHash)
+                || ((DistributionSpecHash) distributionSpec).getShuffleType()
+                        != ShuffleType.COLOCATE_MAPPING_REQUIRE;
+    }
+
     public boolean isDistributionOnlyProperties() {
         return orderSpec.getOrderKeys().isEmpty();
     }

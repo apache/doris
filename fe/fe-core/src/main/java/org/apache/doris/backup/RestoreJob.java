@@ -2527,6 +2527,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
                 if (db.writeLockIfExist()) {
                     try {
+                        if (db.getTableNullable(restoreTbl.getName()) != restoreTbl) {
+                            LOG.info("skip removing restored table {} because the name is bound to another table",
+                                    restoreTbl.getName());
+                            continue;
+                        }
                         if (restoreTbl.getType() == TableType.OLAP) {
                             OlapTable restoreOlapTable = (OlapTable) restoreTbl;
                             restoreOlapTable.writeLock();

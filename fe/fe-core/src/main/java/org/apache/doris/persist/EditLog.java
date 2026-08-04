@@ -43,6 +43,7 @@ import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -1223,7 +1224,9 @@ public class EditLog {
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
                     env.getConstraintManager().addConstraint(
                             tni, constraint.getName(), constraint, true);
-                    env.getSqlCacheManager().invalidateAboutTable(tni);
+                    if (constraint instanceof DistributionMappingConstraint) {
+                        env.getSqlCacheManager().invalidateAboutTable(tni);
+                    }
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying add constraint %s on table %s",
                                     constraint.getName(), tni));
@@ -1241,7 +1244,9 @@ public class EditLog {
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
                     env.getConstraintManager().dropConstraint(
                             tni, constraint.getName(), true);
-                    env.getSqlCacheManager().invalidateAboutTable(tni);
+                    if (constraint instanceof DistributionMappingConstraint) {
+                        env.getSqlCacheManager().invalidateAboutTable(tni);
+                    }
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying drop constraint %s on table %s",
                                     constraint.getName(), tni));

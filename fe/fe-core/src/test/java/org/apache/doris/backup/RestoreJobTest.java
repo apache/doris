@@ -331,4 +331,23 @@ public class RestoreJobTest {
 
         Mockito.verify(constraintManager).dropTableConstraints(Mockito.any());
     }
+
+    @Test
+    public void testCancelRestoreDoesNotDropConstraintsForReplacementTable() {
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        TabletInvertedIndex invertedIndex = Mockito.mock(TabletInvertedIndex.class);
+        OlapTable replacementTable = Mockito.mock(OlapTable.class);
+        Mockito.when(replacementTable.getId()).thenReturn(expectedRestoreTbl.getId() + 1);
+        Mockito.when(replacementTable.getName()).thenReturn(expectedRestoreTbl.getName());
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
+        db.registerTable(replacementTable);
+        Deencapsulation.setField(job, "restoredTbls", Lists.newArrayList(expectedRestoreTbl));
+
+        job.cleanMetaObjects(false);
+
+        Assert.assertSame(replacementTable, db.getTableNullable(expectedRestoreTbl.getName()));
+        Mockito.verifyNoInteractions(constraintManager);
+    }
 }

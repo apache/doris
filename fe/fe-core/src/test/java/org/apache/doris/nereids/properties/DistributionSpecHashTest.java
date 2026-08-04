@@ -425,4 +425,15 @@ public class DistributionSpecHashTest {
                 projections, ImmutableSet.of(), DistributionSpecAny.INSTANCE);
         Assertions.assertTrue(projected.getDistributionMappings().isEmpty());
     }
+
+    @Test
+    public void testColocateMappingRequireIsNotEnforceable() {
+        ExprId exprId = new ExprId(0);
+
+        Assertions.assertFalse(new PhysicalProperties(new DistributionSpecHash(
+                ImmutableList.of(exprId), ShuffleType.COLOCATE_MAPPING_REQUIRE)).isEnforceable());
+        Assertions.assertTrue(new PhysicalProperties(new DistributionSpecHash(
+                ImmutableList.of(exprId), ShuffleType.REQUIRE)).isEnforceable());
+        Assertions.assertTrue(PhysicalProperties.GATHER.isEnforceable());
+    }
 }
