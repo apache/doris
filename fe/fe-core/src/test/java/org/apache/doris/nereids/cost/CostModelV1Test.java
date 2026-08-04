@@ -64,15 +64,28 @@ class CostModelV1Test extends SqlTestBase {
             PhysicalHashAggregate<Plan> aggregate = new PhysicalHashAggregate<Plan>(
                     ImmutableList.of(), ImmutableList.of(partitionKey), Optional.of(ImmutableList.of(partitionKey)),
                     new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT), false, null, false, child);
+            PhysicalHashAggregate<Plan> singlePointAggregate = new PhysicalHashAggregate<Plan>(
+                    ImmutableList.of(), ImmutableList.of(partitionKey), Optional.empty(),
+                    new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT), false, null, false, child);
+            PhysicalHashAggregate<Plan> groupByAggregate = new PhysicalHashAggregate<Plan>(
+                    ImmutableList.of(partitionKey), ImmutableList.of(partitionKey), Optional.empty(),
+                    new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT), false, null, false, child);
             Statistics childStats = new StatisticsBuilder().setRowCount(1000).build();
             PlanContext context = Mockito.mock(PlanContext.class);
             Mockito.when(context.getChildStatistics(0)).thenReturn(childStats);
             Mockito.when(context.getSessionVariable()).thenReturn(connectContext.getSessionVariable());
 
             Cost cost = new CostModel(connectContext).visitPhysicalHashAggregate(aggregate, context);
+            Cost singlePointCost = new CostModel(connectContext).visitPhysicalHashAggregate(singlePointAggregate,
+                    context);
+            Cost groupByCost = new CostModel(connectContext).visitPhysicalHashAggregate(groupByAggregate, context);
 
             Assertions.assertEquals(250, cost.getCpuCost(), 1e-9);
             Assertions.assertEquals(250, cost.getMemoryCost(), 1e-9);
+            Assertions.assertEquals(1000, singlePointCost.getCpuCost(), 1e-9);
+            Assertions.assertEquals(1000, singlePointCost.getMemoryCost(), 1e-9);
+            Assertions.assertEquals(250, groupByCost.getCpuCost(), 1e-9);
+            Assertions.assertEquals(250, groupByCost.getMemoryCost(), 1e-9);
         } finally {
             connectContext.getSessionVariable().setBeNumberForTest(originBeNumberForTest);
         }
