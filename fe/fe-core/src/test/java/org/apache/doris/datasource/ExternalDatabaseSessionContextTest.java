@@ -222,6 +222,41 @@ public class ExternalDatabaseSessionContextTest {
         });
     }
 
+    @Test
+    public void delegatedSessionGetTablesKeepsFirstRemoteNameForMappedLocalName() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog(
+                0, Lists.newArrayList("remote_first", "remote_second")) {
+            @Override
+            public String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
+                return "local_name";
+            }
+        };
+        SessionAwareDatabase db = new SessionAwareDatabase(catalog, 9L, "db1", "db1");
+
+        withSession("token_a", () -> {
+            List<PluginDrivenExternalTable> tables = db.getTables();
+            Assertions.assertEquals(1, tables.size());
+            Assertions.assertEquals("local_name", tables.get(0).getName());
+            Assertions.assertEquals("remote_first", tables.get(0).getRemoteName());
+        });
+        Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToListTables);
+    }
+
+    @Test
+    public void delegatedSessionGetTablesSkipsIndividualBuildFailures() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog(
+                0, Lists.newArrayList("good", "bad", "also_good"));
+        FailingSessionAwareDatabase db = new FailingSessionAwareDatabase(catalog, 10L, "db1", "db1");
+
+        withSession("token_a", () -> {
+            List<String> names = db.getTables().stream().map(PluginDrivenExternalTable::getName)
+                    .collect(Collectors.toList());
+            Assertions.assertEquals(2, names.size());
+            Assertions.assertTrue(names.containsAll(Lists.newArrayList("good", "also_good")));
+        });
+        Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToListTables);
+    }
+
     private static void withSession(String token, Runnable action) {
         SessionContext context = ctxFor(token);
         try (MockedStatic<SessionContext> sc = Mockito.mockStatic(SessionContext.class)) {
@@ -242,7 +277,7 @@ public class ExternalDatabaseSessionContextTest {
      * {@code db_<suffix>}) and records the token it listed under. Pre-initialized so {@code getDbNames} skips the
      * Env-dependent metaCache build; the credentialed bypass path never touches that cache anyway.
      */
-    private static final class SessionAwareCatalog extends PluginDrivenExternalCatalog {
+    private static class SessionAwareCatalog extends PluginDrivenExternalCatalog {
         private final List<String> tokensUsedToListDatabases = new ArrayList<>();
         private final List<String> tokensUsedToListTables = new ArrayList<>();
         private final List<String> tokensUsedToCheckTableExist = new ArrayList<>();
@@ -334,6 +369,22 @@ public class ExternalDatabaseSessionContextTest {
         SessionAwareDatabase(ExternalCatalog catalog, long id, String name, String remoteName) {
             super(catalog, id, name, remoteName);
             initialized = true;
+        }
+    }
+
+    private static final class FailingSessionAwareDatabase extends PluginDrivenExternalDatabase {
+        FailingSessionAwareDatabase(ExternalCatalog catalog, long id, String name, String remoteName) {
+            super(catalog, id, name, remoteName);
+            initialized = true;
+        }
+
+        @Override
+        protected PluginDrivenExternalTable buildTableInternal(String remoteTableName, String localTableName,
+                long tblId, ExternalCatalog catalog, ExternalDatabase db) {
+            if ("bad".equals(localTableName)) {
+                throw new IllegalStateException("expected test build failure");
+            }
+            return super.buildTableInternal(remoteTableName, localTableName, tblId, catalog, db);
         }
     }
 }

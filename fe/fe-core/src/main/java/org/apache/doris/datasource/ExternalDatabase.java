@@ -485,7 +485,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return extCatalog.tableExist(sessionContext, remoteName, remoteTblName);
     }
 
-    // ATTN: this method only returned cached tables.
+    // The normal path returns cached tables; session-aware catalogs build uncached objects from live metadata.
     @Override
     public List<T> getTables() {
         makeSureInitialized();
