@@ -1199,7 +1199,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
         DataTypeAccessTree nullFieldTree = DataTypeAccessTree.ofRoot(slot, ColumnAccessPathType.DATA);
         nullFieldTree.setAccessByPath(ImmutableList.of("s", "NULL"), 0, ColumnAccessPathType.DATA);
-        Assertions.assertEquals("STRUCT<null:TEXT>", nullFieldTree.pruneDataType().get().toSql());
+        Assertions.assertEquals("STRUCT<`null`:TEXT>", nullFieldTree.pruneDataType().get().toSql());
 
         DataTypeAccessTree offsetFieldTree = DataTypeAccessTree.ofRoot(slot, ColumnAccessPathType.DATA);
         offsetFieldTree.setAccessByPath(ImmutableList.of("s", "OFFSET"), 0, ColumnAccessPathType.DATA);
@@ -1208,7 +1208,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         DataTypeAccessTree nullMetadataTree = DataTypeAccessTree.ofRoot(slot, ColumnAccessPathType.META);
         nullMetadataTree.setAccessByPath(
                 ImmutableList.of("s", "NULL", "NULL"), 0, ColumnAccessPathType.META);
-        Assertions.assertEquals("STRUCT<null:TEXT>", nullMetadataTree.pruneDataType().get().toSql());
+        Assertions.assertEquals("STRUCT<`null`:TEXT>", nullMetadataTree.pruneDataType().get().toSql());
 
         DataTypeAccessTree offsetMetadataTree = DataTypeAccessTree.ofRoot(slot, ColumnAccessPathType.META);
         offsetMetadataTree.setAccessByPath(
