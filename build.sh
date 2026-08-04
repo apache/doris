@@ -453,6 +453,16 @@ if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
 else
     LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
 fi
+
+# The final-library sentinel only proves that some third-party build completed. It cannot
+# distinguish an older prebuilt whose Arrow/Paimon closure predates the selected sources.
+# shellcheck source=thirdparty/arrow-paimon-vars.sh
+. "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
+ARROW_PAIMON_THIRDPARTY_VALID=false
+if arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
+    ARROW_PAIMON_THIRDPARTY_VALID=true
+fi
+
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
@@ -462,6 +472,15 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
         bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
     else
         bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+    fi
+elif [[ "${ARROW_PAIMON_THIRDPARTY_VALID}" != "true" ]]; then
+    echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
+    if [[ "${CLEAN}" -eq 0 ]]; then
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" \
+            arrow paimon_cpp xsimd brotli
+    else
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean \
+            arrow paimon_cpp xsimd brotli
     fi
 fi
 

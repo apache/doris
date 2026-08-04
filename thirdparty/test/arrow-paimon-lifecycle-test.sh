@@ -153,9 +153,23 @@ printf '#define ARROW_VERSION_STRING "%s"\n' "${ARROW_VERSION}" \
 for library in "${ARROW_PAIMON_REQUIRED_LIBRARIES[@]}"; do
     touch "${prebuilt}/lib64/${library}"
 done
-printf '%s\n' stale-arrow >"${prebuilt}/arrow-build-fingerprint.txt"
-paimon_build_fingerprint >"${prebuilt}/paimon-build-fingerprint.txt"
+
+# A legacy prebuilt may have the old combined marker but no component markers.
+# Generic build.sh consumers must reject it before importing Arrow Compute.
 arrow_paimon_build_fingerprint >"${prebuilt}/arrow-paimon-build-fingerprint.txt"
+if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
+    fail "legacy combined marker certified an unversioned component closure"
+fi
+
+arrow_build_fingerprint >"${prebuilt}/arrow-build-fingerprint.txt"
+paimon_build_fingerprint >"${prebuilt}/paimon-build-fingerprint.txt"
+rm "${prebuilt}/lib64/libarrow_compute.a"
+if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
+    fail "prebuilt validation accepted a missing Arrow Compute archive"
+fi
+touch "${prebuilt}/lib64/libarrow_compute.a"
+
+printf '%s\n' stale-arrow >"${prebuilt}/arrow-build-fingerprint.txt"
 if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
     fail "Paimon-only marker update certified a stale Arrow build"
 fi

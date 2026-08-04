@@ -875,9 +875,11 @@ void write_sparse_filter_nested_parquet_file(const std::string& file_path) {
 
     ::parquet::WriterProperties::Builder builder;
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
-    // V2 and page-index writers preserve record boundaries, so use V1 here to produce the
-    // continuation pages that the reader must still handle correctly.
+    // Arrow 24 enables page indexes by default. V2 and page-index writers preserve record
+    // boundaries, so use V1 without a page index to produce the continuation pages that the
+    // reader must still handle correctly.
     builder.data_page_version(::parquet::ParquetDataPageVersion::V1);
+    builder.disable_write_page_index();
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     builder.disable_dictionary();
     builder.write_batch_size(8);
