@@ -3456,6 +3456,31 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void projectedFieldIdsAcceptCollectionFieldsInSelectedRoot() {
+        Schema nestedSchema = new Schema(Types.NestedField.optional(10, "payload",
+                Types.StructType.of(
+                        Types.NestedField.optional(11, "items", Types.ListType.ofOptional(12,
+                                Types.StructType.of(Types.NestedField.optional(
+                                        13, "name", Types.StringType.get())))),
+                        Types.NestedField.optional(14, "attributes", Types.MapType.ofOptional(
+                                15, 16, Types.StringType.get(),
+                                Types.StructType.of(Types.NestedField.optional(
+                                        17, "value", Types.IntegerType.get())))),
+                        Types.NestedField.optional(18, "unselected", Types.LongType.get()))));
+        ConnectorColumnHandle handle = new IcebergColumnHandle("payload", 10)
+                .withProjectedFieldIds(ImmutableSet.of(10, 11, 13, 14, 17));
+
+        Set<Integer> projected = IcebergScanPlanProvider.projectedFieldIds(
+                nestedSchema, Collections.singletonList(handle));
+
+        Assertions.assertEquals(ImmutableSet.of(10, 11, 13, 14, 17), projected);
+
+        Set<Integer> wholeColumn = IcebergScanPlanProvider.projectedFieldIds(
+                nestedSchema, Collections.singletonList(new IcebergColumnHandle("payload", 10)));
+        Assertions.assertEquals(ImmutableSet.of(10, 11, 12, 13, 14, 15, 16, 17, 18), wholeColumn);
+    }
+
+    @Test
     public void projectedFieldIdsRejectIdsOutsideTheSelectedRoot() {
         Schema nestedSchema = new Schema(
                 Types.NestedField.optional(10, "payload", Types.StructType.of(

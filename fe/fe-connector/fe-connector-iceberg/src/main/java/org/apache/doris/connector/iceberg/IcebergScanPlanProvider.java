@@ -2003,11 +2003,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             if (icebergColumn.hasProjectedFieldIds()) {
                 Set<Integer> scopedFieldIds = icebergColumn.getProjectedFieldIds();
-                Set<Integer> selectableFieldIds = new HashSet<>();
-                selectableFieldIds.add(field.fieldId());
-                if (field.type().isNestedType()) {
-                    selectableFieldIds.addAll(TypeUtil.getProjectedIds(field.type()));
-                }
+                Set<Integer> selectableFieldIds = fieldAndDescendantIds(field);
                 for (Integer scopedFieldId : scopedFieldIds) {
                     NestedField scopedField = fieldsById.get(scopedFieldId);
                     if (scopedField == null || !selectableFieldIds.contains(scopedFieldId)) {
@@ -2016,7 +2012,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     }
                     projected.add(scopedFieldId);
                     if (scopedField.type().isNestedType()) {
-                        Set<Integer> descendants = TypeUtil.getProjectedIds(scopedField.type());
+                        Set<Integer> descendants = fieldAndDescendantIds(scopedField);
+                        descendants.remove(scopedField.fieldId());
                         if (Collections.disjoint(scopedFieldIds, descendants)) {
                             // The access path terminates at this complex field, so the entire subtree is
                             // projected. An ancestor with a selected descendant must remain scoped instead.
@@ -2026,15 +2023,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 continue;
             }
-            projected.add(field.fieldId());
-            // Iceberg's type visitor returns null for a primitive root; getProjectedIds(Type) then passes
-            // that null to ImmutableSet.copyOf. The top-level id is already present, and only nested types
-            // have descendant ids to add.
-            if (field.type().isNestedType()) {
-                projected.addAll(TypeUtil.getProjectedIds(field.type()));
-            }
+            projected.addAll(fieldAndDescendantIds(field));
         }
         return projected;
+    }
+
+    private static Set<Integer> fieldAndDescendantIds(NestedField field) {
+        // TypeUtil.getProjectedIds deliberately omits list/map-typed fields when their element/value is
+        // nested. Doris access paths retain those field IDs, so use Iceberg's complete ID index for scoping.
+        return new HashSet<>(TypeUtil.indexById(Types.StructType.of(field)).keySet());
     }
 
     @VisibleForTesting
