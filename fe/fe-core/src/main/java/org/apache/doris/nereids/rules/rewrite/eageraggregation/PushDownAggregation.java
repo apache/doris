@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -76,6 +77,8 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             Min.class);
 
     private final Set<Class> acceptNodeType = Sets.newHashSet(
+            LogicalIntersect.class,
+            LogicalAggregate.class,
             LogicalUnion.class,
             LogicalProject.class,
             LogicalFilter.class,

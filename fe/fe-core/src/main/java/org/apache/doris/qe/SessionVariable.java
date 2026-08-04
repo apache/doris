@@ -2437,6 +2437,12 @@ public class SessionVariable implements Serializable, Writable {
     public String forceEagerAggHint = "";
     private Map<String, Action> forceEagerAggHintMap = ImmutableMap.of();
 
+    @VariableMgr.VarAttr(name = "eager_agg_broadcast_row_count", needForward = true)
+    public int eagerAggBroadcastRowCount = 250_000;
+
+    @VariableMgr.VarAttr(name = "eager_aggregation_on_broadcast_join", needForward = true)
+    public boolean eagerAggregationOnBroadcastJoin = true;
+
     public static int getEagerAggregationMode() {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().eagerAggregationMode;
@@ -2461,17 +2467,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public Map<String, Action> getForceEagerAggHintMap() {
         return forceEagerAggHintMap;
-    }
-
-    @VariableMgr.VarAttr(name = "eager_aggregation_on_join", needForward = true)
-    public boolean eagerAggregationOnJoin = false;
-
-    public static boolean isEagerAggregationOnJoin() {
-        if (ConnectContext.get() != null) {
-            return ConnectContext.get().getSessionVariable().eagerAggregationOnJoin;
-        } else {
-            return VariableMgr.getDefaultSessionVariable().eagerAggregationOnJoin;
-        }
     }
 
     @VariableMgr.VarAttr(

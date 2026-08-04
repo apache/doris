@@ -6,13 +6,13 @@ PhysicalResultSink
 ------PhysicalTopN[LOCAL_SORT]
 --------hashAgg[GLOBAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF2 c_custkey->[o_custkey]
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF2 c_custkey->o_custkey
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->[l_orderkey]
+----------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->l_orderkey;RF3 o_custkey->c_custkey
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[lineitem] apply RFs: RF1
-------------------hashJoin[LEFT_SEMI_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 l_orderkey->[o_orderkey]
+------------------hashJoin[LEFT_SEMI_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 l_orderkey->o_orderkey
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[orders] apply RFs: RF0 RF2
 --------------------PhysicalProject
@@ -21,5 +21,5 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[lineitem]
 --------------PhysicalProject
-----------------PhysicalOlapScan[customer]
+----------------PhysicalOlapScan[customer] apply RFs: RF3
 
