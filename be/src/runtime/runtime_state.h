@@ -76,16 +76,16 @@ class RuntimeFilterConsumer;
 class RuntimeFilterProducer;
 class TaskExecutionContext;
 
-class IcebergCommitDataBudget {
+class ExternalFileReportState {
     friend class RuntimeState;
 
 private:
     std::mutex mutex;
-    size_t serialized_bytes = 0;
-    std::vector<std::function<void()>> failed_report_cleanups;
+    size_t iceberg_serialized_bytes = 0;
+    std::vector<std::function<void()>> rejected_report_cleanups;
 };
 
-enum class IcebergReportOutcome { ACKNOWLEDGED, REJECTED, AMBIGUOUS };
+enum class ExternalFileReportOutcome { ACKNOWLEDGED, REJECTED, AMBIGUOUS };
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -545,16 +545,18 @@ public:
 
     size_t coordinator_thrift_message_limit() const;
 
-    void add_failed_iceberg_report_cleanup(std::function<void()> cleanup);
+    void append_external_file_commit_data(TReportExecStatusParams* params, bool final_report) const;
 
-    void finalize_iceberg_report_cleanup(IcebergReportOutcome outcome);
+    void add_rejected_external_file_report_cleanup(std::function<void()> cleanup);
 
-    void set_iceberg_commit_data_budget(std::shared_ptr<IcebergCommitDataBudget> budget) {
-        _iceberg_commit_data_budget = std::move(budget);
+    void finalize_external_file_report_cleanup(ExternalFileReportOutcome outcome);
+
+    void set_external_file_report_state(std::shared_ptr<ExternalFileReportState> report_state) {
+        _external_file_report_state = std::move(report_state);
     }
 
-    const std::shared_ptr<IcebergCommitDataBudget>& iceberg_commit_data_budget() const {
-        return _iceberg_commit_data_budget;
+    const std::shared_ptr<ExternalFileReportState>& external_file_report_state() const {
+        return _external_file_report_state;
     }
 
     std::vector<TMCCommitData> mc_commit_datas() const {
@@ -1000,8 +1002,8 @@ private:
 
     mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
-    std::shared_ptr<IcebergCommitDataBudget> _iceberg_commit_data_budget =
-            std::make_shared<IcebergCommitDataBudget>();
+    std::shared_ptr<ExternalFileReportState> _external_file_report_state =
+            std::make_shared<ExternalFileReportState>();
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;

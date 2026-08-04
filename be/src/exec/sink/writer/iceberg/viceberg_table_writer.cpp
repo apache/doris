@@ -605,11 +605,12 @@ void VIcebergTableWriter::finish_deferred_file_cleanup(Status outer_status) {
 void VIcebergTableWriter::_transfer_closed_files_to_report_cleanup() {
     DCHECK(_state != nullptr);
     for (auto& closed_file : _closed_files) {
-        _state->add_failed_iceberg_report_cleanup([cleanup_fs = std::move(closed_file.first),
-                                                   cleanup_path = std::move(closed_file.second)] {
-            WARN_IF_ERROR(cleanup_fs->delete_file(cleanup_path),
-                          "failed to delete an Iceberg file after report failure");
-        });
+        _state->add_rejected_external_file_report_cleanup(
+                [cleanup_fs = std::move(closed_file.first),
+                 cleanup_path = std::move(closed_file.second)] {
+                    WARN_IF_ERROR(cleanup_fs->delete_file(cleanup_path),
+                                  "failed to delete an Iceberg file after report failure");
+                });
     }
     _closed_files.clear();
 }

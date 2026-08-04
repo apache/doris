@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -73,6 +74,8 @@ public:
     Status close(bool non_block = false) override;
     Status abort() override;
     Status try_finish_close() override;
+
+    std::function<void()> failed_report_cleanup() const;
 
 private:
     Status _abort_impl();

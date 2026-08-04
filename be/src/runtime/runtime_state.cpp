@@ -70,16 +70,16 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
     const size_t thrift_limit = coordinator_thrift_message_limit();
     const size_t commit_data_limit =
             thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
-    std::lock_guard<std::mutex> budget_lock(_iceberg_commit_data_budget->mutex);
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
     // Parallel task states share this budget because FE receives their vectors in one fragment report.
-    if (_iceberg_commit_data_budget->serialized_bytes + serialized_size + sizeof(uint32_t) >
+    if (_external_file_report_state->iceberg_serialized_bytes + serialized_size + sizeof(uint32_t) >
         commit_data_limit) {
         return Status::InternalError(
                 "Iceberg commit metadata exceeds the Thrift report limit; reduce output file "
                 "count");
     }
     std::lock_guard<std::mutex> data_lock(_iceberg_commit_datas_mutex);
-    _iceberg_commit_data_budget->serialized_bytes += serialized_size + sizeof(uint32_t);
+    _external_file_report_state->iceberg_serialized_bytes += serialized_size + sizeof(uint32_t);
     _iceberg_commit_datas.emplace_back(std::move(iceberg_commit_data));
     return Status::OK();
 }
@@ -95,24 +95,46 @@ size_t RuntimeState::coordinator_thrift_message_limit() const {
     return static_cast<size_t>(effective_thrift_limit);
 }
 
-void RuntimeState::add_failed_iceberg_report_cleanup(std::function<void()> cleanup) {
-    std::lock_guard lock(_iceberg_commit_data_budget->mutex);
-    _iceberg_commit_data_budget->failed_report_cleanups.emplace_back(std::move(cleanup));
+void RuntimeState::append_external_file_commit_data(TReportExecStatusParams* params,
+                                                    bool final_report) const {
+    if (!final_report) {
+        // Ownership-bearing commit vectors must only appear in the final report that transfers them.
+        return;
+    }
+    if (auto updates = hive_partition_updates(); !updates.empty()) {
+        params->__isset.hive_partition_updates = true;
+        params->hive_partition_updates.insert(params->hive_partition_updates.end(), updates.begin(),
+                                              updates.end());
+    }
+    append_iceberg_commit_datas(&params->iceberg_commit_datas);
+    if (!params->iceberg_commit_datas.empty()) {
+        params->__isset.iceberg_commit_datas = true;
+    }
+    if (auto commit_datas = mc_commit_datas(); !commit_datas.empty()) {
+        params->__isset.mc_commit_datas = true;
+        params->mc_commit_datas.insert(params->mc_commit_datas.end(), commit_datas.begin(),
+                                       commit_datas.end());
+    }
 }
 
-void RuntimeState::finalize_iceberg_report_cleanup(IcebergReportOutcome outcome) {
+void RuntimeState::add_rejected_external_file_report_cleanup(std::function<void()> cleanup) {
+    std::lock_guard lock(_external_file_report_state->mutex);
+    _external_file_report_state->rejected_report_cleanups.emplace_back(std::move(cleanup));
+}
+
+void RuntimeState::finalize_external_file_report_cleanup(ExternalFileReportOutcome outcome) {
     std::vector<std::function<void()>> cleanups;
     {
-        std::lock_guard lock(_iceberg_commit_data_budget->mutex);
-        if (outcome == IcebergReportOutcome::ACKNOWLEDGED) {
-            _iceberg_commit_data_budget->failed_report_cleanups.clear();
+        std::lock_guard lock(_external_file_report_state->mutex);
+        if (outcome == ExternalFileReportOutcome::ACKNOWLEDGED) {
+            _external_file_report_state->rejected_report_cleanups.clear();
             return;
         }
-        if (outcome == IcebergReportOutcome::AMBIGUOUS) {
+        if (outcome == ExternalFileReportOutcome::AMBIGUOUS) {
             // A consumed request with a lost ACK may already be publishing these files.
             return;
         }
-        cleanups.swap(_iceberg_commit_data_budget->failed_report_cleanups);
+        cleanups.swap(_external_file_report_state->rejected_report_cleanups);
     }
     for (auto& cleanup : cleanups) {
         cleanup();

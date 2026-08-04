@@ -105,6 +105,26 @@ Status S3FileWriter::abort() {
     return Status::OK();
 }
 
+std::function<void()> S3FileWriter::failed_report_cleanup() const {
+    auto client_holder = _obj_client;
+    auto path_opts = _obj_storage_path_opts;
+    return [client_holder = std::move(client_holder), path_opts = std::move(path_opts)] {
+        // The writer is already CLOSED, but ownership was not transferred; bypass abort()'s
+        // state guard while retaining the provider client and the exact upload identity.
+        const auto& client = client_holder->get();
+        if (client == nullptr) {
+            LOG(WARNING) << "failed to abort a rejected external-file report: invalid object "
+                            "storage client";
+            return;
+        }
+        auto response = client->abort_multipart_upload(path_opts);
+        if (response.status.code != ErrorCode::OK) {
+            LOG(WARNING) << "failed to abort a rejected external-file report for "
+                         << path_opts.path.native() << ": " << response.status.msg;
+        }
+    };
+}
+
 Status S3FileWriter::_abort_impl() {
     _wait_until_finish(
             fmt::format("wait s3 file {} before abort", _obj_storage_path_opts.path.native()));

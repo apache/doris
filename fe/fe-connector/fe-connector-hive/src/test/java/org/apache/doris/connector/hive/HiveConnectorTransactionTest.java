@@ -477,6 +477,52 @@ public class HiveConnectorTransactionTest {
     }
 
     @Test
+    public void testCommitValidationFailureAbortsEveryValidPendingUpload() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap());
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        txn.addCommitData(serialize(puWithMpu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                "bucket", "db/t/valid", "upload-valid", Collections.singletonMap(1, "etag-1"))));
+        THivePartitionUpdate malformed = puWithMpu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                "bucket", "db/t/malformed", "upload-malformed", Collections.singletonMap(1, "etag-1"));
+        malformed.unsetLocation();
+        txn.addCommitData(serialize(malformed));
+        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                Collections.singletonList("missing-completion"), 100, 4)));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+
+        Assertions.assertEquals(Collections.singletonList("abort:s3://bucket/db/t/valid:upload-valid"),
+                objStorage.calls,
+                "a pre-committer validation failure must abort every valid provider upload it rejects");
+        Assertions.assertFalse(client.calls.stream().anyMatch(c -> c.startsWith("updateTableStatistics")),
+                "validation failure must not publish HMS metadata");
+    }
+
+    @Test
+    public void testCommitClassificationFailureAbortsPendingUpload() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap());
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        txn.addCommitData(serialize(puWithMpu("", TUpdateMode.NEW, "s3://bucket/db/t",
+                "bucket", "db/t/unclassified", "upload-unclassified",
+                Collections.singletonMap(1, "etag-1"))));
+
+        Assertions.assertThrows(RuntimeException.class, txn::commit);
+
+        Assertions.assertEquals(
+                Collections.singletonList("abort:s3://bucket/db/t/unclassified:upload-unclassified"),
+                objStorage.calls,
+                "a classification failure before HmsCommitter creation must abort its provider upload");
+        Assertions.assertFalse(client.calls.stream().anyMatch(c -> c.startsWith("updateTableStatistics")),
+                "classification failure must not publish HMS metadata");
+    }
+
+    @Test
     public void testRollbackAbortsPendingMultipartUploads() throws TException {
         // rollback() is NOT a no-op for hive (D9): data files are staged before commit, so a rollback must
         // abort the in-flight object-store multipart uploads — otherwise they linger server-side (leaked /

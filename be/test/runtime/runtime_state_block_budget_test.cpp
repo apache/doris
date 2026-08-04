@@ -44,9 +44,9 @@ TEST(RuntimeStateIcebergCommitDataTest, RejectsMetadataBeforeItCanExceedTheThrif
 TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetAcrossParallelTasks) {
     RuntimeState first;
     RuntimeState second;
-    auto budget = std::make_shared<IcebergCommitDataBudget>();
-    first.set_iceberg_commit_data_budget(budget);
-    second.set_iceberg_commit_data_budget(budget);
+    auto budget = std::make_shared<ExternalFileReportState>();
+    first.set_external_file_report_state(budget);
+    second.set_external_file_report_state(budget);
     const int32_t saved_limit = config::thrift_max_message_size;
     config::thrift_max_message_size = 1024 * 1024 + 512;
     TIcebergCommitData commit_data;
@@ -82,28 +82,53 @@ TEST(RuntimeStateIcebergCommitDataTest, ValidatesTheCompleteReportEnvelope) {
     EXPECT_TRUE(validate_report_exec_status_size(params, 3 * 1024 * 1024).ok());
 }
 
+TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
+    RuntimeState state;
+    THivePartitionUpdate hive_update;
+    state.add_hive_partition_updates(hive_update);
+    TIcebergCommitData iceberg_data;
+    iceberg_data.__set_file_path("data.parquet");
+    ASSERT_TRUE(state.add_iceberg_commit_datas(iceberg_data).ok());
+    TMCCommitData mc_data;
+    state.add_mc_commit_datas(mc_data);
+    TReportExecStatusParams periodic_params;
+
+    state.append_external_file_commit_data(&periodic_params, false);
+
+    EXPECT_FALSE(periodic_params.__isset.hive_partition_updates);
+    EXPECT_FALSE(periodic_params.__isset.iceberg_commit_datas);
+    EXPECT_FALSE(periodic_params.__isset.mc_commit_datas);
+
+    TReportExecStatusParams final_params;
+    state.append_external_file_commit_data(&final_params, true);
+    EXPECT_TRUE(final_params.__isset.hive_partition_updates);
+    EXPECT_TRUE(final_params.__isset.iceberg_commit_datas);
+    EXPECT_TRUE(final_params.__isset.mc_commit_datas);
+}
+
 TEST(RuntimeStateIcebergCommitDataTest, RetainsFileCleanupUntilReportAcknowledgement) {
     RuntimeState coordinator_state;
     RuntimeState task_state;
-    auto report_state = std::make_shared<IcebergCommitDataBudget>();
-    coordinator_state.set_iceberg_commit_data_budget(report_state);
-    task_state.set_iceberg_commit_data_budget(report_state);
+    auto report_state = std::make_shared<ExternalFileReportState>();
+    coordinator_state.set_external_file_report_state(report_state);
+    task_state.set_external_file_report_state(report_state);
     int cleanup_count = 0;
-    task_state.add_failed_iceberg_report_cleanup([&] { ++cleanup_count; });
+    task_state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
 
-    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
-    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
 
     EXPECT_EQ(1, cleanup_count);
 
-    task_state.add_failed_iceberg_report_cleanup([&] { ++cleanup_count; });
-    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::ACKNOWLEDGED);
+    task_state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
+    coordinator_state.finalize_external_file_report_cleanup(
+            ExternalFileReportOutcome::ACKNOWLEDGED);
     EXPECT_EQ(1, cleanup_count);
 
-    task_state.add_failed_iceberg_report_cleanup([&] { ++cleanup_count; });
-    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::AMBIGUOUS);
+    task_state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
     EXPECT_EQ(1, cleanup_count);
-    coordinator_state.finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
     EXPECT_EQ(2, cleanup_count);
 }
 

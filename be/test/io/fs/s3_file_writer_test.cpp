@@ -1319,8 +1319,9 @@ private:
  * @return A tuple containing the mock S3 client and the S3FileWriter.
  */
 std::tuple<std::shared_ptr<SimpleMockObjStorageClient>, std::shared_ptr<S3FileWriter>>
-create_s3_client(const std::string& path) {
+create_s3_client(const std::string& path, bool used_by_s3_committer = false) {
     doris::io::FileWriterOptions opts;
+    opts.used_by_s3_committer = used_by_s3_committer;
     io::FileWriterPtr file_writer;
     auto st = s3_fs->create_file(path, &file_writer, &opts);
     EXPECT_TRUE(st.ok()) << st;
@@ -1343,6 +1344,19 @@ TEST_F(S3FileWriterTest, abortsProviderMultipartWithoutAnUploadId) {
     EXPECT_EQ(1, client->create_multipart_count);
     EXPECT_EQ(1, client->abort_multipart_count);
     EXPECT_EQ(FileWriter::State::CLOSED, writer->state());
+}
+
+TEST_F(S3FileWriterTest, failedReportCleanupAbortsDeferredProviderUploadAfterClose) {
+    auto [client, writer] = create_s3_client("deferred_report_rejected", true);
+    std::string data(config::s3_write_buffer_size, 'a');
+    ASSERT_TRUE(writer->append(Slice(data)).ok());
+    ASSERT_TRUE(writer->close().ok());
+    ASSERT_EQ(FileWriter::State::CLOSED, writer->state());
+    auto cleanup = writer->failed_report_cleanup();
+
+    cleanup();
+
+    EXPECT_EQ(1, client->abort_multipart_count);
 }
 
 /**

@@ -314,11 +314,12 @@ void VIcebergDeleteSink::finish_deferred_file_cleanup(Status outer_status) {
 void VIcebergDeleteSink::_transfer_created_files_to_report_cleanup() {
     DCHECK(_state != nullptr);
     for (auto& created_file : _created_files) {
-        _state->add_failed_iceberg_report_cleanup([cleanup_fs = std::move(created_file.first),
-                                                   cleanup_path = std::move(created_file.second)] {
-            WARN_IF_ERROR(cleanup_fs->delete_file(cleanup_path),
-                          "failed to delete an Iceberg delete file after report failure");
-        });
+        _state->add_rejected_external_file_report_cleanup(
+                [cleanup_fs = std::move(created_file.first),
+                 cleanup_path = std::move(created_file.second)] {
+                    WARN_IF_ERROR(cleanup_fs->delete_file(cleanup_path),
+                                  "failed to delete an Iceberg delete file after report failure");
+                });
     }
     _created_files.clear();
 }

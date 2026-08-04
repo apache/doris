@@ -470,8 +470,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
                     _params.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
             {
                 // Initialize runtime state for this task
-                task_runtime_state->set_iceberg_commit_data_budget(
-                        _runtime_state->iceberg_commit_data_budget());
+                task_runtime_state->set_external_file_report_state(
+                        _runtime_state->external_file_report_state());
                 task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
 
                 task_runtime_state->set_task_execution_context(shared_from_this());
@@ -2365,7 +2365,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         // External query (flink/spark read tablets) not need to report to FE.
         if (req.done) {
             // Without a coordinator acknowledgement no external-write file may escape rollback.
-            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::REJECTED);
         }
         return;
     }
@@ -2388,7 +2389,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
                 PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
         if (req.done) {
-            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::REJECTED);
         }
         return;
     }
@@ -2513,42 +2515,9 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             }
         }
     }
-    if (auto hpu = req.runtime_state->hive_partition_updates(); !hpu.empty()) {
-        params.__isset.hive_partition_updates = true;
-        params.hive_partition_updates.insert(params.hive_partition_updates.end(), hpu.begin(),
-                                             hpu.end());
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            if (auto rs_hpu = rs->hive_partition_updates(); !rs_hpu.empty()) {
-                params.__isset.hive_partition_updates = true;
-                params.hive_partition_updates.insert(params.hive_partition_updates.end(),
-                                                     rs_hpu.begin(), rs_hpu.end());
-            }
-        }
-    }
-    req.runtime_state->append_iceberg_commit_datas(&params.iceberg_commit_datas);
-    if (!params.iceberg_commit_datas.empty()) {
-        params.__isset.iceberg_commit_datas = true;
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            rs->append_iceberg_commit_datas(&params.iceberg_commit_datas);
-            if (!params.iceberg_commit_datas.empty()) {
-                params.__isset.iceberg_commit_datas = true;
-            }
-        }
-    }
-
-    if (auto mcd = req.runtime_state->mc_commit_datas(); !mcd.empty()) {
-        params.__isset.mc_commit_datas = true;
-        params.mc_commit_datas.insert(params.mc_commit_datas.end(), mcd.begin(), mcd.end());
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            if (auto rs_mcd = rs->mc_commit_datas(); !rs_mcd.empty()) {
-                params.__isset.mc_commit_datas = true;
-                params.mc_commit_datas.insert(params.mc_commit_datas.end(), rs_mcd.begin(),
-                                              rs_mcd.end());
-            }
-        }
+    req.runtime_state->append_external_file_commit_data(&params, req.done);
+    for (auto* rs : req.runtime_states) {
+        rs->append_external_file_commit_data(&params, req.done);
     }
 
     req.runtime_state->get_unreported_errors(&(params.error_log));
@@ -2562,7 +2531,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             params, req.runtime_state->coordinator_thrift_message_limit());
     if (!report_size_status.ok()) {
         if (req.done) {
-            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::REJECTED);
         }
         req.cancel_fn(report_size_status);
         return;
@@ -2593,8 +2563,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                 // The first request may have been consumed; keep files until metadata or orphan cleanup wins.
                 report_outcome_ambiguous = true;
                 if (req.done) {
-                    req.runtime_state->finalize_iceberg_report_cleanup(
-                            IcebergReportOutcome::AMBIGUOUS);
+                    req.runtime_state->finalize_external_file_report_cleanup(
+                            ExternalFileReportOutcome::AMBIGUOUS);
                 }
                 req.cancel_fn(rpc_status);
                 return;
@@ -2619,19 +2589,23 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
 
     if (!rpc_status.ok()) {
         if (req.done && !report_outcome_ambiguous) {
-            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::REJECTED);
         } else if (req.done) {
-            req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::AMBIGUOUS);
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::AMBIGUOUS);
         }
         LOG_INFO("Going to cancel query {} since report exec status got rpc failed: {}",
                  print_id(req.query_id), rpc_status.to_string());
         req.cancel_fn(rpc_status);
     } else if (req.done && req.status.ok()) {
         // Files remain rollback-owned until the coordinator has acknowledged the final metadata report.
-        req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::ACKNOWLEDGED);
+        req.runtime_state->finalize_external_file_report_cleanup(
+                ExternalFileReportOutcome::ACKNOWLEDGED);
     } else if (req.done) {
         // An acknowledged error report confirms that FE will not publish this write's files.
-        req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+        req.runtime_state->finalize_external_file_report_cleanup(
+                ExternalFileReportOutcome::REJECTED);
     }
 }
 
@@ -2688,7 +2662,8 @@ Status PipelineFragmentContext::send_report(bool done) {
             });
     if (!submit_status.ok() && req.done) {
         // A rejected final callback can never transfer ownership to the coordinator.
-        req.runtime_state->finalize_iceberg_report_cleanup(IcebergReportOutcome::REJECTED);
+        req.runtime_state->finalize_external_file_report_cleanup(
+                ExternalFileReportOutcome::REJECTED);
     }
     return submit_status;
 }

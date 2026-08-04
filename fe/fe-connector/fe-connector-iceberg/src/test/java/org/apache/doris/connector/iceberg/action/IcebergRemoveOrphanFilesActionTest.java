@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.iceberg.action;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.BaseTable;
