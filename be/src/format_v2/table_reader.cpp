@@ -833,6 +833,10 @@ std::optional<std::vector<ColumnDefinition>> TableReader::_find_table_column_pat
             result.push_back(build_schema_column_metadata_from_external_field(
                     *(*external_path)[index], path_types[index]));
         }
+        // Keep metadata hierarchy aligned with the synthetic exact-ID ancestor types.
+        for (size_t index = result.size(); index > 1; --index) {
+            result[index - 2].children.push_back(result[index - 1]);
+        }
         return result;
     };
 
