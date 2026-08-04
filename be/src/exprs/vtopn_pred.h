@@ -282,13 +282,15 @@ private:
         auto mutable_column = IColumn::mutate(std::move(column));
         if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
             auto& values = assert_cast<ColumnUInt8&>(*nullable->get_nested_column_ptr()).get_data();
-            const auto& null_map = nullable->get_null_map_data();
+            auto& null_map = nullable->get_null_map_data();
             // Collapse SQL NULL to the filter decision: NULLS FIRST keeps it, while NULLS LAST
-            // rejects it. Return a non-nullable Boolean so every caller observes the same decision.
+            // rejects it. Preserve the nullable wrapper so strict block execution still matches
+            // the expression's declared Nullable(Boolean) type.
             for (size_t row = 0; row < values.size(); ++row) {
                 values[row] = null_map[row] ? _predicate->nulls_first() : values[row];
             }
-            return nullable->get_nested_column_ptr();
+            nullable->fill_false_to_nullmap(rows);
+            return mutable_column;
         }
         return mutable_column;
     }

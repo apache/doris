@@ -329,6 +329,15 @@ TEST(RuntimePredicateTest, TopNPredicateNormalizesConstNullableComparisonResult)
         EXPECT_FALSE(result_column->is_null_at(0));
         EXPECT_EQ(result_column->get_bool(0), nulls_first);
 
+        int result_column_id = -1;
+        status = context->execute(&block, &result_column_id);
+        ASSERT_TRUE(status.ok()) << status;
+        const auto& strict_result = block.get_by_position(result_column_id);
+        ASSERT_TRUE(is_column_const(*strict_result.column));
+        EXPECT_NE(nullptr, check_and_get_column_with_const<ColumnNullable>(*strict_result.column));
+        EXPECT_FALSE(strict_result.column->is_null_at(0));
+        EXPECT_EQ(strict_result.column->get_bool(0), nulls_first);
+
         IColumn::Filter filter(rows, 1);
         bool can_filter_all = false;
         status = context->execute_filter(&block, filter.data(), rows, false, &can_filter_all);
