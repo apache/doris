@@ -27,6 +27,9 @@ suite("set_preagg") {
         drop table if exists preagg_t2;
         drop table if exists preagg_t3;
         drop table if exists preagg_t4;
+        drop table if exists preagg_t5;
+        drop table if exists preagg_asof_l;
+        drop table if exists preagg_asof_r;
 
         create table preagg_t1(
             k1 int null,
@@ -84,6 +87,28 @@ suite("set_preagg") {
         aggregate key (k1,k2,k3,k4,k5,k6)
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
+        create table preagg_t5(
+            k1 int null,
+            v double MAX
+        )
+        aggregate key (k1)
+        distributed BY hash(k1) buckets 1
+        properties("replication_num" = "1");
+        create table preagg_asof_l(
+            grp int null,
+            ts datetime null
+        )
+        aggregate key (grp, ts)
+        distributed BY hash(grp) buckets 1
+        properties("replication_num" = "1");
+        create table preagg_asof_r(
+            grp int null,
+            ts datetime null,
+            v9 bigint MAX
+        )
+        aggregate key (grp, ts)
+        distributed BY hash(grp) buckets 1
+        properties("replication_num" = "1");
 
         insert into preagg_t1 values
             (1,1,1,1,1,1, 10, 100, 1000),
@@ -100,6 +125,12 @@ suite("set_preagg") {
         insert into preagg_t4 values (1,1,1,1,1,1, 1, 100);
         insert into preagg_t4 values (1,1,1,1,1,1, 1, 200);
         insert into preagg_t4 values (2,0,0,0,0,0, 5, 300);
+        insert into preagg_t5 values (1, -1e-300);
+        insert into preagg_t5 values (1, 0.0);
+        insert into preagg_asof_l values (1,'2020-01-01 00:00:00'),(2,'2020-01-01 00:00:00');
+        insert into preagg_asof_r values (1,'2020-01-01 00:00:00',100);
+        insert into preagg_asof_r values (1,'2020-01-01 00:00:00',200);
+        insert into preagg_asof_r values (2,'2020-01-01 00:00:00',300);
     """
 
     explain {
@@ -747,12 +778,14 @@ suite("set_preagg") {
         inner join preagg_t2 r on t.a = r.k1;
     """
 
-    // max(cast(v9 as double)): a widening numeric cast wraps a value column.
-    // The cast-unwrapping loop peels it so OneValueSlotAggChecker sees v9
-    // with MAX aggregation type and returns ON — storage MAX + cast is safe.
+    // Negative: max(cast(v9 as double)) — no cast is peeled for MAX/MIN.
+    // DOUBLE/DECIMAL→FLOAT can underflow to -0.0 and change the observable
+    // tie representative (signed zero) under MAX/MIN, so even nondecreasing
+    // casts are not MAX/MIN homomorphisms. The checker sees a Cast and
+    // returns OFF.
     explain {
         sql("""select max(cast(v9 as double)) from preagg_t1;""")
-        contains "(preagg_t1), PREAGGREGATION: ON"
+        notContains "(preagg_t1), PREAGGREGATION: ON"
     }
     order_qt_q21 """select max(cast(v9 as double)) from preagg_t1;"""
 
@@ -774,14 +807,14 @@ suite("set_preagg") {
     }
     order_qt_q23 """select max(cast(v9 as string)) from preagg_t1;"""
 
-    // Mixed-path IF with cast in return: max(if(k6 > 0, cast(v9 as double), 0))
-    // enters checkAggWithKeyAndValueSlots. The return cast is safe for MAX
-    // (max(cast(x)) = cast(max(x))), so the strip+match yields ON.
+    // Negative mixed-path IF with cast in return: max(if(k6 > 0, cast(v9 as double), 0))
+    // — no cast is peeled for MAX/MIN, so the IF return stays wrapped in Cast
+    // and the checker returns OFF.
     explain {
         sql("""
             select max(if(k6 > 0, cast(v9 as double), 0)) from preagg_t1;
         """)
-        contains "(preagg_t1), PREAGGREGATION: ON"
+        notContains "(preagg_t1), PREAGGREGATION: ON"
     }
     order_qt_q24 """
         select max(if(k6 > 0, cast(v9 as double), 0)) from preagg_t1;
@@ -801,25 +834,23 @@ suite("set_preagg") {
         select sum(if(k6 > 0, cast(v7 as double), 0)) from preagg_t1;
     """
 
-    // --- SAFE vs UNSAFE cast regression tests ---
-    // peelCastForMaxMin peels casts that are order-preserving for MAX/MIN:
-    //   - Injective numeric→numeric casts (widening integral/decimal)
-    //   - Numeric→float casts (nondecreasing, e.g. BIGINT→DOUBLE)
-    // It rejects:
-    //   - Non-injective narrowing casts (e.g. BIGINT→TINYINT, overflow)
-    //   - Injective but order-changing casts (e.g. BIGINT→STRING)
+    // --- Cast regression tests ---
+    // No cast is peeled for MAX/MIN: DOUBLE/DECIMAL→FLOAT can underflow to
+    // -0.0 and change the observable tie representative (signed zero) under
+    // MAX/MIN, so even nondecreasing casts are not MAX/MIN homomorphisms.
+    // Any cast-wrapped aggregate is therefore conservatively OFF.
 
-    // Positive: BIGINT→DECIMAL(20,0) is injective (wider range), numeric → ON.
+    // Negative: BIGINT→DECIMAL(20,0) widening cast → OFF (no peeling).
     explain {
         sql("""select max(cast(v9 as decimal(20,0))) from preagg_t1;""")
-        contains "(preagg_t1), PREAGGREGATION: ON"
+        notContains "(preagg_t1), PREAGGREGATION: ON"
     }
     order_qt_q26 """select max(cast(v9 as decimal(20,0))) from preagg_t1;"""
 
-    // Positive: BIGINT→LARGEINT is a widening integral cast (injective) → ON.
+    // Negative: BIGINT→LARGEINT widening cast → OFF (no peeling).
     explain {
         sql("""select max(cast(v9 as largeint)) from preagg_t1;""")
-        contains "(preagg_t1), PREAGGREGATION: ON"
+        notContains "(preagg_t1), PREAGGREGATION: ON"
     }
     order_qt_q27 """select max(cast(v9 as largeint)) from preagg_t1;"""
 
@@ -837,13 +868,12 @@ suite("set_preagg") {
     }
     order_qt_q29 """select max(cast(v9 as tinyint)) from preagg_t1;"""
 
-    // Mixed-path IF with safe cast: max(if(..., cast(v9 as decimal(20,0)), 0))
-    // return cast is injective numeric → peeled → matches MAX → ON.
+    // Negative mixed-path IF with widening cast: no peeling → OFF.
     explain {
         sql("""
             select max(if(k6 > 0, cast(v9 as decimal(20,0)), 0)) from preagg_t1;
         """)
-        contains "(preagg_t1), PREAGGREGATION: ON"
+        notContains "(preagg_t1), PREAGGREGATION: ON"
     }
     order_qt_q30 """
         select max(if(k6 > 0, cast(v9 as decimal(20,0)), 0)) from preagg_t1;
@@ -861,12 +891,12 @@ suite("set_preagg") {
         select max(if(k6 > 0, cast(v9 as tinyint), 0)) from preagg_t1;
     """
 
-    // CASE WHEN with safe widening cast → ON.
+    // Negative: CASE WHEN with widening cast → OFF (no peeling).
     explain {
         sql("""
             select max(case when k6 > 0 then cast(v9 as decimal(20,0)) else 0 end) from preagg_t1;
         """)
-        contains "(preagg_t1), PREAGGREGATION: ON"
+        notContains "(preagg_t1), PREAGGREGATION: ON"
     }
     order_qt_q32 """
         select max(case when k6 > 0 then cast(v9 as decimal(20,0)) else 0 end) from preagg_t1;
@@ -982,6 +1012,44 @@ suite("set_preagg") {
         select sum(distinct if(t.c > 0, r.v7, 0))
         from (select k1, sum(v7) as c from preagg_t1 group by k1) t
         inner join preagg_t4 r on t.k1 = r.k1;
+    """
+
+    // Negative signed-zero: signbit(max(if(k1 > 0, cast(v as float), cast(0 as float))))
+    // with v a DOUBLE MAX column. No cast is peeled for MAX/MIN: DOUBLE→FLOAT can
+    // underflow (-1e-300 → FLOAT -0.0) and change the observable tie representative
+    // under signbit, so preagg_t5 must stay OFF. preagg_t5 holds the same full key
+    // k1=1 in two loads (v = -1e-300 and +0.0); storage MAX merges to +0.0, so the
+    // merged result is signbit(+0.0) = 0.
+    explain {
+        sql("""
+            select signbit(max(if(k1 > 0, cast(v as float), cast(0 as float)))) from preagg_t5;
+        """)
+        notContains "(preagg_t5), PREAGGREGATION: ON"
+    }
+    order_qt_q36 """
+        select signbit(max(if(k1 > 0, cast(v as float), cast(0 as float)))) from preagg_t5;
+    """
+
+    // Negative ASOF join selected-side: r.v9 is a direct correctly typed MAX
+    // column, but ASOF's one-row selection does not commute with pre-agg ON.
+    // preagg_asof_r holds the same full key (grp=1, ts) in two loads with
+    // v9=100 and v9=200; storage MAX merges to 200. If r were ON, ASOF would
+    // see two equal-time rows and could pick the 100 partial before the upper
+    // MAX runs, returning 100 instead of 200. The selected side must stay OFF.
+    // l(1)↔r(1, v9=200), l(2)↔r(2, v9=300) → max(200, 300) = 300.
+    explain {
+        sql("""
+            select max(if(l.grp > 0, r.v9, 0))
+            from preagg_asof_l l asof left join preagg_asof_r r
+                MATCH_CONDITION(l.ts >= r.ts) on l.grp = r.grp;
+        """)
+        contains "(preagg_asof_l), PREAGGREGATION: ON"
+        notContains "(preagg_asof_r), PREAGGREGATION: ON"
+    }
+    order_qt_q37 """
+        select max(if(l.grp > 0, r.v9, 0))
+        from preagg_asof_l l asof left join preagg_asof_r r
+            MATCH_CONDITION(l.ts >= r.ts) on l.grp = r.grp;
     """
 
 }

@@ -53,7 +53,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -94,6 +93,13 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         private Set<AggregateFunction> aggregateFunctions = new HashSet<>();
         private Set<RelationId> olapScanIds = new HashSet<>();
         private boolean hasUnresolvedExpression = false;
+
+        // Scans on the selected side of an ASOF join. ASOF emits at most one
+        // matching row per probe row (the index may pick any equal-time row), so
+        // the selected side must stay storage-merged (pre-agg OFF): with pre-agg
+        // ON, duplicate full keys remain as partial rows and a stale partial can
+        // be picked instead of the merged value, changing MAX/MIN.
+        private Set<RelationId> asofSelectedSideRelationIds = new HashSet<>();
 
         private Map<Slot, Expression> replaceMap = new HashMap<>();
 
@@ -274,6 +280,19 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         LogicalJoin plan = (LogicalJoin) super.visit(logicalJoin, context);
         if (!context.empty() && context.peek() != null) {
             context.peek().addJoinInfo(plan);
+            if (plan.getJoinType().isAsofJoin()) {
+                // ASOF join keeps at most one matching row per probe row, and the
+                // ASOF index may pick any equal-time row. If the selected side is
+                // pre-agg ON, duplicate full keys stay as partial rows and a stale
+                // partial (e.g. an older v9=100) could be picked instead of the
+                // storage-merged value (200), changing MAX/MIN. Force the selected
+                // side OFF so storage merges its columns first.
+                Plan selectedSide = plan.getJoinType().isAsofLeftJoin() ? plan.right() : plan.left();
+                for (LogicalOlapScan scan : selectedSide
+                        .<LogicalOlapScan>collect(LogicalOlapScan.class::isInstance)) {
+                    context.peek().asofSelectedSideRelationIds.add(scan.getRelationId());
+                }
+            }
         }
         return plan;
     }
@@ -337,7 +356,15 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                 PreAggStatus preAggStatus = PreAggStatus.off("No valid aggregate on scan.");
                 PreAggInfoContext preAggInfoContext = context.get(olapScan.getRelationId());
                 if (preAggInfoContext != null) {
-                    preAggStatus = createPreAggStatus(olapScan, preAggInfoContext);
+                    if (preAggInfoContext.asofSelectedSideRelationIds.contains(olapScan.getRelationId())) {
+                        // ASOF join's one-row selection does not commute with
+                        // exposing this scan's partial (unmerged) rows: storage
+                        // must merge first so the picked row is the merged value.
+                        preAggStatus = PreAggStatus.off(
+                                "can't turn preAgg on because the scan is the selected side of an ASOF join");
+                    } else {
+                        preAggStatus = createPreAggStatus(olapScan, preAggInfoContext);
+                    }
                 }
                 return olapScan.withPreAggStatus(preAggStatus);
             } else {
@@ -455,16 +482,6 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                     if (splitSlots.first.isEmpty()) {
                         // only value slots
                         Expression valueChild = aggFunc.child(0);
-                        // Unwrap safe numeric casts that commute with MAX/MIN
-                        // (e.g. max(cast(v9 as double)) → storage MAX + cast).
-                        // Only peel casts that are proven order-preserving for MAX/MIN:
-                        // 1. Injective numeric→numeric casts (widening integral/decimal)
-                        // 2. Numeric→float casts (nondecreasing, e.g. BIGINT→DOUBLE)
-                        // sum(cast(x)) and sum(x) are not interchangeable
-                        // due to overflow/precision, so SUM must stay OFF.
-                        if (aggFunc instanceof Max || aggFunc instanceof Min) {
-                            valueChild = peelCastForMaxMin(valueChild);
-                        }
                         if (aggFunc.children().size() == 1 && valueChild instanceof SlotReference) {
                             SlotReference slotRef = (SlotReference) valueChild;
                             if (slotRef.getOriginalColumn().isPresent()) {
@@ -528,14 +545,11 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             List<Expression> conditionExps = new ArrayList<>();
             List<Expression> returnExps = new ArrayList<>();
 
-            // Only peel casts that are proven order-preserving for MAX/MIN:
-            // 1. Injective numeric→numeric casts (widening integral/decimal)
-            // 2. Numeric→float casts (nondecreasing, e.g. BIGINT→DOUBLE)
-            // sum(cast(x)) and sum(x) are not interchangeable
-            // due to overflow/precision, so SUM must stay OFF.
-            if (aggFunc instanceof Max || aggFunc instanceof Min) {
-                child = peelCastForMaxMin(child);
-            }
+            // No cast is peeled for MAX/MIN: DOUBLE/DECIMAL→FLOAT can underflow
+            // to -0.0 and change the observable tie representative (signed zero)
+            // under MAX/MIN, so even nondecreasing casts are not MAX/MIN
+            // homomorphisms. Any remaining cast is rejected below / by the
+            // checker, keeping pre-agg conservatively OFF.
             // Reject remaining cast.
             if (child instanceof Cast) {
                 return PreAggStatus.off(String.format("%s is not supported.", child.toSql()));
@@ -547,27 +561,20 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             // and cast(sum(x)) are not interchangeable due to overflow.
             if (child instanceof If) {
                 conditionExps.add(child.child(0));
-                returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
-                        ? peelCastForMaxMin(child.child(1)) : child.child(1));
-                returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
-                        ? peelCastForMaxMin(child.child(2)) : child.child(2));
+                returnExps.add(child.child(1));
+                returnExps.add(child.child(2));
             } else if (child instanceof CaseWhen) {
                 CaseWhen caseWhen = (CaseWhen) child;
                 // WHEN THEN
                 for (WhenClause whenClause : caseWhen.getWhenClauses()) {
                     conditionExps.add(whenClause.getOperand());
-                    returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
-                            ? peelCastForMaxMin(whenClause.getResult())
-                            : whenClause.getResult());
+                    returnExps.add(whenClause.getResult());
                 }
                 // ELSE
-                returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
-                        ? peelCastForMaxMin(
-                                caseWhen.getDefaultValue().orElse(new NullLiteral()))
-                        : caseWhen.getDefaultValue().orElse(new NullLiteral()));
+                returnExps.add(caseWhen.getDefaultValue().orElse(new NullLiteral()));
             } else {
                 // Non-IF/CASE — conditionExps stays empty and returns OFF below.
-                returnExps.add(peelCastForMaxMin(child));
+                returnExps.add(child);
             }
 
             // step 1.5: ownership — every return expression must reference only
@@ -613,40 +620,6 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             }
 
             return KeyAndValueSlotsAggChecker.INSTANCE.check(aggFunc, returnExps);
-        }
-
-        /**
-         * Peel casts that are safe for MAX/MIN (order-preserving / nondecreasing).
-         * This is a stronger check than {@link ExpressionUtils#getExpressionCoveredBySafetyCast}
-         * because `isInjectiveCastTo` also returns true for IntegralType→CharacterType
-         * (e.g. BIGINT→STRING), which preserves distinctness but NOT ordering
-         * (string comparison differs from numeric comparison). For MAX/MIN we
-         * must reject such casts.
-         * <p>
-         * Safe categories:
-         * <ol>
-         *   <li>Injective numeric→numeric casts (widening integral or wider-range decimal)
-         *   <li>Numeric→float casts (nondecreasing even if not injective, e.g. BIGINT→DOUBLE)
-         * </ol>
-         */
-        private static Expression peelCastForMaxMin(Expression expression) {
-            while (expression instanceof Cast) {
-                Cast cast = (Cast) expression;
-                DataType sourceType = cast.child().getDataType();
-                DataType targetType = cast.getDataType();
-                // Injective + numeric → safe (widening, order-preserving).
-                if (sourceType.isInjectiveCastTo(targetType) && targetType.isNumericType()) {
-                    expression = cast.child();
-                    continue;
-                }
-                // Numeric→float → nondecreasing for MAX/MIN.
-                if (sourceType.isNumericType() && targetType.isFloatLikeType()) {
-                    expression = cast.child();
-                    continue;
-                }
-                break;
-            }
-            return expression;
         }
 
         private static class OneValueSlotAggChecker
