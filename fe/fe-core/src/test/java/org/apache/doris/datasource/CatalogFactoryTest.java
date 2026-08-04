@@ -20,7 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.DefaultConnectorContext;
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import org.junit.Assert;
