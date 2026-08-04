@@ -1236,6 +1236,7 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
     if (file_context == nullptr || file_context->native_file == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
+    std::map<int, std::unique_ptr<native::BlockSplitBloomFilter>> bloom_filters_by_leaf;
     const auto bloom_filter_excludes = [&](const ParquetColumnSchema& column_schema, int slot_index,
                                            const VExprContextSPtrs& conjuncts) {
         if (column_schema.type == nullptr ||
@@ -1248,18 +1249,24 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
         if (!chunk.__isset.meta_data) {
             return false;
         }
-        std::unique_ptr<native::BlockSplitBloomFilter> bloom_filter;
-        Status status;
-        {
+        // A physical leaf can back multiple retained predicates. Cache failed reads as null too so
+        // unreadable remote Bloom metadata is not fetched repeatedly for the same row group.
+        auto [bloom_filter_it, inserted] =
+                bloom_filters_by_leaf.try_emplace(column_schema.leaf_column_id);
+        if (inserted) {
             int64_t timer_sink = 0;
             SCOPED_RAW_TIMER(pruning_stats == nullptr ? &timer_sink
                                                       : &pruning_stats->bloom_filter_read_time);
-            status = read_native_bloom_filter(chunk.meta_data, file_context->native_file,
-                                              file_context->native_io_ctx, &bloom_filter);
+            const auto status =
+                    read_native_bloom_filter(chunk.meta_data, file_context->native_file,
+                                             file_context->native_io_ctx, &bloom_filter_it->second);
+            if (!status.ok()) {
+                bloom_filter_it->second.reset();
+            }
         }
-        return status.ok() && bloom_filter != nullptr &&
-               ParquetStatisticsUtils::NativeBloomFilterExcludes(column_schema, slot_index,
-                                                                 conjuncts, *bloom_filter);
+        return bloom_filter_it->second != nullptr &&
+               ParquetStatisticsUtils::NativeBloomFilterExcludes(
+                       column_schema, slot_index, conjuncts, *bloom_filter_it->second);
     };
 
     const auto conjuncts_by_slot = collect_conjuncts_by_single_slot(

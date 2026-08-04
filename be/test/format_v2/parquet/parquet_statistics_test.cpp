@@ -72,10 +72,12 @@ public:
     size_t size() const override { return _bytes.size(); }
     bool closed() const override { return _closed; }
     int64_t mtime() const override { return 1; }
+    int read_count() const { return _read_count; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext*) override {
+        ++_read_count;
         if (offset > _bytes.size() || result.size > _bytes.size() - offset) {
             return Status::IOError("native Bloom test read exceeds memory file");
         }
@@ -88,6 +90,7 @@ private:
     std::vector<uint8_t> _bytes;
     io::Path _path;
     bool _closed = false;
+    int _read_count = 0;
 };
 class BloomInExpr final : public VExpr {
 public:
@@ -120,6 +123,37 @@ public:
 private:
     std::vector<Field> _values;
     const std::string _expr_name = "BloomInExpr";
+};
+
+class BloomEqExpr final : public VExpr {
+public:
+    BloomEqExpr(int column_id, DataTypePtr data_type, Field value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _slot(VSlotRef::create_shared(0, column_id, -1, std::move(data_type), "c0")),
+              _value(std::move(value)) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("BloomEqExpr is only used by parquet statistics tests");
+    }
+    bool can_evaluate_bloom_filter() const override { return true; }
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
+        return expr_zonemap::eval_eq_bloom_filter(
+                ctx, expr_zonemap::SlotLiteral {.slot_index = _slot->column_id(),
+                                                .slot_type = _slot->data_type(),
+                                                .literal = _value,
+                                                .literal_type = _slot->data_type(),
+                                                .literal_on_left = false});
+    }
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        _slot->collect_slot_column_ids(column_ids);
+    }
+
+private:
+    std::shared_ptr<VSlotRef> _slot;
+    Field _value;
+    const std::string _expr_name = "BloomEqExpr";
 };
 
 class MetadataAccessorExpr final : public VExpr {
@@ -881,9 +915,50 @@ TEST(ParquetBloomFilterPruningTest, NativeUint32BloomUsesPhysicalInt32Hash) {
             bloom_filter));
 }
 
+TEST(ParquetBloomFilterPruningTest, NativeFloatingBloomPreservesDorisEquality) {
+    const auto check_type = []<PrimitiveType Type, typename DataType>(
+                                    tparquet::Type::type physical_type,
+                                    typename PrimitiveTypeTraits<Type>::CppType stored_value,
+                                    typename PrimitiveTypeTraits<Type>::CppType predicate_value) {
+        format::parquet::ParquetColumnSchema column_schema;
+        column_schema.type = std::make_shared<DataType>();
+        column_schema.type_descriptor.doris_type = column_schema.type;
+        column_schema.type_descriptor.physical_type = physical_type;
+
+        format::parquet::native::BlockSplitBloomFilter bloom_filter;
+        ASSERT_TRUE(bloom_filter
+                            .init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                                  segment_v2::HashStrategyPB::XX_HASH_64)
+                            .ok());
+        // These raw PLAIN bytes model an external writer; the predicate uses a different physical
+        // representation from the same Doris equality class.
+        bloom_filter.add_bytes(reinterpret_cast<const char*>(&stored_value), sizeof(stored_value));
+        ASSERT_FALSE(bloom_filter.test_bytes(reinterpret_cast<const char*>(&predicate_value),
+                                             sizeof(predicate_value)));
+        const auto field = Field::create_field<Type>(predicate_value);
+
+        EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::NativeBloomFilterExcludes(
+                column_schema, 0, bloom_eq_conjunct(column_schema.type, field), bloom_filter));
+        EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::NativeBloomFilterExcludes(
+                column_schema, 0, bloom_conjuncts(column_schema.type, {field}), bloom_filter));
+    };
+
+    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(tparquet::Type::FLOAT, -0.0F, 0.0F);
+    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(tparquet::Type::FLOAT, 0.0F, -0.0F);
+    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(tparquet::Type::DOUBLE, -0.0, 0.0);
+    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(tparquet::Type::DOUBLE, 0.0, -0.0);
+    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(
+            tparquet::Type::FLOAT, std::bit_cast<float>(uint32_t {0x7fc00001U}),
+            std::bit_cast<float>(uint32_t {0x7fc00002U}));
+    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(
+            tparquet::Type::DOUBLE, std::bit_cast<double>(uint64_t {0x7ff8000000000001ULL}),
+            std::bit_cast<double>(uint64_t {0x7ff8000000000002ULL}));
+}
+
 TEST(ParquetBloomFilterPruningTest, NativeBloomResolvesStructAndListLeaves) {
     const auto run_case = [](format::parquet::ParquetColumnSchemaKind root_kind,
-                             int32_t predicate_value, bool path_exists, bool expected_pruned) {
+                             int32_t predicate_value, bool path_exists, int conjunct_count,
+                             bool expected_pruned, int expected_reads) {
         auto leaf_type = std::make_shared<DataTypeInt32>();
         DataTypePtr root_type;
         VExprSPtr selector;
@@ -961,19 +1036,21 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomResolvesStructAndListLeaves) {
         metadata.__set_num_rows(1);
         metadata.__set_row_groups({row_group});
 
-        auto slot = VSlotRef::create_shared(0, 0, -1, root_type, "root");
-        auto accessor =
-                std::make_shared<MetadataAccessorExpr>(leaf_type, std::move(slot), selector);
         format::FileScanRequest request;
         request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
-        request.conjuncts = {VExprContext::create_shared(std::make_shared<BloomInExpr>(
-                std::move(accessor),
-                std::vector<Field> {Field::create_field<TYPE_INT>(predicate_value)}))};
+        for (int conjunct_idx = 0; conjunct_idx < conjunct_count; ++conjunct_idx) {
+            auto slot = VSlotRef::create_shared(0, 0, -1, root_type, "root");
+            auto accessor =
+                    std::make_shared<MetadataAccessorExpr>(leaf_type, std::move(slot), selector);
+            request.conjuncts.push_back(VExprContext::create_shared(std::make_shared<BloomInExpr>(
+                    std::move(accessor),
+                    std::vector<Field> {Field::create_field<TYPE_INT>(predicate_value)})));
+        }
         std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
         schema.push_back(std::move(root_schema));
         format::parquet::ParquetFileContext file_context;
-        file_context.native_file =
-                std::make_shared<StatisticsMemoryFileReader>(std::move(bloom_bytes));
+        auto file_reader = std::make_shared<StatisticsMemoryFileReader>(std::move(bloom_bytes));
+        file_context.native_file = file_reader;
         std::vector<int> selected_row_groups;
         format::parquet::ParquetPruningStats pruning_stats;
         ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
@@ -982,13 +1059,15 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomResolvesStructAndListLeaves) {
                             .ok());
         EXPECT_EQ(selected_row_groups.empty(), expected_pruned);
         EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, expected_pruned ? 1 : 0);
+        EXPECT_EQ(file_reader->read_count(), expected_reads);
     };
 
-    run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 2, true, true);
-    run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 1, true, false);
-    run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 2, false, false);
-    run_case(format::parquet::ParquetColumnSchemaKind::LIST, 2, true, true);
-    run_case(format::parquet::ParquetColumnSchemaKind::LIST, 1, true, false);
+    run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 2, true, 1, true, 2);
+    run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 1, true, 1, false, 2);
+    run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 2, false, 1, false, 0);
+    run_case(format::parquet::ParquetColumnSchemaKind::LIST, 2, true, 1, true, 2);
+    run_case(format::parquet::ParquetColumnSchemaKind::LIST, 1, true, 1, false, 2);
+    run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 1, true, 2, false, 2);
 }
 
 TEST(ParquetBloomFilterPruningTest, NativeFloatingBloomPreservesDorisEquality) {

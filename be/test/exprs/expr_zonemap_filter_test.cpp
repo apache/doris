@@ -267,6 +267,27 @@ private:
     std::string _expr_name;
 };
 
+class MetadataBloomPredicateExpr final : public VExpr {
+public:
+    explicit MetadataBloomPredicateExpr(VExprSPtr probe)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false) {
+        add_child(std::move(probe));
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataBloomPredicateExpr is metadata-only");
+    }
+    bool can_evaluate_bloom_filter() const override { return true; }
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext&) const override {
+        return ZoneMapFilterResult::kMayMatch;
+    }
+
+private:
+    const std::string _expr_name = "MetadataBloomPredicateExpr";
+};
+
 class UnsupportedSingleSlotExpr final : public VExpr {
 public:
     explicit UnsupportedSingleSlotExpr(const VExprSPtr& slot) {
@@ -719,6 +740,51 @@ TEST(ExprZonemapFilterTest, EqualityBloomAcceptsStructAndListLeafAccessors) {
               equals.evaluate_bloom_filter(bloom_ctx, {nested_leaf, make_int_literal(2)}));
 }
 
+TEST(ExprZonemapFilterTest, CompoundBloomProbeRequiresOneUniqueNestedLeaf) {
+    const auto make_accessor = [](const DataTypePtr& struct_type, const DataTypePtr& leaf_type,
+                                  std::string field_name) {
+        return std::make_shared<MetadataAccessorExpr>("element_at", leaf_type,
+                                                      make_slot(0, struct_type),
+                                                      make_string_literal(std::move(field_name)));
+    };
+    const auto compound_probe = [](const VExprSPtr& first, const VExprSPtr& second,
+                                   const VExprSPtr& outer) {
+        auto inner =
+                std::make_shared<VCompoundPred>(make_compound_node(TExprOpcode::COMPOUND_AND, 2));
+        inner->add_child(std::make_shared<MetadataBloomPredicateExpr>(first));
+        inner->add_child(std::make_shared<MetadataBloomPredicateExpr>(second));
+        auto root =
+                std::make_shared<VCompoundPred>(make_compound_node(TExprOpcode::COMPOUND_OR, 2));
+        root->add_child(std::move(inner));
+        root->add_child(std::make_shared<MetadataBloomPredicateExpr>(outer));
+        EXPECT_TRUE(root->can_evaluate_bloom_filter());
+        return expr_zonemap::extract_bloom_filter_predicate_probe(root);
+    };
+
+    auto int_leaf = int_type();
+    auto same_type_struct =
+            std::make_shared<DataTypeStruct>(DataTypes {int_leaf, int_leaf}, Strings {"a", "b"});
+    EXPECT_FALSE(compound_probe(make_accessor(same_type_struct, int_leaf, "a"),
+                                make_accessor(same_type_struct, int_leaf, "b"),
+                                make_accessor(same_type_struct, int_leaf, "a"))
+                         .has_value());
+
+    auto string_leaf = std::make_shared<DataTypeString>();
+    auto mixed_type_struct =
+            std::make_shared<DataTypeStruct>(DataTypes {int_leaf, string_leaf}, Strings {"a", "b"});
+    EXPECT_FALSE(compound_probe(make_accessor(mixed_type_struct, int_leaf, "a"),
+                                make_accessor(mixed_type_struct, string_leaf, "b"),
+                                make_accessor(mixed_type_struct, int_leaf, "a"))
+                         .has_value());
+
+    auto same_leaf_probe = compound_probe(make_accessor(same_type_struct, int_leaf, "a"),
+                                          make_accessor(same_type_struct, int_leaf, "a"),
+                                          make_accessor(same_type_struct, int_leaf, "a"));
+    ASSERT_TRUE(same_leaf_probe.has_value());
+    ASSERT_EQ(same_leaf_probe->path.size(), 1);
+    EXPECT_EQ(same_leaf_probe->path[0].field_name, "a");
+}
+
 TEST(ExprZonemapFilterTest, MissingSlotTypeCountsUnsupportedZonemapEvalOnce) {
     auto type = int_type();
     auto slot = make_slot(0, type);
@@ -1065,6 +1131,44 @@ TEST(ExprZonemapFilterTest, VInPredicateDictionaryAndBloomUseMaterializedValues)
     auto matching_bloom_ctx = make_bloom_filter_context(matching_bloom_filter.get(), type);
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               in_predicate->evaluate_bloom_filter(matching_bloom_ctx));
+}
+
+TEST(ExprZonemapFilterTest, VInPredicateMaterializesNestedBloomValuesDuringOpen) {
+    auto leaf_type = int_type();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"value"});
+    auto slot = VSlotRef::create_shared(0, 0, -1, struct_type, "root");
+    auto accessor = std::make_shared<MetadataAccessorExpr>("element_at", leaf_type, std::move(slot),
+                                                           make_string_literal("value"));
+    auto in_predicate = std::make_shared<VInPredicate>(make_in_predicate_node(false, 3));
+    in_predicate->add_child(std::move(accessor));
+    in_predicate->add_child(make_int_literal(2));
+    in_predicate->add_child(make_int_literal(4));
+
+    ObjectPool obj_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    auto thrift_desc_tbl = make_k2_scan_desc_tbl();
+    ASSERT_TRUE(DescriptorTbl::create(&obj_pool, thrift_desc_tbl, &desc_tbl).ok());
+    RuntimeState runtime_state;
+    runtime_state.set_desc_tbl(desc_tbl);
+    RowDescriptor row_desc(runtime_state.desc_tbl(), {0});
+    VExprContext in_context(in_predicate);
+    ASSERT_TRUE(in_context.prepare(&runtime_state, row_desc).ok());
+    ASSERT_TRUE(in_context.open(&runtime_state).ok());
+
+    EXPECT_TRUE(in_predicate->_zonemap_materialized);
+    EXPECT_TRUE(in_predicate->can_evaluate_bloom_filter());
+    EXPECT_FALSE(in_predicate->can_evaluate_zonemap_filter());
+    EXPECT_FALSE(in_predicate->can_evaluate_dictionary_filter());
+    EXPECT_FALSE(in_predicate->can_execute_on_raw_fixed_values(leaf_type, 0));
+
+    auto missing_bloom_filter = make_int_bloom_filter({1, 3});
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              in_predicate->evaluate_bloom_filter(
+                      make_bloom_filter_context(missing_bloom_filter.get(), leaf_type)));
+    auto matching_bloom_filter = make_int_bloom_filter({4});
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              in_predicate->evaluate_bloom_filter(
+                      make_bloom_filter_context(matching_bloom_filter.get(), leaf_type)));
 }
 
 TEST(ExprZonemapFilterTest, DirectInPredicateMaterializesStringSetForZonemap) {

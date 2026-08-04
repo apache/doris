@@ -161,11 +161,17 @@ Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
     _seg_filter_contains_nan = false;
     _zonemap_materialized = false;
     _direct_filter_set.reset();
-    if (_children.size() < 2 || !_children[0]->is_slot_ref()) {
+    if (_children.size() < 2) {
         return Status::OK();
     }
 
-    const auto data_type = remove_nullable(_children[0]->data_type());
+    auto bloom_probe = expr_zonemap::extract_bloom_filter_probe(_children[0]);
+    if (!bloom_probe.has_value()) {
+        return Status::OK();
+    }
+    // Materialization is shared by all pruning paths. Their capability checks keep ZoneMap,
+    // dictionary, and raw evaluation direct-slot-only while Bloom may consume a nested leaf.
+    const auto data_type = remove_nullable(bloom_probe->value_type);
     DORIS_CHECK(data_type != nullptr);
     if (is_complex_type(data_type->get_primitive_type())) {
         return Status::OK();
