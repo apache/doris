@@ -20,15 +20,12 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
-import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -62,7 +59,7 @@ public class DropMaterializedViewTest extends TestWithFeService {
                 false);
     }
 
-    private static void createStreamByNereids(String sql) throws Exception {
+    private void createStreamByNereids(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);

@@ -214,7 +214,8 @@ class IvmLinearDeltaHandler {
         List<NamedExpression> newOutputs = new ArrayList<>(repeat.getOutputExpressions());
         newOutputs.add(child.dmlFactorSlot);
         newOutputs.add(child.sequenceSlot);
-        LogicalRepeat<Plan> newRepeat = repeat.withAggOutputAndChild(newOutputs, child.plan);
+        LogicalRepeat<Plan> newRepeat = repeat.withAggOutput(newOutputs)
+                .withChildren(ImmutableList.of(child.plan));
         // LogicalRepeat appends GROUPING_ID after outputExpressions. Restore the original output order before
         // appending delta metadata, otherwise an upper Project maps GROUPING_ID to a hidden delta slot.
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
