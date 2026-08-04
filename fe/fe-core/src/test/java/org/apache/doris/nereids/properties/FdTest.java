@@ -19,6 +19,10 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -27,6 +31,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
+import java.util.function.Predicate;
 
 class FdTest extends TestWithFeService {
     @Override
@@ -218,6 +223,75 @@ class FdTest extends TestWithFeService {
         // t2.id is nullable, so {t2.id} -> {t2.id2} should be dropped
         Assertions.assertFalse(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(2)), ImmutableSet.of(plan.getOutput().get(3))));
+    }
+
+    @Test
+    void testNestedOuterJoinNullableDeterminant() {
+        // Reduced failing tree from review "Check determinant nullability against the current child output":
+        //   Aggregate(group by r_id, c)
+        //     RightOuterJoin
+        //       Project(l_id, r_id, coalesce(r_id, 1) AS c)
+        //         LeftOuterJoin
+        //           Scan L
+        //           Scan R(r_id NOT NULL UNIQUE)
+        //       Scan V
+        // r_id is NOT NULL in R but becomes nullable at the inner LOJ output; the Project derives
+        // r_id -> c from the expression. At the outer join output this FD must be dropped:
+        // unmatched V rows inject (r_id=NULL, c=NULL), which collides with the Project's own
+        // (r_id=NULL, c=1). After rewrite the sub-query alias is inlined into a plain project
+        // (LogicalSubQueryAliasToLogicalProject) whose trait keeps the stale non-nullable r_id,
+        // so the outer join must still be checked against the immediate child's current output.
+        // c is kept in the select list so that it is not pruned away before the trait check.
+        // Disable join reorder to keep the join tree stable (v LEFT OUTER JOIN p as written).
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        String sql = "select p.id, p.c, count(*) "
+                + "from uni as v "
+                + "left outer join ("
+                + "select l.id2, r.id, coalesce(r.id, 1) as c "
+                + "from agg as l left outer join uni as r on l.id2 = r.id2) p "
+                + "on v.id2 = p.id2 "
+                + "group by p.id, p.c";
+
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) findNode(
+                PlanChecker.from(connectContext).analyze(sql).getPlan(), n -> n instanceof LogicalAggregate);
+        Assertions.assertNotNull(aggregate);
+        // group by (r_id, c); both are plain slots after subquery inlining
+        Slot rId = (Slot) aggregate.getGroupByExpressions().get(0);
+        Slot c = (Slot) aggregate.getGroupByExpressions().get(1);
+
+        // logical path: the outer join's trait must not contain r_id -> c
+        Plan rewritten = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
+        LogicalJoin<?, ?> outerJoin = (LogicalJoin<?, ?>) findNode(rewritten, n -> n instanceof LogicalJoin);
+        Assertions.assertNotNull(outerJoin, "rewritten plan: " + rewritten.treeString());
+        Assertions.assertFalse(outerJoin.getLogicalProperties().getTrait()
+                        .isDependent(ImmutableSet.of(rId), ImmutableSet.of(c)),
+                "r_id -> c must be dropped at the outer join since r_id is nullable on the outer side");
+
+        // physical path: PhysicalHashJoin must drop r_id -> c as well; pick the outer join
+        // (its subtree contains the inner join). implement() applies the implementation rules
+        // directly (no CBO), so no table statistics are required.
+        PhysicalPlan physicalPlan = PlanChecker.from(connectContext)
+                .analyze(sql).rewrite().implement().getPhysicalPlan();
+        PhysicalHashJoin<?, ?> physicalOuterJoin = (PhysicalHashJoin<?, ?>) findNode(physicalPlan,
+                n -> n instanceof PhysicalHashJoin
+                        && n.anyMatch(p -> p instanceof PhysicalHashJoin && p != n));
+        Assertions.assertNotNull(physicalOuterJoin, "physical plan: " + physicalPlan.treeString());
+        Assertions.assertFalse(physicalOuterJoin.getLogicalProperties().getTrait()
+                        .isDependent(ImmutableSet.of(rId), ImmutableSet.of(c)),
+                "physical join must also drop r_id -> c since r_id is nullable on the outer side");
+    }
+
+    private Plan findNode(Plan plan, Predicate<Plan> predicate) {
+        if (predicate.test(plan)) {
+            return plan;
+        }
+        for (Plan child : plan.children()) {
+            Plan found = findNode(child, predicate);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
     }
 
     @Test

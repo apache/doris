@@ -239,11 +239,12 @@ public class DataTrait {
 
         /**
          * Add FDs from the nullable side of an outer join, filtering out edges whose
-         * determinant may be NULL in the original child — those would be invalidated
-         * by null-extension of unmatched rows.
+         * determinant may be NULL in the immediate child's current output — those would
+         * be invalidated by null-extension of unmatched rows. Determinants are canonicalized
+         * against childOutput (by ExprId) before the nullability check.
          */
-        public void addFuncDepsDGForOuterJoinNullableSide(DataTrait fd) {
-            fdDgBuilder.addDepsForOuterJoinNullableSide(fd.fdDg);
+        public void addFuncDepsDGForOuterJoinNullableSide(DataTrait fd, List<Slot> childOutput) {
+            fdDgBuilder.addDepsForOuterJoinNullableSide(fd.fdDg, childOutput);
         }
 
         /**add Dependency relation for dominate and dependency*/

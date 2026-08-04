@@ -374,9 +374,10 @@ public class PhysicalHashJoin<
             case LEFT_OUTER_JOIN:
             case ASOF_LEFT_OUTER_JOIN:
                 // Left side preserved; right side nullable — keep only FDs whose
-                // determinant is NOT NULL in the original child.
+                // determinant is NOT NULL in the right child's current output.
                 builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
-                builder.addFuncDepsDGForOuterJoinNullableSide(right().getLogicalProperties().getTrait());
+                builder.addFuncDepsDGForOuterJoinNullableSide(
+                        right().getLogicalProperties().getTrait(), right().getOutput());
                 break;
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
@@ -386,14 +387,17 @@ public class PhysicalHashJoin<
             case RIGHT_OUTER_JOIN:
             case ASOF_RIGHT_OUTER_JOIN:
                 // Right side preserved; left side nullable — keep only FDs whose
-                // determinant is NOT NULL in the original child.
+                // determinant is NOT NULL in the left child's current output.
                 builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
-                builder.addFuncDepsDGForOuterJoinNullableSide(left().getLogicalProperties().getTrait());
+                builder.addFuncDepsDGForOuterJoinNullableSide(
+                        left().getLogicalProperties().getTrait(), left().getOutput());
                 break;
             case FULL_OUTER_JOIN:
                 // Both sides are nullable; keep only FDs whose determinant is NOT NULL.
-                builder.addFuncDepsDGForOuterJoinNullableSide(left().getLogicalProperties().getTrait());
-                builder.addFuncDepsDGForOuterJoinNullableSide(right().getLogicalProperties().getTrait());
+                builder.addFuncDepsDGForOuterJoinNullableSide(
+                        left().getLogicalProperties().getTrait(), left().getOutput());
+                builder.addFuncDepsDGForOuterJoinNullableSide(
+                        right().getLogicalProperties().getTrait(), right().getOutput());
                 break;
             default:
                 break;
