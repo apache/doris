@@ -39,6 +39,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -150,6 +151,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     nameParts, tableAlias, isTempPart, partitions, logicalQuery,
                     deleteCtx);
             icebergDeleteCommand.run(ctx, executor);
+            return;
+        }
+        if (table instanceof PaimonExternalTable) {
+            if (isTempPart || !partitions.isEmpty()) {
+                throw new AnalysisException(
+                        "Paimon DELETE does not support partition name lists; use a WHERE predicate");
+            }
+            new PaimonDeleteCommand(nameParts, tableAlias, logicalQuery).run(ctx, executor);
             return;
         }
 
@@ -491,6 +500,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             IcebergDeleteCommand icebergDeleteCommand = new IcebergDeleteCommand(
                     nameParts, tableAlias, isTempPart, partitions, logicalQuery, deleteCtx);
             return icebergDeleteCommand.getExplainPlan(ctx);
+        }
+        if (table instanceof PaimonExternalTable) {
+            if (isTempPart || !partitions.isEmpty()) {
+                throw new AnalysisException(
+                        "Paimon DELETE does not support partition name lists; use a WHERE predicate");
+            }
+            return new PaimonDeleteCommand(nameParts, tableAlias, handleCte(logicalQuery))
+                    .getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);
     }

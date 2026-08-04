@@ -321,7 +321,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     // Step 2: Cache JNI method IDs for write, prepareCommit, abort, close.
     jmethodID open_id = env->GetMethodID(
             _jni_writer_cls, "open",
-            "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZLjava/lang/"
+            "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
             "String;Ljava/lang/String;JJ)V");
     _write_id = env->GetMethodID(_jni_writer_cls, "write", "(Ljava/nio/ByteBuffer;)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
@@ -363,6 +363,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     env->CallVoidMethod(_jni_writer_obj, open_id, j_serialized_table, j_hadoop_config, j_cols,
                         static_cast<jlong>(sink.transaction_id), j_commit_user,
                         static_cast<jboolean>(sink.write_mode == TPaimonWriteMode::OVERWRITE),
+                        static_cast<jboolean>(sink.write_mode == TPaimonWriteMode::CHANGELOG),
                         j_time_zone, j_spill_directories,
                         static_cast<jlong>(_memory_manager->memory_limit()),
                         reinterpret_cast<jlong>(_memory_manager.get()));
