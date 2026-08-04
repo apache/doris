@@ -1039,22 +1039,19 @@ public class CloudTabletRebalancer extends MasterDaemon {
                                 ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>>
                                     partToTablets) {
         // global
-        globalBeToTablets.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        globalBeToTablets.get(be).add(tablet);
+        globalBeToTablets.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tablet);
 
         // table
-        beToTabletsInTable.putIfAbsent(tableId, new ConcurrentHashMap<Long, Set<Tablet>>());
-        ConcurrentHashMap<Long, Set<Tablet>> beToTabletsOfTable = beToTabletsInTable.get(tableId);
-        beToTabletsOfTable.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfTable.get(be).add(tablet);
+        ConcurrentHashMap<Long, Set<Tablet>> beToTabletsOfTable =
+                beToTabletsInTable.computeIfAbsent(tableId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfTable.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tablet);
 
         // partition
-        partToTablets.putIfAbsent(partId, new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>());
-        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>> indexToTablets = partToTablets.get(partId);
-        indexToTablets.putIfAbsent(indexId, new ConcurrentHashMap<Long, Set<Tablet>>());
-        ConcurrentHashMap<Long, Set<Tablet>> beToTabletsOfIndex = indexToTablets.get(indexId);
-        beToTabletsOfIndex.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfIndex.get(be).add(tablet);
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>> indexToTablets =
+                partToTablets.computeIfAbsent(partId, ignored -> new ConcurrentHashMap<>());
+        ConcurrentHashMap<Long, Set<Tablet>> beToTabletsOfIndex =
+                indexToTablets.computeIfAbsent(indexId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfIndex.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tablet);
     }
 
     private void enqueueWarmupTask(WarmupTabletTask task) {
