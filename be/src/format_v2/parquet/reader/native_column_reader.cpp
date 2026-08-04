@@ -316,8 +316,14 @@ Status NativeColumnReader::create(
     }
 
     auto logical_type = projected_type(column_schema, projection, false);
-    auto native_type = projected_type(column_schema, projection, true);
-    auto variant_plan = build_variant_plan(column_schema, projection);
+    auto native_type = logical_type;
+    std::unique_ptr<VariantMaterializationNode> variant_plan;
+    if (column_schema.contains_variant) {
+        // Native readers are instantiated per projected column and row group. Keep Variant tree
+        // construction out of ordinary scans instead of charging that setup cost at every split.
+        native_type = projected_type(column_schema, projection, true);
+        variant_plan = build_variant_plan(column_schema, projection);
+    }
     auto native_reader = std::unique_ptr<NativeColumnReader>(new NativeColumnReader(
             column_schema, std::move(logical_type), native_type, std::move(variant_plan), profile));
     // Footer metadata is cached and shared across scans. Keep per-request timestamp semantics on a
@@ -394,7 +400,7 @@ Status NativeColumnReader::init(
             int96_timezone_override));
     DORIS_CHECK(_native_reader != nullptr);
     _skip_column = _native_type->create_column();
-    if (_variant_plan->contains_variant) {
+    if (_variant_plan != nullptr) {
         _variant_physical_column = _native_type->create_column();
     }
     return Status::OK();
@@ -417,7 +423,7 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     RETURN_IF_ERROR(filter.init(filter_data, static_cast<size_t>(rows), filter_all));
     _native_reader->reset_filter_map_index();
     const bool materialize_variant =
-            !dictionary_ids && _variant_plan->contains_variant && output_type->equals(*_type);
+            !dictionary_ids && _variant_plan != nullptr && output_type->equals(*_type);
     if (materialize_variant) {
         _variant_physical_column->clear();
     }
@@ -745,7 +751,7 @@ Status NativeColumnReader::select_with_dictionary_filter(
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(survivor_count != nullptr);
     DORIS_CHECK(used_filter != nullptr);
-    if (_variant_plan->contains_variant) {
+    if (_variant_plan != nullptr) {
         row_filter->clear();
         *used_filter = false;
         return Status::OK();
@@ -901,7 +907,7 @@ Status NativeColumnReader::select_with_fixed_width_filter(
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(used_filter != nullptr);
     DORIS_CHECK(execution_kind != nullptr);
-    if (_variant_plan->contains_variant) {
+    if (_variant_plan != nullptr) {
         // Direct fixed-width evaluation cannot preserve a Variant physical subtree's row shape.
         row_filter->clear();
         *used_filter = false;
@@ -1038,7 +1044,7 @@ bool NativeColumnReader::crossed_page_since_last_batch() {
 
 Result<MutableColumnPtr> NativeColumnReader::dictionary_values() {
     DORIS_CHECK(_native_reader != nullptr);
-    if (_variant_plan->contains_variant) {
+    if (_variant_plan != nullptr) {
         return ResultError(
                 Status::NotSupported("Parquet Variant columns do not expose dictionary values"));
     }

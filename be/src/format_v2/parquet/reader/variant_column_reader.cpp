@@ -470,6 +470,7 @@ std::unique_ptr<ParquetColumnSchema> clone_schema(
     result->leaf_column_id = source.leaf_column_id;
     result->type_descriptor = source.type_descriptor;
     result->kind = source.kind;
+    result->contains_variant = source.contains_variant;
     result->max_definition_level = source.max_definition_level;
     result->max_repetition_level = source.max_repetition_level;
     result->nullable_definition_level = source.nullable_definition_level;

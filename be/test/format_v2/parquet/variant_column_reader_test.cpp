@@ -70,6 +70,7 @@ ParquetColumnSchema unshredded_schema() {
     ParquetColumnSchema schema;
     schema.name = "payload";
     schema.kind = ParquetColumnSchemaKind::VARIANT;
+    schema.contains_variant = true;
     schema.type = make_nullable(std::make_shared<DataTypeVariantV2>());
     const auto binary = make_nullable(std::make_shared<DataTypeString>());
     schema.variant_physical_type = make_nullable(std::make_shared<DataTypeStruct>(

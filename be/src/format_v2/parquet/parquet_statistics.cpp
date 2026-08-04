@@ -1289,6 +1289,12 @@ Status select_row_groups_by_metadata(
     if (pruning_stats != nullptr) {
         pruning_stats->total_row_groups = cast_set<int64_t>(candidate_size);
     }
+    const bool contains_variant =
+            file_context != nullptr ? file_context->contains_variant
+                                    : std::ranges::any_of(file_schema, [](const auto& column) {
+                                          DORIS_CHECK(column != nullptr);
+                                          return column->contains_variant;
+                                      });
     selected_row_groups->reserve(candidate_size);
     for (size_t candidate_idx = 0; candidate_idx < candidate_size; ++candidate_idx) {
         const int row_group_idx = candidate_row_groups == nullptr
@@ -1315,8 +1321,8 @@ Status select_row_groups_by_metadata(
             has_expr_zonemap_filter(request, runtime_state) &&
             (check_native_statistics(metadata, row_group, file_schema, request, pruning_stats,
                                      timezone) ||
-             check_shredded_variant_statistics(metadata, row_group, file_schema, request,
-                                               timezone))) {
+             (contains_variant && check_shredded_variant_statistics(
+                                          metadata, row_group, file_schema, request, timezone)))) {
             prune_reason = ParquetRowGroupPruneReason::STATISTICS;
         }
         if (probe_mode != ParquetMetadataProbeMode::FOOTER_ONLY &&
