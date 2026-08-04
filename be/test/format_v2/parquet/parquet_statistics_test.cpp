@@ -505,6 +505,20 @@ VExprContextSPtr variant_path_string_gt_conjunct(std::string literal_value) {
     return VExprContext::create_shared(std::move(gt));
 }
 
+class UnsafeMetadataExpr final : public VExpr {
+public:
+    UnsafeMetadataExpr() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("UnsafeMetadataExpr is metadata-only");
+    }
+    bool is_safe_to_execute_on_selected_rows() const override { return false; }
+
+private:
+    const std::string _expr_name = "UnsafeMetadataExpr";
+};
 VExprContextSPtrs bloom_conjuncts(DataTypePtr data_type, std::vector<Field> values) {
     return {VExprContext::create_shared(
             std::make_shared<BloomInExpr>(0, std::move(data_type), std::move(values)))};
@@ -958,7 +972,8 @@ TEST(ParquetBloomFilterPruningTest, NativeFloatingBloomPreservesDorisEquality) {
 TEST(ParquetBloomFilterPruningTest, NativeBloomResolvesStructAndListLeaves) {
     const auto run_case = [](format::parquet::ParquetColumnSchemaKind root_kind,
                              int32_t predicate_value, bool path_exists, int conjunct_count,
-                             bool expected_pruned, int expected_reads) {
+                             bool expected_pruned, int expected_reads,
+                             bool add_unsafe_barrier = false) {
         auto leaf_type = std::make_shared<DataTypeInt32>();
         DataTypePtr root_type;
         VExprSPtr selector;
@@ -1038,6 +1053,11 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomResolvesStructAndListLeaves) {
 
         format::FileScanRequest request;
         request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+        if (add_unsafe_barrier) {
+            request.conjuncts.push_back(
+                    VExprContext::create_shared(std::make_shared<UnsafeMetadataExpr>()));
+            request.metadata_pruning_safe_conjunct_count = 0;
+        }
         for (int conjunct_idx = 0; conjunct_idx < conjunct_count; ++conjunct_idx) {
             auto slot = VSlotRef::create_shared(0, 0, -1, root_type, "root");
             auto accessor =
@@ -1068,6 +1088,7 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomResolvesStructAndListLeaves) {
     run_case(format::parquet::ParquetColumnSchemaKind::LIST, 2, true, 1, true, 2);
     run_case(format::parquet::ParquetColumnSchemaKind::LIST, 1, true, 1, false, 2);
     run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 1, true, 2, false, 2);
+    run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 2, true, 1, false, 0, true);
 }
 
 TEST(ParquetBloomFilterPruningTest, NativeFloatingBloomPreservesDorisEquality) {

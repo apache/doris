@@ -88,7 +88,13 @@ static bool parse_struct_child_selector(const VExprSPtr& expr, StructChildSelect
 
 static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* path) {
     DORIS_CHECK(path != nullptr);
-    if (!is_struct_element_expr(expr)) {
+    const bool is_struct_element = is_struct_element_expr(expr);
+    const bool is_array_element =
+            expr != nullptr && expr->get_num_children() == 2 &&
+            expr->fn().name.function_name == "element_at" &&
+            expr->children()[0]->data_type() != nullptr &&
+            remove_nullable(expr->children()[0]->data_type())->get_primitive_type() == TYPE_ARRAY;
+    if (!is_struct_element && !is_array_element) {
         return false;
     }
 
@@ -96,6 +102,13 @@ static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* 
     StructChildSelector selector;
     if (!parse_struct_child_selector(expr->children()[1], &selector)) {
         return false;
+    }
+    if (is_array_element) {
+        if (selector.by_name) {
+            return false;
+        }
+        // Every array ordinal is represented by the same repeated Parquet element projection.
+        selector.is_array_element = true;
     }
 
     const auto& parent = expr->children()[0];
@@ -118,6 +131,9 @@ static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* 
 
 static const ColumnDefinition* resolve_file_child(const std::vector<ColumnDefinition>& children,
                                                   const StructChildSelector& selector) {
+    if (selector.is_array_element) {
+        return children.size() == 1 ? &children[0] : nullptr;
+    }
     if (selector.by_name) {
         const auto child_it = std::ranges::find_if(children, [&](const ColumnDefinition& child) {
             return child.name == selector.name;
@@ -143,6 +159,14 @@ static const DataTypeStruct* struct_type_or_null(const DataTypePtr& type) {
 
 static std::optional<int32_t> struct_child_index(const ColumnMapping& mapping,
                                                  const StructChildSelector& selector) {
+    if (selector.is_array_element) {
+        const auto nested_type = remove_nullable(mapping.table_type);
+        if (nested_type == nullptr || nested_type->get_primitive_type() != TYPE_ARRAY ||
+            mapping.child_mappings.size() != 1) {
+            return std::nullopt;
+        }
+        return 0;
+    }
     const auto* struct_type = struct_type_or_null(mapping.table_type);
     if (struct_type == nullptr) {
         return std::nullopt;
@@ -249,8 +273,10 @@ static NestedProjectionResolveResult resolve_nested_projection_with_mapping(
     return NestedProjectionResolveResult::RESOLVED;
 }
 
-static bool table_root_is_struct(const ColumnMapping& mapping) {
-    return struct_type_or_null(mapping.table_type) != nullptr;
+static bool table_root_is_nested_container(const ColumnMapping& mapping) {
+    const auto nested_type = remove_nullable(mapping.table_type);
+    return nested_type != nullptr && (nested_type->get_primitive_type() == TYPE_STRUCT ||
+                                      nested_type->get_primitive_type() == TYPE_ARRAY);
 }
 
 static const std::vector<ColumnDefinition>& scan_file_children(const ColumnMapping& mapping) {
@@ -344,7 +370,7 @@ bool resolve_nested_struct_path_for_file(const NestedStructPath& path,
         return false;
     }
     if (mapping_result == NestedProjectionResolveResult::NOT_REPRESENTED) {
-        if (!table_root_is_struct(*mapping_it)) {
+        if (!table_root_is_nested_container(*mapping_it)) {
             return false;
         }
         LocalColumnIndex child_projection;
@@ -381,6 +407,10 @@ bool resolve_nested_struct_path_for_file(const NestedStructPath& path,
         resolved->file_child_types.size() != path.selectors.size()) {
         *resolved = {};
         return false;
+    }
+    resolved->file_array_elements.reserve(path.selectors.size());
+    for (const auto& selector : path.selectors) {
+        resolved->file_array_elements.push_back(selector.is_array_element);
     }
     return true;
 }

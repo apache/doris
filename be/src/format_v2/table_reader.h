@@ -82,6 +82,7 @@ using DeleteRows = std::vector<int64_t>;
 struct TableFilter {
     VExprContextSPtr conjunct;
     std::vector<GlobalIndex> global_indices;
+    bool metadata_pruning_safe = true;
 };
 
 struct ScanTask {
