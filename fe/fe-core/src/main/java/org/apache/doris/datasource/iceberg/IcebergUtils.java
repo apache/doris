@@ -800,10 +800,20 @@ public class IcebergUtils {
     }
 
     public static List<String> getIdentityPartitionColumns(Table table) {
+        return getIdentityPartitionColumns(table, false, false);
+    }
+
+    public static List<String> getIdentityPartitionColumns(Table table,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
         for (PartitionSpec spec : table.specs().values()) {
             for (PartitionField partitionField : spec.fields()) {
                 if (!partitionField.transform().isIdentity()) {
+                    continue;
+                }
+                NestedField sourceField = table.schema().findField(partitionField.sourceId());
+                if (sourceField == null || !isSupportedPartitionValueType(
+                        sourceField.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
                     continue;
                 }
                 String columnName = table.schema().findColumnName(partitionField.sourceId());
@@ -815,8 +825,47 @@ public class IcebergUtils {
         return new ArrayList<>(partitionColumns);
     }
 
+    /**
+     * Get identity partition columns that exist in all partition specs.
+     * The legacy file scanner uses partition columns in the first scan range for all ranges,
+     * so only common identity partition columns can be used for partition pruning.
+     */
+    public static List<String> getCommonIdentityPartitionColumns(Table table) {
+        return getCommonIdentityPartitionColumns(table, false, false);
+    }
+
+    public static List<String> getCommonIdentityPartitionColumns(Table table,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        LinkedHashSet<Integer> commonSourceIds = new LinkedHashSet<>();
+        for (PartitionField field : table.spec().fields()) {
+            NestedField sourceField = table.schema().findField(field.sourceId());
+            if (field.transform().isIdentity() && sourceField != null
+                    && isSupportedPartitionValueType(
+                            sourceField.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
+                commonSourceIds.add(field.sourceId());
+            }
+        }
+        for (PartitionSpec spec : table.specs().values()) {
+            Set<Integer> specIdentitySourceIds = spec.fields().stream()
+                    .filter(field -> field.transform().isIdentity())
+                    .map(PartitionField::sourceId)
+                    .collect(Collectors.toSet());
+            commonSourceIds.retainAll(specIdentitySourceIds);
+        }
+        return commonSourceIds.stream()
+                .map(table.schema()::findColumnName)
+                .filter(columnName -> columnName != null)
+                .collect(Collectors.toList());
+    }
+
     public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
             PartitionSpec partitionSpec, Table table, String timeZone) {
+        return getIdentityPartitionInfoMap(partitionData, partitionSpec, table, timeZone, false, false);
+    }
+
+    public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
+            PartitionSpec partitionSpec, Table table, String timeZone,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         List<PartitionField> partitionFields = partitionSpec.fields();
@@ -829,8 +878,8 @@ public class IcebergUtils {
             if (!partitionField.transform().isIdentity()) {
                 continue;
             }
-            TypeID partitionTypeId = field.type().typeId();
-            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+            if (!isSupportedPartitionValueType(
+                    field.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
                 continue;
             }
 
@@ -847,6 +896,19 @@ public class IcebergUtils {
             }
         }
         return partitionInfoMap;
+    }
+
+    private static boolean isSupportedPartitionValueType(org.apache.iceberg.types.Type type,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        TypeID typeId = type.typeId();
+        if (typeId == TypeID.BINARY || typeId == TypeID.FIXED) {
+            return false;
+        }
+        if (enableMappingVarbinary && typeId == TypeID.UUID) {
+            return false;
+        }
+        return !enableMappingTimestampTz || typeId != TypeID.TIMESTAMP
+                || !((TimestampType) type).shouldAdjustToUTC();
     }
 
     public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,
