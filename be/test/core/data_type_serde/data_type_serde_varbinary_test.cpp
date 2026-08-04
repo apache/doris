@@ -143,8 +143,8 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonbThrows) {
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
 
-    EXPECT_THROW(
-            { serde.write_one_cell_to_jsonb(*col, jw, pool, 0, 0, options); }, doris::Exception);
+    EXPECT_THROW({ serde.write_one_cell_to_jsonb(*col, jw, pool, 0, 0, options); },
+                 doris::Exception);
     EXPECT_THROW({ serde.read_one_cell_from_jsonb(*vb, nullptr); }, doris::Exception);
 }
 

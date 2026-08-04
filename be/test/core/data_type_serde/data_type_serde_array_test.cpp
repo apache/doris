@@ -255,4 +255,42 @@ TEST_F(DataTypeArraySerDeFieldTest, ReadArrowFixedSizeAndLargeList) {
     }
 }
 
+// External Arrow producers may expose offsets through Buffer::Wrap without preserving the natural
+// alignment of int32_t or int64_t. Run with UBSan enabled to catch typed loads from such buffers.
+TEST_F(DataTypeArraySerDeFieldTest, ReadArrowListWithUnalignedOffsets) {
+    auto nested_serde = std::make_shared<DataTypeNullableSerDe>(
+            std::make_shared<DataTypeNumberSerDe<TYPE_FLOAT>>());
+    DataTypeArraySerDe serde(nested_serde);
+
+    std::vector<float> values_data {1.0F, 2.0F, 3.0F};
+    const auto values_buffer = arrow::Buffer::Wrap(values_data);
+    const auto values = std::make_shared<arrow::FloatArray>(3, values_buffer);
+    const auto read_array = [&](const auto& arrow_array) {
+        auto column = ColumnArray::create(
+                ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()),
+                ColumnOffset64::create());
+        EXPECT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), cctz::utc_time_zone())
+                            .ok());
+        EXPECT_EQ(column->get_offsets(), (ColumnArray::Offsets64 {2, 3, 3}));
+    };
+
+    const std::array<int32_t, 4> list_offsets {0, 2, 3, 3};
+    std::vector<uint8_t> list_offsets_storage(sizeof(list_offsets) + 1);
+    memcpy(list_offsets_storage.data() + 1, list_offsets.data(), sizeof(list_offsets));
+    const auto list_offsets_buffer =
+            arrow::Buffer::Wrap(list_offsets_storage.data() + 1, sizeof(list_offsets));
+    read_array(std::make_shared<arrow::ListArray>(arrow::list(arrow::float32()), 3,
+                                                  list_offsets_buffer, values));
+
+    const std::array<int64_t, 4> large_list_offsets {0, 2, 3, 3};
+    std::vector<uint8_t> large_list_offsets_storage(sizeof(large_list_offsets) + 1);
+    memcpy(large_list_offsets_storage.data() + 1, large_list_offsets.data(),
+           sizeof(large_list_offsets));
+    const auto large_list_offsets_buffer =
+            arrow::Buffer::Wrap(large_list_offsets_storage.data() + 1, sizeof(large_list_offsets));
+    read_array(std::make_shared<arrow::LargeListArray>(arrow::large_list(arrow::float32()), 3,
+                                                       large_list_offsets_buffer, values));
+}
+
 } // namespace doris
