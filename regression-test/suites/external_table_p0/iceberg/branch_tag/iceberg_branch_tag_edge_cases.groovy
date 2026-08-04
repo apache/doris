@@ -123,24 +123,24 @@ suite("iceberg_branch_tag_edge_cases", "p0,external") {
     // Test query non-existent branch
     test {
         sql """ select * from ${table_name}@branch(not_exist_branch) """
-        exception "does not have branch named not_exist_branc"
+        exception "can't find branch: not_exist_branch"
     }
 
     // Test query non-existent tag
     test {
         sql """ select * from ${table_name}@tag(not_exist_tag) """
-        exception "does not have tag named not_exist_tag"
+        exception "can't find snapshot by tag: not_exist_tag"
     }
 
     // Test invalid syntax for branch/tag
     test {
         sql """ select * from ${table_name}@branch('name'='invalid_key') """
-        exception "does not have branch named invalid_key"
+        exception "can't find branch: invalid_key"
     }
 
     test {
         sql """ select * from ${table_name}@tag('name'='invalid_key') """
-        exception "does not have tag named invalid_key"
+        exception "can't find snapshot by tag: invalid_key"
     }
 
     // Test empty branch/tag name

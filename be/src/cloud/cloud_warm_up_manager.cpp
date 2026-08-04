@@ -986,7 +986,7 @@ void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host " << replica.replica.host << ": "
                              << status.to_string();
-                return;
+                continue;
             }
         }
         std::string brpc_addr = get_host_port(host, replica.replica.brpc_port);

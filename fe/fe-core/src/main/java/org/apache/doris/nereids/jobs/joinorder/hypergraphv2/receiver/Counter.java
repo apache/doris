@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraphv2.receiver;
 
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
 import org.apache.doris.nereids.memo.Group;
 
 import com.google.common.base.Preconditions;
 
+import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 
@@ -32,14 +35,18 @@ import java.util.List;
 public class Counter extends AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
     private final int limit;
+    private final HyperGraph hyperGraph;
     private final HashMap<Long, Integer> counter = new HashMap<>();
+    private final HashMap<Long, BitSet> usdEdges = new HashMap<>();
     private int emitCount = 0;
 
-    public Counter() {
+    public Counter(HyperGraph hyperGraph) {
+        this.hyperGraph = hyperGraph;
         this.limit = Integer.MAX_VALUE;
     }
 
-    public Counter(int limit) {
+    public Counter(HyperGraph hyperGraph, int limit) {
+        this.hyperGraph = hyperGraph;
         this.limit = limit;
     }
 
@@ -54,13 +61,34 @@ public class Counter extends AbstractReceiver {
     public EmitState emitCsgCmp(long left, long right, List<Edge> edges) {
         Preconditions.checkArgument(counter.containsKey(left));
         Preconditions.checkArgument(counter.containsKey(right));
-        if (!checkConflictRule(left, right, edges)) {
+        // Mirror PlanReceiver.emitCsgCmp: find missed edges first, reject the
+        // pair when an enforced-order / unsafe alias edge is found, then count
+        // the pair before the conflict-rule and alias-dependency checks (same
+        // ordering as PlanReceiver, so GraphSimplifier's limit decision matches
+        // what PlanReceiver actually emits).
+        List<Edge> missingEdges = new ArrayList<>();
+        if (!processMissedEdges(hyperGraph, usdEdges, left, right, edges, missingEdges)) {
             return EmitState.CONTINUE;
         }
         emitCount += 1;
         if (emitCount > limit) {
             return EmitState.FAIL;
         }
+        edges.addAll(missingEdges);
+        if (!checkConflictRule(left, right, edges)) {
+            return EmitState.CONTINUE;
+        }
+        // Reject cross-bitmap alias layer dependencies, same as PlanReceiver.
+        if (hyperGraph.hasUnresolvableAliasDependency(left, right)) {
+            return EmitState.CONTINUE;
+        }
+        // track used edges for the joined bitmap, same as PlanReceiver
+        BitSet usedEdgesBitmap = new BitSet();
+        usedEdgesBitmap.or(usdEdges.get(left));
+        usedEdgesBitmap.or(usdEdges.get(right));
+        edges.forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
+        usdEdges.put(LongBitmap.newBitmapUnion(left, right), usedEdgesBitmap);
+
         long bitmap = LongBitmap.newBitmapUnion(left, right);
         if (!counter.containsKey(bitmap)) {
             counter.put(bitmap, counter.get(left) * counter.get(right));
@@ -72,6 +100,7 @@ public class Counter extends AbstractReceiver {
 
     public void addGroup(long bitmap, Group group) {
         counter.put(bitmap, 1);
+        usdEdges.put(bitmap, new BitSet());
     }
 
     public boolean contain(long bitmap) {
@@ -80,6 +109,7 @@ public class Counter extends AbstractReceiver {
 
     public void reset() {
         this.counter.clear();
+        this.usdEdges.clear();
         emitCount = 0;
     }
 

@@ -388,9 +388,11 @@ public:
 
     NumberParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
                           ParquetMaterializationState* state = nullptr)
-            : _data(assert_cast<ColumnType&>(column).get_data()),
-              _context(context),
-              _state(state) {}
+            : NumberParquetConsumer(assert_cast<ColumnType&>(column).get_data(), context, state) {}
+
+    NumberParquetConsumer(PaddedPODArray<DorisCppType>& data, const ParquetDecodeContext& context,
+                          ParquetMaterializationState* state = nullptr)
+            : _data(data), _context(context), _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         return consume_impl(values, num_values, value_width);
@@ -468,6 +470,43 @@ public:
     Status consume(const StringRef* values, size_t num_values) override {
         return Status::NotSupported("Binary Parquet values cannot be materialized as a number");
     }
+};
+
+template <PrimitiveType DorisType>
+class NumberPredicateParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+
+    NumberPredicateParquetConsumer(const ParquetDecodeContext& context, bool enable_strict_mode,
+                                   ParquetLogicalValueConsumer& consumer,
+                                   PaddedPODArray<DorisCppType>& logical_values,
+                                   IColumn::Filter& conversion_nulls)
+            : _context(context),
+              _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        NumberParquetConsumer<DorisType> converter(_logical_values, _context, &state);
+        RETURN_IF_ERROR(converter.consume(values, num_values, value_width));
+        DORIS_CHECK_EQ(_logical_values.size(), num_values);
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(DorisCppType), _conversion_nulls.data());
+    }
+
+private:
+    const ParquetDecodeContext& _context;
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    PaddedPODArray<DorisCppType>& _logical_values;
+    IColumn::Filter& _conversion_nulls;
 };
 
 } // namespace
@@ -664,6 +703,46 @@ Status DataTypeNumberSerDe<T>::read_column_from_parquet(IColumn& column,
             state.dictionary_generation = source.dictionary_generation();
         }
         return state.materialize_dictionary(column, source, num_values);
+    }
+}
+
+template <PrimitiveType T>
+bool DataTypeNumberSerDe<T>::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    if (context.encoding == ParquetValueEncoding::DICTIONARY) {
+        return false;
+    }
+    if constexpr (T == TYPE_BOOLEAN) {
+        return context.physical_type == ParquetPhysicalType::BOOLEAN;
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT || T == TYPE_LARGEINT) {
+        return context.physical_type == ParquetPhysicalType::INT32 ||
+               context.physical_type == ParquetPhysicalType::INT64;
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        return context.physical_type == ParquetPhysicalType::FLOAT ||
+               context.physical_type == ParquetPhysicalType::DOUBLE || context.logical_float16;
+    }
+    return false;
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if constexpr (!(T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                    T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT ||
+                    T == TYPE_DOUBLE)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
+                                    get_name());
+    } else {
+        if (!supports_parquet_raw_predicate(context)) {
+            return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
+                                        get_name());
+        }
+        NumberPredicateParquetConsumer<T> predicate_consumer(context, enable_strict_mode, consumer,
+                                                             _parquet_predicate_values,
+                                                             _parquet_predicate_nulls);
+        return source.decode_fixed_values(num_values, predicate_consumer);
     }
 }
 
@@ -1330,18 +1409,10 @@ std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
         char buf[8] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", field.get<T>());
         return std::string(buf);
-    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
-        auto v = field.get<T>();
-        // inf/nan are stored as zone-map flags, not in min/max strings; route them
-        // through CastToString to keep the "Infinity"/"NaN" spelling used elsewhere.
-        if (std::isinf(v) || std::isnan(v)) {
-            return CastToString::from_number(v);
-        }
-        // CastToString uses digits10 + 1 significant digits, which may lose precision.
-        // ZoneMap bounds must round-trip exactly, so use fmt's shortest round-trippable form.
-        return fmt::format("{}", v);
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
-                         T == TYPE_BIGINT) {
+                         T == TYPE_BIGINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        // Floating number to string is now handled correctly by CastToString::from_number
+        // in PR https://github.com/apache/doris/pull/65609, special handing here is not necessary now.
         return CastToString::from_number(field.get<T>());
     } else if constexpr (T == TYPE_LARGEINT) {
         auto value = field.get<T>();

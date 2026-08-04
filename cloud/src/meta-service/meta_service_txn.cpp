@@ -2194,6 +2194,7 @@ void MetaServiceImpl::commit_txn_eventually(
         std::string& msg, const std::string& instance_id, int64_t db_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         KVStats& stats) {
+    response->set_is_lazy_commit(true);
     StopWatch sw;
     DORIS_CLOUD_DEFER {
         if (config::use_detailed_metrics && !instance_id.empty()) {
@@ -2620,6 +2621,8 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        response->set_is_lazy_commit_incomplete(true);
+
         // set table versions in response
         if (is_versioned_read) {
             Versionstamp vs;
@@ -2649,6 +2652,8 @@ void MetaServiceImpl::commit_txn_eventually(
         if (ret.first != MetaServiceCode::OK) {
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << " msg=" << ret.second;
+        } else {
+            response->set_is_lazy_commit_incomplete(false);
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
@@ -3282,6 +3287,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_txn, get, put, del);
+    response->set_is_lazy_commit(false);
     if (!request->has_txn_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn id";

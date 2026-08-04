@@ -81,10 +81,24 @@ Status ParquetColumnReader::select_with_dictionary_filter(const SelectionVector&
                                 name());
 }
 
-Status ParquetColumnReader::select_with_fixed_width_filter(const SelectionVector&, uint16_t,
-                                                           int64_t, const VExprSPtrs&, int,
-                                                           IColumn*, IColumn::Filter* row_filter,
-                                                           bool* used_filter) {
+Status ParquetColumnReader::select_with_fixed_width_filter(
+        const SelectionVector&, uint16_t, int64_t, const VExprSPtrs&, int, IColumn*,
+        IColumn::Filter* row_filter, bool* used_filter,
+        DirectPredicateExecutionKind* execution_kind) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK(execution_kind != nullptr);
+    row_filter->clear();
+    *used_filter = false;
+    *execution_kind = DirectPredicateExecutionKind::NONE;
+    return Status::OK();
+}
+
+Status ParquetColumnReader::select_with_runtime_filter(const SelectionVector&, uint16_t, int64_t,
+                                                       const VExprContextSPtrs&, int,
+                                                       MutableColumnPtr*,
+                                                       IColumn::Filter* row_filter,
+                                                       bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(used_filter != nullptr);
     row_filter->clear();

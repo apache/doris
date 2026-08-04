@@ -27,7 +27,6 @@ import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.manager.StreamingTaskManager;
 import org.apache.doris.load.EtlJobType;
@@ -261,13 +260,11 @@ class OlapInsertExecutorTest {
     private void prepareFactoryMocks(MockedStatic<EnvFactory> envFactoryMock, MockedStatic<Env> envMock,
             Coordinator coordinator, GlobalTransactionMgrIface txnMgr, TransactionState txnState, Env currentEnv) {
         EnvFactory envFactory = Mockito.mock(EnvFactory.class);
-        HiveTransactionMgr hiveTransactionMgr = Mockito.mock(HiveTransactionMgr.class);
         envFactoryMock.when(EnvFactory::getInstance).thenReturn(envFactory);
         Mockito.when(envFactory.createCoordinator(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyLong()))
                 .thenReturn(coordinator);
 
         envMock.when(Env::getCurrentGlobalTransactionMgr).thenReturn(txnMgr);
-        envMock.when(Env::getCurrentHiveTransactionMgr).thenReturn(hiveTransactionMgr);
         envMock.when(Env::getCurrentEnv).thenReturn(currentEnv);
         Mockito.when(txnMgr.getTransactionState(Mockito.anyLong(), Mockito.anyLong())).thenReturn(txnState);
     }

@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -29,16 +28,14 @@ import com.google.gson.annotations.SerializedName;
 import java.util.Map;
 
 /**
- * HMS resource
- * <p>
- * Syntax:
- * CREATE RESOURCE "hive"
- * PROPERTIES
- * (
- * "type" = "hms",
- * "hive.metastore.uris" = "thrift://172.21.0.44:7004"
- * );
+ * Minimal persistence stub for the legacy HMS resource (CREATE RESOURCE ... type=hms).
+ *
+ * <p>This class exists solely for backward compatibility with older metadata images
+ * that contain serialized HMSResource entries. Creating new HMS resources is no longer
+ * supported; external Hive access is provided by the HMS multi-catalog connector
+ * (CREATE CATALOG ... type=hms).</p>
  */
+@Deprecated
 public class HMSResource extends Resource {
 
     @SerializedName(value = "properties")
@@ -55,30 +52,26 @@ public class HMSResource extends Resource {
 
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
-            replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
-        }
-        super.modifyProperties(this.properties);
+        throw new DdlException("HMS resource is no longer supported. Please use Hive Catalog instead.");
     }
 
     @Override
     protected void setProperties(ImmutableMap<String, String> properties) throws DdlException {
-        if (!properties.containsKey(HMSBaseProperties.HIVE_METASTORE_URIS)) {
-            throw new DdlException("Missing [" + HMSBaseProperties.HIVE_METASTORE_URIS + "] in properties.");
-        }
-        this.properties.putAll(properties);
+        throw new DdlException("HMS resource is no longer supported. Please use Hive Catalog instead.");
     }
 
     @Override
     public Map<String, String> getCopiedProperties() {
-        return Maps.newHashMap(properties);
+        return properties != null ? Maps.newHashMap(properties) : Maps.newHashMap();
     }
 
     @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+        if (properties != null) {
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+            }
         }
     }
 }

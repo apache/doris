@@ -54,7 +54,7 @@ services:
       retries: 120
 
   postgres:
-    image: postgis/postgis:14-3.3
+    image: ${ICEBERG_POSTGRES_IMAGE:-postgis/postgis:14-3.3}
     container_name: doris--iceberg-postgres
     environment:
       POSTGRES_PASSWORD: 123456

@@ -44,6 +44,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -61,6 +62,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.tso.TSOTimestamp;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -90,7 +92,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         String createBaseTable = "create table test_stream.tbl_stream_base (\n"
                 + "  k1 int,\n"
-                + "  k2 int\n"
+                + "  k2 int not null\n"
                 + ")\n"
                 + "unique key(k1)\n"
                 + "partition by range(k1)\n"
@@ -123,7 +125,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         String createDuplicateBaseTable = "create table test_stream.tbl_dup_stream_base (\n"
                 + "  k1 int,\n"
-                + "  k2 int\n"
+                + "  k2 int not null\n"
                 + ")\n"
                 + "duplicate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
@@ -516,6 +518,125 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         Assertions.assertTrue(prunedScan.isPartitionPruned());
         Assertions.assertFalse(prunedScan.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testIncrementalStreamScanForcesValueColumnsNullable() throws Exception {
+        // s2 is an incremental (INCREMENTAL read mode) stream over a unique-key table
+        // (k1 key, k2 value). computeOutput must force non-key value columns to nullable so the
+        // scan output stays consistent with the row-binlog after/before value columns, while key
+        // columns keep their original nullability (forceNullable is skipped for keys).
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable base = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        boolean baseK1Nullable = base.getBaseSchema(false).stream()
+                .filter(c -> c.getName().equals("k1"))
+                .findFirst()
+                .orElseThrow()
+                .isAllowNull();
+        boolean baseK2Nullable = base.getBaseSchema(false).stream()
+                .filter(c -> c.getName().equals("k2"))
+                .findFirst()
+                .orElseThrow()
+                .isAllowNull();
+        Assertions.assertFalse(baseK2Nullable,
+                "value column k2 must be NOT NULL in the catalog baseline so widening to nullable is provable");
+
+        Plan analyzedPlan = PlanChecker.from(connectContext)
+                .analyze("select * from test_stream.s2")
+                .getCascadesContext()
+                .getRewritePlan();
+
+        LogicalOlapTableStreamScan streamScan = findFirstLogicalStreamScan(analyzedPlan);
+        Assertions.assertNotNull(streamScan);
+
+        Slot k1 = findSlot(streamScan, "k1");
+        Slot k2 = findSlot(streamScan, "k2");
+        Assertions.assertNotNull(k1, "key column k1 must be present in stream scan output");
+        Assertions.assertNotNull(k2, "value column k2 must be present in stream scan output");
+        Assertions.assertEquals(baseK1Nullable, k1.nullable(),
+                "key column k1 must keep its original nullability (not force-nullable)");
+        Assertions.assertTrue(k2.nullable(), "non-key value column k2 must be forced nullable");
+    }
+
+    @Test
+    public void testResetStreamScanKeepsOriginalNullability() throws Exception {
+        // s_dup@reset does a full base-table scan (RESET read mode). computeOutput must NOT force
+        // value columns to nullable; the value column keeps the base table's original nullability.
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable dupBase = (OlapTable) db.getTableOrMetaException("tbl_dup_stream_base");
+        boolean baseK2Nullable = dupBase.getBaseSchema(false).stream()
+                .filter(c -> c.getName().equals("k2"))
+                .findFirst()
+                .orElseThrow()
+                .isAllowNull();
+        Assertions.assertFalse(baseK2Nullable,
+                "value column k2 must be NOT NULL in the catalog baseline so RESET can prove it stays non-nullable");
+
+        Plan analyzedPlan = PlanChecker.from(connectContext)
+                .analyze("select * from test_stream.s_dup@reset()")
+                .getCascadesContext()
+                .getRewritePlan();
+
+        LogicalOlapTableStreamScan streamScan = findFirstLogicalStreamScan(analyzedPlan);
+        Assertions.assertNotNull(streamScan);
+
+        Slot k2 = findSlot(streamScan, "k2");
+        Assertions.assertNotNull(k2);
+        Assertions.assertEquals(baseK2Nullable, k2.nullable(),
+                "RESET scan must keep the base table's original nullability for value columns");
+    }
+
+    private static Slot findSlot(LogicalOlapTableStreamScan scan, String name) {
+        for (Slot slot : scan.getOutput()) {
+            if (slot.getName().equals(name)) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    @Test
+    public void testIncrTimestampRangePropagatesToScanRangeTso() throws Exception {
+        // An @incr('startTimestamp'=..., 'endTimestamp'=...) query on the MOW base table goes
+        // through makeUniformedTimestampRangeMap in BindRelation, which seeds a per-partition
+        // (start, end) offset on the RowBinlogTableWrapper. OlapScanNode.getScanRangeLocations then
+        // stamps those offsets onto every scan range as startTso/endTso. Verify the whole chain by
+        // asserting every incremental scan range carries the composed start/end TSO for its partition.
+        String startTs = "2026-05-25 20:51:28";
+        String endTs = "2026-05-25 21:51:28";
+        long expectedStartTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(startTs));
+        long expectedEndTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(endTs));
+
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        ctx.getSessionVariable().showHiddenColumns = true;
+        StatementScopeIdGenerator.clear();
+        String sql = "explain select * from test_stream.tbl_stream_base"
+                + "@incr('startTimestamp' = '" + startTs + "', 'endTimestamp' = '" + endTs + "')";
+        PlanFragment fragment = getFragment(ctx, sql);
+
+        List<OlapScanNode> scanNodes = new ArrayList<>();
+        collectOlapScanNodes(fragment.getPlanRoot(), scanNodes);
+        Assertions.assertFalse(scanNodes.isEmpty());
+
+        boolean assertedAtLeastOne = false;
+        for (OlapScanNode scanNode : scanNodes) {
+            if (!(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+                continue;
+            }
+            List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
+            Assertions.assertFalse(locations.isEmpty());
+            for (TScanRangeLocations loc : locations) {
+                TPaloScanRange range = loc.getScanRange().getPaloScanRange();
+                Assertions.assertEquals(expectedStartTso, range.getStartTso(),
+                        "startTSO should equal the composed @incr startTimestamp for every partition");
+                Assertions.assertEquals(expectedEndTso, range.getEndTso(),
+                        "endTSO should equal the composed @incr endTimestamp for every partition");
+                assertedAtLeastOne = true;
+            }
+        }
+        Assertions.assertTrue(assertedAtLeastOne,
+                "expected at least one incremental scan range to assert TSO bounds against");
     }
 
     @Test

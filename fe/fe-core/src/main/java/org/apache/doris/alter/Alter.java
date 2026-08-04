@@ -47,8 +47,6 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
@@ -74,7 +72,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTableCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
@@ -393,7 +390,6 @@ public class Alter {
 
     private void processAlterTableForExternalTable(
             ExternalTable table, List<AlterOp> alterOps) throws UserException {
-        long updateTime = System.currentTimeMillis();
         for (AlterOp alterOp : alterOps) {
             if (alterOp instanceof ModifyTablePropertiesOp) {
                 setExternalTableAutoAnalyzePolicy(table, alterOps);
@@ -439,29 +435,11 @@ public class Alter {
                 ReorderColumnsOp reorderColumns = (ReorderColumnsOp) alterOp;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
             } else if (alterOp instanceof AddPartitionFieldOp) {
-                AddPartitionFieldOp addPartitionField = (AddPartitionFieldOp) alterOp;
-                if (table instanceof IcebergExternalTable) {
-                    ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
-                            (IcebergExternalTable) table, addPartitionField, updateTime);
-                } else {
-                    throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
-                }
+                table.getCatalog().addPartitionField(table, (AddPartitionFieldOp) alterOp);
             } else if (alterOp instanceof DropPartitionFieldOp) {
-                DropPartitionFieldOp dropPartitionField = (DropPartitionFieldOp) alterOp;
-                if (table instanceof IcebergExternalTable) {
-                    ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
-                            (IcebergExternalTable) table, dropPartitionField, updateTime);
-                } else {
-                    throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
-                }
+                table.getCatalog().dropPartitionField(table, (DropPartitionFieldOp) alterOp);
             } else if (alterOp instanceof ReplacePartitionFieldOp) {
-                ReplacePartitionFieldOp replacePartitionField = (ReplacePartitionFieldOp) alterOp;
-                if (table instanceof IcebergExternalTable) {
-                    ((IcebergExternalCatalog) table.getCatalog()).replacePartitionField(
-                            (IcebergExternalTable) table, replacePartitionField, updateTime);
-                } else {
-                    throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
-                }
+                table.getCatalog().replacePartitionField(table, (ReplacePartitionFieldOp) alterOp);
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterOps);
             }
@@ -565,27 +543,18 @@ public class Alter {
             processRename(db, externalTable, alterOps);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             schemaChangeHandler.processExternalTable(alterOps, db, externalTable);
-        } else if (currentAlterOps.contains(AlterOpType.MODIFY_ENGINE)) {
-            ModifyEngineOp modifyEngineOp = (ModifyEngineOp) alterOps.get(0);
-            processModifyEngine(db, externalTable, modifyEngineOp);
         }
     }
 
-    public void processModifyEngine(Database db, Table externalTable, ModifyEngineOp op) throws DdlException {
-        throw new DdlException("Modify engine from MySQL to ODBC is no longer supported. "
-                + "ODBC tables have been deprecated. Please use JDBC Catalog instead.");
-    }
-
+    /**
+     * {@code ALTER TABLE ... MODIFY ENGINE} was removed from the grammar together with the ODBC table type it
+     * existed to serve, so nothing produces this log any more. The replay arm stays because an old journal may
+     * still carry {@code OP_MODIFY_TABLE_ENGINE}: dropping the operation type would make such an image
+     * unreadable.
+     */
     public void replayProcessModifyEngine(ModifyTableEngineOperationLog log) {
         // ODBC tables have been deprecated, skip replay.
         LOG.warn("Skip replaying ModifyEngine for table {} — ODBC tables are deprecated.", log.getTableId());
-    }
-
-    private void processModifyEngineInternal(Database db, Table externalTable,
-                                             Map<String, String> prop, boolean isReplay) {
-        // ODBC tables have been deprecated. This method is preserved only for
-        // deserialization compatibility of the edit log. No-op.
-        LOG.warn("processModifyEngineInternal called for deprecated ODBC engine conversion. Ignoring.");
     }
 
     /*
@@ -618,13 +587,6 @@ public class Alter {
             case ELASTICSEARCH:
                 processAlterExternalTable(command, (Table) tableIf, (Database) dbIf);
                 return;
-            case HMS_EXTERNAL_TABLE:
-            case JDBC_EXTERNAL_TABLE:
-            case ICEBERG_EXTERNAL_TABLE:
-            case PAIMON_EXTERNAL_TABLE:
-            case MAX_COMPUTE_EXTERNAL_TABLE:
-            case HUDI_EXTERNAL_TABLE:
-            case TRINO_CONNECTOR_EXTERNAL_TABLE:
             case PLUGIN_EXTERNAL_TABLE:
                 alterOps.addAll(command.getOps());
                 processAlterTableForExternalTable((ExternalTable) tableIf, alterOps);

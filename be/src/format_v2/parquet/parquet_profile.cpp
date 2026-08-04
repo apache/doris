@@ -31,6 +31,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
     static const char* parquet_profile = "ParquetReader";
     total_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, parquet_profile, file_scan_profile::FILE_READER, 1);
+    refresh_scan_request_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "RefreshScanRequestTime", parquet_profile, 1);
 
     // Row-group counters are part of the long-standing ParquetReader profile contract. Keep them
     // below the format node so profile parsers and operators can attribute pruning to Parquet.
@@ -181,6 +183,14 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "FixedWidthPredicateDirectBatches", TUnit::UNIT, parquet_profile, 1);
     fixed_width_predicate_direct_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "FixedWidthPredicateDirectRows", TUnit::UNIT, parquet_profile, 1);
+    raw_value_predicate_direct_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "RawValuePredicateDirectBatches", TUnit::UNIT, parquet_profile, 1);
+    raw_value_predicate_direct_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "RawValuePredicateDirectRows", TUnit::UNIT, parquet_profile, 1);
+    typed_runtime_filter_direct_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "TypedRuntimeFilterDirectBatches", TUnit::UNIT, parquet_profile, 1);
+    typed_runtime_filter_direct_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "TypedRuntimeFilterDirectRows", TUnit::UNIT, parquet_profile, 1);
     dictionary_predicate_direct_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictionaryPredicateDirectBatches", TUnit::UNIT, parquet_profile, 1);
     dictionary_predicate_direct_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -205,6 +215,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "DictFilterTypedCompareColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_string_compare_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictFilterStringCompareColumns", TUnit::UNIT, parquet_profile, 1);
+    dict_filter_vectorized_runtime_filter_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictFilterVectorizedRuntimeFilterColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_unsupported_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictFilterUnsupportedColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_read_failures = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DictFilterReadFailures",
@@ -246,6 +258,7 @@ void ParquetProfile::update_deferred_pruning_stats(const ParquetPruningStats& pr
                                                    bool selected) const {
     const int64_t filtered = selected ? 0 : 1;
     COUNTER_UPDATE(filtered_row_groups, filtered);
+    COUNTER_UPDATE(filtered_row_groups_by_min_max, pruning_stats.filtered_row_groups_by_statistics);
     COUNTER_UPDATE(filtered_row_groups_by_dictionary,
                    pruning_stats.filtered_row_groups_by_dictionary);
     COUNTER_UPDATE(filtered_row_groups_by_bloom_filter,
@@ -334,6 +347,10 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .predicate_alignment_columns = predicate_alignment_columns,
             .fixed_width_predicate_direct_batches = fixed_width_predicate_direct_batches,
             .fixed_width_predicate_direct_rows = fixed_width_predicate_direct_rows,
+            .raw_value_predicate_direct_batches = raw_value_predicate_direct_batches,
+            .raw_value_predicate_direct_rows = raw_value_predicate_direct_rows,
+            .typed_runtime_filter_direct_batches = typed_runtime_filter_direct_batches,
+            .typed_runtime_filter_direct_rows = typed_runtime_filter_direct_rows,
             .dictionary_predicate_direct_batches = dictionary_predicate_direct_batches,
             .dictionary_predicate_direct_rows = dictionary_predicate_direct_rows,
             .dictionary_predicate_projected_rows = dictionary_predicate_projected_rows,
@@ -345,6 +362,8 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .dict_filter_columns = dict_filter_columns,
             .dict_filter_typed_compare_columns = dict_filter_typed_compare_columns,
             .dict_filter_string_compare_columns = dict_filter_string_compare_columns,
+            .dict_filter_vectorized_runtime_filter_columns =
+                    dict_filter_vectorized_runtime_filter_columns,
             .dict_filter_unsupported_columns = dict_filter_unsupported_columns,
             .dict_filter_read_failures = dict_filter_read_failures,
             .rows_filtered_by_dict_filter = rows_filtered_by_dict_filter,

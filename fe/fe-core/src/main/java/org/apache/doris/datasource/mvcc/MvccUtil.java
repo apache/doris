@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.mvcc;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
@@ -40,5 +42,29 @@ public class MvccUtil {
             return Optional.empty();
         }
         return statementContext.getSnapshot(tableIf);
+    }
+
+    /**
+     * Get the version-aware Snapshot from the StatementContext: resolves the snapshot pinned for the SAME
+     * table reference (same {@code @branch}/{@code @tag}/FOR-TIME selector) the scan carries, so a statement
+     * mixing main and {@code @branch} of one table reads each at its own snapshot. The version-blind
+     * {@link #getSnapshotFromContext(TableIf)} cannot disambiguate once more than one snapshot is pinned.
+     *
+     * @param tableIf       tableIf
+     * @param tableSnapshot the reference's FOR VERSION/TIME AS OF selector (if any)
+     * @param scanParams    the reference's {@code @branch}/{@code @tag} selector (if any)
+     * @return MvccSnapshot
+     */
+    public static Optional<MvccSnapshot> getSnapshotFromContext(TableIf tableIf,
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return Optional.empty();
+        }
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext == null) {
+            return Optional.empty();
+        }
+        return statementContext.getSnapshot(tableIf, tableSnapshot, scanParams);
     }
 }

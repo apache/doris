@@ -22,7 +22,38 @@
 
 set -eo pipefail
 
+if ((BASH_VERSINFO[0] < 4)); then
+    echo "ERROR: run-thirdparties-docker.sh requires Bash 4 or newer." >&2
+    echo "On macOS, install a newer Bash with: brew install bash" >&2
+    exit 1
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+HOST_OS="$(uname -s)"
+
+if [[ -z "${DOCKER_USE_SUDO+x}" ]]; then
+    if [[ "${HOST_OS}" == "Darwin" ]]; then
+        DOCKER_USE_SUDO=0
+    else
+        DOCKER_USE_SUDO=1
+    fi
+fi
+
+docker_cli() {
+    if [[ "${DOCKER_USE_SUDO}" -eq 1 ]]; then
+        sudo docker "$@"
+    else
+        docker "$@"
+    fi
+}
+
+host_admin_cmd() {
+    if [[ "${HOST_OS}" == "Darwin" ]]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
 
 . "${ROOT}/custom_settings.env"
 . "${ROOT}/juicefs-helpers.sh"
@@ -67,41 +98,29 @@ HIVE_SHARED_ID="doris-shared"
 : "${HIVE_BASELINE_TARBALL_CACHE:?HIVE_BASELINE_TARBALL_CACHE must be set in custom_settings.env}"
 
 if [[ -z "${IP_HOST:-}" ]]; then
-    if command -v ip >/dev/null 2>&1; then
+    if [[ "${HOST_OS}" == "Darwin" ]]; then
+        # macOS has neither `ip` nor `hostname -I`, and its LAN address would be
+        # the wrong answer anyway: the "host" the `network_mode: host` services
+        # join is the Docker Desktop VM, not this machine. Everything reaches
+        # everything else on the VM's loopback, and Docker Desktop forwards the
+        # Mac's loopback into it, so 127.0.0.1 is consistent on both sides.
+        # (That forwarding is the "host networking" beta -- Settings ->
+        # Resources -> Network. With it off, the ports exist only in the VM.)
+        export IP_HOST=127.0.0.1
+    elif command -v ip >/dev/null 2>&1; then
         export IP_HOST=$(ip -4 addr show scope global | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1)
     elif command -v hostname >/dev/null 2>&1; then
         export IP_HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
     fi
 fi
 
-if ! OPTS="$(getopt \
-    -n "$0" \
-    -o '' \
-    -l 'help' \
-    -l 'stop' \
-    -l 'reserve-ports' \
-    -l 'no-load-data' \
-    -l 'load-parallel:' \
-    -l 'hive-mode:' \
-    -l 'hive-modules:' \
-    -o 'hc:' \
-    -- "$@")"; then
-    usage
-fi
-
-eval set -- "${OPTS}"
-
-if [[ "$#" == 1 ]]; then
+if [[ "$#" -eq 0 ]]; then
     # default
     COMPONENTS="${DEFAULT_COMPONENTS}"
 else
-    while true; do
+    while (($#)); do
         case "$1" in
-        -h)
-            HELP=1
-            shift
-            ;;
-        --help)
+        -h|--help)
             HELP=1
             shift
             ;;
@@ -110,6 +129,7 @@ else
             shift
             ;;
         -c)
+            (($# >= 2)) || usage
             COMPONENTS=$2
             shift 2
             ;;
@@ -122,14 +142,17 @@ else
             shift
             ;;
         --load-parallel)
+            (($# >= 2)) || usage
             export LOAD_PARALLEL=$2
             shift 2
             ;;
         --hive-mode)
+            (($# >= 2)) || usage
             export HIVE_MODE=$2
             shift 2
             ;;
         --hive-modules)
+            (($# >= 2)) || usage
             export HIVE_MODULES=$2
             shift 2
             ;;
@@ -138,8 +161,8 @@ else
             break
             ;;
         *)
-            echo "Internal error"
-            exit 1
+            echo "Unknown option: $1" >&2
+            usage
             ;;
         esac
     done
@@ -435,9 +458,9 @@ ensure_juicefs_meta_database() {
             return 0
         fi
 
-        mysql_container=$(sudo docker ps --format '{{.Names}}' | grep -E "(^|-)${CONTAINER_UID}mysql_57(-[0-9]+)?$" | head -n 1 || true)
+        mysql_container=$(docker_cli ps --format '{{.Names}}' | grep -E "(^|-)${CONTAINER_UID}mysql_57(-[0-9]+)?$" | head -n 1 || true)
         if [[ -n "${mysql_container}" ]]; then
-            if sudo docker exec "${mysql_container}" \
+            if docker_cli exec "${mysql_container}" \
                 mysql -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;" >/dev/null 2>&1; then
                 return 0
             fi
@@ -462,16 +485,16 @@ ensure_juicefs_meta_database() {
         )
 
         for pg_container in "${pg_candidates[@]}"; do
-            if ! sudo docker ps --format '{{.Names}}' | grep -Fxq "${pg_container}"; then
+            if ! docker_cli ps --format '{{.Names}}' | grep -Fxq "${pg_container}"; then
                 continue
             fi
 
-            if sudo docker exec "${pg_container}" \
+            if docker_cli exec "${pg_container}" \
                 psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${meta_db}'" | grep -q '^1$'; then
                 return 0
             fi
 
-            if sudo docker exec "${pg_container}" \
+            if docker_cli exec "${pg_container}" \
                 psql -U postgres -d postgres -c "CREATE DATABASE \"${meta_db}\";" >/dev/null 2>&1; then
                 return 0
             fi
@@ -588,9 +611,9 @@ compose_cmd() {
     shift 2
 
     if [[ -n "${env_file}" ]]; then
-        sudo docker compose -f "${compose_file}" --env-file "${env_file}" "$@"
+        docker_cli compose -f "${compose_file}" --env-file "${env_file}" "$@"
     else
-        sudo docker compose -f "${compose_file}" "$@"
+        docker_cli compose -f "${compose_file}" "$@"
     fi
 }
 
@@ -824,7 +847,7 @@ dump_start_failure() {
     fi
 
     echo "===== unhealthy containers =====" >&2
-    sudo docker ps -a --filter 'health=unhealthy' --format '{{.Names}} | {{.Image}} | {{.Status}}' >&2 || true
+    docker_cli ps -a --filter 'health=unhealthy' --format '{{.Names}} | {{.Image}} | {{.Status}}' >&2 || true
 }
 
 print_started_summary() {
@@ -853,7 +876,7 @@ print_started_summary() {
             echo "  containers:"
             while read -r container_id; do
                 [[ -n "${container_id}" ]] || continue
-                sudo docker inspect --format '{{.Name}} | {{.Config.Image}} | {{.State.Status}} | health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" \
+                docker_cli inspect --format '{{.Name}} | {{.Config.Image}} | {{.State.Status}} | health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" \
                     2>/dev/null || true
             done <<<"${compose_ids}"
         fi
@@ -1008,7 +1031,7 @@ start_kafka() {
 
         for topic in "${topics[@]}"; do
             echo "Creating kafka topic '${topic}' for ${container_id}"
-            sudo docker exec "${container_id}" bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
+            docker_cli exec "${container_id}" bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
         done
 
     }
@@ -1019,7 +1042,7 @@ start_kafka() {
         local attempt
 
         for attempt in {1..30}; do
-            if sudo docker exec "${container_id}" bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --list --bootstrap-server '${ip_host}:19193'" >/dev/null 2>&1; then
+            if docker_cli exec "${container_id}" bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --list --bootstrap-server '${ip_host}:19193'" >/dev/null 2>&1; then
                 return 0
             fi
             sleep 2
@@ -1061,8 +1084,8 @@ ensure_hive_volumes() {
     local prefix="$1"
     local suffix
     for suffix in "${HIVE_VOLUME_SUFFIXES[@]}"; do
-        if ! sudo docker volume inspect "${prefix}-${suffix}" >/dev/null 2>&1; then
-            sudo docker volume create "${prefix}-${suffix}" >/dev/null
+        if ! docker_cli volume inspect "${prefix}-${suffix}" >/dev/null 2>&1; then
+            docker_cli volume create "${prefix}-${suffix}" >/dev/null
         fi
     done
 }
@@ -1071,13 +1094,13 @@ reset_hive_volumes() {
     local prefix="$1"
     local suffix
     for suffix in "${HIVE_VOLUME_SUFFIXES[@]}"; do
-        sudo docker volume rm -f "${prefix}-${suffix}" >/dev/null 2>&1 || true
+        docker_cli volume rm -f "${prefix}-${suffix}" >/dev/null 2>&1 || true
     done
 }
 
 hive_volume_is_populated() {
     local prefix="$1"
-    sudo docker run --rm \
+    docker_cli run --rm \
         -v "${prefix}-namenode:/vol:ro" \
         alpine test -f /vol/current/VERSION 2>/dev/null
 }
@@ -1177,7 +1200,7 @@ maybe_restore_baseline_to_volumes() {
     echo "[baseline] restoring volumes from extracted baseline cache..."
     local _t0
     _t0=$(date +%s)
-    sudo docker run --rm \
+    docker_cli run --rm \
         -v "${extracted_dir}:/baseline:ro" \
         -v "${prefix}-namenode:/restore/namenode" \
         -v "${prefix}-datanode:/restore/datanode" \
@@ -1224,12 +1247,7 @@ ensure_hosts_alias() {
     local tmp_hosts
     local sudo_cmd=()
 
-    if [[ "$(id -u)" -ne 0 ]]; then
-        sudo_cmd=(sudo)
-    fi
-
     tmp_hosts="$(mktemp)"
-    "${sudo_cmd[@]}" chmod a+w /etc/hosts
     awk -v alias_name="${alias_name}" '
         {
             keep = 1
@@ -1245,6 +1263,20 @@ ensure_hosts_alias() {
         }
     ' /etc/hosts >"${tmp_hosts}"
     printf "%s %s\n" "${alias_ip}" "${alias_name}" >>"${tmp_hosts}"
+
+    # Writing /etc/hosts is the only privileged step in the whole script, so
+    # take it only when the alias is actually missing or points somewhere else.
+    # On macOS sudo has no passwordless default and no tty to prompt on, which
+    # would otherwise abort every re-run of an already-correct environment.
+    if cmp -s "${tmp_hosts}" /etc/hosts; then
+        rm -f "${tmp_hosts}"
+        return 0
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        sudo_cmd=(sudo)
+    fi
+    "${sudo_cmd[@]}" chmod a+w /etc/hosts
     "${sudo_cmd[@]}" cp "${tmp_hosts}" /etc/hosts
     rm -f "${tmp_hosts}"
 }
@@ -1268,7 +1300,7 @@ render_hive_compose() {
 
 hive_compose_cmd() {
     local hive_version="$1"
-    sudo docker compose -p "${CONTAINER_UID}${hive_version}" -f "$(hive_compose_file_for "${hive_version}")" --env-file "$(hive_env_file_for "${hive_version}")" "${@:2}"
+    docker_cli compose -p "${CONTAINER_UID}${hive_version}" -f "$(hive_compose_file_for "${hive_version}")" --env-file "$(hive_env_file_for "${hive_version}")" "${@:2}"
 }
 
 exec_hive_script() {
@@ -1280,7 +1312,7 @@ exec_hive_script() {
     # -i: forward SIGINT/SIGTERM into container so Ctrl+C kills the in-container script
     #     instead of leaving an orphan that keeps mutating state.
     # stdbuf -oL -eL: line-buffer output so progress reaches the host log in real time.
-    sudo docker exec -i \
+    docker_cli exec -i \
         -e HIVE_BOOTSTRAP_GROUPS="${HIVE_BOOTSTRAP_GROUPS}" \
         -e LOAD_PARALLEL="${LOAD_PARALLEL}" \
         -e HIVE_HQL_PARALLEL="${HIVE_HQL_PARALLEL}" \
@@ -1381,6 +1413,9 @@ start_hive_stack() {
 start_iceberg() {
     # iceberg
     ICEBERG_DIR=${ROOT}/docker-compose/iceberg
+    if [[ "${HOST_OS}" == "Darwin" ]]; then
+        export ICEBERG_POSTGRES_IMAGE="${ICEBERG_POSTGRES_IMAGE:-postgres:14}"
+    fi
     render_uid_template "${ROOT}/docker-compose/iceberg/iceberg.yaml.tpl" "${ROOT}/docker-compose/iceberg/iceberg.yaml"
     render_uid_template "${ROOT}/docker-compose/iceberg/entrypoint.sh.tpl" "${ROOT}/docker-compose/iceberg/entrypoint.sh"
     cp "${ROOT}/docker-compose/iceberg/entrypoint.sh" "${ROOT}/docker-compose/iceberg/scripts/entrypoint.sh"
@@ -1392,10 +1427,16 @@ start_iceberg() {
             (
                 cd "${ICEBERG_DIR}" || exit 1
                 rm -f iceberg_data*.zip
-                wget -P "${ROOT}/docker-compose/iceberg" "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
-                sudo unzip iceberg_data_spark40.zip
-                sudo mv iceberg_data data
-                sudo rm -rf iceberg_data_spark40.zip
+                if [[ "${HOST_OS}" == "Darwin" ]]; then
+                    curl -fL -o iceberg_data_spark40.zip \
+                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
+                else
+                    wget -P "${ROOT}/docker-compose/iceberg" \
+                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
+                fi
+                host_admin_cmd unzip iceberg_data_spark40.zip
+                host_admin_cmd mv iceberg_data data
+                host_admin_cmd rm -rf iceberg_data_spark40.zip
             )
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
@@ -1476,11 +1517,11 @@ dump_kerberos_container_state() {
     local container="$1"
 
     echo "===== ${container} state =====" >&2
-    sudo docker inspect --format \
+    docker_cli inspect --format \
         'status={{.State.Status}} running={{.State.Running}} exitCode={{.State.ExitCode}} oomKilled={{.State.OOMKilled}} error={{.State.Error}}' \
         "${container}" >&2 || true
     echo "===== ${container} logs (tail -200) =====" >&2
-    sudo docker logs --tail 200 "${container}" >&2 || true
+    docker_cli logs --tail 200 "${container}" >&2 || true
 }
 
 cleanup_kerberos_ready_wait() {
@@ -1547,7 +1588,7 @@ validate_kerberos_container() {
     local container="$1"
 
     echo "Running one-shot readiness validation for ${container}"
-    if ! sudo docker exec "${container}" /opt/doris/health.sh; then
+    if ! docker_cli exec "${container}" /opt/doris/health.sh; then
         echo "ERROR: one-shot readiness validation failed for ${container}" >&2
         dump_kerberos_container_state "${container}"
         return 1

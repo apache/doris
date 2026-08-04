@@ -15,17 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// INSERT VALUES with explicit cast(<json> as variant) into a doc-mode
-// variant column previously aborted BE in MutableBlock::merge_impl.
-// The root cause: FE allowed implicit Variant->Variant cast even when
-// configurations (max_subcolumns_count, enable_doc_mode, ...) differ,
-// and BE has no real Variant->Variant conversion.
-//
-// Fix: FE rejects Variant->Variant cast when configurations differ.
-// User-visible behavior:
-//   * BAD : cast('<json>' as variant) with mismatched config -> AnalysisException
-//   * GOOD: '<json>'                                          -> auto-coerce to target
-//   * GOOD: cast('<json>' as variant<...matching...>)         -> direct
+// Legacy V1 requires exact Variant properties because BE has no Variant-to-Variant
+// conversion. V2 allows these casts under enable_variant_v2 and is covered by
+// variant_compute_v2.
 suite("test_variant_cast_strict", "p0") {
     // Use session variables to set variant defaults (column-level properties
     // forbid setting max_subcolumns_count and enable_doc_mode together).
@@ -48,11 +40,7 @@ suite("test_variant_cast_strict", "p0") {
 
     def jsonValue = '{"anchors":{"common_int":150025,"phase_marker":"phase_a","present":true,"row_id":15001},"dynamic":{"path_00000":15001000,"path_00001":15001001},"parent":{"child":{"name":"phase_a_15001"}},"phase_a_small":{"leaf":15001}}'
 
-    // ---- Case 1: BAD path — implicit Variant->Variant with mismatched config should be
-    // rejected by FE. Before fix: BE aborts in MutableBlock::merge_impl. After fix: FE
-    // throws AnalysisException; BE never receives the plan.
-    // We force a config mismatch on `variant_doc_materialization_min_rows` (target=8 from
-    // session, source=999 here).
+    // ---- Case 1: V1 rejects an implicit Variant-to-Variant cast with different properties.
     test {
         sql """ insert into ${t} values (15001, cast('${jsonValue}' as variant<properties(
             "variant_enable_doc_mode" = "true",
@@ -101,10 +89,7 @@ suite("test_variant_cast_strict", "p0") {
     sql """ insert into ${t} select id, cast(cast(v as JSONB) as variant) from ${t_src}; """
     qt_case4b """ select id, cast(v['anchors']['row_id'] as bigint) from ${t} where id = 15004; """
 
-    // ---- Case 5: BAD — multi-row VALUES inside a transaction takes the
-    // BatchInsertIntoTableCommand (BATCH_INSERT_JOBS) path. The fix in
-    // TypeCoercionUtils.castUnbound rejects each row's illegal cast at parse time,
-    // so this path is now covered without any pipeline-level rewrite.
+    // ---- Case 5: the same V1 check also applies to batch insert in a transaction.
     sql """ begin """
     try {
         test {

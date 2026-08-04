@@ -60,7 +60,6 @@
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
 #include "storage/olap_utils.h"
-#include "storage/predicate/predicate_creator.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #ifndef NDEBUG
@@ -103,7 +102,9 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest(),
-                                 .binlog_scan_type = params.binlog_scan_type}),
+                                 .binlog_scan_type = params.binlog_scan_type,
+                                 .start_tso = std::nullopt,
+                                 .end_tso = std::nullopt}),
           _start_tso(params.start_tso),
           _end_tso(params.end_tso),
           _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
@@ -328,10 +329,11 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
     return Status::OK();
 }
 
-// For binlog partition-based incremental read. Pushes down [start_tso, end_tso] range
-// predicates onto the TSO column. If the TSO column is not already returned, pass it as
-// a storage-only predicate column instead of widening scan output.
-Status OlapScanner::_init_tso_predicates() {
+// For binlog/snapshot incremental read. Forwards the (start_tso, end_tso] range and the TSO
+// column id down to BetaRowsetReader, which builds the comparison predicates directly on read
+// options. This bypasses the value/key predicate split in TabletReader::_init_conditions_param,
+// guaranteeing the range filter always reaches storage (a correctness requirement for MIN_DELTA).
+Status OlapScanner::_init_tso_pushdown() {
     if (!_start_tso.has_value() && !_end_tso.has_value()) {
         return Status::OK();
     }
@@ -348,17 +350,11 @@ Status OlapScanner::_init_tso_predicates() {
                                      column_name);
     }
 
-    auto data_type = std::make_shared<DataTypeInt64>();
-    if (_start_tso.has_value()) {
-        Field start_value = Field::create_field<TYPE_BIGINT>(*_start_tso);
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-                tso_index, column_name, data_type, start_value, false));
-    }
-    if (_end_tso.has_value()) {
-        Field end_value = Field::create_field<TYPE_BIGINT>(*_end_tso);
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LE>(
-                tso_index, column_name, data_type, end_value, false));
-    }
+    // Push the TSO range down as-is; BetaRowsetReader builds the comparison predicates and
+    // injects them straight into read options, so they cannot be dropped by the value/key
+    // predicate split in TabletReader::_init_conditions_param.
+    _tablet_reader_params.start_tso = _start_tso;
+    _tablet_reader_params.end_tso = _end_tso;
 
     // The storage-layer statistics fast path (VStatisticsIterator, picked when
     // push_down_agg_type is COUNT/MINMAX) bypasses SegmentIterator and returns raw
@@ -369,11 +365,10 @@ Status OlapScanner::_init_tso_predicates() {
     // the binlog DETAIL/MIN_DELTA handling.
     _tablet_reader_params.push_down_agg_type_opt = TPushAggOp::NONE;
 
-    if (std::find(_tablet_reader_params.return_columns.begin(),
-                  _tablet_reader_params.return_columns.end(),
-                  tso_index) == _tablet_reader_params.return_columns.end()) {
-        _tablet_reader_params.tso_predicate_column_id = static_cast<ColumnId>(tso_index);
-    }
+    // Always carry the tso column id so BetaRowsetReader can build predicates on it.
+    // Whether the column must be appended to read_columns (because it is not in
+    // return_columns) is decided downstream in BetaRowsetReader.
+    _tablet_reader_params.tso_predicate_column_id = static_cast<ColumnId>(tso_index);
 
     return Status::OK();
 }
@@ -568,7 +563,7 @@ Status OlapScanner::_init_tablet_reader_params(
         }
     }
 
-    RETURN_IF_ERROR(_init_tso_predicates());
+    RETURN_IF_ERROR(_init_tso_pushdown());
 
     // For any row-binlog scan, force the storage layer to deliver rows strictly in primary-key
     // order so the BlockReader can group consecutive same-key changes (MIN_DELTA) or emit

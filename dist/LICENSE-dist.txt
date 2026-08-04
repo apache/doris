@@ -1463,6 +1463,9 @@ The Apache Software License, Version 2.0
     * brpc: 1.1.0
     * rocksdb: 5.14.2
     * arrow: 7.0.0
+    * arrow-adbc: 1.12.0
+        - source: https://github.com/apache/arrow-adbc
+        - only the driver manager (C++) is linked into the BE binary
     * S2: 0.10.0
     * croaringbitmap: 0.4.0
     * Abseil LTS 20220623

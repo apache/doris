@@ -488,6 +488,19 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testParseAsofJoinRejectNullSafeEquality() {
+        parsePlan("SELECT t1.a FROM t1 ASOF INNER JOIN t2 "
+                + "MATCH_CONDITION(t1.dt < t2.dt) ON t1.id <=> t2.id")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts");
+
+        parsePlan("SELECT t1.a FROM t1 ASOF LEFT JOIN t2 "
+                + "MATCH_CONDITION(t1.dt < t2.dt) ON t1.id <=> t2.id")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts");
+    }
+
+    @Test
     void parseJoinEmptyConditionError() {
         parsePlan("select * from t1 LEFT JOIN t2")
                 .assertThrowsExactly(ParseException.class)

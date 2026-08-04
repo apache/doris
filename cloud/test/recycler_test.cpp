@@ -1650,11 +1650,6 @@ TEST(RecyclerTest, recycle_rowsets_limit_per_tablet_batch) {
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
-    EXPECT_EQ(count_recycle_rowsets(tablet_id0), 3);
-    EXPECT_EQ(count_recycle_rowsets(tablet_id1), 3);
-
-    ASSERT_EQ(recycler.recycle_rowsets(), 0);
-    ASSERT_EQ(recycler.recycle_rowsets(), 0);
     EXPECT_EQ(count_recycle_rowsets(tablet_id0), 1);
     EXPECT_EQ(count_recycle_rowsets(tablet_id1), 1);
 

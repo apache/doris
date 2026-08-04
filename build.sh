@@ -723,8 +723,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _fs_mod
-    # Connector API, SPI, and plugin modules (loaded at runtime as plugins)
-    modules+=("fe-connector/fe-connector-api")
+    # Connector SPI and plugin modules (loaded at runtime as plugins)
     modules+=("fe-connector/fe-connector-spi")
     for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
         if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
@@ -1041,7 +1040,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_udf/"
-    mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
+    # Drop point for the trino-connector's own Trino plugins. Deliberately NOT the legacy
+    # plugins/connectors/: that name is still read as a fallback for deployments upgrading from
+    # <= 2.1.8, so a fresh install must not create it (an empty dir would be harmless, but the
+    # one-letter gap to the plugins/connector/ tree above is not).
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/trino_plugins/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
 
@@ -1078,8 +1081,34 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
         mkdir -p "${conn_plugin_target}"
         unzip -o "${conn_zip}" -d "${conn_plugin_target}/"
+        # A connector's own settings file. The zip carries only <name>.conf.template; the live
+        # <name>.conf is seeded from it here and never overwritten, so an upgrade that unzips a new
+        # plugin build over this directory refreshes the jars and the template but leaves whatever the
+        # administrator configured. Deliberately generic (globbed on *.conf.template, no connector
+        # named): a new connector ships a template and needs no change here.
+        for conn_conf_tpl in "${conn_plugin_target}"/*.conf.template; do
+            [ -e "${conn_conf_tpl}" ] || continue
+            cp -n "${conn_conf_tpl}" "${conn_conf_tpl%.template}"
+        done
     done
-    unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip
+    unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip conn_conf_tpl
+
+    # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
+    # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
+    # which are packaged from thirdparty by post-build.sh into fe/lib/jindofs (NOT a maven artifact).
+    # The plugin runs child-first, so without its OWN copy JindoOssFileSystem resolves from the parent
+    # 'app' classloader and cannot be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem.
+    # Copy the jindofs jars into the paimon plugin lib so JindoOssFileSystem loads child-first alongside
+    # the plugin's own hadoop FileSystem (same self-contained intent as the bundled hadoop-aws/S3A).
+    # Naturally gated: a no-op unless jindofs was packaged (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
+    # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
+    # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
+    # fe/lib/jindofs in the same FE process.
+    PAIMON_CONN_LIB="${DORIS_OUTPUT}/fe/plugins/connector/paimon/lib"
+    if [[ -d "${PAIMON_CONN_LIB}" && -d "${DORIS_OUTPUT}/fe/lib/jindofs" ]]; then
+        cp -p "${DORIS_OUTPUT}/fe/lib/jindofs/"*.jar "${PAIMON_CONN_LIB}/" 2>/dev/null || true
+    fi
+    unset PAIMON_CONN_LIB
 
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"
@@ -1239,6 +1268,37 @@ EOF
         fi
     done        
 
+    # Guard the Paimon FileIO SPI classloader boundary on the built artifacts. The FileIOLoader
+    # interface (paimon-common) and every provider implementing it must sit in the same jar:
+    # JniScannerClassLoader delegates parent-first, so a provider left on the shared
+    # preload-extensions (JVM app) classpath cannot resolve the child-only interface and
+    # ServiceLoader discovery aborts at runtime with "NoClassDefFoundError: FileIOLoader". Unit
+    # tests all run in one classloader and cannot reproduce that, so assert it on the packages.
+    PAIMON_SCANNER_JAR="${BE_JAVA_EXTENSIONS_DIR}/paimon-scanner/paimon-scanner-jar-with-dependencies.jar"
+    PRELOAD_JAR="${BE_JAVA_EXTENSIONS_DIR}/preload-extensions/preload-extensions-jar-with-dependencies.jar"
+    if [[ -f "${PAIMON_SCANNER_JAR}" ]]; then
+        # Tolerate a missing entry (unzip exits 11) so the message below is what the build prints.
+        FILE_IO_SERVICES="$(unzip -p "${PAIMON_SCANNER_JAR}" \
+            META-INF/services/org.apache.paimon.fs.FileIOLoader 2>/dev/null || true)"
+        for loader in org.apache.paimon.s3.S3Loader org.apache.paimon.jindo.JindoLoader; do
+            if ! echo "${FILE_IO_SERVICES}" | grep -q -x "${loader}"; then
+                echo "ERROR: ${loader} is missing from META-INF/services/org.apache.paimon.fs.FileIOLoader"
+                echo "       in ${PAIMON_SCANNER_JAR}. Paimon object-store reads on BE would fail;"
+                echo "       keep the FileIO plugins bundled in paimon-scanner."
+                exit 1
+            fi
+        done
+    fi
+    # No "grep -q" here: it exits on the first match and SIGPIPEs unzip halfway through this jar's
+    # 120k-entry listing, which under "set -o pipefail" makes the pipeline 141 and silently skips
+    # the error below - exactly when a provider did leak in. Let grep consume the whole listing.
+    if [[ -f "${PRELOAD_JAR}" ]] &&
+        unzip -l "${PRELOAD_JAR}" | grep -E 'org/apache/paimon/(s3|jindo)/' >/dev/null; then
+        echo "ERROR: ${PRELOAD_JAR} bundles a Paimon FileIOLoader provider. It would be defined by"
+        echo "       the JVM app classloader, which carries no FileIOLoader interface."
+        exit 1
+    fi
+
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     bash "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
 
@@ -1249,7 +1309,8 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/python_udf/"
-    mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
+    # Mirrors the FE drop point above; the BE JNI scanner loads the same Trino plugins independently.
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/trino_plugins/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
     cp -r -p "${DORIS_HOME}/be/src/udf/python/python_server.py" "${DORIS_OUTPUT}/be/plugins/python_udf/"

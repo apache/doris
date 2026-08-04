@@ -255,8 +255,9 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "INSERT INTO ${mowTable} VALUES (6, 60, 'f')"
         sql "sync"
 
-        // 2.1 APPEND_ONLY [mowT0, mowT1]: only brand-new keys with their first
-        //     INSERT. Updates / deletes / resurrections are filtered out.
+        // 2.1 APPEND_ONLY [mowT0, mowT1]: APPEND rows in the window.
+        //     Updates / deletes are filtered out. key=2 delete-then-reinsert
+        //     is kept because the previous version is a tombstone, not a live row.
         //     Expected:
         //       key=2 first INSERT(20) is APPEND (key did not exist before).
         //       key=4 INSERT(40) is APPEND.
@@ -290,16 +291,15 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         // 2.3 DETAIL [mowT0, mowT1]: every raw binlog row in the window.
         //     Each "INSERT into UNIQUE KEY MoW that hits an existing key" emits
         //     a UPDATE_BEFORE/UPDATE_AFTER pair instead of a plain INSERT. After
-        //     a DELETE the key version still exists in row binlog, so a later
-        //     INSERT on the same key is also recorded as an UPDATE (BEFORE is
-        //     populated from the deleted snapshot, hence NULL value columns).
+        //     a DELETE, a later INSERT on the same key is recorded as APPEND
+        //     because the previous version is a tombstone, not a live row.
         //     Count breakdown:
         //       key=1: 3 updates -> 3 * 2 = 6 rows
-        //       key=2: INSERT(20) + DELETE(20) + UPDATE(NULL -> 21) = 4 rows
+        //       key=2: INSERT(20) + DELETE(20) + INSERT(21) = 3 rows
         //       key=3: DELETE(30) = 1 row
         //       key=4: INSERT(40) = 1 row
         //       key=5: INSERT(50) + DELETE(50) = 2 rows
-        //     Total = 6 + 4 + 1 + 1 + 2 = 14.
+        //     Total = 6 + 3 + 1 + 1 + 2 = 13.
         order_qt_mow_detail_range """
             SELECT id, v1, v2, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',

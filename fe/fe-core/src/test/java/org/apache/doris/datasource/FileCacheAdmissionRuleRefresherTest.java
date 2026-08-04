@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.scan.FileCacheAdmissionManager;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;

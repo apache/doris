@@ -122,6 +122,28 @@ public:
     Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
                                     const ParquetDecodeContext& context, size_t num_values,
                                     ParquetMaterializationState& state) const override;
+    bool supports_parquet_raw_predicate(const ParquetDecodeContext& context) const override;
+    Status read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                      const ParquetDecodeContext& context, size_t num_values,
+                                      bool enable_strict_mode,
+                                      ParquetLogicalValueConsumer& consumer) const override;
+    size_t retained_parquet_raw_predicate_scratch_bytes() const override {
+        return _parquet_predicate_values.capacity() * sizeof(typename ColumnType::value_type) +
+               _parquet_predicate_nulls.capacity();
+    }
+    size_t active_parquet_raw_predicate_scratch_bytes() const override {
+        return _parquet_predicate_values.size() * sizeof(typename ColumnType::value_type) +
+               _parquet_predicate_nulls.size();
+    }
+    void release_parquet_raw_predicate_scratch(size_t max_retained_bytes) const override {
+        if (_parquet_predicate_values.capacity() * sizeof(typename ColumnType::value_type) >
+            max_retained_bytes) {
+            typename ColumnType::Container().swap(_parquet_predicate_values);
+        }
+        if (_parquet_predicate_nulls.capacity() > max_retained_bytes) {
+            IColumn::Filter().swap(_parquet_predicate_nulls);
+        }
+    }
     Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
                                    const ParquetDecodeContext& context) const override;
     Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
@@ -161,6 +183,12 @@ public:
 protected:
     Status from_olap_string(const std::string& str, Field& field,
                             const FormatOptions& options) const override;
+
+    // One SerDe instance belongs to one persistent Parquet leaf reader. Keep converted POD and
+    // null scratch here so decoder fragments reuse high-water capacity instead of allocating a
+    // temporary column-sized pair of buffers on every callback.
+    mutable typename ColumnType::Container _parquet_predicate_values;
+    mutable IColumn::Filter _parquet_predicate_nulls;
 };
 
 template <PrimitiveType T>

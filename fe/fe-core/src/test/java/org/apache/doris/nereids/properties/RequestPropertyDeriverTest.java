@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
@@ -51,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -101,6 +105,40 @@ class RequestPropertyDeriverTest {
     @BeforeEach
     public void setUp() {
         Mockito.when(jobContext.getRequiredProperties()).thenReturn(PhysicalProperties.ANY);
+    }
+
+    // #66112: enable_strict_consistency_dml is an OPTIONAL consistency knob for UPDATE, but the SQL MERGE
+    // cardinality rule ("a target row matched by more than one source row is an error") is mandatory. BE can
+    // only detect the duplicates when the plan keeps the sink's required distribution, so turning the knob off
+    // must NOT relax a MERGE to PhysicalProperties.ANY. Both polarities are pinned: with the knob off, an
+    // UPDATE still relaxes (otherwise the knob would be dead) and a MERGE still requires.
+    @Test
+    void testExternalRowLevelMergeSinkKeepsMergeDistributionWhenStrictConsistencyDmlIsOff() {
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableList.of(PhysicalProperties.GATHER)),
+                requestChildrenPropertiesForMergeSink(true, false),
+                "a SQL MERGE must keep the sink's required distribution even with strict-consistency DML off");
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableList.of(PhysicalProperties.ANY)),
+                requestChildrenPropertiesForMergeSink(false, false),
+                "an UPDATE has no cardinality rule, so strict-consistency DML off still relaxes it to ANY");
+    }
+
+    private List<List<PhysicalProperties>> requestChildrenPropertiesForMergeSink(
+            boolean requireMergeCardinalityCheck, boolean enableStrictConsistencyDml) {
+        ConnectContext ctx = new ConnectContext();
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableStrictConsistencyDml = enableStrictConsistencyDml;
+        ctx.setSessionVariable(sessionVariable);
+
+        PhysicalExternalRowLevelMergeSink<GroupPlan> sink = new PhysicalExternalRowLevelMergeSink<>(
+                Mockito.mock(ExternalDatabase.class), Mockito.mock(ExternalTable.class),
+                ImmutableList.<Column>of(), ImmutableList.of(), requireMergeCardinalityCheck,
+                Optional.empty(), logicalProperties, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(sink);
+        new Group(null, groupExpression, null);
+
+        return new RequestPropertyDeriver(ctx, jobContext).getRequestChildrenPropertyList(groupExpression);
     }
 
     @Test

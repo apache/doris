@@ -29,11 +29,13 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -91,27 +93,47 @@ public class ExecuteCommand extends Command {
         StatementContext statementContext = preparedStmtCtx.getStatementContext();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
+        // A prepared EXECUTE reuses this one StatementContext across executions; drop the connector
+        // per-statement scope so a prior execution's cached tables/state never leak into this one (the
+        // scope key's queryId is a second line of defense). See StatementContext#resetConnectorStatementScope.
+        statementContext.resetConnectorStatementScope();
+        statementContext.resetMvccSnapshots();
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
-        LogicalPlan relationRoot = logicalPlan;
+        List<LogicalPlan> relationRoots = new ArrayList<>();
         if (logicalPlan instanceof InsertIntoTableCommand) {
-            relationRoot = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+            relationRoots.add(((InsertIntoTableCommand) logicalPlan).getLogicalQuery());
         } else if (logicalPlan instanceof InsertOverwriteTableCommand) {
-            relationRoot = ((InsertOverwriteTableCommand) logicalPlan).getLogicalQuery();
+            relationRoots.add(((InsertOverwriteTableCommand) logicalPlan).getLogicalQuery());
         } else if (logicalPlan instanceof UpdateCommand) {
-            relationRoot = ((UpdateCommand) logicalPlan).getLogicalQuery();
-        } else if (logicalPlan instanceof Command) {
-            // Non-DML commands deliberately have no traversable children; they cannot own a
-            // relation scan tree whose resolved state needs resetting.
-            relationRoot = null;
+            relationRoots.add(((UpdateCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof DeleteFromUsingCommand) {
+            relationRoots.add(((DeleteFromUsingCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof DeleteFromCommand) {
+            relationRoots.add(((DeleteFromCommand) logicalPlan).logicalQuery);
+        } else if (logicalPlan instanceof MergeIntoCommand) {
+            relationRoots.addAll(((MergeIntoCommand) logicalPlan).getRelationRoots());
+        } else if (!(logicalPlan instanceof Command)) {
+            relationRoots.add(logicalPlan);
         }
-        // PREPARE retains relation objects across executions. Clear only their resolved scan state
-        // so each EXECUTE resolves a fresh snapshot while one execution still uses one snapshot.
-        if (relationRoot != null) {
+        // Commands hide their retained query trees from normal plan traversal. Reset every exposed
+        // root so a later EXECUTE cannot reuse a relation-local snapshot from an earlier execution.
+        for (int rootIndex = 0; rootIndex < relationRoots.size(); rootIndex++) {
+            LogicalPlan relationRoot = relationRoots.get(rootIndex);
             for (UnboundRelation relation : relationRoot.<UnboundRelation>collectToList(
                     UnboundRelation.class::isInstance)) {
                 TableScanParams scanParams = relation.getScanParams();
                 if (scanParams != null) {
                     scanParams.resetResolvedMapParams();
+                }
+            }
+            for (LogicalPlan plan : relationRoot.<LogicalPlan>collectToList(node -> true)) {
+                for (Expression expression : plan.getExpressions()) {
+                    for (SubqueryExpr subquery : expression.<SubqueryExpr>collectToList(
+                            SubqueryExpr.class::isInstance)) {
+                        // SubqueryExpr owns its query plan outside Plan.children(), so retained prepared
+                        // commands need this explicit edge to clear nested relation-local snapshot state.
+                        relationRoots.add(subquery.getQueryPlan());
+                    }
                 }
             }
         }

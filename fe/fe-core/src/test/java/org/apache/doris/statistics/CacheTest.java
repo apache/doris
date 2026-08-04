@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Frontend;
@@ -181,7 +181,7 @@ public class CacheTest extends TestWithFeService {
 
     @Test
     public void testLoadFromMeta() throws Exception {
-        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
         Env env = Mockito.mock(Env.class);
 
         try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(

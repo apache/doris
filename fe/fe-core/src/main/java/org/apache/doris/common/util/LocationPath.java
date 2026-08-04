@@ -23,12 +23,12 @@ import org.apache.doris.datasource.storage.StorageRegistry;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.datasource.storage.StorageUriUtils;
 import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.fs.Path;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -37,7 +37,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * LocationPath is a utility class for parsing, validating, and normalizing storage location URIs.
@@ -367,13 +366,6 @@ public class LocationPath {
         return locationPath.getTFileTypeForBE();
     }
 
-    public static String getTempWritePath(String loc, String prefix) {
-        // If prefix is relative, it is resolved under loc; if absolute, it is used as the base path.
-        Path tempRoot = new Path(loc, prefix);
-        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
-        return tempPath.toString();
-    }
-
     public TFileType getTFileTypeForBE() {
         if (("abfs".equals(schema) || "abfss".equals(schema))
                 && StorageUriUtils.isOneLakeLocation(normalizedLocation)) {
@@ -388,10 +380,19 @@ public class LocationPath {
     /**
      * The converted path is used for BE
      *
+     * <p>Returns the normalized location verbatim. This used to route through hadoop's
+     * {@code Path}, which rewrote the string on the way out: it collapsed repeated slashes,
+     * dropped a trailing slash, resolved {@code .}/{@code ..} segments, and turned an empty
+     * authority into a single slash ({@code hdfs:///a/b} became {@code hdfs:/a/b}). None of that
+     * is wanted here — object stores key on the exact byte string, so {@code a//b} and {@code a/b}
+     * name different objects, and collapsing them rewrites the key. This matches
+     * {@link Location}, which stores what it was given, and Trino's {@code io.trino.filesystem
+     * .Location}, whose javadoc likewise states it does not follow URI format rules.
+     *
      * @return BE scan range path
      */
-    public Path toStorageLocation() {
-        return new Path(normalizedLocation);
+    public Location toStorageLocation() {
+        return Location.of(normalizedLocation);
     }
 
 
@@ -419,9 +420,5 @@ public class LocationPath {
 
     public StorageAdapter getStorageAdapter() {
         return storageAdapter;
-    }
-
-    public Path getPath() {
-        return new Path(normalizedLocation);
     }
 }

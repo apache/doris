@@ -66,17 +66,25 @@ suite("test_paimon_write_boundary",
 
         // WB01-WB06 preserve the documented data-write boundary at analysis time. The source table
         // and its snapshot list must stay unchanged after every rejected write shape.
+        //
+        // The INSERT-family rejections are worded by the connector-SPI path, not by the legacy fe-core
+        // one: a paimon catalog is a PluginDrivenExternalCatalog, so UnboundTableSinkCreator builds an
+        // UnboundConnectorTableSink instead of throwing "Load data to PaimonExternalCatalog is not
+        // supported", and the rejection lands on the connector's declared write capabilities (the paimon
+        // connector declares none). The boundary asserted here is identical -- every write shape is still
+        // rejected at analysis time and the table is untouched -- only the message differs.
         test {
             sql """insert into write_boundary values (3, 30, 'insert-values')"""
-            exception "PaimonExternalCatalog"
+            exception "does not support INSERT operations"
         }
         test {
             sql """insert into write_boundary select 3, 30, 'insert-select'"""
-            exception "PaimonExternalCatalog"
+            exception "does not support INSERT operations"
         }
         test {
+            // INSERT OVERWRITE is gated earlier, by InsertOverwriteTableCommand's allowInsertOverwrite.
             sql """insert overwrite table write_boundary values (3, 30, 'overwrite')"""
-            exception "PaimonExternalCatalog"
+            exception "insert into overwrite only support"
         }
         test {
             sql """update write_boundary set score = score + 1 where id = 1"""

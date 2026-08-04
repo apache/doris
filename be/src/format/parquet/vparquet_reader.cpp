@@ -497,6 +497,19 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
         _fill_missing_cols.clear();
         _fill_missing_defaults.clear();
         for (const auto& col_name : base_ctx->column_names) {
+            // A projected column that is not present at all in the table-side schema tree means the
+            // schema info from FE (e.g. the paimon/iceberg history_schema_info, or the hive/orc name
+            // map) is inconsistent with the scan projection. Fail this query loudly instead of aborting
+            // the whole BE process via the children_column_exists DCHECK (or an std::out_of_range from
+            // children.at() in a release build). A column that IS known but missing from the data file
+            // keeps its key (add_not_exist_children) and is correctly classified as fill-missing below.
+            if (!_table_info_node_ptr->has_children_column(col_name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected column '{}'; the schema info from FE "
+                        "is "
+                        "inconsistent with the scan projection (file: {})",
+                        col_name, _scan_range.path);
+            }
             if (!_table_info_node_ptr->children_column_exists(col_name)) {
                 _fill_missing_cols.insert(col_name);
             }

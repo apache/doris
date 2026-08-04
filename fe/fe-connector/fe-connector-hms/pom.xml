@@ -47,10 +47,33 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Doris shaded Hive MetaStore client (includes Thrift, DLF, Glue) -->
+        <!-- Shared external meta-cache framework (CacheSpec + MetaCacheEntry/CacheFactory) that
+             CachingHmsClient is built on. The public API (MetaCacheEntry) is Caffeine-free, so no Caffeine
+             compile dep is needed here; each CONSUMING plugin (fe-connector-hive, and later -hudi if it
+             wraps its own client) self-bundles Caffeine 2.9.3 for the runtime backing store. The C-a step
+             already added Caffeine + this framework to fe-connector-hive/pom.xml for bundling; this compile
+             dep is what puts CacheSpec/MetaCacheEntry on -hms's own compile classpath. -->
         <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Slim Hive metastore-client shade — replaces the fat org.apache.doris:hive-catalog-shade
+             (122MB). Bundles hive-standalone-metastore (metastore api + client), HiveConf, hive-serde,
+             hive-storage-api, iceberg-hive-metastore's HiveCatalog and libthrift/libfb303 0.9.3, all with
+             org.apache.thrift relocated to shade.doris.hive.org.apache.thrift so the old-package HMS
+             client does not collide with the host doris-gen thrift 0.16. compile scope (no <scope>):
+             propagates transitively to the plugins that reuse this shared plain-HMS client —
+             fe-connector-hive, fe-connector-hudi, fe-connector-iceberg. The vendored version-aware patch
+             HiveMetaStoreClient stays in THIS module (its bytecode already references the relocated thrift
+             prefix; it overlays the unpatched client inside the shade because fe-connector-hms-*.jar sorts
+             before fe-connector-hms-hive-shade-*.jar in the plugin lib). See
+             plan-doc/fe-connector-hive-shade-localization/design.md. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-hms-hive-shade</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
         <!-- Hadoop client for Configuration and auth -->
@@ -91,6 +114,42 @@ under the License.
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TEST ONLY: ThriftHmsClientWriteAcidTest instantiates a real ThriftHmsClient, whose ctor
+             builds an org.apache.hadoop.hive.conf.HiveConf; HiveConf static init touches
+             org.apache.hadoop.mapred.JobConf (hadoop-mapreduce-client-core). That artifact reaches the
+             module only transitively (and is <optional> in hive-catalog-shade), so it is absent from the
+             unit-test classpath. The PRODUCTION hms path runs inside the assembled plugin (full hadoop
+             closure), so this is test-scope only — NOT bundled. Mirrors fe-connector-iceberg/paimon.
+             Version from dependencyManagement (${hadoop.version}). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TEST ONLY: HiveConf static init also references commons-lang 2.x
+             (org.apache.commons.lang.StringUtils); like hadoop-mapreduce-client-core above it is present
+             only transitively in the runtime plugin closure, not on the unit-test classpath. Test-scope
+             only — NOT bundled. Version from dependencyManagement. -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TEST ONLY: CachingHmsClientTest constructs the decorator, which builds MetaCacheEntry (backed by
+             Caffeine). fe-connector-cache declares Caffeine `provided` (non-transitive), and this library
+             module carries no Caffeine of its own — in production it runs inside the assembled hive plugin
+             whose zip bundles Caffeine 2.9.3 (C-a), but the -hms unit-test classpath needs its own copy.
+             Test-scope only — NOT bundled. Pinned to 2.9.3 = the version fe-connector-cache is compiled
+             against (mirrors fe-connector-hive/-paimon). -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
