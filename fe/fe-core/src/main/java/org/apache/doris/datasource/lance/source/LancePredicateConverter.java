@@ -139,11 +139,6 @@ public class LancePredicateConverter {
         LiteralExpr literal = directLiteral(predicate.getChild(1));
         BinaryPredicate.Operator operator = predicate.getOp();
         if (slot == null || literal == null) {
-            slot = directSlot(predicate.getChild(1));
-            literal = directLiteral(predicate.getChild(0));
-            operator = reverse(operator);
-        }
-        if (slot == null || literal == null || operator == null) {
             return Optional.empty();
         }
 
@@ -153,9 +148,13 @@ public class LancePredicateConverter {
         }
         Expression fieldReference = fieldReference(field);
         if (literal instanceof NullLiteral) {
+            // Doris EQ_FOR_NULL is the null-safe equality operator (<=>). For a direct column,
+            // `column <=> NULL` has exactly the same two-valued semantics as `column IS NULL`.
             if (operator == BinaryPredicate.Operator.EQ_FOR_NULL) {
                 return Optional.of(comparisonFunction("is_null:any", fieldReference));
             }
+            // Ordinary comparisons with NULL evaluate to UNKNOWN. Keep them in Doris so NOT,
+            // AND, and OR continue to observe Doris SQL three-valued logic.
             return Optional.empty();
         }
         Optional<Expression> value = convertLiteral(field.field.getType(), literal);
@@ -191,6 +190,7 @@ public class LancePredicateConverter {
         if (operator == BinaryPredicate.Operator.EQ_FOR_NULL && field.field.isNullable()) {
             // Null-safe equality returns FALSE, rather than NULL, for a NULL field. Preserve that
             // two-valued result when this expression is nested under NOT, AND, or OR.
+            // column <=> 10 -----> column is not null and column = 10
             return Optional.of(booleanFunction("and:bool", Arrays.asList(
                     comparisonFunction("is_not_null:any", fieldReference), comparison)));
         }
@@ -257,11 +257,11 @@ public class LancePredicateConverter {
         return Optional.of(comparisonFunction(function, fieldReference(field)));
     }
 
+    // convert doris literal to Substrait literal with arrow type
     private Optional<Expression> convertLiteral(ArrowType type, LiteralExpr literal) {
         if (type instanceof ArrowType.Bool && literal instanceof BoolLiteral) {
             return Optional.of(ExpressionCreator.bool(false, ((BoolLiteral) literal).getValue()));
-        }
-        if (type instanceof ArrowType.Int
+        } else if (type instanceof ArrowType.Int
                 && (literal instanceof IntLiteral || literal instanceof LargeIntLiteral)) {
             ArrowType.Int integer = (ArrowType.Int) type;
             BigInteger value = literal instanceof LargeIntLiteral
@@ -289,19 +289,17 @@ public class LancePredicateConverter {
                 default:
                     return Optional.empty();
             }
-        }
-        if ((type instanceof ArrowType.Utf8 || type instanceof ArrowType.LargeUtf8)
+        } else if ((type instanceof ArrowType.Utf8 || type instanceof ArrowType.LargeUtf8)
                 && literal instanceof StringLiteral) {
             return Optional.of(ExpressionCreator.string(false, literal.getStringValue()));
-        }
-        if (type instanceof ArrowType.Timestamp && literal instanceof DateLiteral) {
+        } else if (type instanceof ArrowType.Timestamp && literal instanceof DateLiteral) {
             return convertTimestampLiteral((ArrowType.Timestamp) type, (DateLiteral) literal);
-        }
-        if (type instanceof ArrowType.Date && literal instanceof DateLiteral) {
+        } else if (type instanceof ArrowType.Date && literal instanceof DateLiteral) {
             DateLiteral date = (DateLiteral) literal;
             // Arrow Date(DAY) and Substrait Date both use signed days from the Unix epoch.
-            // Do not silently truncate a DATETIME literal to a date.
-            if (!date.getType().isDate() && !date.getType().isDateV2()) {
+            // Accept only a bound DATEV2 literal; do not truncate DATETIME or reinterpret legacy
+            // DATE semantics in this direct pushdown path.
+            if (!date.getType().isDateV2()) {
                 return Optional.empty();
             }
             try {
@@ -313,8 +311,7 @@ public class LancePredicateConverter {
             } catch (ArithmeticException | DateTimeException e) {
                 return Optional.empty();
             }
-        }
-        if (type instanceof ArrowType.Decimal
+        } else if (type instanceof ArrowType.Decimal
                 && (literal instanceof DecimalLiteral || literal instanceof IntLiteral
                         || literal instanceof LargeIntLiteral)) {
             ArrowType.Decimal decimal = (ArrowType.Decimal) type;
@@ -327,8 +324,7 @@ public class LancePredicateConverter {
             } catch (ArithmeticException | IllegalArgumentException e) {
                 return Optional.empty();
             }
-        }
-        if (type instanceof ArrowType.FloatingPoint
+        } else if (type instanceof ArrowType.FloatingPoint
                 && (literal instanceof FloatLiteral || literal instanceof IntLiteral)) {
             double value = literal.getDoubleValue();
             if (!Double.isFinite(value)) {
@@ -344,13 +340,15 @@ public class LancePredicateConverter {
             if (precision == FloatingPointPrecision.DOUBLE) {
                 return Optional.of(ExpressionCreator.fp64(false, value));
             }
+            return Optional.empty();
+        } else {
+            return Optional.empty();
         }
-        return Optional.empty();
     }
 
     private static Optional<Expression> convertTimestampLiteral(
             ArrowType.Timestamp timestamp, DateLiteral literal) {
-        if (!literal.getType().isDatetime() && !literal.getType().isDatetimeV2()) {
+        if (!literal.getType().isDatetimeV2()) {
             return Optional.empty();
         }
         int precision = timestampPrecision(timestamp);
@@ -398,9 +396,29 @@ public class LancePredicateConverter {
     }
 
     private static boolean isPushdownType(ArrowType type) {
-        // TODO(lance): Add timezone-aware Timestamp, binary variants and nested field
-        // references only after FE -> lance-c differential tests exist. Timestamp(NANOSECOND),
-        // Decimal256 and Date(MILLISECOND) intentionally remain residual.
+        /*
+         * Keep this allow-list aligned with convertLiteral(), toSubstraitType(), and
+         * toSubstraitProtoType(). A type is pushed only when Doris can encode both its field and
+         * literals without changing comparison or null semantics across FE -> lance-c -> DataFusion.
+         *
+         * Supported scalar types:
+         * - Bool; signed/unsigned Int8/16/32/64; Float32/64; Utf8/LargeUtf8.
+         * - Decimal128 with a valid non-negative scale and Substrait precision up to 38.
+         * - Date32 (DAY) and timezone-free Timestamp in SECOND/MILLISECOND/MICROSECOND units.
+         *
+         * Types intentionally left as Doris residual predicates:
+         * - Float16, because this converter has no lossless Substrait FP16 field/literal mapping.
+         * - Decimal256, because Substrait decimal precision is limited to 38 and the 256-bit
+         *   physical mapping has no end-to-end differential coverage.
+         * - Date64 (MILLISECOND), because Substrait Date is expressed as days and conversion would
+         *   truncate values rather than preserve Arrow semantics.
+         * - Timestamp(NANOSECOND), because Doris timestamp predicates preserve at most
+         *   microseconds; timezone-aware Timestamp, because Arrow instant semantics must be
+         *   reconciled with Doris session-timezone semantics first.
+         * - Binary variants, Time, Duration, Interval, and nested/container types, because their
+         *   field/literal or nested-reference mappings have not yet been implemented and covered
+         *   by differential tests.
+         */
         if (type instanceof ArrowType.Int) {
             ArrowType.Int integer = (ArrowType.Int) type;
             return integer.getBitWidth() == 8 || integer.getBitWidth() == 16
@@ -432,6 +450,7 @@ public class LancePredicateConverter {
                 || type instanceof ArrowType.LargeUtf8;
     }
 
+    // slotref with ordinal index with Substrait Type
     private Expression fieldReference(ResolvedField field) {
         return FieldReference.newRootStructReference(field.ordinal, toSubstraitType(field.field));
     }
@@ -441,8 +460,7 @@ public class LancePredicateConverter {
         ArrowType type = field.getType();
         if (type instanceof ArrowType.Bool) {
             return creator.BOOLEAN;
-        }
-        if (type instanceof ArrowType.Int) {
+        } else if (type instanceof ArrowType.Int) {
             switch (((ArrowType.Int) type).getBitWidth()) {
                 case 8:
                     return creator.I8;
@@ -455,8 +473,7 @@ public class LancePredicateConverter {
                 default:
                     break;
             }
-        }
-        if (type instanceof ArrowType.FloatingPoint) {
+        } else if (type instanceof ArrowType.FloatingPoint) {
             FloatingPointPrecision precision = ((ArrowType.FloatingPoint) type).getPrecision();
             if (precision == FloatingPointPrecision.SINGLE) {
                 return creator.FP32;
@@ -464,18 +481,14 @@ public class LancePredicateConverter {
             if (precision == FloatingPointPrecision.DOUBLE) {
                 return creator.FP64;
             }
-        }
-        if (type instanceof ArrowType.Decimal) {
+        } else if (type instanceof ArrowType.Decimal) {
             ArrowType.Decimal decimal = (ArrowType.Decimal) type;
             return creator.decimal(decimal.getPrecision(), decimal.getScale());
-        }
-        if (type instanceof ArrowType.Utf8 || type instanceof ArrowType.LargeUtf8) {
+        } else if (type instanceof ArrowType.Utf8 || type instanceof ArrowType.LargeUtf8) {
             return creator.STRING;
-        }
-        if (type instanceof ArrowType.Date) {
+        } else if (type instanceof ArrowType.Date) {
             return creator.DATE;
-        }
-        if (type instanceof ArrowType.Timestamp) {
+        } else if (type instanceof ArrowType.Timestamp) {
             return creator.precisionTimestamp(timestampPrecision((ArrowType.Timestamp) type));
         }
         throw new IllegalArgumentException("Unsupported Lance Substrait field type: " + type);
@@ -558,8 +571,7 @@ public class LancePredicateConverter {
         if (type instanceof ArrowType.Bool) {
             return Optional.of(builder.setBool(io.substrait.proto.Type.Boolean.newBuilder()
                     .setNullability(nullability(field))).build());
-        }
-        if (type instanceof ArrowType.Int) {
+        } else if (type instanceof ArrowType.Int) {
             ArrowType.Int integer = (ArrowType.Int) type;
             int typeVariationReference = integer.getIsSigned()
                     ? 0 : UNSIGNED_INTEGER_TYPE_VARIATION_REFERENCE;
@@ -583,8 +595,7 @@ public class LancePredicateConverter {
                 default:
                     return Optional.empty();
             }
-        }
-        if (type instanceof ArrowType.FloatingPoint) {
+        } else if (type instanceof ArrowType.FloatingPoint) {
             FloatingPointPrecision precision = ((ArrowType.FloatingPoint) type).getPrecision();
             if (precision == FloatingPointPrecision.SINGLE) {
                 return Optional.of(builder.setFp32(io.substrait.proto.Type.FP32.newBuilder()
@@ -595,32 +606,29 @@ public class LancePredicateConverter {
                         .setNullability(nullability(field))).build());
             }
             return Optional.empty();
-        }
-        if (type instanceof ArrowType.Decimal) {
+        } else if (type instanceof ArrowType.Decimal) {
             ArrowType.Decimal decimal = (ArrowType.Decimal) type;
             return Optional.of(builder.setDecimal(io.substrait.proto.Type.Decimal.newBuilder()
                     .setPrecision(decimal.getPrecision())
                     .setScale(decimal.getScale())
                     .setNullability(nullability(field))).build());
-        }
-        if (type instanceof ArrowType.Utf8 || type instanceof ArrowType.LargeUtf8) {
+        } else if (type instanceof ArrowType.Utf8 || type instanceof ArrowType.LargeUtf8) {
             int typeVariationReference = type instanceof ArrowType.LargeUtf8
                     ? LARGE_CONTAINER_TYPE_VARIATION_REFERENCE : 0;
             return Optional.of(builder.setString(io.substrait.proto.Type.String.newBuilder()
                     .setTypeVariationReference(typeVariationReference)
                     .setNullability(nullability(field))).build());
-        }
-        if (type instanceof ArrowType.Date) {
+        } else if (type instanceof ArrowType.Date) {
             return Optional.of(builder.setDate(io.substrait.proto.Type.Date.newBuilder()
                     .setNullability(nullability(field))).build());
-        }
-        if (type instanceof ArrowType.Timestamp) {
+        } else if (type instanceof ArrowType.Timestamp) {
             return Optional.of(builder.setPrecisionTimestamp(
                     io.substrait.proto.Type.PrecisionTimestamp.newBuilder()
                             .setPrecision(timestampPrecision((ArrowType.Timestamp) type))
                             .setNullability(nullability(field))).build());
+        } else {
+            return Optional.empty();
         }
-        return Optional.empty();
     }
 
     private static int timestampPrecision(ArrowType.Timestamp timestamp) {
@@ -760,25 +768,6 @@ public class LancePredicateConverter {
 
     private static LiteralExpr directLiteral(Expr expr) {
         return expr instanceof LiteralExpr ? (LiteralExpr) expr : null;
-    }
-
-    private static BinaryPredicate.Operator reverse(BinaryPredicate.Operator operator) {
-        switch (operator) {
-            case EQ:
-            case NE:
-            case EQ_FOR_NULL:
-                return operator;
-            case LT:
-                return BinaryPredicate.Operator.GT;
-            case LE:
-                return BinaryPredicate.Operator.GE;
-            case GT:
-                return BinaryPredicate.Operator.LT;
-            case GE:
-                return BinaryPredicate.Operator.LE;
-            default:
-                return null;
-        }
     }
 
     private static SimpleExtension.ExtensionCollection loadExtensions() {

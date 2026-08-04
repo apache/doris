@@ -190,21 +190,25 @@ public class LancePredicateConverterTest {
                 new BinaryPredicate(BinaryPredicate.Operator.EQ,
                         new SlotRef(null, "timestamp_us_utc"),
                         new DateLiteral(1970, 1, 1, 0, 0, 0, 123456,
-                                ScalarType.createDatetimeV2Type(6)))));
+                                ScalarType.createDatetimeV2Type(6))),
+                new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                        new SlotRef(null, "timestamp_us"),
+                        new DateLiteral(1970, 1, 1, 0, 0, 0, Type.DATETIME))));
 
         Assertions.assertEquals(0, result.getSubstraitFilter().length);
         Assertions.assertTrue(result.getPushedConjuncts().isEmpty());
     }
 
     @Test
-    public void testReversedComparisonInAndIsNull() {
-        Expr reversed = new BinaryPredicate(BinaryPredicate.Operator.LT,
-                new IntLiteral(2), new SlotRef(null, "row_id"));
+    public void testComparisonInAndIsNull() {
+        Expr comparison = new BinaryPredicate(BinaryPredicate.Operator.GT,
+                new SlotRef(null, "row_id"), new IntLiteral(2));
         Expr in = new InPredicate(new SlotRef(null, "row_id"),
                 Arrays.asList(new IntLiteral(3), new IntLiteral(4)), false);
         Expr isNotNull = new IsNullPredicate(new SlotRef(null, "label"), true);
 
-        LancePredicateConverter.ConversionResult result = converter.convert(Arrays.asList(reversed, in, isNotNull));
+        LancePredicateConverter.ConversionResult result =
+                converter.convert(Arrays.asList(comparison, in, isNotNull));
 
         Assertions.assertTrue(result.getSubstraitFilter().length > 0);
         Assertions.assertDoesNotThrow(() -> ExtendedExpression.parseFrom(result.getSubstraitFilter()));
@@ -420,9 +424,11 @@ public class LancePredicateConverterTest {
                 new SlotRef(null, "decimal256"), new DecimalLiteral(new BigDecimal("1.0000")));
         Expr decimal256Small = new BinaryPredicate(BinaryPredicate.Operator.EQ,
                 new SlotRef(null, "decimal256_small"), new DecimalLiteral(new BigDecimal("1.0000")));
+        Expr legacyDate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(null, "date_value"), new DateLiteral(1970, 1, 1, Type.DATE));
 
         LancePredicateConverter.ConversionResult result =
-                converter.convert(Arrays.asList(date, decimal, decimal256Small));
+                converter.convert(Arrays.asList(date, decimal, decimal256Small, legacyDate));
 
         Assertions.assertEquals(0, result.getSubstraitFilter().length);
         Assertions.assertTrue(result.getPushedConjuncts().isEmpty());

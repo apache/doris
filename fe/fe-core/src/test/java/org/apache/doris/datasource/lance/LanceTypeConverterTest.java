@@ -79,15 +79,15 @@ public class LanceTypeConverterTest {
 
     @Test
     public void testTimestampTimezoneControlsDorisType() {
-        Assertions.assertEquals("datetime(6)", LanceTypeConverter.toDorisType(
+        Assertions.assertEquals(ScalarType.createDatetimeV2Type(6), LanceTypeConverter.toDorisType(
                 Field.nullable("timestamp_us_col",
-                        new ArrowType.Timestamp(TimeUnit.MICROSECOND, null))).toSql());
-        Assertions.assertEquals("timestamptz(3)", LanceTypeConverter.toDorisType(
+                        new ArrowType.Timestamp(TimeUnit.MICROSECOND, null))));
+        Assertions.assertEquals(ScalarType.createTimeStampTzType(3), LanceTypeConverter.toDorisType(
                 Field.nullable("timestamp_ms_utc_col",
-                        new ArrowType.Timestamp(TimeUnit.MILLISECOND, "UTC"))).toSql());
-        Assertions.assertEquals("timestamptz(6)", LanceTypeConverter.toDorisType(
+                        new ArrowType.Timestamp(TimeUnit.MILLISECOND, "UTC"))));
+        Assertions.assertEquals(ScalarType.createTimeStampTzType(6), LanceTypeConverter.toDorisType(
                 Field.nullable("timestamp_ns_shanghai_col",
-                        new ArrowType.Timestamp(TimeUnit.NANOSECOND, "Asia/Shanghai"))).toSql());
+                        new ArrowType.Timestamp(TimeUnit.NANOSECOND, "Asia/Shanghai"))));
     }
 
     @Test
