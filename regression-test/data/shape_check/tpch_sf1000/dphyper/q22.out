@@ -12,14 +12,14 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[orders] apply RFs: RF0
 ------------------PhysicalProject
---------------------NestedLoopJoin[INNER_JOIN](cast(c_acctbal as DECIMALV3(38, 4)) > avg(c_acctbal))
+--------------------NestedLoopJoin[INNER_JOIN](cast(customer.c_acctbal as DECIMALV3(38, 4)) > avg(c_acctbal))
 ----------------------PhysicalProject
-------------------------filter(substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
+------------------------filter(substring(customer.c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
 --------------------------PhysicalOlapScan[customer]
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecGather]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------filter((customer.c_acctbal > 0.00) and substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
+------------------------------filter((customer.c_acctbal > 0.00) and substring(customer.c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
 --------------------------------PhysicalOlapScan[customer]
 

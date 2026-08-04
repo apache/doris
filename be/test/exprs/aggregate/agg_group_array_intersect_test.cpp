@@ -19,13 +19,16 @@
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
@@ -524,6 +527,120 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     }
 
     agg_function->destroy(place);
+}
+
+TEST(AggGroupArrayIntersectTest, string_null_element_does_not_match_empty_string) {
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+    DataTypes data_types = {array_type};
+    auto test_column = array_type->create_column();
+    test_column->insert(
+            Field::create_field<TYPE_ARRAY>({Field::create_field<TYPE_STRING>(std::string())}));
+    test_column->insert(Field::create_field<TYPE_ARRAY>({Field()}));
+
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_group_array_set_op(factory);
+    auto agg_function = factory.get("group_array_intersect", data_types, nullptr, false, -1);
+    ASSERT_NE(agg_function, nullptr);
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+
+    Arena arena;
+    ColumnRawPtrs columns(data_types.size(), test_column.get());
+    agg_function->check_input_columns_type(columns.data());
+    agg_function->add_batch_single_place(test_column->size(), place, columns.data(), arena);
+
+    auto result_column = array_type->create_column();
+    agg_function->insert_result_into(place, *result_column);
+    Field actual_field;
+    result_column->get(0, actual_field);
+    EXPECT_TRUE(actual_field.get<TYPE_ARRAY>().empty());
+
+    agg_function->destroy(place);
+}
+
+TEST(AggGroupArrayIntersectTest, raw_aggregate_rejects_outer_nullable_column) {
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    DataTypes data_types = {array_type};
+
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_group_array_set_op(factory);
+    auto agg_function = factory.get("group_array_intersect", data_types, nullptr, false, -1);
+    ASSERT_NE(agg_function, nullptr);
+
+    auto outer_nullable_column = std::make_shared<DataTypeNullable>(array_type)->create_column();
+    ColumnRawPtrs columns(data_types.size(), outer_nullable_column.get());
+    EXPECT_THROW(agg_function->check_input_columns_type(columns.data()), Exception);
+}
+
+void validate_outer_nullable_array(const std::string& function_name, const DataTypes& data_types,
+                                   const DataTypePtr& result_type, const IColumn& input_column,
+                                   const Array& expected_result) {
+    for (bool enable_null_v2 : {false, true}) {
+        SCOPED_TRACE("function=" + function_name +
+                     ", enable_aggregate_function_null_v2=" + std::to_string(enable_null_v2));
+        AggregateFunctionSimpleFactory factory;
+        register_aggregate_function_group_array_set_op(factory);
+        AggregateFunctionAttr attr;
+        attr.enable_aggregate_function_null_v2 = enable_null_v2;
+        auto agg_function =
+                factory.get(function_name, data_types, nullptr, false, -1, std::move(attr));
+        ASSERT_NE(agg_function, nullptr);
+        std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+        AggregateDataPtr place = memory.get();
+        agg_function->create(place);
+
+        Arena arena;
+        ColumnRawPtrs columns(data_types.size(), &input_column);
+        agg_function->check_input_columns_type(columns.data());
+        agg_function->add_batch_single_place(input_column.size(), place, columns.data(), arena);
+
+        auto result_column = result_type->create_column();
+        agg_function->insert_result_into(place, *result_column);
+        Field actual_field;
+        result_column->get(0, actual_field);
+        auto actual_result = actual_field.get<TYPE_ARRAY>();
+        auto sorted_expected_result = expected_result;
+        sort_numeric_array<TYPE_INT>(actual_result);
+        sort_numeric_array<TYPE_INT>(sorted_expected_result);
+        EXPECT_EQ(actual_result, sorted_expected_result);
+
+        agg_function->destroy(place);
+    }
+}
+
+TEST(AggGroupArrayIntersectTest, outer_nullable_array_test) {
+    auto nested_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(nested_type);
+    DataTypes data_types = {std::make_shared<DataTypeNullable>(array_type)};
+    auto test_column = data_types[0]->create_column();
+    test_column->insert(Field::create_field<TYPE_ARRAY>(
+            {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2)}));
+    test_column->insert(Field());
+    test_column->insert(Field::create_field<TYPE_ARRAY>(
+            {Field::create_field<TYPE_INT>(2), Field::create_field<TYPE_INT>(3)}));
+
+    validate_outer_nullable_array("group_array_intersect", data_types, array_type, *test_column,
+                                  {Field::create_field<TYPE_INT>(2)});
+}
+
+TEST(AggGroupArrayIntersectTest, group_array_union_skips_outer_null_payload) {
+    auto nested_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(nested_type);
+    DataTypes data_types = {std::make_shared<DataTypeNullable>(array_type)};
+    auto test_column = data_types[0]->create_column();
+    test_column->insert(Field::create_field<TYPE_ARRAY>(
+            {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2)}));
+    test_column->insert(Field::create_field<TYPE_ARRAY>({Field::create_field<TYPE_INT>(99)}));
+    test_column->insert(Field::create_field<TYPE_ARRAY>(
+            {Field::create_field<TYPE_INT>(2), Field::create_field<TYPE_INT>(3)}));
+    auto& nullable_column = static_cast<ColumnNullable&>(*test_column);
+    nullable_column.get_null_map_data()[1] = 1;
+
+    validate_outer_nullable_array(
+            "group_array_union", data_types, array_type, *test_column,
+            {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2),
+             Field::create_field<TYPE_INT>(3)});
 }
 
 } // namespace doris

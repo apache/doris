@@ -54,6 +54,33 @@ public class LocalShuffleNodeCoverageTest {
     private static final AtomicInteger NEXT_ID = new AtomicInteger(1);
 
     @Test
+    public void testRequireSpecificAutoRequireHashPreservesSpecificHash() {
+        // Pass-through operators (union / streaming agg / sort) forward their parent's specific
+        // hash requirement downward via autoRequireHash() while leaving row placement to their
+        // children. Every hash flavour must be forwarded unchanged: degrading a specific
+        // LOCAL_EXECUTION_HASH_SHUFFLE requirement to the generic RequireHash would let a
+        // bucket-distributed child satisfy it and keep its bucket placement while the operator
+        // still advertised LOCAL_EXECUTION_HASH_SHUFFLE upward, so a bucket join upgraded to
+        // local hash above it would skip its realign local exchange and compute wrong results.
+        for (LocalExchangeType hashType : new LocalExchangeType[] {
+                LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE,
+                LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE,
+                LocalExchangeType.BUCKET_HASH_SHUFFLE}) {
+            LocalExchangeNode.RequireSpecific require = new LocalExchangeNode.RequireSpecific(hashType);
+            LocalExchangeTypeRequire forwarded = require.autoRequireHash();
+            Assertions.assertSame(require, forwarded,
+                    "specific hash require " + hashType + " must be forwarded unchanged");
+            Assertions.assertEquals(hashType, forwarded.preferType());
+        }
+
+        // A non-hash specific require still relaxes to the generic RequireHash, whose preferType
+        // is GLOBAL_EXECUTION_HASH_SHUFFLE.
+        LocalExchangeTypeRequire relaxed =
+                new LocalExchangeNode.RequireSpecific(LocalExchangeType.PASSTHROUGH).autoRequireHash();
+        Assertions.assertEquals(LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE, relaxed.preferType());
+    }
+
+    @Test
     public void testSelectNode() {
         PlanTranslatorContext ctx = new PlanTranslatorContext();
 
@@ -582,8 +609,59 @@ public class LocalShuffleNodeCoverageTest {
         ctx.setHasShuffleForCorrectnessAncestor(unionNode, true);
         Pair<PlanNode, LocalExchangeType> unionOutput = unionNode.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.requireHash());
+        // The single branch really is re-partitioned by LOCAL_EXECUTION_HASH_SHUFFLE (it claimed
+        // NOOP, so enforceRequire inserted the exchange), so advertising that type is truthful.
         Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, unionOutput.second);
         Assertions.assertEquals(LocalExchangeNode.RequireHash.class, unionChild.lastRequire.getClass());
+
+        // A branch that already is on a hash placement is reported as-is instead of being
+        // relabelled: the union claimed LOCAL_EXECUTION_HASH_SHUFFLE unconditionally before, which
+        // was a claim about data that never moved.
+        UnionNode passthroughUnion = new UnionNode(nextPlanNodeId(), new TupleId(NEXT_ID.getAndIncrement()));
+        TrackingPlanNode globalHashChild = new TrackingPlanNode(nextPlanNodeId(),
+                LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
+        passthroughUnion.addChild(globalHashChild);
+        ctx.setHasShuffleForCorrectnessAncestor(passthroughUnion, true);
+        Pair<PlanNode, LocalExchangeType> passthroughOutput = passthroughUnion
+                .enforceAndDeriveLocalExchange(ctx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE, passthroughOutput.second);
+        Assertions.assertSame(globalHashChild, passthroughUnion.getChild(0));
+
+        // Bucket-shuffle UnionNode under a shuffle-for-correctness consumer: the branches are
+        // aligned by the basic child's storage bucket function, so the union must require
+        // BUCKET_HASH_SHUFFLE from every branch instead of the generic hash. With the generic
+        // require the branch arriving through a bucket-shuffle exchange satisfies it and keeps
+        // its bucket placement while a serial (NOOP-claim) branch is re-partitioned by execution
+        // hash, splitting one key across two pipeline tasks (duplicate row_number()=1).
+        UnionNode bucketUnion = new UnionNode(nextPlanNodeId(), new TupleId(NEXT_ID.getAndIncrement()));
+        bucketUnion.setColocate(false);
+        bucketUnion.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        TrackingPlanNode bucketUnionLeft = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode bucketUnionRight = new TrackingPlanNode(nextPlanNodeId(),
+                LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        bucketUnion.addChild(bucketUnionLeft);
+        bucketUnion.addChild(bucketUnionRight);
+        ctx.setHasShuffleForCorrectnessAncestor(bucketUnion, true);
+        Pair<PlanNode, LocalExchangeType> bucketUnionOutput = bucketUnion.enforceAndDeriveLocalExchange(
+                ctx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.BUCKET_HASH_SHUFFLE, bucketUnionOutput.second);
+        // the serial branch is re-aligned by bucket hash ...
+        assertChildLocalExchangeType(bucketUnion, 0, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        // ... and the branch that already is bucket-distributed keeps its placement untouched
+        Assertions.assertSame(bucketUnionRight, bucketUnion.getChild(1));
+
+        // Without a downstream shuffle-for-correctness consumer a bucket-shuffle union still
+        // requires nothing: UNION ALL only concatenates, so no branch has to move.
+        UnionNode bucketUnionNoConsumer = new UnionNode(nextPlanNodeId(),
+                new TupleId(NEXT_ID.getAndIncrement()));
+        bucketUnionNoConsumer.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        TrackingPlanNode noConsumerChild = new TrackingPlanNode(nextPlanNodeId(),
+                LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        bucketUnionNoConsumer.addChild(noConsumerChild);
+        Pair<PlanNode, LocalExchangeType> noConsumerOutput = bucketUnionNoConsumer.enforceAndDeriveLocalExchange(
+                ctx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.NOOP, noConsumerOutput.second);
+        Assertions.assertSame(noConsumerChild, bucketUnionNoConsumer.getChild(0));
 
         IntersectNode intersectNode = new IntersectNode(nextPlanNodeId(), new TupleId(NEXT_ID.getAndIncrement()));
         intersectNode.setColocate(false);
@@ -612,6 +690,28 @@ public class LocalShuffleNodeCoverageTest {
         // OlapScan already satisfies requireBucketHash(), so children are passed through unchanged.
         Assertions.assertSame(exceptLeft, exceptNode.getChild(0));
         Assertions.assertSame(exceptRight, exceptNode.getChild(1));
+
+        // Bucket-shuffle IntersectNode (not colocated): exercises the `|| isBucketShuffle()` leg.
+        // Every child is distributed by the basic child's storage bucket function (via bucket-shuffle
+        // exchanges), so the output is BUCKET_HASH_SHUFFLE and each serial (NOOP) child is re-aligned
+        // with a BUCKET_HASH_SHUFFLE local exchange. Without the isBucketShuffle() branch this would
+        // fall into the partitioned (GLOBAL hash) leg and re-partition one side by a different hash
+        // function, breaking alignment. setColocate(false) keeps isColocated() false (SetOperationNode
+        // returns false immediately when isColocate() is false), so the branch is reached through
+        // isBucketShuffle() alone.
+        IntersectNode bucketIntersect = new IntersectNode(nextPlanNodeId(),
+                new TupleId(NEXT_ID.getAndIncrement()));
+        bucketIntersect.setColocate(false);
+        bucketIntersect.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        TrackingPlanNode bucketLeft = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode bucketRight = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        bucketIntersect.addChild(bucketLeft);
+        bucketIntersect.addChild(bucketRight);
+        Pair<PlanNode, LocalExchangeType> bucketIntersectOutput = bucketIntersect.enforceAndDeriveLocalExchange(
+                ctx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.BUCKET_HASH_SHUFFLE, bucketIntersectOutput.second);
+        assertChildLocalExchangeType(bucketIntersect, 0, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        assertChildLocalExchangeType(bucketIntersect, 1, LocalExchangeType.BUCKET_HASH_SHUFFLE);
 
         TrackingPlanNode assertChild = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
         AssertNumRowsElement assertElement = Mockito.mock(AssertNumRowsElement.class);

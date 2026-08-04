@@ -233,6 +233,42 @@ private:
     ordinal_t _current_ordinal = 0;
 };
 
+class RowidOffsetFileColumnIterator final : public FileColumnIterator {
+public:
+    RowidOffsetFileColumnIterator() : FileColumnIterator(create_test_reader(false, 10)) {}
+
+    Status seek_to_ordinal(ordinal_t ord) override {
+        _current_ordinal = ord;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        auto& offsets = assert_cast<ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*dst);
+        for (size_t i = 0; i < *n; ++i) {
+            offsets.insert_value(_current_ordinal + i);
+        }
+        _current_ordinal += *n;
+        if (has_null != nullptr) {
+            *has_null = false;
+        }
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        auto& offsets = assert_cast<ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*dst);
+        for (size_t i = 0; i < count; ++i) {
+            offsets.insert_value(rowids[i]);
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+private:
+    ordinal_t _current_ordinal = 0;
+};
+
 class NullMapOnlyFileColumnIterator final : public FileColumnIterator {
 public:
     explicit NullMapOnlyFileColumnIterator(std::shared_ptr<ColumnReader> reader)
@@ -591,6 +627,126 @@ TEST_F(ColumnReaderTest, PlaceHolderRecoveryAfterColumnReplacement) {
     iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
     iterator.finalize_lazy_phase(dst);
     EXPECT_EQ(2, dst->size());
+}
+
+namespace {
+void check_default_value_lazy_output(bool read_by_rowids) {
+    SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
+
+    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
+                                        sizeof(int32_t));
+    ColumnIteratorOptions iter_opts;
+    ASSERT_TRUE(iterator.init(iter_opts).ok());
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+    MutableColumnPtr dst = ColumnInt32::create();
+    size_t rows = 3;
+    bool has_null = false;
+    ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    EXPECT_TRUE(iterator._has_place_holder_column);
+
+    IColumn::Filter filter;
+    filter.resize(3);
+    filter[0] = 1;
+    filter[1] = 0;
+    filter[2] = 1;
+    dst = IColumn::mutate(dst->filter(filter, 2));
+    ASSERT_EQ(2, dst->size());
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    if (read_by_rowids) {
+        const rowid_t rowids[] = {2, 8};
+        ASSERT_TRUE(iterator.read_by_rowids(rowids, std::size(rowids), dst).ok());
+    } else {
+        rows = 2;
+        ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    }
+
+    ASSERT_EQ(2, dst->size());
+    EXPECT_FALSE(iterator._has_place_holder_column);
+    const auto& result = assert_cast<const ColumnInt32&>(*dst);
+    EXPECT_EQ(7, result.get_element(0));
+    EXPECT_EQ(7, result.get_element(1));
+}
+
+void check_default_value_predicate_not_read_again(bool read_by_rowids) {
+    SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
+
+    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
+                                        sizeof(int32_t));
+    ColumnIteratorOptions iter_opts;
+    ASSERT_TRUE(iterator.init(iter_opts).ok());
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+    MutableColumnPtr dst = ColumnInt32::create();
+    size_t rows = 3;
+    bool has_null = true;
+    ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    EXPECT_FALSE(has_null);
+    EXPECT_FALSE(iterator._has_place_holder_column);
+
+    IColumn::Filter filter;
+    filter.resize(3);
+    filter[0] = 1;
+    filter[1] = 0;
+    filter[2] = 1;
+    dst = IColumn::mutate(dst->filter(filter, 2));
+    ASSERT_EQ(2, dst->size());
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    if (read_by_rowids) {
+        const rowid_t rowids[] = {2, 8};
+        ASSERT_TRUE(iterator.read_by_rowids(rowids, std::size(rowids), dst).ok());
+    } else {
+        rows = 2;
+        ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    }
+
+    ASSERT_EQ(2, dst->size());
+    const auto& result = assert_cast<const ColumnInt32&>(*dst);
+    EXPECT_EQ(7, result.get_element(0));
+    EXPECT_EQ(7, result.get_element(1));
+}
+} // namespace
+
+TEST_F(ColumnReaderTest, DefaultValueLazyOutputRecoversFilteredPlaceholder) {
+    check_default_value_lazy_output(false);
+    check_default_value_lazy_output(true);
+}
+
+TEST_F(ColumnReaderTest, DefaultValueLazyOutputFinalizesEmptySelection) {
+    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
+                                        sizeof(int32_t));
+    ColumnIteratorOptions iter_opts;
+    ASSERT_TRUE(iterator.init(iter_opts).ok());
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+    MutableColumnPtr dst = ColumnInt32::create();
+    size_t rows = 3;
+    bool has_null = false;
+    ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    EXPECT_TRUE(iterator._has_place_holder_column);
+
+    IColumn::Filter filter;
+    filter.resize(3);
+    filter[0] = 0;
+    filter[1] = 0;
+    filter[2] = 0;
+    dst = IColumn::mutate(dst->filter(filter, 0));
+    ASSERT_EQ(0, dst->size());
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    iterator.finalize_lazy_phase(dst);
+    EXPECT_EQ(0, dst->size());
+    EXPECT_FALSE(iterator._has_place_holder_column);
+}
+
+TEST_F(ColumnReaderTest, DefaultValuePredicateIsNotReadAgainInLazyPhase) {
+    check_default_value_predicate_not_read_again(false);
+    check_default_value_predicate_not_read_again(true);
 }
 
 TEST_F(ColumnReaderTest, SetReadRequirementPropagatesToNestedIterators) {
@@ -2382,6 +2538,96 @@ TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
 
     ASSERT_TRUE(st.ok()) << "read_by_rowids failed: " << st.to_string();
     ASSERT_EQ(count, dst->size());
+}
+
+TEST_F(ColumnReaderTest, MapLazyReadByRowidsFillsSkippedKeysForValuesOnlyPath) {
+    auto map_reader = create_test_reader(false, 10);
+    auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<RowidOffsetFileColumnIterator>());
+    auto key_iter = std::make_unique<TrackingColumnIterator>();
+    key_iter->set_column_name("key");
+    auto* key_ptr = key_iter.get();
+    auto val_iter = std::make_unique<TrackingColumnIterator>();
+    val_iter->set_column_name("value");
+    auto* val_ptr = val_iter.get();
+
+    MapFileColumnIterator map_iter(map_reader, nullptr, std::move(offsets_iter),
+                                   std::move(key_iter), std::move(val_iter));
+    map_iter.set_column_name("map_col");
+
+    TColumnAccessPaths all_access_paths {
+            create_access_path({"map_col", ColumnIterator::ACCESS_MAP_VALUES})};
+    auto st = map_iter.set_access_paths(all_access_paths, {});
+    ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
+    ASSERT_EQ(key_ptr->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+    ASSERT_EQ(val_ptr->read_requirement(), ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+
+    // Simulate the top-level struct reader marking this map as a lazy output branch.
+    map_iter.set_read_requirement_self(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    map_iter.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+
+    MutableColumnPtr dst = ColumnMap::create(ColumnInt32::create(), ColumnInt32::create(),
+                                             ColumnArray::ColumnOffsets::create());
+    const rowid_t rowids[] = {1};
+    st = map_iter.read_by_rowids(rowids, std::size(rowids), dst);
+    ASSERT_TRUE(st.ok()) << "lazy map read_by_rowids failed: " << st.to_string();
+
+    const auto& column_map = assert_cast<const ColumnMap&, TypeCheckOnRelease::DISABLE>(*dst);
+    EXPECT_EQ(1, dst->size());
+    EXPECT_EQ(1, column_map.get_keys().size());
+    EXPECT_EQ(1, column_map.get_values().size());
+    EXPECT_TRUE(key_ptr->next_batch_sizes.empty());
+    EXPECT_THAT(val_ptr->seek_ordinals, ::testing::ElementsAre(1));
+    EXPECT_THAT(val_ptr->next_batch_sizes, ::testing::ElementsAre(1));
+}
+
+TEST_F(ColumnReaderTest, MapLazyReadByRowidsPreservesPredicateKeysForValuesOnlyPath) {
+    auto map_reader = create_test_reader(false, 10);
+    auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<RowidOffsetFileColumnIterator>());
+    auto key_iter = std::make_unique<TrackingColumnIterator>();
+    key_iter->set_column_name("key");
+    auto* key_ptr = key_iter.get();
+    auto val_iter = std::make_unique<TrackingColumnIterator>();
+    val_iter->set_column_name("value");
+    auto* val_ptr = val_iter.get();
+
+    MapFileColumnIterator map_iter(map_reader, nullptr, std::move(offsets_iter),
+                                   std::move(key_iter), std::move(val_iter));
+    map_iter.set_column_name("map_col");
+
+    TColumnAccessPaths all_access_paths {
+            create_access_path({"map_col", ColumnIterator::ACCESS_MAP_VALUES})};
+    TColumnAccessPaths predicate_access_paths {
+            create_access_path({"map_col", ColumnIterator::ACCESS_MAP_KEYS})};
+    auto st = map_iter.set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
+    ASSERT_EQ(key_ptr->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    ASSERT_EQ(val_ptr->read_requirement(), ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+
+    map_iter.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    ASSERT_TRUE(map_iter.need_to_read());
+    ASSERT_FALSE(map_iter.need_to_read_meta_columns());
+
+    MutableColumnPtr dst = ColumnMap::create(ColumnInt32::create(), ColumnInt32::create(),
+                                             ColumnArray::ColumnOffsets::create());
+    auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(*dst);
+    auto keys_ptr = IColumn::mutate(std::move(column_map.get_keys_ptr()));
+    keys_ptr->insert_many_defaults(1);
+    column_map.get_keys_ptr() = std::move(keys_ptr);
+    column_map.get_offsets().push_back(1);
+
+    const rowid_t rowids[] = {1};
+    st = map_iter.read_by_rowids(rowids, std::size(rowids), dst);
+    ASSERT_TRUE(st.ok()) << "lazy map read_by_rowids failed: " << st.to_string();
+
+    EXPECT_EQ(1, dst->size());
+    EXPECT_EQ(1, column_map.get_keys().size());
+    EXPECT_EQ(1, column_map.get_values().size());
+    EXPECT_TRUE(key_ptr->seek_ordinals.empty());
+    EXPECT_TRUE(key_ptr->next_batch_sizes.empty());
+    EXPECT_THAT(val_ptr->seek_ordinals, ::testing::ElementsAre(1));
+    EXPECT_THAT(val_ptr->next_batch_sizes, ::testing::ElementsAre(1));
 }
 TEST_F(ColumnReaderTest, MapAccessAllWithOffsetDoesNotPropagateOffsetToKey) {
     // Regression test: when the access path is [map_col, *, OFFSET]

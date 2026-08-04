@@ -9,6 +9,6 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
 ----------------PhysicalProject
-------------------filter(( not (length(MobilePhoneModel) = 0)))
+------------------filter(( not (length(hits.MobilePhoneModel) = 0)))
 --------------------PhysicalOlapScan[hits]
 

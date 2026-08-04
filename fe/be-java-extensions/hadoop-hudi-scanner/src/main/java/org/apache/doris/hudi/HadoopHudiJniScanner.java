@@ -20,8 +20,8 @@ package org.apache.doris.hudi;
 import org.apache.doris.common.classloader.ThreadClassLoaderContext;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
+import org.apache.doris.kerberos.PreExecutionAuthenticator;
+import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;

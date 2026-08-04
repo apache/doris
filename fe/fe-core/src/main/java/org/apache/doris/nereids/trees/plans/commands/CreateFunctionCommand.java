@@ -225,6 +225,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         analyze(ctx);
         if (SetType.GLOBAL.equals(setType)) {
+            // TODO: Register global table functions as normal/_outer pairs when global UDTFs are supported.
             Env.getCurrentEnv().getGlobalFunctionMgr().addFunction(function, ifNotExists);
         } else {
             String dbName = functionName.getDb();
@@ -233,15 +234,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 functionName.setDb(dbName);
             }
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-            db.addFunction(function, ifNotExists);
             if (function.isUDTFunction()) {
-                // all of the table function in doris will have two function
-                // one is the noraml, and another is outer, the different of them is deal with
-                // empty: whether need to insert NULL result value
-                Function outerFunction = function.clone();
-                FunctionName name = outerFunction.getFunctionName();
-                name.setFn(name.getFunction() + "_outer");
-                db.addFunction(outerFunction, ifNotExists);
+                db.addTableFunction(function, ifNotExists);
+            } else {
+                db.addFunction(function, ifNotExists);
             }
         }
     }

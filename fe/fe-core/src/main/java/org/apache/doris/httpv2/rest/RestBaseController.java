@@ -36,7 +36,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jline.internal.Nullable;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.logging.log4j.LogManager;
@@ -61,6 +60,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import javax.net.ssl.HttpsURLConnection;
 
 public class RestBaseController extends BaseController {
@@ -100,6 +100,17 @@ public class RestBaseController extends BaseController {
 
     protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr, String requestPath,
             String queryString) {
+        return buildRedirectUrl(request.getScheme(), request, addr, requestPath, queryString);
+    }
+
+    // BE's stream-load listener never terminates TLS, so BE-bound redirects must stay "http".
+    protected String buildRedirectUrlToBackend(HttpServletRequest request, TNetworkAddress addr,
+            String requestPath, String queryString) {
+        return buildRedirectUrl("http", request, addr, requestPath, queryString);
+    }
+
+    private String buildRedirectUrl(String scheme, HttpServletRequest request, TNetworkAddress addr,
+            String requestPath, String queryString) {
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
@@ -107,13 +118,13 @@ public class RestBaseController extends BaseController {
         }
         try {
             // Preserve the original request path to avoid re-encoding an already encoded URI path.
-            URI authorityUri = new URI(request.getScheme(), userInfo, addr.getHostname(),
+            URI authorityUri = new URI(scheme, userInfo, addr.getHostname(),
                     addr.getPort(), null, null, null);
             String redirectUrl = authorityUri.toASCIIString() + requestPath;
             if (!Strings.isNullOrEmpty(queryString)) {
                 redirectUrl += "?" + queryString;
             }
-            LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
+            LOG.info("Redirect url: {}", scheme + "://" + addr.getHostname() + ":"
                     + addr.getPort() + requestPath);
             return redirectUrl;
         } catch (Exception e) {
@@ -130,6 +141,15 @@ public class RestBaseController extends BaseController {
 
     public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
         RedirectView redirectView = new RedirectView(buildRedirectUrl(request, addr));
+        redirectView.setContentType("text/html;charset=utf-8");
+        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    // Use for redirects whose destination is a BE (e.g. stream load), which never speaks HTTPS.
+    public RedirectView redirectToBackend(HttpServletRequest request, TNetworkAddress addr) {
+        RedirectView redirectView = new RedirectView(
+                buildRedirectUrlToBackend(request, addr, request.getRequestURI(), request.getQueryString()));
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
         return redirectView;

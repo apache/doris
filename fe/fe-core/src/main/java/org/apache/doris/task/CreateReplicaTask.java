@@ -467,6 +467,9 @@ public class CreateReplicaTask extends AgentTask {
             tRowBinlogSchema.setSchemaHash(rowBinlogMeta.getSchemaHash());
             tRowBinlogSchema.setKeysType(rowBinlogMeta.getKeysType().toThrift());
             tRowBinlogSchema.setStorageType(TStorageType.COLUMN);
+            int binlogTsoIdx = -1;
+            int binlogLsnIdx = -1;
+            int binlogOpIdx = -1;
 
             List<TColumn> tRowBinlogColumns = null;
             List<Column> rowBinlogColumns = rowBinlogMeta.getSchema(true);
@@ -483,7 +486,20 @@ public class CreateReplicaTask extends AgentTask {
                 }
                 objectPool.put(rowBinlogColumns, tRowBinlogColumns);
             }
+            for (int i = 0; i < rowBinlogColumns.size(); i++) {
+                Column column = rowBinlogColumns.get(i);
+                if (column.getName().equals(Column.BINLOG_TSO_COL)) {
+                    binlogTsoIdx = i;
+                } else if (column.getName().equals(Column.BINLOG_LSN_COL)) {
+                    binlogLsnIdx = i;
+                } else if (column.getName().equals(Column.BINLOG_OPERATION_COL)) {
+                    binlogOpIdx = i;
+                }
+            }
             tRowBinlogSchema.setColumns(tRowBinlogColumns);
+            tRowBinlogSchema.setBinlogTsoIdx(binlogTsoIdx);
+            tRowBinlogSchema.setBinlogLsnIdx(binlogLsnIdx);
+            tRowBinlogSchema.setBinlogOpIdx(binlogOpIdx);
             createTabletReq.setRowBinlogSchema(tRowBinlogSchema);
         }
 

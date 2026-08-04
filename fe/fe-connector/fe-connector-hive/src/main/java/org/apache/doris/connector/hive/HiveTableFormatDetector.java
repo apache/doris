@@ -46,6 +46,16 @@ public final class HiveTableFormatDetector {
         // Some Hudi tables use HoodieParquetInputFormatBase as input format
         // but cannot be treated as Hudi — read parquet files directly as Hive.
         hiveFormats.add("org.apache.hudi.hadoop.HoodieParquetInputFormatBase");
+        // LZO-compressed text InputFormats (hadoop-lzo / lzo-hadoop). Read-only: all three class names
+        // contain "text", so HiveFileFormat resolves them to TEXT_FILE, which with LazySimpleSerDe yields
+        // BE FORMAT_TEXT. Parity with legacy HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS; without these an
+        // LZO-text table would fail the (now fail-loud) format check.
+        //   com.hadoop.compression.lzo.LzoTextInputFormat   - twitter hadoop-lzo (GPL)
+        //   com.hadoop.mapreduce.LzoTextInputFormat         - lzo-hadoop mapreduce API (org.anarres)
+        //   com.hadoop.mapred.DeprecatedLzoTextInputFormat  - lzo-hadoop legacy mapred API (org.anarres)
+        hiveFormats.add("com.hadoop.compression.lzo.LzoTextInputFormat");
+        hiveFormats.add("com.hadoop.mapreduce.LzoTextInputFormat");
+        hiveFormats.add("com.hadoop.mapred.DeprecatedLzoTextInputFormat");
         SUPPORTED_HIVE_INPUT_FORMATS = Collections.unmodifiableSet(hiveFormats);
 
         SUPPORTED_HUDI_INPUT_FORMATS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(

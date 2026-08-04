@@ -202,7 +202,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
      * Get the current balance type for a compute group, falling back to global balance type if not found
      */
     private BalanceTypeEnum getCurrentBalanceType(String clusterId) {
-        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        CloudComputeGroupMeta cg = cloudSystemInfoService.getComputeGroupById(clusterId);
         if (cg == null) {
             LOG.debug("compute group not found, use global balance type, id {}", clusterId);
             return globalBalanceTypeEnum;
@@ -219,7 +219,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
      * Get the current task timeout for a compute group, falling back to global timeout if not found
      */
     private int getCurrentTaskTimeout(String clusterId) {
-        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        CloudComputeGroupMeta cg = cloudSystemInfoService.getComputeGroupById(clusterId);
         if (cg == null) {
             return Config.cloud_pre_heating_time_limit_sec;
         }
@@ -233,15 +233,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private boolean isComputeGroupBalanceChanged(String clusterId) {
-        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        CloudComputeGroupMeta cg = cloudSystemInfoService.getComputeGroupById(clusterId);
         if (cg == null) {
             return false;
         }
 
         BalanceTypeEnum computeGroupBalanceType = cg.getBalanceType();
         int computeGroupTimeout = cg.getBalanceWarmUpTaskTimeout();
-        return computeGroupBalanceType != ComputeGroup.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
-               || computeGroupTimeout != ComputeGroup.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT;
+        return computeGroupBalanceType != CloudComputeGroupMeta.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
+               || computeGroupTimeout != CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT;
     }
 
     public CloudTabletRebalancer(CloudSystemInfoService cloudSystemInfoService) {
@@ -1059,22 +1059,19 @@ public class CloudTabletRebalancer extends MasterDaemon {
                                 ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
                                     partToTablets) {
         // global
-        globalBeToTablets.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        globalBeToTablets.get(be).add(tabletId);
+        globalBeToTablets.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
 
         // table
-        beToTabletsInTable.putIfAbsent(tableId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable = beToTabletsInTable.get(tableId);
-        beToTabletsOfTable.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfTable.get(be).add(tabletId);
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable =
+                beToTabletsInTable.computeIfAbsent(tableId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfTable.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
 
         // partition
-        partToTablets.putIfAbsent(partId, new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>());
-        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets = partToTablets.get(partId);
-        indexToTablets.putIfAbsent(indexId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex = indexToTablets.get(indexId);
-        beToTabletsOfIndex.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfIndex.get(be).add(tabletId);
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets =
+                partToTablets.computeIfAbsent(partId, ignored -> new ConcurrentHashMap<>());
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex =
+                indexToTablets.computeIfAbsent(indexId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfIndex.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
     }
 
     private void enqueueWarmupTask(WarmupTabletTask task) {

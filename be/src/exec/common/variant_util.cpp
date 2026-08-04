@@ -72,6 +72,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/field.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
@@ -1902,26 +1903,26 @@ static void append_field_to_binary_chars(const Field& field, ColumnString::Chars
     }
     case PrimitiveType::TYPE_BOOLEAN: {
         append_binary_type(chars,
-                           TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_BOOLEAN));
+                           primitive_type_to_storage_field_type(PrimitiveType::TYPE_BOOLEAN));
         const auto v = static_cast<UInt8>(field.get<PrimitiveType::TYPE_BOOLEAN>());
         append_binary_bytes(chars, &v, sizeof(UInt8));
         return;
     }
     case PrimitiveType::TYPE_BIGINT: {
-        append_binary_type(chars, TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_BIGINT));
+        append_binary_type(chars, primitive_type_to_storage_field_type(PrimitiveType::TYPE_BIGINT));
         const auto v = field.get<PrimitiveType::TYPE_BIGINT>();
         append_binary_bytes(chars, &v, sizeof(Int64));
         return;
     }
     case PrimitiveType::TYPE_LARGEINT: {
         append_binary_type(chars,
-                           TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_LARGEINT));
+                           primitive_type_to_storage_field_type(PrimitiveType::TYPE_LARGEINT));
         const auto v = field.get<PrimitiveType::TYPE_LARGEINT>();
         append_binary_bytes(chars, &v, sizeof(int128_t));
         return;
     }
     case PrimitiveType::TYPE_DOUBLE: {
-        append_binary_type(chars, TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_DOUBLE));
+        append_binary_type(chars, primitive_type_to_storage_field_type(PrimitiveType::TYPE_DOUBLE));
         const auto v = field.get<PrimitiveType::TYPE_DOUBLE>();
         append_binary_bytes(chars, &v, sizeof(Float64));
         return;

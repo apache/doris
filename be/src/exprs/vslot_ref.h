@@ -42,6 +42,7 @@ public:
 #ifdef BE_TEST
     VSlotRef() = default;
     void set_slot_id(int slot_id) { _slot_id = slot_id; }
+    void set_column_name(const std::string* column_name) { _column_name = column_name; }
 #endif
     void set_column_id(int column_id) { _column_id = column_id; }
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;

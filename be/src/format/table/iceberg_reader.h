@@ -105,8 +105,9 @@ protected:
                                             this->get_state(), this->_meta_cache);
     }
 
-    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
-                                             const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(
+            const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor,
+            const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node = nullptr);
 
 private:
     Status _read_position_delete_file(const TFileRangeDesc* delete_range,
@@ -151,8 +152,9 @@ protected:
                                         this->get_io_ctx(), this->_meta_cache);
     }
 
-    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
-                                             const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(
+            const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor,
+            const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node = nullptr);
 
     static const std::string ICEBERG_ORC_ATTRIBUTE;
 

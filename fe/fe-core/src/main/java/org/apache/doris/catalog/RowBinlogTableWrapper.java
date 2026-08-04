@@ -50,8 +50,8 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
     }
 
     public static boolean isRowBinlogSyntheticColumn(Column column) {
-        return column.getName().equals(Column.BINLOG_LSN_COL)
-                || column.getName().equals(Column.BINLOG_TIMESTAMP_COL);
+        return column.getName().equals(Column.BINLOG_TSO_COL)
+                || column.getName().equals(Column.BINLOG_LSN_COL);
     }
 
     @Override

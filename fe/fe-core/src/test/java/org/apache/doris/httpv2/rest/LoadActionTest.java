@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -254,6 +255,30 @@ public class LoadActionTest {
     }
 
     @Test
+    public void testGetCloudClusterNamePrefersComputeGroupHeader() throws Exception {
+        LoadAction loadAction = new LoadAction();
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getHeader(SessionVariable.COMPUTE_GROUP)).thenReturn("compute_group_1");
+        Mockito.when(request.getHeader(SessionVariable.CLOUD_CLUSTER)).thenReturn("cloud_cluster_1");
+
+        String cloudClusterName = invokeGetCloudClusterName(loadAction, request);
+
+        Assertions.assertEquals("compute_group_1", cloudClusterName);
+    }
+
+    @Test
+    public void testGetCloudClusterNameFallsBackToCloudClusterHeader() throws Exception {
+        LoadAction loadAction = new LoadAction();
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getHeader(SessionVariable.COMPUTE_GROUP)).thenReturn("");
+        Mockito.when(request.getHeader(SessionVariable.CLOUD_CLUSTER)).thenReturn("cloud_cluster_1");
+
+        String cloudClusterName = invokeGetCloudClusterName(loadAction, request);
+
+        Assertions.assertEquals("cloud_cluster_1", cloudClusterName);
+    }
+
+    @Test
     public void testExecuteWithoutPasswordRedirectsToBackend() throws Exception {
         Config.enable_debug_points = true;
         DebugPointUtil.addDebugPointWithValue("LoadAction.selectRedirectBackend.backendId", 1L);
@@ -451,6 +476,12 @@ public class LoadActionTest {
                 HttpServletRequest.class, TNetworkAddress.class, String.class);
         method.setAccessible(true);
         return (RedirectView) method.invoke(loadAction, request, addr, forwardTarget);
+    }
+
+    private String invokeGetCloudClusterName(LoadAction loadAction, HttpServletRequest request) throws Exception {
+        Method method = LoadAction.class.getDeclaredMethod("getCloudClusterName", HttpServletRequest.class);
+        method.setAccessible(true);
+        return (String) method.invoke(loadAction, request);
     }
 
     private TNetworkAddress invokeSelectEndpointByRedirectPolicy(LoadAction loadAction, HttpServletRequest request,

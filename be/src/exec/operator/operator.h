@@ -616,6 +616,7 @@ public:
 
     [[nodiscard]] Status sink(RuntimeState* state, Block* block, bool eos) {
         RETURN_IF_ERROR(block->check_column_and_type_not_null());
+        RETURN_IF_ERROR(block->check_no_column_string64());
         RETURN_IF_ERROR(block->check_type_and_column());
         return sink_impl(state, block, eos);
     }
@@ -878,6 +879,7 @@ public:
     [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) {
         RETURN_IF_ERROR(get_block_impl(state, block, eos));
         RETURN_IF_ERROR(block->check_column_and_type_not_null());
+        RETURN_IF_ERROR(block->check_no_column_string64());
         RETURN_IF_ERROR(block->check_type_and_column());
         return Status::OK();
     }
@@ -1011,10 +1013,6 @@ protected:
 
     std::string _op_name;
     int _parallel_tasks = 0;
-
-    //_keep_origin is used to avoid copying during projection,
-    // currently set to false only in the nestloop join.
-    bool _keep_origin = true;
 
     // _blockable is true if the operator contains expressions that may block execution
     bool _blockable = false;

@@ -181,7 +181,8 @@ public:
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
                           std::string* encoded_seq_value = nullptr,
                           OlapReaderStatistics* stats = nullptr,
-                          DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+                          DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+                          const io::IOContext* io_ctx = nullptr);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -374,7 +375,8 @@ protected:
     static bool _key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
                                        bool is_segments_key_bounds_truncated);
 
-    Status sort_block(Block& in_block, Block& output_block);
+    Status sort_block(Block& in_block, Block& output_block,
+                      std::vector<uint32_t>* permutation = nullptr);
 
     Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 

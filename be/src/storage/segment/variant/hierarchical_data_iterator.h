@@ -72,7 +72,7 @@ public:
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
                          std::unique_ptr<SubstreamIterator>&& root_column_reader,
                          ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
-                         ReadType read_type);
+                         ReadType read_type, const io::IOContext* io_ctx = nullptr);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -86,7 +86,8 @@ public:
     ordinal_t get_current_ordinal() const override;
 
     Status add_stream(int32_t col_uid, const SubcolumnColumnMetaInfo::Node* node,
-                      ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
+                      ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
+                      const io::IOContext* io_ctx = nullptr);
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
     void collect_prefetchers(

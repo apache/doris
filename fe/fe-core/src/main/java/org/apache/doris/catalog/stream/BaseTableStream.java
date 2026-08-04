@@ -81,8 +81,8 @@ public abstract class BaseTableStream extends Table {
     @SerializedName("sir")
     protected boolean showInitialRows;
 
-    @SerializedName("sti")
-    protected StreamTableInfo streamTableInfo;
+    @SerializedName("bti")
+    protected TableStreamBaseTableInfo baseTableInfo;
 
     @SerializedName("d")
     private boolean disabled;
@@ -102,7 +102,7 @@ public abstract class BaseTableStream extends Table {
 
     public BaseTableStream(long id, String streamName, List<Column> fullSchema, TableIf baseTable) {
         super(id, streamName, TableType.STREAM, fullSchema);
-        this.streamTableInfo = new StreamTableInfo(baseTable);
+        this.baseTableInfo = new TableStreamBaseTableInfo(baseTable);
         this.baseTable = baseTable;
         this.disabled = false;
         this.stale = false;
@@ -114,7 +114,7 @@ public abstract class BaseTableStream extends Table {
 
     public TableIf getBaseTableNullable() {
         if (baseTable == null) {
-            baseTable = streamTableInfo.getTableNullable();
+            baseTable = baseTableInfo.getTableNullable();
         }
         return baseTable;
     }
@@ -187,7 +187,7 @@ public abstract class BaseTableStream extends Table {
             throws E {
         TableIf table = getBaseTableNullable();
         if (table == null) {
-            throw e.apply(streamTableInfo.getTableName());
+            throw e.apply(baseTableInfo.getTableName());
         }
         return table;
     }
@@ -198,7 +198,7 @@ public abstract class BaseTableStream extends Table {
     }
 
     public List<String> getBaseTableFullQualifiers() {
-        return streamTableInfo.getFullQualifiers();
+        return baseTableInfo.getFullQualifiers();
     }
 
     public abstract void unprotectedCheckStreamUpdate(AbstractTableStreamUpdate update)

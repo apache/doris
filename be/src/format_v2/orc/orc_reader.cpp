@@ -30,6 +30,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <new>
 #include <optional>
 #include <orc/OrcFile.hh>
 #include <orc/Vector.hh>
@@ -47,6 +48,7 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
+#include "common/logging.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -74,10 +76,12 @@
 #include "format_v2/timestamp_statistics.h"
 #include "io/fs/file_reader.h"
 #include "runtime/exec_env.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
 
@@ -137,6 +141,27 @@ uint64_t orc_read_row_count(const ::orc::ReaderMetrics& metrics) {
 
 bool is_orc_stop(const io::IOContext* io_ctx, const std::exception& e) {
     return io_ctx != nullptr && io_ctx->should_stop && std::string_view(e.what()) == "stop";
+}
+
+Status fall_back_without_orc_sarg(const char* operation, const std::string& file_path,
+                                  ::orc::RowReaderOptions* row_reader_options,
+                                  const std::exception& e) {
+    LOG(WARNING) << "Failed to " << operation << " ORC search argument for file " << file_path
+                 << "; falling back to scan without SARG: " << e.what();
+    row_reader_options->searchArgument(nullptr);
+    return Status::OK();
+}
+
+Status handle_orc_sarg_exception(const char* operation, const std::string& file_path,
+                                 ::orc::RowReaderOptions* row_reader_options, const Exception& e) {
+    if (e.code() == ErrorCode::MEM_ALLOC_FAILED) {
+        return Status::MemoryLimitExceeded("Failed to {} ORC search argument: {}", operation,
+                                           e.what());
+    }
+    if (e.code() == ErrorCode::MEM_LIMIT_EXCEEDED) {
+        return e.to_status();
+    }
+    return fall_back_without_orc_sarg(operation, file_path, row_reader_options, e);
 }
 
 bool is_hour_offset_timezone(std::string_view timezone) {
@@ -605,8 +630,12 @@ bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
         return set_string_zone_map(type, statistics, zone_map);
     case ::orc::TypeKind::DATE:
         return set_date_zone_map(statistics, zone_map);
-    case ::orc::TypeKind::TIMESTAMP:
-        return set_timestamp_zone_map(statistics, timezone, false, zone_map);
+    case ::orc::TypeKind::TIMESTAMP: {
+        // ORC stores timestamp statistics as wall-clock values in UTC coordinates. Restore them
+        // with UTC so the session timezone does not shift the civil time.
+        static const auto utc_time_zone = cctz::utc_time_zone();
+        return set_timestamp_zone_map(statistics, utc_time_zone, false, zone_map);
+    }
     case ::orc::TypeKind::TIMESTAMP_INSTANT:
         return set_timestamp_zone_map(statistics, timezone, enable_mapping_timestamp_tz, zone_map);
     case ::orc::TypeKind::DECIMAL:
@@ -720,6 +749,7 @@ struct OrcReaderScanState {
     bool enable_filter_by_min_max = true;
     bool orc_lazy_read_enabled = false;
     bool orc_lazy_selection_valid = false;
+    OrcSargBuildOptions sarg_build_options;
 
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
@@ -747,7 +777,9 @@ void OrcReader::_init_profile() {
     }
 
     static const char* orc_profile = "OrcReader";
-    ADD_TIMER_WITH_LEVEL(_profile, orc_profile, 1);
+    file_scan_profile::ensure_hierarchy(_profile);
+    _orc_profile.total_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, orc_profile, file_scan_profile::FILE_READER, 1);
     _orc_profile.reader_call =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReaderCall", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_inclusive_latency_us = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -774,20 +806,22 @@ void OrcReader::_init_profile() {
             _profile, "EvaluatedRowGroupCount", TUnit::UNIT, orc_profile, 1);
     _orc_profile.read_row_count =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReadRowCount", TUnit::UNIT, orc_profile, 1);
-    _orc_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RowGroupsFiltered",
-                                                                    TUnit::UNIT, orc_profile, 1);
+    // RuntimeProfile counter names are flat; format-qualified names keep ORC ownership stable when
+    // one scan profile also initializes Parquet counters in either order.
+    _orc_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcRowGroupsFiltered", TUnit::UNIT, orc_profile, 1);
     _orc_profile.filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, orc_profile, 1);
-    _orc_profile.read_row_groups =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RowGroupsReadNum", TUnit::UNIT, orc_profile, 1);
-    _orc_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FilteredRowsByGroup",
-                                                                    TUnit::UNIT, orc_profile, 1);
+            _profile, "OrcRowGroupsFilteredByMinMax", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcRowGroupsReadNum",
+                                                                TUnit::UNIT, orc_profile, 1);
+    _orc_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcFilteredRowsByGroup", TUnit::UNIT, orc_profile, 1);
     _orc_profile.lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "FilteredRowsByLazyRead", TUnit::UNIT, orc_profile, 1);
-    _orc_profile.filtered_bytes =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FilteredBytes", TUnit::BYTES, orc_profile, 1);
+            _profile, "OrcFilteredRowsByLazyRead", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcFilteredBytes",
+                                                               TUnit::BYTES, orc_profile, 1);
     _orc_profile.open_file_num =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FileNum", TUnit::UNIT, orc_profile, 1);
+            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcFileNum", TUnit::UNIT, orc_profile, 1);
 }
 
 void OrcReader::_collect_profile() const {
@@ -845,6 +879,8 @@ format::ColumnDefinition OrcReader::row_position_column_definition() {
 }
 
 Status OrcReader::init(RuntimeState* state) {
+    _init_profile();
+    SCOPED_TIMER(_orc_profile.total_time);
     RETURN_IF_ERROR(format::FileReader::init(state));
     _state = std::make_unique<OrcReaderScanState>();
     TimezoneUtils::find_cctz_time_zone(_state->timezone, _state->timezone_obj);
@@ -853,6 +889,10 @@ Status OrcReader::init(RuntimeState* state) {
         _state->enable_filter_by_min_max = state->query_options().enable_orc_filter_by_min_max;
         _state->timezone = state->timezone();
         _state->timezone_obj = state->timezone_obj();
+        if (state->query_options().__isset.max_pushdown_conditions_per_column) {
+            _state->sarg_build_options.max_pushdown_conditions_per_column =
+                    state->query_options().max_pushdown_conditions_per_column;
+        }
     }
 
     ::orc::ReaderOptions options;
@@ -1129,6 +1169,7 @@ Status OrcReader::_fill_map_schema_children(const ::orc::Type& type,
 }
 
 Status OrcReader::get_schema(std::vector<format::ColumnDefinition>* const file_schema) const {
+    SCOPED_TIMER(_orc_profile.total_time);
     if (file_schema == nullptr) {
         return Status::InvalidArgument("file_schema is null");
     }
@@ -1162,6 +1203,7 @@ std::unique_ptr<format::TableColumnMapper> OrcReader::create_column_mapper(
 }
 
 Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
+    SCOPED_TIMER(_orc_profile.total_time);
     if (_state == nullptr || _state->reader == nullptr || _state->root_type == nullptr) {
         return Status::Uninitialized("OrcReader is not open");
     }
@@ -1350,18 +1392,26 @@ Status OrcReader::_init_search_argument_from_local_filters() {
             if (conjunct == nullptr) {
                 continue;
             }
-            has_pushdown =
-                    build_orc_search_argument(*_request, *_state->root_type, _state->timezone_obj,
-                                              conjunct->root(), builder) ||
-                    has_pushdown;
+            has_pushdown = build_orc_search_argument(
+                                   *_request, *_state->root_type, _state->timezone_obj,
+                                   _state->sarg_build_options, conjunct->root(), builder) ||
+                           has_pushdown;
         }
         if (!has_pushdown) {
             return Status::OK();
         }
         builder->end();
+        DBUG_EXECUTE_IF("OrcReader._init_search_argument_from_local_filters.inject_failure",
+                        DBUG_RUN_CALLBACK());
         _state->row_reader_options.searchArgument(builder->build());
+    } catch (const Exception& e) {
+        return handle_orc_sarg_exception("build", _file_description->path,
+                                         &_state->row_reader_options, e);
+    } catch (const std::bad_alloc& e) {
+        return Status::MemoryLimitExceeded("Failed to build ORC search argument: {}", e.what());
     } catch (const std::exception& e) {
-        return Status::InternalError("Failed to build ORC search argument: {}", e.what());
+        return fall_back_without_orc_sarg("build", _file_description->path,
+                                          &_state->row_reader_options, e);
     }
     return Status::OK();
 }
@@ -1421,6 +1471,8 @@ void OrcReader::_apply_split_range() {
 
 // ORC RowReader ranges are continuous, so non-adjacent surviving stripes are
 // compacted into separate ranges.
+// Keep stripe selection and range state transitions atomic.
+// NOLINTNEXTLINE(readability-function-size)
 Status OrcReader::_select_stripe_ranges_by_statistics() {
     _state->selected_stripe_ranges.clear();
     _state->current_stripe_range = 0;
@@ -1439,8 +1491,20 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     std::vector<int> sarg_needed_stripes;
     try {
         sarg_needed_stripes = _state->reader->getNeedReadStripes(_state->row_reader_options);
+    } catch (const Exception& e) {
+        if (is_orc_stop(_io_ctx.get(), e)) {
+            return Status::EndOfFile("stop");
+        }
+        return handle_orc_sarg_exception("evaluate", _file_description->path,
+                                         &_state->row_reader_options, e);
+    } catch (const std::bad_alloc& e) {
+        return Status::MemoryLimitExceeded("Failed to evaluate ORC search argument: {}", e.what());
     } catch (const std::exception& e) {
-        return Status::InternalError("Failed to evaluate ORC search argument: {}", e.what());
+        if (is_orc_stop(_io_ctx.get(), e)) {
+            return Status::EndOfFile("stop");
+        }
+        return fall_back_without_orc_sarg("evaluate", _file_description->path,
+                                          &_state->row_reader_options, e);
     }
 
     std::vector<uint64_t> selected_stripes;
@@ -1822,6 +1886,7 @@ Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type
 }
 
 Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
+    SCOPED_TIMER(_orc_profile.total_time);
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(rows != nullptr);
     DORIS_CHECK(eof != nullptr);
@@ -1935,14 +2000,23 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         }
         _state->orc_lazy_selection_valid = false;
     } else {
-        RETURN_IF_ERROR(_filter_block(file_block, rows));
+        auto filter_status = _filter_block(file_block, rows);
+        if (!filter_status.ok()) {
+            // V2 evaluates residual predicates after ORC returns the batch, while callers retain
+            // the historical nextBatch error contract used to identify row-filter failures.
+            filter_status.prepend("Orc row reader nextBatch failed. reason = ");
+            return filter_status;
+        }
     }
     *eof = false;
     return Status::OK();
 }
 
+// COUNT and MIN/MAX share selected-stripe metadata and the same conservative fallback contract.
+// NOLINTNEXTLINE(readability-function-size)
 Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& request,
                                        format::FileAggregateResult* result) {
+    SCOPED_TIMER(_orc_profile.total_time);
     DORIS_CHECK(result != nullptr);
     if (_state == nullptr || _state->reader == nullptr || _state->root_type == nullptr) {
         return Status::Uninitialized("OrcReader is not open");
@@ -2049,6 +2123,11 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
         RETURN_IF_ERROR(find_projected_minmax_leaf(*_state->root_type, request_column.projection,
                                                    &leaf_type));
         DORIS_CHECK(leaf_type != nullptr);
+        if (leaf_type->getKind() == ::orc::TypeKind::TIMESTAMP &&
+            _state->reader->getWriterVersion() < ::orc::WriterVersion_ORC_135) {
+            return Status::NotSupported(
+                    "ORC TIMESTAMP min/max statistics are unsafe before writer version ORC-135");
+        }
 
         auto& aggregate_column = result->columns[column_idx];
         aggregate_column.projection = request_column.projection;
@@ -2393,6 +2472,7 @@ void OrcReader::_filter_requested_columns(Block* file_block, const IColumn::Filt
 }
 
 Status OrcReader::close() {
+    SCOPED_TIMER(_orc_profile.total_time);
     _collect_profile();
     if (_state != nullptr) {
         _state = std::make_unique<OrcReaderScanState>();

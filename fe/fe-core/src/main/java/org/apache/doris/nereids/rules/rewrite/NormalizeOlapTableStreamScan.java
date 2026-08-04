@@ -177,7 +177,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         Slot opSlot = null;
         Slot seqSlot = null;
         for (int i = 0; i < binlogOutputSlots.size(); i++) {
-            if (binlogOutputSlots.get(i).getName().equals(Column.BINLOG_TIMESTAMP_COL)) {
+            if (binlogOutputSlots.get(i).getName().equals(Column.BINLOG_TSO_COL)) {
                 seqSlot = binlogOutputSlots.get(i);
             } else if (binlogOutputSlots.get(i).getName().equals(Column.BINLOG_OPERATION_COL)) {
                 opSlot = binlogOutputSlots.get(i);

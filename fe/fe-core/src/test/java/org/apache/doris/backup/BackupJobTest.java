@@ -33,7 +33,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
@@ -111,7 +111,7 @@ public class BackupJobTest {
     private EditLog editLog = Mockito.mock(EditLog.class);
 
     private Repository repo = Mockito.spy(new Repository(repoId, "repo", false, "my_repo",
-            BrokerProperties.of("broker", Maps.newHashMap())));
+            StorageAdapter.ofBroker("broker", Maps.newHashMap())));
 
     private MockedStatic<Env> mockedEnvStatic;
     private MockedStatic<AgentTaskExecutor> mockedAgentTaskExecutor;

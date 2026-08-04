@@ -34,6 +34,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
+#include "util/url_coding.h"
 
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -105,6 +106,35 @@
 #include "util/unaligned.h"
 
 namespace doris {
+static Status build_orc_initial_default_column(
+        const std::optional<TableSchemaChangeHelper::InitialDefaultValue>& metadata,
+        const DataTypePtr& type, size_t rows, ColumnPtr* column) {
+    DORIS_CHECK(column != nullptr);
+    if (!metadata.has_value()) {
+        *column = nullptr;
+        return Status::OK();
+    }
+    const auto nested_type = remove_nullable(type);
+    Field value;
+    if (metadata->is_base64 || nested_type->get_primitive_type() == TYPE_VARBINARY) {
+        std::string decoded;
+        if (!base64_decode(metadata->value, &decoded)) {
+            return Status::InvalidArgument("Invalid Base64 Iceberg nested initial default");
+        }
+        value = nested_type->get_primitive_type() == TYPE_VARBINARY
+                        ? Field::create_field<TYPE_VARBINARY>(StringView(decoded))
+                        : Field::create_field<TYPE_STRING>(decoded);
+        // StringView borrows decoded for payloads longer than 12 bytes. Build the owning column
+        // before the decode buffer leaves scope (UUID/FIXED defaults routinely exceed that size).
+        *column = type->create_column_const(rows, value)->convert_to_full_column_if_const();
+        return Status::OK();
+    } else {
+        RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(metadata->value, value));
+    }
+    *column = type->create_column_const(rows, value)->convert_to_full_column_if_const();
+    return Status::OK();
+}
+
 class RuntimeState;
 namespace io {
 struct IOContext;
@@ -489,6 +519,9 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
         _not_single_slot_filter_conjuncts.insert(_not_single_slot_filter_conjuncts.end(),
                                                  ctx->not_single_slot_filter_conjuncts->begin(),
                                                  ctx->not_single_slot_filter_conjuncts->end());
+        for (const auto& conjunct : _not_single_slot_filter_conjuncts) {
+            _block_dict_filter_for_slots(conjunct->root());
+        }
     }
     _slot_id_to_filter_conjuncts = ctx->slot_id_to_filter_conjuncts;
     _obj_pool = std::make_unique<ObjectPool>();
@@ -557,7 +590,6 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
     if (!_not_single_slot_filter_conjuncts.empty()) {
         _filter_conjuncts.insert(_filter_conjuncts.end(), _not_single_slot_filter_conjuncts.begin(),
                                  _not_single_slot_filter_conjuncts.end());
-        _disable_dict_filter = true;
     }
     if (_slot_id_to_filter_conjuncts && !_slot_id_to_filter_conjuncts->empty()) {
         for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
@@ -2145,15 +2177,28 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
 
         for (int missing_field : missing_fields) {
             ColumnPtr& doris_field = doris_struct.get_column_ptr(missing_field);
-            if (!doris_field->is_nullable()) {
+            const auto& table_column_name = doris_struct_type->get_name_by_position(missing_field);
+            const auto& doris_type = doris_struct_type->get_element(missing_field);
+            ColumnPtr initial_default;
+            RETURN_IF_ERROR(build_orc_initial_default_column(
+                    root_node->children_initial_default_value(table_column_name), doris_type,
+                    num_values, &initial_default));
+            if (initial_default.get() != nullptr) {
+                // ORC projection may synthesize a missing nested field, but its Iceberg initial
+                // default remains the logical value for every row in the older file.
+                auto mutable_field = IColumn::mutate(std::move(doris_field));
+                mutable_field->insert_range_from(*initial_default, 0, num_values);
+                doris_field = std::move(mutable_field);
+            } else if (!doris_field->is_nullable()) {
                 return Status::InternalError(
                         "Child field of '{}' is not nullable, but is missing in orc file",
                         col_name);
+            } else {
+                auto mutable_field = IColumn::mutate(std::move(doris_field));
+                reinterpret_cast<ColumnNullable*>(mutable_field.get())
+                        ->insert_many_defaults(num_values);
+                doris_field = std::move(mutable_field);
             }
-            auto mutable_field = IColumn::mutate(std::move(doris_field));
-            reinterpret_cast<ColumnNullable*>(mutable_field.get())
-                    ->insert_many_defaults(num_values);
-            doris_field = std::move(mutable_field);
         }
 
         for (auto read_field : read_fields) {
@@ -2951,8 +2996,7 @@ Status OrcReader::fill_dict_filter_column_names(
     int i = 0;
     for (const auto& predicate_col_name : predicate_col_names) {
         int slot_id = predicate_col_slot_ids[i];
-        if (!_disable_dict_filter &&
-            has_column_optimization(predicate_col_name, ColumnOptimizationTypes::DICT_FILTER) &&
+        if (has_column_optimization(predicate_col_name, ColumnOptimizationTypes::DICT_FILTER) &&
             _can_filter_by_dict(slot_id)) {
             _dict_filter_cols.emplace_back(predicate_col_name, slot_id);
             column_names.emplace_back(
@@ -2970,7 +3014,25 @@ Status OrcReader::fill_dict_filter_column_names(
     return Status::OK();
 }
 
+void OrcReader::_block_dict_filter_for_slots(const VExprSPtr& expr) {
+    DORIS_CHECK(expr != nullptr);
+    if (auto impl = expr->get_impl()) {
+        _block_dict_filter_for_slots(impl);
+        return;
+    }
+    if (expr->is_slot_ref()) {
+        _dict_filter_blocked_slot_ids.insert(static_cast<const VSlotRef*>(expr.get())->slot_id());
+        return;
+    }
+    for (const auto& child : expr->children()) {
+        _block_dict_filter_for_slots(child);
+    }
+}
+
 bool OrcReader::_can_filter_by_dict(int slot_id) {
+    if (_dict_filter_blocked_slot_ids.contains(slot_id)) {
+        return false;
+    }
     SlotDescriptor* slot = nullptr;
     const std::vector<SlotDescriptor*>& slots = _tuple_descriptor->slots();
     for (auto* each : slots) {

@@ -52,6 +52,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
 #include "util/stack_util.h"
@@ -900,10 +901,21 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
     while (current_pos < end_pos_non_included) {
         current_size = std::min(remaining_size, _max_file_block_size);
         remaining_size -= current_size;
-        state = try_reserve(hash, context, current_pos, current_size, cache_lock)
-                        ? state
-                        : FileBlock::State::SKIP_CACHE;
-        if (state == FileBlock::State::SKIP_CACHE) [[unlikely]] {
+        auto block_state = state;
+        if (block_state != FileBlock::State::SKIP_CACHE &&
+            context.admit_cache_write_by_remote_scan_limiter) {
+            auto* limiter = context.remote_scan_cache_write_limiter;
+            DCHECK(limiter != nullptr);
+            if (!limiter->try_admit_cache_write(static_cast<int64_t>(current_size))) {
+                block_state = FileBlock::State::SKIP_CACHE;
+            }
+        }
+        if (block_state != FileBlock::State::SKIP_CACHE) {
+            block_state = try_reserve(hash, context, current_pos, current_size, cache_lock)
+                                  ? block_state
+                                  : FileBlock::State::SKIP_CACHE;
+        }
+        if (block_state == FileBlock::State::SKIP_CACHE) [[unlikely]] {
             FileCacheKey key;
             key.hash = hash;
             key.offset = current_pos;
@@ -914,7 +926,8 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
                                                           FileBlock::State::SKIP_CACHE);
             file_blocks.push_back(std::move(file_block));
         } else {
-            auto* cell = add_cell(hash, context, current_pos, current_size, state, cache_lock);
+            auto* cell =
+                    add_cell(hash, context, current_pos, current_size, block_state, cache_lock);
             if (cell) {
                 file_blocks.push_back(cell->file_block);
                 if (!context.is_cold_data) {

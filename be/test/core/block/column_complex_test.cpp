@@ -60,10 +60,10 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     column_bitmap_verify->insert_default();
     column_hll_verify->insert_default();
     column_quantile_state_verify->insert_many_defaults(1);
-    ASSERT_EQ(column_bitmap_verify->byte_size(), 80);
+    ASSERT_EQ(column_bitmap_verify->byte_size(), sizeof(BitmapValue));
     ASSERT_EQ(column_hll_verify->byte_size(), 64);
     ASSERT_EQ(column_quantile_state_verify->byte_size(), 64);
-    ASSERT_EQ(column_bitmap_verify->allocated_bytes(), 80);
+    ASSERT_EQ(column_bitmap_verify->allocated_bytes(), sizeof(BitmapValue));
     ASSERT_EQ(column_hll_verify->allocated_bytes(), 64);
     ASSERT_EQ(column_quantile_state_verify->allocated_bytes(), 64);
     std::cout << "1. test byte_size/allocated_bytes empty success" << std::endl;

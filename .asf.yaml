@@ -61,7 +61,6 @@ github:
           - Build Third Party Libraries (macOS)
           - Build Third Party Libraries (macOS-arm64)
           - COMPILE (DORIS_COMPILE)
-          - code-review
           - Cloud UT (Doris Cloud UT)
           - performance (Doris Performance)
           - check_coverage (Coverage)
@@ -192,13 +191,11 @@ github:
   collaborators:
     - Yukang-Lian
     - Hastyshell
-    - freemandealer
-    - shuke987
-    - wm1581066
-    - doris-robot
+    - yujun777
     - ixzc
-    - deardeng
+    - feiniaofeiafei
     - wyxxxcat
     - linrrzqqq
+    - Doris-Breakwater
 notifications:
   pullrequests_status:  commits@doris.apache.org

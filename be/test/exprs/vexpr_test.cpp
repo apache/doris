@@ -797,8 +797,8 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto src_col = ColumnDecimal128V3::create(38, 6);
         auto& src_data = src_col->get_data();
         src_data.resize(0);
-        src_data.push_back(Decimal128V3(123456789012345));
-        src_data.push_back(Decimal128V3(-123456789012345));
+        src_data.push_back(Decimal128V3(int64_t(123456789012345)));
+        src_data.push_back(Decimal128V3(int64_t(-123456789012345)));
         {
             auto node = std::make_shared<VLiteral>(
                     create_texpr_node_from(src_col->operator[](0), TYPE_DECIMAL128I, 38, 6), true);

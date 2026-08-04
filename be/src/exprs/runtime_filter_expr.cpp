@@ -73,9 +73,12 @@ Status RuntimeFilterExpr::clone_node(VExprSPtr* cloned_expr) const {
     DORIS_CHECK(_impl != nullptr);
     VExprSPtr cloned_impl;
     RETURN_IF_ERROR(_impl->deep_clone(&cloned_impl));
-    *cloned_expr = RuntimeFilterExpr::create_shared(clone_texpr_node(), std::move(cloned_impl),
-                                                    _ignore_thredhold, _null_aware, _filter_id,
-                                                    _sampling_frequency);
+    auto cloned_runtime_filter = RuntimeFilterExpr::create_shared(
+            clone_texpr_node(), std::move(cloned_impl), _ignore_thredhold, _null_aware, _filter_id,
+            _sampling_frequency);
+    cloned_runtime_filter->attach_profile_counter(_rf_input_rows, _rf_filter_rows,
+                                                  _always_true_filter_rows);
+    *cloned_expr = std::move(cloned_runtime_filter);
     return Status::OK();
 }
 
@@ -231,6 +234,71 @@ ZoneMapFilterResult RuntimeFilterExpr::evaluate_zonemap_filter(
 
 bool RuntimeFilterExpr::can_evaluate_zonemap_filter() const {
     return _impl->can_evaluate_zonemap_filter();
+}
+
+bool RuntimeFilterExpr::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                        int column_id) const {
+    // Raw and dictionary streams omit NULL payloads and currently map NULL rows to false. A
+    // null-aware RF must therefore stay on execute_filter(), which restores its NULL semantics.
+    return !_null_aware && _impl->can_execute_on_raw_fixed_values(data_type, column_id);
+}
+
+Status RuntimeFilterExpr::execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                                      size_t value_width,
+                                                      const DataTypePtr& data_type, int column_id,
+                                                      uint8_t* matches) const {
+    if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+        return Status::NotSupported("Runtime filter {} cannot evaluate raw fixed-width values",
+                                    _filter_id);
+    }
+    return _impl->execute_on_raw_fixed_values(values, num_values, value_width, data_type, column_id,
+                                              matches);
+}
+
+bool RuntimeFilterExpr::can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                                         int column_id) const {
+    // Definition levels do not carry a payload for NULL. Preserve null-aware semantics on the
+    // ordinary wrapper path instead of treating an absent byte slice as a non-match.
+    return !_null_aware && _impl->can_execute_on_raw_binary_values(data_type, column_id);
+}
+
+Status RuntimeFilterExpr::execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                                       const DataTypePtr& data_type, int column_id,
+                                                       uint8_t* matches) const {
+    if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+        return Status::NotSupported("Runtime filter {} cannot evaluate raw binary values",
+                                    _filter_id);
+    }
+    return _impl->execute_on_raw_binary_values(values, num_values, data_type, column_id, matches);
+}
+
+bool RuntimeFilterExpr::can_execute_on_reader_values(const DataTypePtr& data_type,
+                                                     int column_id) const {
+    if (_null_aware || _impl == nullptr || data_type == nullptr || _impl->get_num_children() == 0) {
+        return false;
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(_impl->get_child(0));
+    if (slot == nullptr || slot->column_id() != column_id || slot->data_type() == nullptr) {
+        return false;
+    }
+    const auto reader_type = remove_nullable(data_type);
+    const auto probe_type = remove_nullable(slot->data_type());
+    // CHAR/VARCHAR/STRING share the same runtime-filter representation; every other logical type
+    // must match exactly so Parquet conversions cannot be interpreted with the wrong RF template.
+    return reader_type->equals(*probe_type) || (is_string_type(reader_type->get_primitive_type()) &&
+                                                is_string_type(probe_type->get_primitive_type()));
+}
+
+ZoneMapFilterResult RuntimeFilterExpr::evaluate_dictionary_filter(
+        const DictionaryEvalContext& ctx) const {
+    if (!can_evaluate_dictionary_filter()) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    return _impl->evaluate_dictionary_filter(ctx);
+}
+
+bool RuntimeFilterExpr::can_evaluate_dictionary_filter() const {
+    return !_null_aware && _impl->can_evaluate_dictionary_filter();
 }
 
 void RuntimeFilterExpr::collect_slot_column_ids(std::set<int>& column_ids) const {

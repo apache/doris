@@ -30,12 +30,15 @@ import java.util.stream.Collectors;
 public class OlapTableRowBinlogSchemaTest {
 
     private static OlapTable newTestTable(BinlogConfig binlogConfig) {
-        long baseIndexId = 1L;
         Column key = new Column("k1", PrimitiveType.INT);
         key.setIsKey(true);
         Column value = new Column("v1", Type.INT, false, null, false, "7", "");
         value.setIsKey(false);
-        List<Column> baseSchema = Lists.newArrayList(key, value);
+        return newTestTable(binlogConfig, Lists.newArrayList(key, value));
+    }
+
+    private static OlapTable newTestTable(BinlogConfig binlogConfig, List<Column> baseSchema) {
+        long baseIndexId = 1L;
 
         // Construct a minimal olap table for row binlog schema generation.
         OlapTable table = new OlapTable(1L, "tbl", baseSchema, KeysType.PRIMARY_KEYS, null, null);
@@ -68,9 +71,9 @@ public class OlapTableRowBinlogSchemaTest {
                 tableWithoutBefore.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
                         .collect(Collectors.toList());
         Assertions.assertFalse(tableWithoutBeforeColumns.contains(Column.generateBeforeColName("v1")));
-        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_LSN_COL), 2);
-        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 3);
-        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_TIMESTAMP_COL), 4);
+        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_TSO_COL), 2);
+        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_LSN_COL), 3);
+        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 4);
         Assertions.assertEquals(tableWithoutBeforeColumns.size(), 5);
         Column afterColumnWithoutBefore = tableWithoutBefore.getRowBinlogMeta().getSchema(true).stream()
                 .filter(column -> column.getName().equals("v1"))
@@ -87,9 +90,9 @@ public class OlapTableRowBinlogSchemaTest {
         List<String> tableWithBeforeColumns =
                 rowBinlogSchemaWithBefore.stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertTrue(tableWithBeforeColumns.contains(Column.generateBeforeColName("v1")));
-        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_LSN_COL), 3);
-        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 4);
-        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_TIMESTAMP_COL), 5);
+        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_TSO_COL), 3);
+        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_LSN_COL), 4);
+        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 5);
         Assertions.assertEquals(tableWithBeforeColumns.size(), 6);
         Column afterColumnWithBefore = rowBinlogSchemaWithBefore.stream()
                 .filter(column -> column.getName().equals("v1"))
@@ -112,5 +115,54 @@ public class OlapTableRowBinlogSchemaTest {
         OlapTable table = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(false, false));
         Assertions.assertFalse(table.needRowBinlog());
         Assertions.assertTrue(table.getBaseIndexMeta().getRowBinlogIndexId() <= 0);
+    }
+
+    @Test
+    public void testRowBinlogSchemaIncludesHiddenKeyColumns() {
+        Column key = new Column("k1", PrimitiveType.INT);
+        key.setIsKey(true);
+        Column hiddenKey = new Column("__DORIS_TEST_HIDDEN_KEY__", PrimitiveType.BIGINT);
+        hiddenKey.setIsKey(true);
+        hiddenKey.setIsVisible(false);
+        Column value = new Column("v1", PrimitiveType.INT);
+        value.setIsKey(false);
+        Column hiddenValue = new Column("__DORIS_TEST_HIDDEN_VALUE__", PrimitiveType.INT);
+        hiddenValue.setIsKey(false);
+        hiddenValue.setIsVisible(false);
+
+        OlapTable table = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, true),
+                Lists.newArrayList(key, hiddenKey, value, hiddenValue));
+
+        List<String> columnNames = table.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
+                .collect(Collectors.toList());
+        Assertions.assertEquals("k1", columnNames.get(0));
+        Assertions.assertEquals("__DORIS_TEST_HIDDEN_KEY__", columnNames.get(1));
+        Assertions.assertEquals("v1", columnNames.get(2));
+        Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
+        Assertions.assertTrue(columnNames.contains(Column.generateBeforeColName("v1")));
+        Assertions.assertFalse(columnNames.contains(Column.generateBeforeColName("__DORIS_TEST_HIDDEN_KEY__")));
+        Assertions.assertEquals(4, columnNames.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(5, columnNames.indexOf(Column.BINLOG_LSN_COL));
+    }
+
+    @Test
+    public void testRowBinlogSchemaSkipsHiddenNonKeyColumnBeforeVisibleColumn() {
+        Column key = new Column("k1", PrimitiveType.INT);
+        key.setIsKey(true);
+        Column hiddenValue = new Column("__DORIS_TEST_HIDDEN_VALUE__", PrimitiveType.INT);
+        hiddenValue.setIsKey(false);
+        hiddenValue.setIsVisible(false);
+        Column value = new Column("v1", PrimitiveType.INT);
+        value.setIsKey(false);
+
+        OlapTable table = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, false),
+                Lists.newArrayList(key, hiddenValue, value));
+        List<String> columnNames = table.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
+                .collect(Collectors.toList());
+        Assertions.assertEquals("k1", columnNames.get(0));
+        Assertions.assertEquals("v1", columnNames.get(1));
+        Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
+        Assertions.assertEquals(2, columnNames.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(3, columnNames.indexOf(Column.BINLOG_LSN_COL));
     }
 }

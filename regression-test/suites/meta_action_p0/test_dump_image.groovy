@@ -17,6 +17,7 @@
 
 suite("test_dump_image", "nonConcurrent") {
     httpTest {
+        basicAuthorization "${context.config.jdbcUser}", "${context.config.jdbcPassword}"
         endpoint context.config.feHttpAddress
         uri "/dump"
         op "get"

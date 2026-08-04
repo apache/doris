@@ -113,4 +113,8 @@ Status BetaRowsetWriterV2::flush_single_block(const Block* block) {
     return _segment_creator.flush_single_block(block);
 }
 
+Status BetaRowsetWriterV2::flush_single_block(const Block* block, int32_t segment_id) {
+    return _segment_creator.flush_single_block(block, segment_id);
+}
+
 } // namespace doris

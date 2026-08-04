@@ -28,8 +28,8 @@ namespace {
 
 constexpr std::string_view PAIMON_OPTION_PREFIX = "paimon.";
 constexpr std::string_view HADOOP_OPTION_PREFIX = "hadoop.";
-constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
-constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
+constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
+constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
 constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_io_tmp";
 
 const std::string* get_paimon_predicate(const TFileScanRangeParams* scan_params,
@@ -59,7 +59,7 @@ Status PaimonJniReader::validate_scan_range(const TFileRangeDesc& range) const {
                 "missing paimon_split for paimon jni reader, possibly caused by FE/BE protocol "
                 "mismatch");
     }
-    if (!range.table_format_params.paimon_params.__isset.reader_type ||
+    if (range.table_format_params.paimon_params.__isset.reader_type &&
         range.table_format_params.paimon_params.reader_type != TPaimonReaderType::PAIMON_JNI) {
         return Status::InternalError(
                 "invalid reader_type for paimon jni reader, possibly caused by FE/BE protocol "
@@ -99,6 +99,11 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
         for (const auto& kv : _scan_params->paimon_options) {
             (*params)[std::string(PAIMON_OPTION_PREFIX) + kv.first] = kv.second;
         }
+    } else if (paimon_params.__isset.paimon_options) {
+        // Rolling upgrades can pair this BE with an older FE that only sends options per split.
+        for (const auto& kv : paimon_params.paimon_options) {
+            (*params)[std::string(PAIMON_OPTION_PREFIX) + kv.first] = kv.second;
+        }
     }
     const std::string enable_io_manager_key =
             std::string(PAIMON_OPTION_PREFIX) + std::string(DORIS_ENABLE_JNI_IO_MANAGER);
@@ -118,10 +123,13 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
         for (const auto& kv : _scan_params->properties) {
             (*params)[std::string(HADOOP_OPTION_PREFIX) + kv.first] = kv.second;
         }
+    } else if (paimon_params.__isset.hadoop_conf) {
+        for (const auto& kv : paimon_params.hadoop_conf) {
+            (*params)[std::string(HADOOP_OPTION_PREFIX) + kv.first] = kv.second;
+        }
     }
     // TODO: Remove legacy split-level paimon_predicate, paimon_options and hadoop_conf from thrift
-    // after all readers stop using them. Predicate keeps the split-level fallback for rolling
-    // upgrade compatibility with old FE paths that did not send scan-level paimon_predicate.
+    // after the minimum supported FE always sends their scan-level replacements.
     return Status::OK();
 }
 

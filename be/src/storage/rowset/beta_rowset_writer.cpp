@@ -900,6 +900,10 @@ Status BaseBetaRowsetWriter::flush_single_block(const Block* block) {
     return _segment_creator.flush_single_block(block);
 }
 
+Status BaseBetaRowsetWriter::flush_single_block(const Block* block, int32_t segment_id) {
+    return _segment_creator.flush_single_block(block, segment_id);
+}
+
 Status BetaRowsetWriter::_wait_flying_segcompaction() {
     std::unique_lock<std::mutex> l(_is_doing_segcompaction_lock);
     uint64_t begin_wait = GetCurrentTimeMicros();

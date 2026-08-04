@@ -26,6 +26,7 @@
 namespace doris {
 
 constexpr inline int USE_NEW_FIXED_OBJECT_SERIALIZATION_VERSION = 10;
+constexpr inline int SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION = 11;
 
 class BeExecVersionManager {
 public:

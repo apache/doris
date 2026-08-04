@@ -35,13 +35,14 @@ public:
             const SegmentFooterPB& footer,
             std::unordered_map<int32_t, size_t>* uid_to_colid) const = 0;
     // Lookup ColumnMetaPB by logical ordinal id using the provided footer.
-    virtual Status get_column_meta_by_column_ordinal_id(const SegmentFooterPB& footer,
-                                                        uint32_t column_ordinal_id,
-                                                        ColumnMetaPB* out) const = 0;
+    virtual Status get_column_meta_by_column_ordinal_id(
+            const SegmentFooterPB& footer, uint32_t column_ordinal_id, ColumnMetaPB* out,
+            OlapReaderStatistics* stats, const io::IOContext* source_io_ctx) const = 0;
     // Traverse all ColumnMetaPBs using the provided footer.
-    virtual Status traverse_metas(
-            const SegmentFooterPB& footer,
-            const std::function<void(const ColumnMetaPB&)>& visitor) const = 0;
+    virtual Status traverse_metas(const SegmentFooterPB& footer,
+                                  const std::function<void(const ColumnMetaPB&)>& visitor,
+                                  OlapReaderStatistics* stats,
+                                  const io::IOContext* source_io_ctx) const = 0;
 };
 
 // V2: inline layout using only footer.columns().
@@ -67,8 +68,9 @@ public:
     }
 
     Status get_column_meta_by_column_ordinal_id(const SegmentFooterPB& footer,
-                                                uint32_t column_ordinal_id,
-                                                ColumnMetaPB* out) const override {
+                                                uint32_t column_ordinal_id, ColumnMetaPB* out,
+                                                OlapReaderStatistics*,
+                                                const io::IOContext*) const override {
         if (footer.columns_size() == 0 ||
             column_ordinal_id >= static_cast<uint32_t>(footer.columns_size())) {
             return Status::Corruption(
@@ -80,7 +82,8 @@ public:
     }
 
     Status traverse_metas(const SegmentFooterPB& footer,
-                          const std::function<void(const ColumnMetaPB&)>& visitor) const override {
+                          const std::function<void(const ColumnMetaPB&)>& visitor,
+                          OlapReaderStatistics*, const io::IOContext*) const override {
         if (footer.columns_size() == 0) {
             return Status::Corruption("no column meta found in footer (inline V2)");
         }
@@ -109,12 +112,13 @@ public:
     }
 
     Status get_column_meta_by_column_ordinal_id(const SegmentFooterPB& footer,
-                                                uint32_t column_ordinal_id,
-                                                ColumnMetaPB* out) const override {
+                                                uint32_t column_ordinal_id, ColumnMetaPB* out,
+                                                OlapReaderStatistics* stats,
+                                                const io::IOContext* source_io_ctx) const override {
         // Prefer external Column Meta Region first.
         if (column_ordinal_id < _ptrs.num_columns) {
             return ExternalColMetaUtil::read_col_meta(_file_reader, footer, _ptrs,
-                                                      column_ordinal_id, out);
+                                                      column_ordinal_id, out, stats, source_io_ctx);
         }
         return Status::Corruption(
                 "no column meta available for column_id={} (inline/external missing)",
@@ -122,7 +126,9 @@ public:
     }
 
     Status traverse_metas(const SegmentFooterPB& footer,
-                          const std::function<void(const ColumnMetaPB&)>& visitor) const override {
+                          const std::function<void(const ColumnMetaPB&)>& visitor,
+                          OlapReaderStatistics* stats,
+                          const io::IOContext* source_io_ctx) const override {
         const uint64_t region_size = (_ptrs.region_end > _ptrs.region_start)
                                              ? (_ptrs.region_end - _ptrs.region_start)
                                              : 0;
@@ -134,7 +140,15 @@ public:
         std::string region_buf;
         region_buf.resize(static_cast<size_t>(region_size));
         size_t br = 0;
-        io::IOContext io_ctx {.is_index_data = true};
+        io::IOContext io_ctx;
+        if (source_io_ctx != nullptr) {
+            io_ctx = *source_io_ctx;
+        }
+        io_ctx.is_index_data = true;
+        io_ctx.is_inverted_index = false;
+        if (stats != nullptr) {
+            io_ctx.file_cache_stats = &stats->file_cache_stats;
+        }
         RETURN_IF_ERROR(_file_reader->read_at(_ptrs.region_start, Slice(region_buf), &br, &io_ctx));
         if (br != region_size) {
             return Status::Corruption("short read on meta region");
@@ -187,14 +201,16 @@ Status ColumnMetaAccessor::init(const SegmentFooterPB& footer, io::FileReaderSPt
     return Status::OK();
 }
 
-Status ColumnMetaAccessor::get_column_meta_by_column_ordinal_id(const SegmentFooterPB& footer,
-                                                                uint32_t column_ordinal_id,
-                                                                ColumnMetaPB* out) const {
-    return _impl->get_column_meta_by_column_ordinal_id(footer, column_ordinal_id, out);
+Status ColumnMetaAccessor::get_column_meta_by_column_ordinal_id(
+        const SegmentFooterPB& footer, uint32_t column_ordinal_id, ColumnMetaPB* out,
+        OlapReaderStatistics* stats, const io::IOContext* source_io_ctx) const {
+    return _impl->get_column_meta_by_column_ordinal_id(footer, column_ordinal_id, out, stats,
+                                                       source_io_ctx);
 }
 
 Status ColumnMetaAccessor::get_column_meta_by_uid(const SegmentFooterPB& footer, int32_t column_uid,
-                                                  ColumnMetaPB* out) const {
+                                                  ColumnMetaPB* out, OlapReaderStatistics* stats,
+                                                  const io::IOContext* source_io_ctx) const {
     auto it = _column_uid_to_column_ordinal.find(column_uid);
     if (it == _column_uid_to_column_ordinal.end()) {
         *out = ColumnMetaPB();
@@ -202,17 +218,18 @@ Status ColumnMetaAccessor::get_column_meta_by_uid(const SegmentFooterPB& footer,
                 "column not found in segment meta, col_uid={}", column_uid);
     }
     return _impl->get_column_meta_by_column_ordinal_id(footer, static_cast<uint32_t>(it->second),
-                                                       out);
+                                                       out, stats, source_io_ctx);
 }
 
 bool ColumnMetaAccessor::has_column_uid(int32_t column_uid) const {
     return _column_uid_to_column_ordinal.contains(column_uid);
 }
 
-Status ColumnMetaAccessor::traverse_metas(
-        const SegmentFooterPB& footer,
-        const std::function<void(const ColumnMetaPB&)>& visitor) const {
-    return _impl->traverse_metas(footer, visitor);
+Status ColumnMetaAccessor::traverse_metas(const SegmentFooterPB& footer,
+                                          const std::function<void(const ColumnMetaPB&)>& visitor,
+                                          OlapReaderStatistics* stats,
+                                          const io::IOContext* source_io_ctx) const {
+    return _impl->traverse_metas(footer, visitor, stats, source_io_ctx);
 }
 
 } // namespace doris::segment_v2

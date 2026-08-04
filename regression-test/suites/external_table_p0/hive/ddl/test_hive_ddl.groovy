@@ -23,7 +23,7 @@ suite("test_hive_ddl", "p0,external") {
         def test_db = { String catalog_name ->
             logger.info("Test create/drop database...")
             sql """switch ${catalog_name}"""
-            sql """ drop database if exists `test_hive_db` """;
+            sql """ drop database if exists `test_hive_db` force """;
             sql """ create database if not exists ${catalog_name}.`test_hive_db` """;
             def create_db_res = sql """ show create database test_hive_db """
             logger.info("${create_db_res}")
@@ -36,7 +36,7 @@ suite("test_hive_ddl", "p0,external") {
                  """
             test {
                 sql """ drop database `test_hive_db` """;
-                exception "java.sql.SQLException: errCode = 2, detailMessage = failed to drop database from hms client. reason: org.apache.hadoop.hive.metastore.api.InvalidOperationException: Database test_hive_db is not empty. One or more tables exist."
+                exception "java.sql.SQLException: errCode = 2, detailMessage = Failed to drop Hive database test_hive_db: HMS operation failed: Database test_hive_db is not empty. One or more tables exist."
             }
 
             sql """ DROP TABLE `test_hive_db_has_tbl` """
@@ -111,7 +111,7 @@ suite("test_hive_ddl", "p0,external") {
                           'file_format'='${file_format}'
                         )
                     """
-                exception "failed to create table from hms client. reason: java.lang.UnsupportedOperationException: Table with default values is not supported if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties."
+                exception "Table with default values is not supported"
             }
 
             test {
@@ -439,7 +439,7 @@ suite("test_hive_ddl", "p0,external") {
                             'replication_num' = '1'
                         );
                     """
-                exception "Cannot create olap table out of internal catalog. Make sure 'engine' type is specified when use the catalog: test_hive_ddl"
+                exception "Engine 'olap' does not match catalog 'test_hive_ddl'."
             }
 
             // test default engine is hive in hive catalog
@@ -462,7 +462,7 @@ suite("test_hive_ddl", "p0,external") {
                             'replication_num' = '1'
                         );
                     """
-                exception "Create hive bucket table need set enable_create_hive_bucket_table to true"
+                exception "Create hive bucket table need set 'enable_create_bucket_table' in hms.conf (or enable_create_hive_bucket_table in fe.conf) to true"
             }
 
             sql """ SWITCH internal """
@@ -475,7 +475,7 @@ suite("test_hive_ddl", "p0,external") {
                           `col` STRING COMMENT 'col'
                         )  ENGINE=hive 
                     """
-                exception "Cannot create hive table in internal catalog, should switch to hive catalog."
+                exception "Engine 'hive' does not match catalog 'internal'."
             }
 
             sql """ DROP DATABASE IF EXISTS test_olap_cross_catalog """
@@ -672,7 +672,7 @@ suite("test_hive_ddl", "p0,external") {
                       'file_format'='${file_format}'
                     )
                     """
-                exception "failed to create table from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of largeint"
+                exception "Unsupported type conversion of"
             }
 
             test {
@@ -724,12 +724,12 @@ suite("test_hive_ddl", "p0,external") {
 
             test {
                 sql """ create table err_tb (id int) engine = iceberg """
-                exception "Hms type catalog can only use `hive` engine."
+                exception "Engine 'iceberg' does not match catalog '${catalog_name}'."
             }
 
             test {
                 sql """ create table err_tb (id int) engine = jdbc """
-                exception "Hms type catalog can only use `hive` engine."
+                exception "Engine 'jdbc' does not match catalog '${catalog_name}'."
             }
 
             sql """ drop database test_hive_db_error_tbl """

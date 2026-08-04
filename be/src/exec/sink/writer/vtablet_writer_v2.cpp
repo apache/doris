@@ -398,11 +398,11 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
                 Rows rows;
                 rows.partition_id = partition_ids[i];
                 rows.index_id = _schema->indexes()[index_idx]->index_id;
-                rows.row_idxes.reserve(row_ids.size());
+                rows.row_payload.row_idxs.reserve(row_ids.size());
                 auto [tmp_it, _] = rows_for_tablet.insert({tablet_id, rows});
                 it = tmp_it;
             }
-            it->second.row_idxes.push_back(row_ids[i]);
+            it->second.row_payload.row_idxs.push_back(row_ids[i]);
             _number_output_rows++;
         }
     }
@@ -605,7 +605,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
     SCOPED_TIMER(_write_memtable_timer);
     bool memtable_flushed = false;
     st = delta_writer->write(
-            block.get(), rows.row_idxes,
+            block.get(), rows.row_payload,
             [state = _state]() {
                 if (state->is_cancelled()) {
                     return state->cancel_reason();
@@ -670,8 +670,9 @@ Status VTabletWriterV2::close(Status exec_status) {
     }
 
     DBUG_EXECUTE_IF("VTabletWriterV2.close.sleep", {
-        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "VTabletWriterV2.close.sleep", "sleep_sec", 1);
+        auto sleep_sec = dp->param<int32_t>("sleep_sec", 1);
+        auto token = dp->param<std::string>("token", "");
+        LOG(INFO) << "hit debug point VTabletWriterV2.close.sleep, token=" << token;
         std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
     });
     DBUG_EXECUTE_IF("VTabletWriterV2.close.cancel",
@@ -725,9 +726,23 @@ Status VTabletWriterV2::close(Status exec_status) {
         // close_wait on all non-incremental streams, even if this is not the last sink.
         // because some per-instance data structures are now shared among all sinks
         // due to sharing delta writers and load stream stubs.
-        // Do not need to wait after quorum success,
-        // for first-stage close_wait only ensure incremental streams load has been completed,
-        // unified waiting in the second-stage close_wait.
+        //
+        // This stage is also a cross-source fence for a source that has incremental streams:
+        // it must not close those streams before every other source has entered the close
+        // phase and can no longer open new incremental streams.
+        //
+        // A stream contributes to quorum only after CLOSE_LOAD has been sent
+        // (LoadStreamStub::is_closing) and the sender has observed both EOS and StreamClose.
+        // When this source has incremental streams, its non-incremental CLOSE_LOAD carries
+        // num_incremental_streams > 0, so the destination defers StreamClose until CLOSE_LOAD
+        // has arrived from all sources (LoadStream::_dispatch). Therefore, any non-incremental
+        // stream counted towards quorum is a valid lifecycle fence for this source.
+        //
+        // A source without incremental streams does not require this fence because it has no
+        // incremental streams to close.
+        //
+        // The remaining streams do not need to be waited for in this stage; they are included
+        // in the second-stage close_wait.
         RETURN_IF_ERROR(_close_wait(_non_incremental_streams(), false));
 
         // send CLOSE_LOAD on all incremental streams if this is the last sink.
@@ -897,7 +912,9 @@ bool VTabletWriterV2::_quorum_success(
     for (const auto& [dst_id, streams] : streams_for_node) {
         bool finished = true;
         for (const auto& stream : streams->streams()) {
-            if (unfinished_streams.contains(stream) || !stream->check_cancel().ok()) {
+            // Incremental streams do not participate in the first close stage.
+            if (!stream->is_closing() || unfinished_streams.contains(stream) ||
+                !stream->check_cancel().ok()) {
                 finished = false;
                 break;
             }

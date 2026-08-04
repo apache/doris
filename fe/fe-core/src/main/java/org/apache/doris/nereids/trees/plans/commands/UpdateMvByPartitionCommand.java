@@ -330,7 +330,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                                 continue;
                             }
                             if (!((OlapTable) targetTable).selectNonEmptyPartitionIds(
-                                    Lists.newArrayList(partition.getId())).isEmpty()) {
+                                    Lists.newArrayList(partition.getId()), Optional.empty()).isEmpty()) {
                                 // Add filter only when partition has data when olap table
                                 partitionHasDataItems.add(
                                         ((OlapTable) targetTable).getPartitionInfo().getItem(partition.getId()));

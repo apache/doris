@@ -161,12 +161,12 @@ Status BaseDeltaWriter::init() {
     return Status::OK();
 }
 
-Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+Status DeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
                           bool* memtable_flushed) {
     if (memtable_flushed != nullptr) {
         *memtable_flushed = false;
     }
-    if (UNLIKELY(row_idxs.empty())) {
+    if (UNLIKELY(rows.row_idxs.empty())) {
         return Status::OK();
     }
     if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
@@ -190,7 +190,7 @@ Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_i
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    return _memtable_writer->write(block, row_idxs, memtable_flushed);
+    return _memtable_writer->write(block, rows, memtable_flushed);
 }
 
 Status BaseDeltaWriter::wait_flush() {

@@ -45,7 +45,7 @@
 ["v1",6.6,[1,2],2]
 
 -- !json_extract_no_quotes --
-"doris"
+doris
 
 -- !json_extract_isnull --
 false

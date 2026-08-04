@@ -121,6 +121,7 @@ struct CreateTabletRequestColumnDef {
     bool is_key = false;
     bool has_aggregation_type = false;
     TAggregationType::type aggregation_type = TAggregationType::NONE;
+    bool is_allow_null = false;
 };
 
 // Append a ColumnPB to `schema_pb`. Currently only INT and STRING columns are supported.
@@ -163,6 +164,7 @@ inline TColumn create_tablet_column(const CreateTabletRequestColumnDef& column_d
     TColumn column;
     column.column_name = column_def.column_name;
     column.__set_is_key(column_def.is_key);
+    column.__set_is_allow_null(column_def.is_allow_null);
     column.column_type.type = column_def.type;
     if (column_def.has_aggregation_type) {
         column.__set_aggregation_type(column_def.aggregation_type);
@@ -212,14 +214,15 @@ inline void enable_row_binlog(TCreateTabletReq* request, int32_t row_binlog_sche
         }
     }
 
-    row_binlog_schema.columns.push_back(
-            create_tablet_column({std::string(kRowBinlogLsnColName), TPrimitiveType::LARGEINT,
-                                  false, true, TAggregationType::NONE}));
     row_binlog_schema.columns.push_back(create_tablet_column(
-            {"__DORIS_BINLOG_OP__", TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
-    row_binlog_schema.columns.push_back(
-            create_tablet_column({std::string(kRowBinlogTimestampColName), TPrimitiveType::BIGINT,
-                                  false, true, TAggregationType::NONE}));
+            {BINLOG_TSO_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE, true}));
+    row_binlog_schema.__set_binlog_tso_idx(row_binlog_schema.columns.size() - 1);
+    row_binlog_schema.columns.push_back(create_tablet_column(
+            {BINLOG_LSN_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    row_binlog_schema.__set_binlog_lsn_idx(row_binlog_schema.columns.size() - 1);
+    row_binlog_schema.columns.push_back(create_tablet_column(
+            {BINLOG_OP_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    row_binlog_schema.__set_binlog_op_idx(row_binlog_schema.columns.size() - 1);
     request->__set_row_binlog_schema(row_binlog_schema);
 }
 

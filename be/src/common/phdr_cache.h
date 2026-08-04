@@ -75,5 +75,7 @@ public:
     ScopedPHDRCacheRead& operator=(const ScopedPHDRCacheRead&) = delete;
 
 private:
+#if defined(__linux__) && !defined(THREAD_SANITIZER) && !defined(USE_MUSL)
     bool _previous = false;
+#endif
 };

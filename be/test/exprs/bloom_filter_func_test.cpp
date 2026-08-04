@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -29,9 +30,12 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/block_bloom_filter.hpp"
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "testutil/column_helper.h"
 #include "util/url_coding.h"
 
@@ -77,6 +81,30 @@ TEST_F(BloomFilterFuncTest, Init) {
 
     bloom_filter_func.light_copy(&bloom_filter_func2);
     bloom_filter_func2.light_copy(&bloom_filter_func);
+}
+
+TEST_F(BloomFilterFuncTest, TrackBlockBloomFilterMemory) {
+    constexpr int initial_log_space_bytes = 22;
+    constexpr int resized_log_space_bytes = 23;
+    auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "BlockBloomFilterMemoryTest");
+    auto switch_mem_tracker = SwitchThreadMemTrackerLimiter(mem_tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t initial_consumption = mem_tracker->consumption();
+
+    BlockBloomFilter bloom_filter;
+    ASSERT_TRUE(bloom_filter.init(initial_log_space_bytes, 0).ok());
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(mem_tracker->consumption(), initial_consumption + (1ULL << initial_log_space_bytes));
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(bloom_filter.directory().data) % 32, 0);
+
+    ASSERT_TRUE(bloom_filter.init(resized_log_space_bytes, 0).ok());
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(mem_tracker->consumption(), initial_consumption + (1ULL << resized_log_space_bytes));
+
+    bloom_filter.close();
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(mem_tracker->consumption(), initial_consumption);
 }
 
 TEST_F(BloomFilterFuncTest, FixedLenToUInt32) {
@@ -198,6 +226,134 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
     ASSERT_EQ(find_count, 2);
     ASSERT_EQ(offsets[0], 0);
     ASSERT_EQ(offsets[1], 2);
+}
+
+TEST_F(BloomFilterFuncTest, RawFixedCapabilitiesCoverEveryFixedRuntimeFilterType) {
+#define EXPECT_RAW_FIXED(TYPE)                                                   \
+    do {                                                                         \
+        BloomFilterFunc<TYPE> filter(false);                                     \
+        EXPECT_TRUE(filter.supports_raw_fixed_values()) << type_to_string(TYPE); \
+        EXPECT_EQ(filter.raw_fixed_value_size(),                                 \
+                  sizeof(typename PrimitiveTypeTraits<TYPE>::CppType))           \
+                << type_to_string(TYPE);                                         \
+    } while (false)
+    EXPECT_RAW_FIXED(TYPE_BOOLEAN);
+    EXPECT_RAW_FIXED(TYPE_TINYINT);
+    EXPECT_RAW_FIXED(TYPE_SMALLINT);
+    EXPECT_RAW_FIXED(TYPE_INT);
+    EXPECT_RAW_FIXED(TYPE_BIGINT);
+    EXPECT_RAW_FIXED(TYPE_LARGEINT);
+    EXPECT_RAW_FIXED(TYPE_FLOAT);
+    EXPECT_RAW_FIXED(TYPE_DOUBLE);
+    EXPECT_RAW_FIXED(TYPE_DATE);
+    EXPECT_RAW_FIXED(TYPE_DATETIME);
+    EXPECT_RAW_FIXED(TYPE_DATEV2);
+    EXPECT_RAW_FIXED(TYPE_DATETIMEV2);
+    EXPECT_RAW_FIXED(TYPE_TIMESTAMPTZ);
+    EXPECT_RAW_FIXED(TYPE_DECIMAL32);
+    EXPECT_RAW_FIXED(TYPE_DECIMAL64);
+    EXPECT_RAW_FIXED(TYPE_DECIMALV2);
+    EXPECT_RAW_FIXED(TYPE_DECIMAL128I);
+    EXPECT_RAW_FIXED(TYPE_DECIMAL256);
+    EXPECT_RAW_FIXED(TYPE_IPV4);
+    EXPECT_RAW_FIXED(TYPE_IPV6);
+#undef EXPECT_RAW_FIXED
+
+    BloomFilterFunc<TYPE_STRING> string_filter(false);
+    EXPECT_FALSE(string_filter.supports_raw_fixed_values());
+    EXPECT_EQ(string_filter.raw_fixed_value_size(), 0);
+}
+
+TEST_F(BloomFilterFuncTest, RawFixedProbeUsesTheSameHashAsColumnProbe) {
+    BloomFilterFunc<TYPE_INT> filter(false);
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, TYPE_INT, false, 0, 0, 0, 256, 0, 0};
+    filter.init_params(&params);
+    ASSERT_TRUE(filter.init_with_fixed_length(1024).ok());
+    auto build_column = ColumnHelper::create_column<DataTypeInt32>({2, 4});
+    filter.insert_fixed_len(build_column, 0);
+
+    const std::array<int32_t, 4> values {1, 2, 3, 4};
+    std::array<uint8_t, 4> raw_matches {1, 1, 1, 1};
+    ASSERT_TRUE(filter.find_batch_raw_fixed(reinterpret_cast<const uint8_t*>(values.data()),
+                                            values.size(), sizeof(int32_t), raw_matches.data())
+                        .ok());
+
+    auto probe_column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4});
+    std::array<uint8_t, 4> column_matches {};
+    filter.find_fixed_len(probe_column, column_matches.data());
+    EXPECT_EQ(column_matches, raw_matches);
+}
+
+TEST_F(BloomFilterFuncTest, RawFixedProbeMatchesBuildHashForEveryFixedRuntimeFilterType) {
+    const auto expect_match = []<PrimitiveType TYPE>() {
+        BloomFilterFunc<TYPE> filter(false);
+        RuntimeFilterParams params;
+        params.filter_type = RuntimeFilterType::BLOOM_FILTER;
+        params.column_return_type = TYPE;
+        params.bloom_filter_size = 1024;
+        filter.init_params(&params);
+        ASSERT_TRUE(filter.init_with_fixed_length(1024).ok()) << type_to_string(TYPE);
+
+        using ValueType = typename PrimitiveTypeTraits<TYPE>::CppType;
+        ValueType value {};
+        auto set = std::make_shared<HybridSet<TYPE>>(false);
+        set->insert(&value);
+        filter.insert_set(set);
+
+        uint8_t match = 1;
+        ASSERT_TRUE(filter.find_batch_raw_fixed(reinterpret_cast<const uint8_t*>(&value), 1,
+                                                sizeof(ValueType), &match)
+                            .ok())
+                << type_to_string(TYPE);
+        EXPECT_EQ(match, 1) << type_to_string(TYPE);
+        EXPECT_TRUE(filter.test_field(Field::create_field<TYPE>(value))) << type_to_string(TYPE);
+    };
+
+#define EXPECT_RAW_FIXED_MATCH(TYPE) expect_match.template operator()<TYPE>()
+    EXPECT_RAW_FIXED_MATCH(TYPE_BOOLEAN);
+    EXPECT_RAW_FIXED_MATCH(TYPE_TINYINT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_SMALLINT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_INT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_BIGINT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_LARGEINT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_FLOAT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DOUBLE);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DATE);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DATETIME);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DATEV2);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DATETIMEV2);
+    EXPECT_RAW_FIXED_MATCH(TYPE_TIMESTAMPTZ);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMAL32);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMAL64);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMALV2);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMAL128I);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMAL256);
+    EXPECT_RAW_FIXED_MATCH(TYPE_IPV4);
+    EXPECT_RAW_FIXED_MATCH(TYPE_IPV6);
+#undef EXPECT_RAW_FIXED_MATCH
+}
+
+TEST_F(BloomFilterFuncTest, DictionaryFieldProbeSupportsEveryStringRuntimeFilterType) {
+    const auto expect_match = []<PrimitiveType TYPE>() {
+        BloomFilterFunc<TYPE> filter(false);
+        RuntimeFilterParams params;
+        params.filter_type = RuntimeFilterType::BLOOM_FILTER;
+        params.column_return_type = TYPE;
+        params.bloom_filter_size = 1024;
+        filter.init_params(&params);
+        ASSERT_TRUE(filter.init_with_fixed_length(1024).ok()) << type_to_string(TYPE);
+
+        auto column = ColumnString::create();
+        column->insert_data("value", 5);
+        filter.insert_fixed_len(std::move(column), 0);
+        EXPECT_TRUE(filter.test_field(Field::create_field<TYPE_STRING>(std::string("value"))))
+                << type_to_string(TYPE);
+    };
+
+    expect_match.template operator()<TYPE_CHAR>();
+    expect_match.template operator()<TYPE_VARCHAR>();
+    expect_match.template operator()<TYPE_STRING>();
 }
 
 TEST_F(BloomFilterFuncTest, Merge) {

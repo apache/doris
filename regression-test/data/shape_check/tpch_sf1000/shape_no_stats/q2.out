@@ -21,7 +21,7 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0 RF1
 ------------------------------------PhysicalProject
---------------------------------------filter((p_type like '%BRASS') and (part.p_size = 15))
+--------------------------------------filter((part.p_size = 15) and (part.p_type like '%BRASS'))
 ----------------------------------------PhysicalLazyMaterializeOlapScan[part lazySlots:(part.p_mfgr)]
 --------------------------------PhysicalLazyMaterializeOlapScan[supplier lazySlots:(supplier.s_address,supplier.s_phone,supplier.s_comment)] apply RFs: RF2
 ----------------------------PhysicalProject

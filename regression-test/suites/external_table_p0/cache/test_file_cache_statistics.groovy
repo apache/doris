@@ -28,8 +28,8 @@ final String HIT_RATIO_5M_METRIC_FALSE_MSG = HIT_RATIO_CHECK_FAILED_PREFIX + "hi
 
 // Constants for normal queue check
 final String NORMAL_QUEUE_CHECK_FAILED_PREFIX = "Normal queue check failed: "
-final String NORMAL_QUEUE_SIZE_VALIDATION_FAILED_MSG = NORMAL_QUEUE_CHECK_FAILED_PREFIX + "size validation failed (curr_size should be > 0 and < max_size)"
-final String NORMAL_QUEUE_ELEMENTS_VALIDATION_FAILED_MSG = NORMAL_QUEUE_CHECK_FAILED_PREFIX + "elements validation failed (curr_elements should be > 0 and < max_elements)"
+final String NORMAL_QUEUE_SIZE_VALIDATION_FAILED_MSG = NORMAL_QUEUE_CHECK_FAILED_PREFIX + "size validation failed (curr_size should be > 0 and <= total cache capacity)"
+final String NORMAL_QUEUE_ELEMENTS_VALIDATION_FAILED_MSG = NORMAL_QUEUE_CHECK_FAILED_PREFIX + "elements validation failed (curr_elements should be > 0)"
 
 // Constants for hit and read counts check
 final String HIT_AND_READ_COUNTS_CHECK_FAILED_PREFIX = "Hit and read counts check failed: "
@@ -45,6 +45,12 @@ suite("test_file_cache_statistics", "p0,external,nonConcurrent") {
 
     sql """set enable_file_cache=true"""
     sql """set disable_file_cache=false"""
+    // This case validates BlockFileCache counters. Keep upper-layer caches and scan scheduling
+    // from serving or cancelling the repeated read before it reaches BlockFileCache.
+    sql """set enable_sql_cache=false"""
+    sql """set enable_hive_sql_cache=false"""
+    sql """set enable_parquet_file_page_cache=false"""
+    sql """set parallel_pipeline_task_num=1"""
 
     // Check backend configuration prerequisites
     // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent 
@@ -82,8 +88,10 @@ suite("test_file_cache_statistics", "p0,external,nonConcurrent") {
 
     sql """switch ${catalog_name}"""
 
+    // Pin the query to one partition file instead of racing all six file scan ranges under LIMIT 1.
     String querySql = """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
-            where l_orderkey=1 and l_partkey=1534 limit 1;"""
+            where nation='cn' and city='beijing'
+            and l_orderkey=1 and l_partkey=1534 limit 1;"""
 
     // load the table into file cache
     sql querySql
@@ -122,12 +130,20 @@ suite("test_file_cache_statistics", "p0,external,nonConcurrent") {
     Double normalQueueMaxSize = cacheMetricSum('normal_queue_max_size')
     Double normalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
     Double normalQueueMaxElements = cacheMetricSum('normal_queue_max_elements')
+    Double indexQueueMaxSize = cacheMetricSum('index_queue_max_size')
+    Double ttlQueueMaxSize = cacheMetricSum('ttl_queue_max_size')
+    Double disposableQueueMaxSize = cacheMetricSum('disposable_queue_max_size')
+    Double cacheCapacity = (normalQueueMaxSize == null || indexQueueMaxSize == null ||
+            ttlQueueMaxSize == null || disposableQueueMaxSize == null) ? null :
+            normalQueueMaxSize + indexQueueMaxSize + ttlQueueMaxSize + disposableQueueMaxSize
     logger.info("Normal queue metrics - curr_size: ${normalQueueCurrSize}, max_size: ${normalQueueMaxSize}, " +
             "curr_elements: ${normalQueueCurrElements}, max_elements: ${normalQueueMaxElements}")
-    assertTrue(normalQueueCurrSize > 0.0 && normalQueueCurrSize < normalQueueMaxSize,
+    logger.info("Total file cache capacity: ${cacheCapacity}")
+    // A queue's max_size is a soft limit. A queue may borrow unused capacity from
+    // other queues, while the total cache capacity remains the hard upper bound.
+    assertTrue(normalQueueCurrSize > 0.0 && cacheCapacity != null && normalQueueCurrSize <= cacheCapacity,
             NORMAL_QUEUE_SIZE_VALIDATION_FAILED_MSG)
-    assertTrue(normalQueueCurrElements > 0.0 && normalQueueCurrElements < normalQueueMaxElements,
-            NORMAL_QUEUE_ELEMENTS_VALIDATION_FAILED_MSG)
+    assertTrue(normalQueueCurrElements > 0.0, NORMAL_QUEUE_ELEMENTS_VALIDATION_FAILED_MSG)
 
     Double initialHitCounts = cacheMetricSum('total_hit_counts')
     Double initialReadCounts = cacheMetricSum('total_read_counts')

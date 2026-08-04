@@ -259,7 +259,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         String schema = cdcConfig.get(DataSourceConfigKeys.SCHEMA);
         Preconditions.checkNotNull(schema, "schema is required");
         configFactory.schemaList(new String[] {schema});
-        configFactory.includeSchemaChanges(true);
+        boolean schemaChangeEnabled =
+                Boolean.parseBoolean(
+                        cdcConfig.getOrDefault(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "true"));
+        configFactory.includeSchemaChanges(schemaChangeEnabled);
 
         // Set table list
         String[] tableList = ConfigUtil.getTableList(schema, cdcConfig);
