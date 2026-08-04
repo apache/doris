@@ -47,6 +47,7 @@ namespace doris::expr_zonemap {
 
 struct InZonemapMaterializedSet {
     bool contains_null = false;
+    bool contains_nan = false;
     std::vector<Field> values;
     Field min_value;
     Field max_value;
@@ -157,7 +158,8 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
 
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
                                     bool is_not_in, const std::vector<Field>& values,
-                                    const Field& min_value, const Field& max_value);
+                                    bool contains_nan, const Field& min_value,
+                                    const Field& max_value);
 
 ZoneMapFilterResult eval_eq_dictionary(const DictionaryEvalContext& ctx,
                                        const SlotLiteral& slot_literal);

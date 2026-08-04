@@ -2011,6 +2011,12 @@ TEST_F(ParquetExprTest, floating_nan_predicates_ignore_finite_only_parquet_range
 
         ComparisonPredicateBase<Type, PredicateType::EQ> eq_pred(col_idx, "",
                                                                  Field::create_field<Type>(nan));
+        ComparisonPredicateBase<Type, PredicateType::NE> ne_pred(col_idx, "",
+                                                                 Field::create_field<Type>(T {0}));
+        ComparisonPredicateBase<Type, PredicateType::GT> gt_pred(col_idx, "",
+                                                                 Field::create_field<Type>(T {1}));
+        ComparisonPredicateBase<Type, PredicateType::GE> ge_pred(col_idx, "",
+                                                                 Field::create_field<Type>(T {1}));
         auto set = std::make_shared<HybridSet<Type>>(false);
         for (int value = 10; value < 10 + FIXED_CONTAINER_MAX_SIZE; ++value) {
             T finite = static_cast<T>(value);
@@ -2018,8 +2024,13 @@ TEST_F(ParquetExprTest, floating_nan_predicates_ignore_finite_only_parquet_range
         }
         set->insert(&nan);
         InListPredicateBase<Type, PredicateType::IN_LIST, 0> in_pred(col_idx, "", set, false);
+        auto not_in_set = std::make_shared<HybridSet<Type>>(false);
+        const T zero = T {0};
+        not_in_set->insert(&zero);
+        InListPredicateBase<Type, PredicateType::NOT_IN_LIST, 0> not_in_pred(col_idx, "",
+                                                                             not_in_set, false);
 
-        const auto check_footer = [&](const auto& predicate) {
+        const auto check_footer = [&](const auto& predicate, int expected_bloom_loader_calls) {
             ParquetPredicate::ColumnStat stat;
             stat.ctz = &ctz;
             std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
@@ -2041,10 +2052,14 @@ TEST_F(ParquetExprTest, floating_nan_predicates_ignore_finite_only_parquet_range
                     };
             stat.get_bloom_filter_func = &get_bloom_filter_func;
             EXPECT_TRUE(predicate.evaluate_and(&stat));
-            EXPECT_EQ(1, bloom_loader_calls);
+            EXPECT_EQ(expected_bloom_loader_calls, bloom_loader_calls);
         };
-        check_footer(eq_pred);
-        check_footer(in_pred);
+        check_footer(eq_pred, 1);
+        check_footer(in_pred, 1);
+        check_footer(ne_pred, 0);
+        check_footer(gt_pred, 0);
+        check_footer(ge_pred, 0);
+        check_footer(not_in_pred, 0);
 
         ParquetPredicate::CachedPageIndexStat cached_page_index;
         cached_page_index.ctz = &ctz;
@@ -2067,6 +2082,18 @@ TEST_F(ParquetExprTest, floating_nan_predicates_ignore_finite_only_parquet_range
         RowRanges in_ranges;
         EXPECT_TRUE(in_pred.evaluate_and(&cached_page_index, &in_ranges));
         assert_single_range(&in_ranges, 0, 5);
+        RowRanges ne_ranges;
+        EXPECT_TRUE(ne_pred.evaluate_and(&cached_page_index, &ne_ranges));
+        assert_single_range(&ne_ranges, 0, 5);
+        RowRanges gt_ranges;
+        EXPECT_TRUE(gt_pred.evaluate_and(&cached_page_index, &gt_ranges));
+        assert_single_range(&gt_ranges, 0, 5);
+        RowRanges ge_ranges;
+        EXPECT_TRUE(ge_pred.evaluate_and(&cached_page_index, &ge_ranges));
+        assert_single_range(&ge_ranges, 0, 5);
+        RowRanges not_in_ranges;
+        EXPECT_TRUE(not_in_pred.evaluate_and(&cached_page_index, &not_in_ranges));
+        assert_single_range(&not_in_ranges, 0, 5);
     };
 
     check_type.template operator()<TYPE_FLOAT>(3, uint32_t {0x7fc00002U});
