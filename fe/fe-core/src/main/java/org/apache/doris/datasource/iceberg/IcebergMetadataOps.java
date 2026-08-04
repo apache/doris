@@ -836,7 +836,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void updateTableProperties(ExternalTable dorisTable, Map<String, String> properties)
+    public void updateTableProperties(ExternalTable dorisTable, Map<String, String> properties, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdateProperties updateProperties = icebergTable.updateProperties();
@@ -847,6 +847,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to update properties for table: " + icebergTable.name()
                     + ", error message is: " + e.getMessage(), e);
         }
+        refreshTable(dorisTable, updateTime);
     }
 
     @Override

@@ -121,6 +121,7 @@ public class IcebergMetadataOpsValidationTest {
         UpdateProperties updateProperties = Mockito.mock(UpdateProperties.class);
         Mockito.when(icebergTable.updateProperties()).thenReturn(updateProperties);
         Mockito.when(icebergTable.name()).thenReturn("db.tbl");
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
 
         Map<String, String> properties = new HashMap<>();
         properties.put("write.target-file-size-bytes", "134217728");
@@ -130,12 +131,13 @@ public class IcebergMetadataOpsValidationTest {
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
 
-            ops.updateTableProperties(dorisTable, properties);
+            ops.updateTableProperties(dorisTable, properties, 123L);
         }
 
         Mockito.verify(updateProperties).set("write.target-file-size-bytes", "134217728");
         Mockito.verify(updateProperties).set("commit.manifest.min-count-to-merge", "50");
         Mockito.verify(updateProperties).commit();
+        Mockito.verify(dorisCatalog).getDbForReplay("db");
     }
 
     @Test

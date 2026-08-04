@@ -1512,8 +1512,7 @@ public abstract class ExternalCatalog
         }
         try {
             long updateTime = System.currentTimeMillis();
-            metadataOps.updateTableProperties(externalTable, properties);
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(externalTable);
+            metadataOps.updateTableProperties(externalTable, properties, updateTime);
             logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to update properties for table {}.{} in catalog {}",
