@@ -1740,7 +1740,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
-    private void updateBeToTablets(long tabletId, long srcBe, long destBe,
+    private void updateBeToTablets(Long tabletId, Long srcBe, Long destBe,
                                    ConcurrentHashMap<Long, Set<Long>> globalBeToTablets,
                                    ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable,
                                    ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long,
@@ -1750,9 +1750,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
             LOG.warn("tablet {} meta not found in inverted index, skip updateBeToTablets", tabletId);
             return;
         }
-        long tableId = tabletMeta.getTableId();
-        long partId = tabletMeta.getPartitionId();
-        long indexId = tabletMeta.getIndexId();
+        Long tableId = tabletMeta.getTableId();
+        Long partId = tabletMeta.getPartitionId();
+        Long indexId = tabletMeta.getIndexId();
 
         Set<Long> globalSrcTablets = globalBeToTablets.get(srcBe);
         if (globalSrcTablets == null || !globalSrcTablets.remove(tabletId)) {
@@ -2045,8 +2045,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 break; // no need balance
             }
 
-            long srcBe = pairInfo.srcBe;
-            long destBe = pairInfo.destBe;
+            Long srcBe = pairInfo.srcBe;
+            Long destBe = pairInfo.destBe;
 
             Long pickedTabletId = pickTabletPreferCold(srcBe, beToTablets.get(srcBe),
                     this.activeTabletIds, pickedTabletIds);
@@ -2187,7 +2187,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         return chosen;
     }
 
-    private boolean preheatAndUpdateTablet(long pickedTabletId, long srcBe, long destBe, String clusterId,
+    private boolean preheatAndUpdateTablet(Long pickedTabletId, Long srcBe, Long destBe, String clusterId,
                                      BalanceType balanceType, Map<Long, Set<Long>> beToTablets) {
         Backend srcBackend = cloudSystemInfoService.getBackend(srcBe);
         Backend destBackend = cloudSystemInfoService.getBackend(destBe);
@@ -2213,7 +2213,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         return true;
     }
 
-    private boolean transferTablet(long pickedTabletId, long srcBe, long destBe, String clusterId,
+    private boolean transferTablet(Long pickedTabletId, Long srcBe, Long destBe, String clusterId,
                             BalanceType balanceType, List<UpdateCloudReplicaInfo> infos) {
         LOG.debug("transfer {} from {} to {}, cluster {}, type {}",
                 pickedTabletId, srcBe, destBe, clusterId, balanceType);
