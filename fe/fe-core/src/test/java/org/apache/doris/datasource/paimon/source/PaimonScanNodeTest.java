@@ -105,6 +105,17 @@ public class PaimonScanNodeTest {
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
 
     @Test
+    public void testSerializedTableCacheKeyIsStablePerScanNode() {
+        PaimonScanNode first = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonScanNode second = newTestNode(new PlanNodeId(1), new TupleId(1), sv);
+
+        String firstKey = first.getSerializedTableCacheKey().orElse("");
+        Assert.assertFalse(firstKey.isEmpty());
+        Assert.assertEquals(firstKey, first.getSerializedTableCacheKey().orElse(""));
+        Assert.assertNotEquals(firstKey, second.getSerializedTableCacheKey().orElse(""));
+    }
+
+    @Test
     public void testCountColumnKeepsAllSplitsWhileCountStarUsesMergedRowCount() throws UserException {
         PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
         node.setSource(mockPaimonSourceWithPartitionKeys(Collections.<String>emptyList()));

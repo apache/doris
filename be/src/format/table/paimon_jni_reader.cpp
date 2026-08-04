@@ -27,6 +27,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
+#include "util/uid_util.h"
+
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
@@ -78,6 +80,11 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     if (range_params->__isset.serialized_table) {
         params["serialized_table"] = range_params->serialized_table;
     }
+    params["serialized_table_cache_key"] =
+            range_params->__isset.serialized_table_cache_key &&
+                            !range_params->serialized_table_cache_key.empty()
+                    ? range_params->serialized_table_cache_key
+                    : generate_uuid_string();
     if (range.table_format_params.__isset.table_level_row_count) {
         _remaining_table_level_row_count = range.table_format_params.table_level_row_count;
     } else {
