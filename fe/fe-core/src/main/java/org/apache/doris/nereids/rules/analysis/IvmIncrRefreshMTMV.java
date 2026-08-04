@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.mtmv.ivm.DryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmDeltaRewriteHelper;
 import org.apache.doris.mtmv.ivm.IvmDeltaRewriter;
 import org.apache.doris.mtmv.ivm.IvmException;
@@ -29,10 +30,16 @@ import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.Collections;
 import java.util.List;
@@ -68,9 +75,24 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
     private Plan rewriteIncrementalPlan(Plan plan, IvmRewriteResult rewriteResult,
             IvmRewriteContext rewriteContext, ConnectContext connectContext) {
         if (!(plan instanceof LogicalOlapTableSink)) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM incremental refresh requires LogicalOlapTableSink root, but found "
-                            + plan.getClass().getSimpleName());
+            if (!rewriteContext.isDryRun()) {
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                        "IVM incremental refresh requires LogicalOlapTableSink root, but found "
+                                + plan.getClass().getSimpleName());
+            }
+            // Dry run: the root is the raw MV query (no sink wrapper). Rewrite it in place,
+            // then cap rows with an optional LogicalLimit and wrap with a result sink so the
+            // plan is executable as a plain query.
+            Plan rewritten = newDeltaRewriter().generateIncrRefreshPlan(
+                    plan, rewriteResult, rewriteContext, connectContext);
+            Optional<DryRunLimit> dryRunLimit = rewriteContext.getDryRunLimit();
+            if (dryRunLimit.isPresent()) {
+                DryRunLimit limit = dryRunLimit.get();
+                rewritten = new LogicalLimit<>(limit.getCount(), limit.getOffset(),
+                        LimitPhase.ORIGIN, (LogicalPlan) rewritten);
+            }
+            return new LogicalResultSink<Plan>(
+                    ImmutableList.copyOf(rewritten.getOutput()), (LogicalPlan) rewritten);
         }
         LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) plan;
         MTMV mtmv = rewriteContext.getMtmv();
@@ -83,7 +105,8 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
                 sink.child(), rewriteResult, rewriteContext, connectContext);
         List<NamedExpression> reboundOutputExprs = IvmDeltaRewriteHelper.INSTANCE.rebindSinkOutputs(
                 sink.getOutputExprs(), rewrittenSinkChild.getOutput(), "sink");
-        return sink.withOutputExprs(reboundOutputExprs).withChildren(Collections.singletonList(rewrittenSinkChild));
+        return sink.withOutputExprs(reboundOutputExprs)
+                .withChildren(Collections.singletonList(rewrittenSinkChild));
     }
 
     protected IvmDeltaRewriter newDeltaRewriter() {

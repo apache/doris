@@ -1,0 +1,53 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.mtmv.ivm;
+
+import org.apache.doris.nereids.exceptions.AnalysisException;
+
+/**
+ * Offset and row-count cap for REFRESH MATERIALIZED VIEW ... INCREMENTAL WITH DRY RUN
+ * (LIMIT ...). Mirrors the LIMIT clause of a SELECT: {@code LIMIT n} (offset 0),
+ * {@code LIMIT n OFFSET m} or {@code LIMIT m, n}.
+ */
+public class DryRunLimit {
+    private final long offset;
+    private final long count;
+
+    public DryRunLimit(long offset, long count) {
+        if (offset < 0 || count < 1) {
+            throw new AnalysisException(
+                    "REFRESH MATERIALIZED VIEW ... INCREMENTAL WITH DRY RUN "
+                            + "requires offset >= 0 and LIMIT >= 1");
+        }
+        this.offset = offset;
+        this.count = count;
+    }
+
+    public long getOffset() {
+        return offset;
+    }
+
+    public long getCount() {
+        return count;
+    }
+
+    @Override
+    public String toString() {
+        return offset == 0 ? "LIMIT " + count : "LIMIT " + offset + ", " + count;
+    }
+}

@@ -106,6 +106,15 @@ public class IvmIncrRefreshManager {
         return buildInsertCommand(parseInsertQueryPlan(mtmv), mtmv);
     }
 
+    /**
+     * Parse the MV's SELECT query into a logical plan (sink stripped). Used by REFRESH ...
+     * INCREMENTAL WITH DRY RUN, which plans the raw query with an IVM rewrite context so the
+     * analyzer rules turn it into the delta query.
+     */
+    public LogicalPlan buildQueryPlan(MTMV mtmv) {
+        return parseInsertQueryPlan(mtmv);
+    }
+
     @VisibleForTesting
     InsertIntoTableCommand buildInsertCommand(LogicalPlan queryPlan, MTMV mtmv) {
         Objects.requireNonNull(queryPlan, "queryPlan can not be null");

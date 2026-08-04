@@ -1572,12 +1572,12 @@ public class StmtExecutor {
                     if (!isSendFields) {
                         if (!isOutfileQuery) {
                             sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                    getReturnTypes(queryStmt));
+                                    getReturnTypes(queryStmt), channel);
                         } else {
                             if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
                                 outfileWriteSuccess(outFileClause);
                             }
-                            sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                            sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES, channel);
                         }
                         isSendFields = true;
                     }
@@ -1624,10 +1624,10 @@ public class StmtExecutor {
                         return;
                     } else {
                         sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                getReturnTypes(queryStmt));
+                                getReturnTypes(queryStmt), channel);
                     }
                 } else {
-                    sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                    sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES, channel);
                 }
             }
 
@@ -1905,8 +1905,17 @@ public class StmtExecutor {
         sendFields(colNames, null, types);
     }
 
+    private void sendFields(List<String> colNames, List<Type> types, MysqlChannel channel) throws IOException {
+        sendFields(colNames, null, types, channel);
+    }
+
     private void sendFields(List<String> colNames, List<FieldInfo> fieldInfos, List<Type> types) throws
             IOException {
+        sendFields(colNames, fieldInfos, types, context.getMysqlChannel());
+    }
+
+    private void sendFields(List<String> colNames, List<FieldInfo> fieldInfos, List<Type> types,
+            MysqlChannel channel) throws IOException {
         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
         // sends how many columns
         serializer.reset();
@@ -1914,7 +1923,7 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("sendFields {}", colNames);
         }
-        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        channel.sendOnePacket(serializer.toByteBuffer());
         StatementContext statementContext = context.getStatementContext();
         boolean isShortCircuited = statementContext.isShortCircuitQuery()
                 && statementContext.getShortCircuitQueryContext() != null;
@@ -1935,24 +1944,24 @@ public class StmtExecutor {
                     serializedField = serializer.toArray();
                     ctx.addSerializedField(i, serializedField);
                 }
-                context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
+                channel.sendOnePacket(ByteBuffer.wrap(serializedField));
             } else {
                 if (fieldInfos != null) {
                     serializer.writeField(fieldInfos.get(i), types.get(i));
                 } else {
                     serializer.writeField(colNames.get(i), types.get(i));
                 }
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+                channel.sendOnePacket(serializer.toByteBuffer());
             }
         }
         // When CLIENT_DEPRECATE_EOF is set, the server should not send the intermediate
         // EOF packet after column definitions. The client will go directly from column
         // definitions to reading data rows.
-        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+        if (!channel.clientDeprecatedEOF()) {
             serializer.reset();
             MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
             eofPacket.writeTo(serializer);
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            channel.sendOnePacket(serializer.toByteBuffer());
         }
     }
 
@@ -2184,29 +2193,61 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
         }
+        try {
+            return executeInternalQueryCommon(null, null);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to execute internal SQL. "
+                    + Util.getRootCauseMessage(e), e);
+        }
+    }
+
+    /**
+     * Execute a pre-built logical plan adapter as a read-only query and stream each result
+     * batch to the given mysql channel, without collecting them in FE memory.
+     */
+    public void executeInternalQueryAndSend(LogicalPlanAdapter adapter, MysqlChannel channel) throws Exception {
+        executeInternalQueryCommon(adapter, channel);
+    }
+
+    /**
+     * Common internal query lifecycle. When {@code prebuilt} is non-null the plan is already
+     * constructed (e.g. IVM dry-run delta) and the usual parse step is skipped. When
+     * {@code sendChannel} is non-null, rows are streamed to that channel via
+     * {@link #executeAndSendResult}; otherwise they are collected into a {@code List<ResultRow>}.
+     */
+    private List<ResultRow> executeInternalQueryCommon(LogicalPlanAdapter prebuilt,
+            MysqlChannel sendChannel) throws Exception {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         context.setQueryId(queryId);
-        if (originStmt.originStmt != null) {
+        if (originStmt != null && originStmt.originStmt != null) {
             context.setSqlHash(DigestUtils.md5Hex(originStmt.originStmt));
         }
-        // Mark state up front so audit log records this as an internal query even if parse/plan fails.
         context.getState().setNereids(true);
         context.getState().setIsQuery(true);
         context.getState().setInternal(true);
+
+        LogicalPlanAdapter adapter;
+        boolean collectMode = (sendChannel == null);
         try {
-            List<ResultRow> resultRows = new ArrayList<>();
-            try {
+            if (prebuilt != null) {
+                setParsedStmt(prebuilt);
+                adapter = prebuilt;
+            } else {
                 parseByNereids();
                 Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
-                        "Nereids only process LogicalPlanAdapter,"
-                                + " but parsedStmt is " + parsedStmt.getClass().getName());
-                planner = new NereidsPlanner(statementContext);
-                planner.plan(parsedStmt, context.getSessionVariable().toThrift());
-            } catch (Exception e) {
-                LOG.warn("Failed to run internal SQL: {}", originStmt, e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                        "Nereids only process LogicalPlanAdapter, but parsedStmt is "
+                                + parsedStmt.getClass().getName());
+                adapter = (LogicalPlanAdapter) parsedStmt;
             }
-            RowBatch batch;
+            planner = new NereidsPlanner(statementContext);
+            planner.plan(adapter, context.getSessionVariable().toThrift());
+
+            if (!collectMode) {
+                executeAndSendResult(false, false, adapter, sendChannel, null, null);
+                return new ArrayList<>();
+            }
+
+            List<ResultRow> resultRows = new ArrayList<>();
             if (Config.enable_collect_internal_query_profile) {
                 context.getSessionVariable().enableProfile = true;
             }
@@ -2217,46 +2258,32 @@ public class StmtExecutor {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QueryInfo(context, originStmt.originStmt, coord));
             } catch (UserException e) {
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to execute internal SQL. "
+                        + Util.getRootCauseMessage(e), e);
             }
             updateProfile(false);
             try {
                 coord.exec();
             } catch (Exception e) {
-                throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
+                throw new InternalQueryExecutionException(
+                        e.getMessage() + Util.getRootCauseMessage(e), e);
             }
-
-            try {
-                while (true) {
-                    batch = coord.getNext();
-                    Preconditions.checkNotNull(batch, "Batch is Null.");
-                    if (batch.isEos()) {
-                        LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
-                        return resultRows;
-                    } else {
-                        // For null and not EOS batch, continue to get the next batch.
-                        if (batch.getBatch() == null) {
-                            continue;
-                        }
-                        if (batch.getBatch().getRows() != null) {
-                            context.updateReturnRows(batch.getBatch().getRows().size());
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("Batch size for query {} is {}",
-                                        DebugUtil.printId(queryId), batch.getBatch().rows.size());
-                            }
-                        }
-                        resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Result size for query {} is currently {}",
-                                    DebugUtil.printId(queryId), resultRows.size());
-                        }
-                    }
+            RowBatch batch;
+            while (true) {
+                batch = coord.getNext();
+                Preconditions.checkNotNull(batch, "Batch is Null.");
+                if (batch.isEos()) {
+                    break;
                 }
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
+                if (batch.getBatch() == null) {
+                    continue;
+                }
+                context.updateReturnRows(batch.getBatch().getRows().size());
+                resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
             }
+            LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
+            return resultRows;
         } catch (Exception e) {
-            // Surface failure into ConnectContext state so AuditLogHelper records ERR instead of OK.
             if (context.getState().getStateType() != MysqlStateType.ERR) {
                 String msg = e.getMessage();
                 if (Strings.isNullOrEmpty(msg)) {
@@ -2266,11 +2293,11 @@ public class StmtExecutor {
             }
             throw e;
         } finally {
-            if (coord != null) {
+            if (collectMode && coord != null) {
                 coord.close();
             }
-            AuditLogHelper.logAuditLog(context, originStmt.originStmt, parsedStmt, getQueryStatisticsForAuditLog(),
-                    true);
+            AuditLogHelper.logAuditLog(context, originStmt == null ? null : originStmt.originStmt,
+                    parsedStmt, getQueryStatisticsForAuditLog(), true);
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             updateProfile(true);
         }

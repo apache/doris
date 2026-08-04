@@ -109,6 +109,64 @@ EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name COMPLETE;
 not supported by Explain Refresh. Partition-scoped refresh remains available through ordinary
 `REFRESH MATERIALIZED VIEW ... PARTITION(S)` commands.
 
+## Incremental Refresh Dry Run
+
+`REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN` computes the exact delta query of the next
+incremental refresh and returns the delta rows to the client **without writing anything** to the MV.
+It is a debugging tool for inspecting what an incremental refresh will write before executing it.
+
+### Syntax
+
+```sql
+REFRESH MATERIALIZED VIEW mv_name INCREMENTAL WITH DRY RUN
+REFRESH MATERIALIZED VIEW mv_name INCREMENTAL WITH DRY RUN LIMIT n
+REFRESH MATERIALIZED VIEW mv_name INCREMENTAL WITH DRY RUN LIMIT n OFFSET m
+REFRESH MATERIALIZED VIEW mv_name INCREMENTAL WITH DRY RUN LIMIT m, n
+```
+
+- `LIMIT` is optional and reuses ordinary `SELECT`-style offset/count syntax.
+- Only `INCREMENTAL` is supported; `COMPLETE` dry run is a parse error.
+- Only IVM materialized views are supported; non-IVM MV reports an analysis error.
+- `EXPLAIN REFRESH ... INCREMENTAL WITH DRY RUN` is a parse error — use `EXPLAIN REFRESH ... INCREMENTAL` instead.
+
+### Result columns
+
+The result set contains the **exact rows that the next incremental refresh would insert** into the
+MV. The column order matches the sink output shape produced by `makeDeleteSignProject`:
+
+```
+mtmv.getInsertedColumnNames()  +  __DORIS_SEQUENCE_COL__  +  __DORIS_DELETE_SIGN__
+```
+
+where `getInsertedColumnNames()` includes business columns plus all IVM internal columns:
+
+- `__DORIS_IVM_ROW_ID_COL__` — deterministic row-id (murmur hash for grouped agg, literal for scalar)
+- `__DORIS_IVM_DML_FACTOR_COL__` — +1 (append/update) or −1 (delete)
+- `__DORIS_IVM_AGG_COUNT_COL__` — group-level aggregation count
+- Aggregation state columns (`__DORIS_IVM_AGG_{ordinal}_{stateType}_COL__`)
+
+For an aggregate MV defined as `SELECT k1, COUNT(*) AS cnt, SUM(v1) FROM t GROUP BY k1`,
+a dry-run result row looks like:
+
+```
+__DORIS_IVM_ROW_ID_COL__ | k1 | cnt | sum_v1 | __DORIS_IVM_DML_FACTOR_COL__ | __DORIS_IVM_AGG_COUNT_COL__ | __DORIS_SEQUENCE_COL__ | __DORIS_DELETE_SIGN__
+   hash_of_group_key     |  1 |  1  |   15   |             1               |             1              |        4097          |          0
+```
+
+### Semantics
+
+- **Read-only.** No insert transaction is built. Stream offsets, refresh version, and MV metadata
+  are never modified.
+- **Idempotent.** Repeating the same dry run returns identical rows as long as the base table data
+  has not changed.
+- **Snapshot semantics.** Reads base table streams at the same snapshot position as a real
+  incremental refresh would use.
+- **No master forwarding.** Dry run runs on the FE that received the statement (`NO_FORWARD`);
+  results stream directly from the local coordinator to the client, avoiding a full-materializing
+  cross-FE RPC.
+- **Pending streams only.** Only streams with unconsumed data contribute delta rows
+  (same as a real `INCREMENTAL` refresh).
+
 ## DML Factor from `__DORIS_STREAM_CHANGE_TYPE__`
 
 The `dml_factor` column (+1 for inserts/updates, −1 for deletes) drives all delta computations.
