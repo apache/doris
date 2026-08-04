@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -29,10 +30,12 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.DryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -40,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.Maps;
@@ -53,27 +57,75 @@ import java.util.Set;
 /**
  * refresh mtmv
  */
-public class RefreshMTMVCommand extends Command implements ForwardWithSync, Explainable {
+public class RefreshMTMVCommand extends Command implements Forward, Explainable {
     private final RefreshMTMVInfo refreshMTMVInfo;
     // Whether EXPLAIN REFRESH should include up-to-date streams.
     private final boolean includeExhaustedStreams;
+    // Dry run computes the delta query and streams rows back without writing anything.
+    private final boolean dryRun;
+    // Only used when dryRun is true: optional offset/count cap for the returned delta rows.
+    private final Optional<DryRunLimit> dryRunLimit;
     private Plan explainPlan;
     private Optional<NereidsPlanner> explainPlanner = Optional.empty();
 
     public RefreshMTMVCommand(RefreshMTMVInfo refreshMTMVInfo) {
-        this(refreshMTMVInfo, false);
+        this(refreshMTMVInfo, false, false, Optional.empty());
     }
 
     public RefreshMTMVCommand(RefreshMTMVInfo refreshMTMVInfo, boolean includeExhaustedStreams) {
+        this(refreshMTMVInfo, includeExhaustedStreams, false, Optional.empty());
+    }
+
+    public RefreshMTMVCommand(RefreshMTMVInfo refreshMTMVInfo, boolean includeExhaustedStreams,
+            boolean dryRun, Optional<DryRunLimit> dryRunLimit) {
         super(PlanType.REFRESH_MTMV_COMMAND);
         this.refreshMTMVInfo = Objects.requireNonNull(refreshMTMVInfo, "require refreshMTMVInfo object");
         this.includeExhaustedStreams = includeExhaustedStreams;
+        this.dryRun = dryRun;
+        this.dryRunLimit = Objects.requireNonNull(dryRunLimit, "require dryRunLimit object");
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         refreshMTMVInfo.analyze(ctx);
-        Env.getCurrentEnv().getMtmvService().refreshMTMV(refreshMTMVInfo);
+        if (dryRun) {
+            dryRunRefresh(ctx, executor);
+        } else {
+            Env.getCurrentEnv().getMtmvService().refreshMTMV(refreshMTMVInfo);
+        }
+    }
+
+    // Real refresh forwards to master with sync; dry run is read-only and must run locally,
+    // streaming rows to the client instead of materializing all delta rows into one RPC frame.
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        return dryRun ? RedirectStatus.NO_FORWARD : RedirectStatus.FORWARD_WITH_SYNC;
+    }
+
+    private void dryRunRefresh(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        MTMV mtmv = getMtmv();
+        if (!mtmv.isIvm()) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "REFRESH MATERIALIZED VIEW ... INCREMENTAL WITH DRY RUN "
+                            + "only supports IVM materialized views");
+        }
+
+        ConnectContext internalCtx = MTMVPlanUtil.createMTMVContext(
+                mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        StatementContext stmtCtx = new StatementContext(
+                internalCtx, new OriginStatement(mtmv.getQuerySql(), 0));
+        stmtCtx.setIvmRewriteContext(Optional.of(IvmRewriteContext.incrementalDryRun(mtmv, dryRunLimit)));
+
+        LogicalPlan queryPlan = new IvmIncrRefreshManager().buildQueryPlan(mtmv);
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(queryPlan, stmtCtx);
+        adapter.setOrigStmt(new OriginStatement(mtmv.getQuerySql(), 0));
+
+        // Execute on a dedicated internal executor (admin identity, MV session variables) and
+        // stream each batch to the client's real mysql channel (see executeAndSendResult()).
+        StmtExecutor internalExecutor = new StmtExecutor(internalCtx, adapter);
+        internalCtx.setExecutor(internalExecutor);
+        internalExecutor.executeInternalQueryAndSend(adapter, ctx.getMysqlChannel());
+        ctx.getState().setEof();
     }
 
     @Override
@@ -157,6 +209,14 @@ public class RefreshMTMVCommand extends Command implements ForwardWithSync, Expl
 
     public boolean isIncludeExhaustedStreams() {
         return includeExhaustedStreams;
+    }
+
+    public boolean isDryRun() {
+        return dryRun;
+    }
+
+    public Optional<DryRunLimit> getDryRunLimit() {
+        return dryRunLimit;
     }
 
     @Override

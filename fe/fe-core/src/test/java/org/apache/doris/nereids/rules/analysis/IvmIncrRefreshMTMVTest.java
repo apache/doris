@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.mtmv.ivm.DryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmDeltaRewriter;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
@@ -36,9 +37,11 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
@@ -121,6 +124,44 @@ class IvmIncrRefreshMTMVTest {
         Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, exception.getFailureReason());
         Assertions.assertTrue(exception.getMessage().contains("LogicalOlapTableSink"));
         Assertions.assertEquals(0, rule.rewriter.callCount);
+    }
+
+    @Test
+    void testDryRunRewritesQueryRootAndCapsWithLimit() {
+        LogicalProject<Plan> deltaPlan = new LogicalProject<>(
+                ImmutableList.of(new org.apache.doris.nereids.trees.expressions.Alias(
+                        scan.getOutput().get(0), scan.getOutput().get(0).getName())), scan);
+        RecordingRule rule = new RecordingRule(deltaPlan);
+        DryRunLimit dryRunLimit = new DryRunLimit(3, 10);
+
+        Plan result = rule.rewriteRoot(scan, newJobContext(scan,
+                IvmRewriteContext.incrementalDryRun(mtmv, Optional.of(dryRunLimit)),
+                newRewriteResult(SIGNATURE)));
+
+        Assertions.assertInstanceOf(LogicalResultSink.class, result);
+        LogicalResultSink<?> sink = (LogicalResultSink<?>) result;
+        Assertions.assertInstanceOf(LogicalLimit.class, sink.child());
+        LogicalLimit<?> limit = (LogicalLimit<?>) sink.child();
+        Assertions.assertEquals(10, limit.getLimit());
+        Assertions.assertEquals(3, limit.getOffset());
+        Assertions.assertSame(deltaPlan, limit.child());
+        Assertions.assertEquals(1, rule.rewriter.callCount);
+    }
+
+    @Test
+    void testDryRunWithoutLimitWrapsDeltaPlanInResultSink() {
+        LogicalProject<Plan> deltaPlan = new LogicalProject<>(
+                ImmutableList.of(new org.apache.doris.nereids.trees.expressions.Alias(
+                        scan.getOutput().get(0), scan.getOutput().get(0).getName())), scan);
+        RecordingRule rule = new RecordingRule(deltaPlan);
+
+        Plan result = rule.rewriteRoot(scan, newJobContext(scan,
+                IvmRewriteContext.incrementalDryRun(mtmv, Optional.empty()),
+                newRewriteResult(SIGNATURE)));
+
+        Assertions.assertInstanceOf(LogicalResultSink.class, result);
+        Assertions.assertSame(deltaPlan, ((LogicalResultSink<?>) result).child());
+        Assertions.assertEquals(1, rule.rewriter.callCount);
     }
 
     @Test
