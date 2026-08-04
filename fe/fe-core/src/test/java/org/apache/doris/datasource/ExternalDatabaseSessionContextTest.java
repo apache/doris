@@ -38,6 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Re-migrates #63068's {@code ExternalDatabaseSessionContextTest} onto the SPI architecture: the DATA-FLOW proof
@@ -190,6 +191,37 @@ public class ExternalDatabaseSessionContextTest {
         Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToCheckTableExist);
     }
 
+    @Test
+    public void delegatedSessionGetTablesListsRemotelyOnlyOnceForManyTables() {
+        // #66025: bypass-mode getTables() used to list remotely 1 + N times for N tables — once in
+        // getTableNamesWithLock() and once more per table inside findTableNamePairWithoutCache().
+        SessionAwareCatalog catalog = new SessionAwareCatalog(0, Lists.newArrayList("t1", "t2", "t3"));
+        SessionAwareDatabase db = new SessionAwareDatabase(catalog, 7L, "db1", "db1");
+        withSession("token_a", () -> {
+            List<PluginDrivenExternalTable> tables = db.getTables();
+            Assertions.assertEquals(3, tables.size());
+            List<String> names = tables.stream().map(PluginDrivenExternalTable::getName)
+                    .collect(Collectors.toList());
+            Assertions.assertTrue(names.containsAll(Lists.newArrayList("t1", "t2", "t3")));
+            Assertions.assertTrue(tables.stream().allMatch(t -> t.getRemoteName().equals(t.getName())));
+        });
+        Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToListTables,
+                "getTables must enumerate remote table names exactly once, not 1 + N times");
+    }
+
+    @Test
+    public void delegatedSessionGetTablesStillFailsOnCaseInsensitiveConflicts() {
+        // The single-enumeration fast path must keep the case-insensitive conflict check: conflicting
+        // remote names fail the whole listing instead of silently building an ambiguous table set.
+        SessionAwareCatalog catalog = new SessionAwareCatalog(1, Lists.newArrayList("Table_A", "table_a"));
+        SessionAwareDatabase db = new SessionAwareDatabase(catalog, 8L, "db1", "db1");
+        withSession("token_a", () -> {
+            RuntimeException e = Assertions.assertThrows(RuntimeException.class, db::getTables);
+            Assertions.assertTrue(e.getMessage().contains(ExternalCatalog.FOUND_CONFLICTING),
+                    "conflicting remote names must still surface the conflict error, got: " + e.getMessage());
+        });
+    }
+
     private static void withSession(String token, Runnable action) {
         SessionContext context = ctxFor(token);
         try (MockedStatic<SessionContext> sc = Mockito.mockStatic(SessionContext.class)) {
@@ -214,13 +246,20 @@ public class ExternalDatabaseSessionContextTest {
         private final List<String> tokensUsedToListDatabases = new ArrayList<>();
         private final List<String> tokensUsedToListTables = new ArrayList<>();
         private final List<String> tokensUsedToCheckTableExist = new ArrayList<>();
+        // When non-null, the remote table listing returns this fixed list for any token.
+        private final List<String> remoteTables;
 
         SessionAwareCatalog() {
             this(0);
         }
 
         SessionAwareCatalog(int lowerCaseTableNames) {
+            this(lowerCaseTableNames, null);
+        }
+
+        SessionAwareCatalog(int lowerCaseTableNames, List<String> remoteTables) {
             super(1L, "test_ctl", null, props(lowerCaseTableNames), "", userSessionConnector());
+            this.remoteTables = remoteTables;
             this.initialized = true;
         }
 
@@ -253,6 +292,9 @@ public class ExternalDatabaseSessionContextTest {
         protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
             String token = ctx.getDelegatedCredential().get().getToken();
             tokensUsedToListTables.add(token);
+            if (remoteTables != null) {
+                return remoteTables;
+            }
             if ("token_mixed".equals(token)) {
                 return Lists.newArrayList("Table_A");
             }
