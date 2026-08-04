@@ -143,6 +143,72 @@ exercise_interrupted_patch_set ARROW "${arrow_source}" "${arrow_archive}" arrow 
 exercise_interrupted_patch_set PAIMON_CPP "${paimon_source}" "${paimon_archive}" paimon \
     "${paimon_patches[@]}"
 
+exercise_generic_recovery_dispatch() {
+    local generic="${tmpdir}/generic-recovery"
+    local thirdparty_dir="${generic}/thirdparty"
+    local external_thirdparty_dir="${generic}/external-thirdparty"
+    local args_file="${generic}/build-args.txt"
+    local output_file="${generic}/build-output.txt"
+    local status
+    local flag
+    local parallel
+    local clean
+    local package1
+    local package2
+    local extra
+
+    mkdir -p "${thirdparty_dir}/installed/lib/hadoop_hdfs/native" \
+        "${external_thirdparty_dir}/installed/lib/hadoop_hdfs/native"
+    cp "${ROOT}/../build.sh" "${generic}/build.sh"
+    cp "${ROOT}/arrow-paimon-vars.sh" "${thirdparty_dir}/arrow-paimon-vars.sh"
+    touch "${thirdparty_dir}/installed/lib/hadoop_hdfs/native/libhdfs.a"
+    touch "${external_thirdparty_dir}/installed/lib/hadoop_hdfs/native/libhdfs.a"
+    {
+        printf '%s\n' 'DORIS_BUILD_PROFILE=0'
+        printf '%s\n' 'TARGET_SYSTEM=Linux'
+    } >"${generic}/env.sh"
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        # RECOVERY_ARGS_FILE is expanded when the generated builder runs.
+        # shellcheck disable=SC2016
+        printf '%s\n' 'printf "%s\n" "$*" >"${RECOVERY_ARGS_FILE:?}"'
+        printf '%s\n' 'exit 73'
+    } >"${thirdparty_dir}/build-thirdparty.sh"
+
+    if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
+        bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then
+        fail "generic stale-prebuilt recovery did not invoke the focused builder"
+    else
+        status=$?
+    fi
+    [[ "${status}" -eq 73 ]] || fail "generic recovery failed before invoking its builder"
+    read -r flag parallel package1 package2 extra <"${args_file}"
+    [[ "${flag}" == "-j" && "${parallel}" =~ ^[0-9]+$ &&
+        "${package1}" == "arrow" && "${package2}" == "paimon_cpp" && -z "${extra}" ]] ||
+        fail "generic recovery dispatched the wrong build package set"
+
+    if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
+        bash "${generic}/build.sh" --be --clean >"${output_file}" 2>&1; then
+        fail "generic clean recovery did not invoke the focused builder"
+    else
+        status=$?
+    fi
+    [[ "${status}" -eq 73 ]] || fail "generic clean recovery failed before invoking its builder"
+    read -r flag parallel clean package1 package2 extra <"${args_file}"
+    [[ "${flag}" == "-j" && "${parallel}" =~ ^[0-9]+$ && "${clean}" == "--clean" &&
+        "${package1}" == "arrow" && "${package2}" == "paimon_cpp" && -z "${extra}" ]] ||
+        fail "generic clean recovery dispatched the wrong build package set"
+
+    if DORIS_THIRDPARTY="${external_thirdparty_dir}" \
+        bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then
+        fail "generic recovery accepted an invalid install-only thirdparty prefix"
+    fi
+    grep -Fq "is an install-only or incomplete prefix" "${output_file}" ||
+        fail "generic recovery did not explain how to refresh an install-only prebuilt"
+}
+
+exercise_generic_recovery_dispatch
+
 # A Paimon-only build may publish only its own fingerprint. It must not make a
 # stale Arrow installation pass the shared prebuilt validation.
 . "${ROOT}/arrow-paimon-vars.sh"
@@ -154,6 +220,12 @@ for library in "${ARROW_PAIMON_REQUIRED_LIBRARIES[@]}"; do
     touch "${prebuilt}/lib64/${library}"
 done
 
+prepare_arrow_paimon_download_packages "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
+[[ "${ARROW_PAIMON_BUILD_PACKAGES[*]}" == "arrow paimon_cpp" ]] ||
+    fail "focused recovery dispatches a bundled source package as a build target"
+[[ "${ARROW_PAIMON_DOWNLOAD_PACKAGES[*]}" == "arrow paimon_cpp xsimd brotli" ]] ||
+    fail "focused recovery does not download the complete Arrow source closure"
+
 # A legacy prebuilt may have the old combined marker but no component markers.
 # Generic build.sh consumers must reject it before importing Arrow Compute.
 arrow_paimon_build_fingerprint >"${prebuilt}/arrow-paimon-build-fingerprint.txt"
@@ -161,8 +233,8 @@ if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
     fail "legacy combined marker certified an unversioned component closure"
 fi
 
-arrow_build_fingerprint >"${prebuilt}/arrow-build-fingerprint.txt"
-paimon_build_fingerprint >"${prebuilt}/paimon-build-fingerprint.txt"
+publish_arrow_prebuilt_marker "${prebuilt}"
+publish_paimon_prebuilt_marker "${prebuilt}"
 rm "${prebuilt}/lib64/libarrow_compute.a"
 if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
     fail "prebuilt validation accepted a missing Arrow Compute archive"
@@ -173,8 +245,27 @@ printf '%s\n' stale-arrow >"${prebuilt}/arrow-build-fingerprint.txt"
 if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
     fail "Paimon-only marker update certified a stale Arrow build"
 fi
+if require_arrow_prebuilt_for_paimon "${prebuilt}" >/dev/null 2>&1; then
+    fail "Paimon build accepted a stale installed Arrow"
+fi
 
-arrow_build_fingerprint >"${prebuilt}/arrow-build-fingerprint.txt"
+publish_arrow_prebuilt_marker "${prebuilt}"
+require_arrow_prebuilt_for_paimon "${prebuilt}" ||
+    fail "Paimon build rejected the selected installed Arrow"
 arrow_paimon_prebuilt_valid "${prebuilt}" || fail "matching component markers were rejected"
+
+invalidate_paimon_prebuilt_marker "${prebuilt}"
+if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
+    fail "an interrupted Paimon rebuild left its old marker valid"
+fi
+publish_paimon_prebuilt_marker "${prebuilt}"
+
+invalidate_arrow_prebuilt_marker "${prebuilt}"
+if require_arrow_prebuilt_for_paimon "${prebuilt}" >/dev/null 2>&1; then
+    fail "an interrupted Arrow rebuild left its old marker valid"
+fi
+publish_arrow_prebuilt_marker "${prebuilt}"
+arrow_paimon_prebuilt_valid "${prebuilt}" ||
+    fail "republished component markers were rejected"
 
 echo "PASS"

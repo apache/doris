@@ -50,6 +50,8 @@ jobs:
               - 'gensrc/thrift/**'
             arrow_paimon_changes:
               - '.github/workflows/be-ut-mac.yml'
+              - 'build.sh'
+              - 'env.sh'
               - 'thirdparty/arrow-paimon-vars.sh'
               - 'thirdparty/vars.sh'
               - 'thirdparty/download-thirdparty.sh'

@@ -463,25 +463,33 @@ if arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
     ARROW_PAIMON_THIRDPARTY_VALID=true
 fi
 
+rebuild_thirdparty_libraries() {
+    local remove_installed="$1"
+    shift
+    local build_script="${DORIS_THIRDPARTY}/build-thirdparty.sh"
+    local build_args=(-j "${PARALLEL}")
+
+    if [[ ! -f "${build_script}" ]]; then
+        echo "Cannot rebuild thirdparty libraries: ${build_script} is missing." >&2
+        echo "DORIS_THIRDPARTY=${DORIS_THIRDPARTY} is an install-only or incomplete prefix. Use a matching compilation image/prebuilt, or unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree." >&2
+        exit 1
+    fi
+    if [[ "${remove_installed}" == "true" ]]; then
+        # Some libraries, such as lz4, fail when an earlier installation remains.
+        rm -rf "${DORIS_THIRDPARTY}/installed"
+    fi
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        build_args+=(--clean)
+    fi
+    bash "${build_script}" "${build_args[@]}" "$@"
+}
+
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
-    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
-    rm -rf "${DORIS_THIRDPARTY}/installed"
-
-    if [[ "${CLEAN}" -eq 0 ]]; then
-        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
-    else
-        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
-    fi
+    rebuild_thirdparty_libraries true
 elif [[ "${ARROW_PAIMON_THIRDPARTY_VALID}" != "true" ]]; then
     echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
-    if [[ "${CLEAN}" -eq 0 ]]; then
-        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" \
-            arrow paimon_cpp xsimd brotli
-    else
-        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean \
-            arrow paimon_cpp xsimd brotli
-    fi
+    rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
 fi
 
 update_submodule() {

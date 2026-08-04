@@ -45,6 +45,43 @@ PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
 PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
 PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
+# Arrow consumes xsimd and Brotli as bundled source archives, but neither is a
+# build target in the focused Arrow/Paimon recovery path.
+ARROW_PAIMON_BUILD_PACKAGES=(arrow paimon_cpp)
+ARROW_BUNDLED_SOURCE_PACKAGES=(xsimd brotli)
+ARROW_PAIMON_DOWNLOAD_PACKAGES=()
+
+prepare_arrow_paimon_download_packages() {
+    ARROW_PAIMON_DOWNLOAD_PACKAGES=("$@")
+
+    local package
+    local source_package
+    local arrow_requested=false
+    local source_requested
+    for package in "$@"; do
+        if [[ "${package}" == "arrow" ]]; then
+            arrow_requested=true
+            break
+        fi
+    done
+    if [[ "${arrow_requested}" != "true" ]]; then
+        return
+    fi
+
+    for source_package in "${ARROW_BUNDLED_SOURCE_PACKAGES[@]}"; do
+        source_requested=false
+        for package in "${ARROW_PAIMON_DOWNLOAD_PACKAGES[@]}"; do
+            if [[ "${package}" == "${source_package}" ]]; then
+                source_requested=true
+                break
+            fi
+        done
+        if [[ "${source_requested}" != "true" ]]; then
+            ARROW_PAIMON_DOWNLOAD_PACKAGES+=("${source_package}")
+        fi
+    done
+}
+
 # Identify the checked-in source, patch, and build inputs selected for Arrow.
 # Arrow and Paimon publish separate installed markers so a package-only build
 # cannot certify a component that it did not rebuild.
@@ -55,6 +92,7 @@ arrow_build_fingerprint() {
         cd "${vars_dir}" || return 1
         LC_ALL=C
         git hash-object \
+            ../env.sh \
             arrow-paimon-vars.sh \
             vars.sh \
             download-thirdparty.sh \
@@ -92,7 +130,7 @@ arrow_paimon_build_fingerprint() {
     } | git hash-object --stdin
 }
 
-ARROW_PAIMON_REQUIRED_LIBRARIES=(
+ARROW_REQUIRED_LIBRARIES=(
     libbrotlicommon.a
     libbrotlidec.a
     libbrotlienc.a
@@ -104,6 +142,9 @@ ARROW_PAIMON_REQUIRED_LIBRARIES=(
     libarrow_acero.a
     libarrow_bundled_dependencies.a
     libparquet.a
+)
+
+PAIMON_REQUIRED_LIBRARIES=(
     libpaimon.a
     libpaimon_parquet_file_format.a
     libpaimon_orc_file_format.a
@@ -117,36 +158,15 @@ ARROW_PAIMON_REQUIRED_LIBRARIES=(
     libtbb_paimon.a
 )
 
-arrow_paimon_prebuilt_valid() {
+ARROW_PAIMON_REQUIRED_LIBRARIES=(
+    "${ARROW_REQUIRED_LIBRARIES[@]}"
+    "${PAIMON_REQUIRED_LIBRARIES[@]}"
+)
+
+arrow_artifacts_valid() {
     local install_dir="$1"
-    local arrow_fingerprint_mark="${install_dir}/arrow-build-fingerprint.txt"
-    local paimon_fingerprint_mark="${install_dir}/paimon-build-fingerprint.txt"
-    local expected_fingerprint
-    local installed_fingerprint
     local installed_arrow_version
     local library
-
-    if [[ ! -f "${arrow_fingerprint_mark}" ]]; then
-        echo "Missing Arrow build fingerprint: ${arrow_fingerprint_mark}" >&2
-        return 1
-    fi
-    expected_fingerprint="$(arrow_build_fingerprint)"
-    installed_fingerprint="$(<"${arrow_fingerprint_mark}")"
-    if [[ "${installed_fingerprint}" != "${expected_fingerprint}" ]]; then
-        echo "Arrow build fingerprint does not match selected inputs" >&2
-        return 1
-    fi
-
-    if [[ ! -f "${paimon_fingerprint_mark}" ]]; then
-        echo "Missing Paimon build fingerprint: ${paimon_fingerprint_mark}" >&2
-        return 1
-    fi
-    expected_fingerprint="$(paimon_build_fingerprint)"
-    installed_fingerprint="$(<"${paimon_fingerprint_mark}")"
-    if [[ "${installed_fingerprint}" != "${expected_fingerprint}" ]]; then
-        echo "Paimon build fingerprint does not match selected inputs" >&2
-        return 1
-    fi
 
     if [[ ! -f "${install_dir}/include/arrow/util/config.h" ]]; then
         echo "Missing installed Arrow version header" >&2
@@ -162,11 +182,99 @@ arrow_paimon_prebuilt_valid() {
         return 1
     fi
 
-    for library in "${ARROW_PAIMON_REQUIRED_LIBRARIES[@]}"; do
+    for library in "${ARROW_REQUIRED_LIBRARIES[@]}"; do
         if [[ ! -f "${install_dir}/lib64/${library}" ]]; then
-            echo "Missing Arrow/Paimon library: ${library}" >&2
+            echo "Missing Arrow library: ${library}" >&2
             return 1
         fi
     done
     return 0
+}
+
+paimon_artifacts_valid() {
+    local install_dir="$1"
+    local library
+
+    for library in "${PAIMON_REQUIRED_LIBRARIES[@]}"; do
+        if [[ ! -f "${install_dir}/lib64/${library}" ]]; then
+            echo "Missing Paimon library: ${library}" >&2
+            return 1
+        fi
+    done
+    return 0
+}
+
+arrow_prebuilt_valid() {
+    local install_dir="$1"
+    local arrow_fingerprint_mark="${install_dir}/arrow-build-fingerprint.txt"
+    local expected_fingerprint
+    local installed_fingerprint
+
+    if [[ ! -f "${arrow_fingerprint_mark}" ]]; then
+        echo "Missing Arrow build fingerprint: ${arrow_fingerprint_mark}" >&2
+        return 1
+    fi
+    expected_fingerprint="$(arrow_build_fingerprint)"
+    installed_fingerprint="$(<"${arrow_fingerprint_mark}")"
+    if [[ "${installed_fingerprint}" != "${expected_fingerprint}" ]]; then
+        echo "Arrow build fingerprint does not match selected inputs" >&2
+        return 1
+    fi
+    arrow_artifacts_valid "${install_dir}"
+}
+
+paimon_prebuilt_valid() {
+    local install_dir="$1"
+    local paimon_fingerprint_mark="${install_dir}/paimon-build-fingerprint.txt"
+    local expected_fingerprint
+    local installed_fingerprint
+
+    if [[ ! -f "${paimon_fingerprint_mark}" ]]; then
+        echo "Missing Paimon build fingerprint: ${paimon_fingerprint_mark}" >&2
+        return 1
+    fi
+    expected_fingerprint="$(paimon_build_fingerprint)"
+    installed_fingerprint="$(<"${paimon_fingerprint_mark}")"
+    if [[ "${installed_fingerprint}" != "${expected_fingerprint}" ]]; then
+        echo "Paimon build fingerprint does not match selected inputs" >&2
+        return 1
+    fi
+    paimon_artifacts_valid "${install_dir}"
+}
+
+arrow_paimon_prebuilt_valid() {
+    local install_dir="$1"
+    arrow_prebuilt_valid "${install_dir}" && paimon_prebuilt_valid "${install_dir}"
+}
+
+invalidate_arrow_prebuilt_marker() {
+    local install_dir="$1"
+    rm -f "${install_dir}/arrow-build-fingerprint.txt" \
+        "${install_dir}/arrow-paimon-build-fingerprint.txt"
+}
+
+publish_arrow_prebuilt_marker() {
+    local install_dir="$1"
+    arrow_artifacts_valid "${install_dir}"
+    arrow_build_fingerprint >"${install_dir}/arrow-build-fingerprint.txt"
+}
+
+invalidate_paimon_prebuilt_marker() {
+    local install_dir="$1"
+    rm -f "${install_dir}/paimon-build-fingerprint.txt" \
+        "${install_dir}/arrow-paimon-build-fingerprint.txt"
+}
+
+publish_paimon_prebuilt_marker() {
+    local install_dir="$1"
+    paimon_artifacts_valid "${install_dir}"
+    paimon_build_fingerprint >"${install_dir}/paimon-build-fingerprint.txt"
+}
+
+require_arrow_prebuilt_for_paimon() {
+    local install_dir="$1"
+    if ! arrow_prebuilt_valid "${install_dir}"; then
+        echo "Paimon requires Arrow to be built from the currently selected inputs first" >&2
+        return 1
+    fi
 }
