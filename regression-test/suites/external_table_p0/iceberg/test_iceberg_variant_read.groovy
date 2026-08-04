@@ -56,6 +56,39 @@ suite("test_iceberg_variant_read",
             .withPathStyleAccessEnabled(true)
             .withCredentials(new AWSStaticCredentialsProvider(credentials))
             .build()
+    def executeCommand = { String command, int timeoutSeconds = 300 ->
+        StringBuilder stdout = new StringBuilder()
+        StringBuilder stderr = new StringBuilder()
+        def process = new ProcessBuilder("/bin/bash", "-c", command).start()
+        process.consumeProcessOutput(stdout, stderr)
+        process.waitForOrKill(timeoutSeconds * 1000)
+        assertEquals(0, process.exitValue(),
+                "Command failed\nstdout:\n${stdout}\nstderr:\n${stderr}")
+        return stdout.toString()
+    }
+    String dockerCommand = context.config.otherConfigs.get("externalDockerCommand") ?: "docker"
+    String sparkContainer = context.config.otherConfigs.get("icebergSparkContainer")
+    if (sparkContainer == null || sparkContainer.isEmpty()) {
+        String containers = executeCommand(
+                "${dockerCommand} ps --format '{{.ID}}\t{{.Names}}'", 30)
+        def matches = []
+        containers.readLines().each { String line ->
+            String containerId = line.split(/\t/, 2)[0]
+            String probe = "${dockerCommand} exec ${containerId} bash -lc " +
+                    "'test -f /mnt/SUCCESS && command -v spark-sql >/dev/null'"
+            try {
+                executeCommand(probe, 30)
+                matches.add(containerId)
+            } catch (Throwable ignored) {
+                // Only the Spark service contains the Iceberg writer dependencies.
+            }
+        }
+        assertEquals(1, matches.size(), "Expected exactly one usable Spark Iceberg container")
+        sparkContainer = matches[0]
+    }
+    def runInSparkContainer = { String command ->
+        executeCommand("${dockerCommand} exec ${sparkContainer} bash -lc '${command}'", 300)
+    }
 
     def latestSnapshotId = { String tableName ->
         List<List<Object>> rows = spark_iceberg """
@@ -99,6 +132,115 @@ suite("test_iceberg_variant_read",
             (9, parse_json('{"name":"carol","n":40,"ratio":4.5,"ok":true,"arr":[5,6],"nested":{"city":"bj"},"new_key":"new"}')),
             (10, parse_json('{"name":"dave","n":50,"ratio":5.5,"ok":false,"arr":[7,8],"nested":{"city":"sz"}}')),
             (11, parse_json('{"name":null,"n":60,"ratio":6.5,"ok":true,"arr":[9,10],"nested":{"city":null}}'));
+
+        DROP TABLE IF EXISTS demo.${dbName}.variant_root_arrays;
+        CREATE TABLE demo.${dbName}.variant_root_arrays (id INT, v VARIANT) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='true',
+            'write.parquet.variant-inference-buffer-size'='100'
+        );
+        INSERT INTO demo.${dbName}.variant_root_arrays VALUES
+            (1, parse_json('[]')),
+            (2, parse_json('[null,1,{"x":2},[3,4],"tail"]')),
+            (3, parse_json('[{"nested":[null,{"y":5}]}]')),
+            (4, parse_json('null')),
+            (5, NULL);
+
+        DROP TABLE IF EXISTS demo.${dbName}.variant_multi_file;
+        CREATE TABLE demo.${dbName}.variant_multi_file (id INT, v VARIANT) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='false'
+        );
+        INSERT INTO demo.${dbName}.variant_multi_file
+            VALUES (1, parse_json('{"a":1,"shared":10}'));
+        ALTER TABLE demo.${dbName}.variant_multi_file SET TBLPROPERTIES (
+            'write.parquet.shred-variants'='true',
+            'write.parquet.variant-inference-buffer-size'='1'
+        );
+        INSERT INTO demo.${dbName}.variant_multi_file
+            VALUES (2, parse_json('{"b":2,"shared":20,"z":200}'));
+        INSERT INTO demo.${dbName}.variant_multi_file
+            VALUES (3, parse_json('{"z":300,"shared":30,"a":3}'));
+        ALTER TABLE demo.${dbName}.variant_multi_file SET TBLPROPERTIES
+            ('write.parquet.shred-variants'='false');
+        INSERT INTO demo.${dbName}.variant_multi_file
+            VALUES (4, parse_json('{"c":4,"shared":40}'));
+        ALTER TABLE demo.${dbName}.variant_multi_file SET TBLPROPERTIES
+            ('write.parquet.shred-variants'='true');
+        INSERT INTO demo.${dbName}.variant_multi_file
+            VALUES (5, parse_json('{"shared":50,"b":5,"new_field":{"k":500}}'));
+
+        DROP TABLE IF EXISTS demo.${dbName}.variant_type_matrix;
+        CREATE TABLE demo.${dbName}.variant_type_matrix (id INT, v VARIANT) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='true',
+            'write.parquet.variant-inference-buffer-size'='100'
+        );
+        INSERT INTO demo.${dbName}.variant_type_matrix SELECT 1, to_variant_object(named_struct(
+            'bool_value', true,
+            'tiny_value', CAST(-128 AS TINYINT),
+            'small_value', CAST(-32768 AS SMALLINT),
+            'int_value', CAST(2147483647 AS INT),
+            'big_value', CAST('-9223372036854775808' AS BIGINT),
+            'float_value', CAST('NaN' AS FLOAT),
+            'double_value', CAST('Infinity' AS DOUBLE),
+            'decimal_value', CAST('-1234567890.1234' AS DECIMAL(20, 4)),
+            'date_value', CAST('1970-01-02' AS DATE),
+            'timestamp_value', TIMESTAMP'1970-01-01 00:00:01.234567',
+            'binary_value', CAST('binary' AS BINARY),
+            'null_value', CAST(NULL AS INT)
+        ));
+
+        DROP TABLE IF EXISTS demo.${dbName}.variant_multi_row_group;
+        CREATE TABLE demo.${dbName}.variant_multi_row_group (id INT, v VARIANT) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='true',
+            'write.parquet.variant-inference-buffer-size'='100',
+            'write.parquet.row-group-size-bytes'='4096'
+        );
+        SET spark.sql.shuffle.partitions=1;
+        INSERT INTO demo.${dbName}.variant_multi_row_group
+        SELECT /*+ COALESCE(1) */ CAST(id AS INT), parse_json(concat(
+            '{"n":', id, ',"padding":"', repeat('x', 256), '"}'))
+        FROM range(0, 8192);
+
+        DROP TABLE IF EXISTS demo.${dbName}.variant_deletion_vector;
+        CREATE TABLE demo.${dbName}.variant_deletion_vector (id INT, v VARIANT) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='true',
+            'write.parquet.variant-inference-buffer-size'='100',
+            'write.delete.mode'='merge-on-read',
+            'read.parquet.vectorization.enabled'='false',
+            'write.parquet.row-group-size-bytes'='4096'
+        );
+        INSERT INTO demo.${dbName}.variant_deletion_vector
+        SELECT /*+ COALESCE(1) */ CAST(id AS INT), parse_json(concat('{"n":', id, ',"keep":',
+            IF(id % 2 = 0, 'true', 'false'), '}'))
+        FROM range(0, 4096);
+        RESET spark.sql.shuffle.partitions;
+
+        DROP TABLE IF EXISTS demo.${dbName}.variant_equality_delete;
+        CREATE TABLE demo.${dbName}.variant_equality_delete (id INT, v VARIANT) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='true',
+            'write.parquet.variant-inference-buffer-size'='100'
+        );
+        INSERT INTO demo.${dbName}.variant_equality_delete VALUES
+            (1, parse_json('{"n":10,"label":"keep-one"}')),
+            (2, parse_json('{"n":20,"label":"delete"}')),
+            (3, parse_json('{"n":30,"label":"keep-three"}'));
 
         DROP TABLE IF EXISTS demo.${dbName}.variant_page_pruning;
 
@@ -156,9 +298,82 @@ suite("test_iceberg_variant_read",
         INSERT INTO demo.${dbName}.variant_write_guard VALUES (1);
     """
 
+    List<List<Object>> multiRowGroupFiles = spark_iceberg """
+        SELECT COUNT(*) FROM demo.${dbName}.variant_multi_row_group.files WHERE content = 0
+    """
+    assertEquals(1, multiRowGroupFiles.size())
+    assertEquals("1", multiRowGroupFiles[0][0].toString(),
+            "The multi-row-group fixture must contain exactly one data file")
+
+    String equalityDeleteBaseSnapshot = latestSnapshotId("variant_equality_delete")
+    String equalityDeleteJava = '''
+import java.util.HashMap;
+import java.util.Map;
+import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.data.Record;
+import org.apache.iceberg.data.parquet.GenericParquetWriter;
+import org.apache.iceberg.deletes.EqualityDeleteWriter;
+import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.parquet.Parquet;
+
+public class AppendVariantEqualityDelete {
+    public static void main(String[] args) throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "rest");
+        props.put("uri", "http://rest:8181");
+        props.put("warehouse", "s3://warehouse/wh/");
+        props.put("io-impl", "org.apache.iceberg.aws.s3.S3FileIO");
+        props.put("s3.endpoint", "http://minio:9000");
+        props.put("s3.path-style-access", "true");
+        props.put("s3.region", "us-east-1");
+        Catalog catalog = CatalogUtil.buildIcebergCatalog("demo", props, null);
+        Table table = catalog.loadTable(TableIdentifier.of(args[0], args[1]));
+        Schema equalitySchema = table.schema().select("id");
+        int fieldId = table.schema().findField("id").fieldId();
+        OutputFile output = table.io().newOutputFile(
+                table.location() + "/data/variant-equality-delete-" +
+                        System.currentTimeMillis() + ".parquet");
+        EqualityDeleteWriter<Record> writer = Parquet.writeDeletes(output)
+                .forTable(table)
+                .rowSchema(equalitySchema)
+                .withSpec(PartitionSpec.unpartitioned())
+                .createWriterFunc(GenericParquetWriter::create)
+                .equalityFieldIds(fieldId)
+                .overwrite()
+                .buildEqualityWriter();
+        GenericRecord record = GenericRecord.create(equalitySchema);
+        record.setField("id", Integer.valueOf(args[2]));
+        writer.write(record);
+        writer.close();
+        DeleteFile deleteFile = writer.toDeleteFile();
+        table.newRowDelta().addDeletes(deleteFile).commit();
+    }
+}
+'''
+    String encodedEqualityDeleteJava =
+            equalityDeleteJava.getBytes("UTF-8").encodeBase64().toString()
+    runInSparkContainer(
+            "echo ${encodedEqualityDeleteJava} | base64 -d " +
+                    ">/tmp/AppendVariantEqualityDelete.java && " +
+                    "javac -cp \"/opt/spark/jars/*\" " +
+                    "/tmp/AppendVariantEqualityDelete.java && " +
+                    "java -cp \"/tmp:/opt/spark/jars/*\" AppendVariantEqualityDelete " +
+                    "${dbName} variant_equality_delete 2")
+
     String writeGuardSourceSnapshot = latestSnapshotId("variant_write_guard")
+    String deletionVectorBaseSnapshot = latestSnapshotId("variant_deletion_vector")
     spark_iceberg """
         ALTER TABLE demo.${dbName}.variant_write_guard ADD COLUMN payload VARIANT
+    """
+    spark_iceberg """
+        DELETE FROM demo.${dbName}.variant_deletion_vector WHERE id % 2 = 1
     """
 
     // Register a stable Iceberg metadata fixture so the page-pruning case always uses a
@@ -174,6 +389,21 @@ suite("test_iceberg_variant_read",
             table => '${dbName}.variant_page_pruning',
             metadata_file =>
                 's3a://warehouse/wh/${dbName}/variant_page_pruning/metadata/${shreddedMetadataName}')
+    """
+    String shreddedOnlySnapshot = latestSnapshotId("variant_page_pruning")
+    spark_iceberg_multi """
+        ALTER TABLE demo.${dbName}.variant_page_pruning SET TBLPROPERTIES (
+            'read.parquet.vectorization.enabled'='false',
+            'write.delete.mode'='merge-on-read'
+        );
+        INSERT INTO demo.${dbName}.variant_page_pruning VALUES
+            (5000, parse_json('{"n":5000,"padding":"mixed-unshredded"}'));
+    """
+    String mixedBeforeDeleteSnapshot = latestSnapshotId("variant_page_pruning")
+    // One deletion vector targets the shredded fixture and another targets the appended
+    // unshredded file, forcing both physical states through the same scan and delete alignment.
+    spark_iceberg """
+        DELETE FROM demo.${dbName}.variant_page_pruning WHERE id IN (4095, 5000)
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -198,18 +428,6 @@ suite("test_iceberg_variant_read",
     sql """set profile_level=2"""
 
     def profileAction = new ProfileAction(context)
-    def getProfileByToken = { String token ->
-        for (int retry = 0; retry < 20; ++retry) {
-            List profileData = profileAction.getProfileList()
-            for (final def profileItem in profileData) {
-                if (profileItem["Sql Statement"].toString().contains(token)) {
-                    return profileAction.getProfile(profileItem["Profile ID"].toString())
-                }
-            }
-            Thread.sleep(500)
-        }
-        throw new IllegalStateException("Missing profile for token: " + token)
-    }
     def counterSum = { String profile, String counterName ->
         Pattern pattern = Pattern.compile(Pattern.quote(counterName) + ":\\s*([0-9,]+)")
         Matcher matcher = pattern.matcher(profile)
@@ -218,6 +436,25 @@ suite("test_iceberg_variant_read",
             sum += Long.parseLong(matcher.group(1).replace(",", ""))
         }
         return sum
+    }
+    def getProfileByToken = { String token, List<String> positiveCounters = [] ->
+        String lastProfile = ""
+        for (int retry = 0; retry < 20; ++retry) {
+            List profileData = profileAction.getProfileList()
+            for (final def profileItem in profileData) {
+                if (profileItem["Sql Statement"].toString().contains(token)) {
+                    lastProfile = profileAction.getProfile(
+                            profileItem["Profile ID"].toString()).toString()
+                    if (positiveCounters.every { counterSum(lastProfile, it) > 0 }) {
+                        return lastProfile
+                    }
+                }
+            }
+            Thread.sleep(500)
+        }
+        throw new IllegalStateException(
+                "Profile did not expose positive counters ${positiveCounters} for token ${token}: " +
+                        lastProfile)
     }
 
     String evolutionInitial = latestSnapshotId("variant_evolution")
@@ -306,6 +543,18 @@ suite("test_iceberg_variant_read",
         ORDER BY id
     """
 
+    order_qt_variant_root_array_projection """
+        SELECT id,
+               v IS NULL,
+               CAST(v AS STRING),
+               CAST(v[1] AS STRING),
+               CAST(v[2] AS INT),
+               CAST(v[3]['x'] AS INT),
+               CAST(v[4][2] AS INT)
+        FROM variant_root_arrays
+        ORDER BY id
+    """
+
     order_qt_variant_path_expressions """
         SELECT id,
                UPPER(CAST(v['name'] AS STRING)),
@@ -327,8 +576,8 @@ suite("test_iceberg_variant_read",
         ORDER BY id
     """
 
-    // The first INSERT is unshredded while the second is shredded. Keep both small files on one
-    // scanner so their complete and leaf-only physical states must be projected before batching.
+    // Keep the independent Spark writes on one scanner to exercise metadata dictionaries and
+    // complete Variant state transitions across file boundaries before batching.
     sql "set parallel_pipeline_task_num=1"
     sql "set max_file_scanners_concurrency=1"
     order_qt_variant_cross_file_leaf_projection """
@@ -337,44 +586,167 @@ suite("test_iceberg_variant_read",
         ORDER BY id
     """
 
-    // Keep the root Variant as output while the implicit scalar comparison drives the shredded
-    // typed_value statistics/page-index path.
-    order_qt_variant_implicit_shredded_filter """
+    order_qt_variant_multi_file_serial """
+        SELECT id,
+               CAST(v['shared'] AS INT),
+               CAST(v['a'] AS INT),
+               CAST(v['b'] AS INT),
+               CAST(v['new_field']['k'] AS INT),
+               CAST(v AS STRING)
+        FROM variant_multi_file
+        WHERE v['shared'] >= 20
+        ORDER BY id
+    """
+    sql "set parallel_pipeline_task_num=4"
+    sql "set max_file_scanners_concurrency=8"
+    order_qt_variant_multi_file_parallel """
+        SELECT id,
+               CAST(v['shared'] AS INT),
+               CAST(v['a'] AS INT),
+               CAST(v['b'] AS INT),
+               CAST(v['new_field']['k'] AS INT),
+               CAST(v AS STRING)
+        FROM variant_multi_file
+        WHERE v['shared'] >= 20
+        ORDER BY id
+    """
+
+    order_qt_variant_type_matrix """
+        SELECT CAST(v['bool_value'] AS BOOLEAN),
+               CAST(v['tiny_value'] AS TINYINT),
+               CAST(v['small_value'] AS SMALLINT),
+               CAST(v['int_value'] AS INT),
+               CAST(v['big_value'] AS BIGINT),
+               ISNAN(CAST(v['float_value'] AS FLOAT)),
+               ISINF(CAST(v['double_value'] AS DOUBLE)),
+               CAST(v['decimal_value'] AS DECIMAL(20, 4)),
+               CAST(v['date_value'] AS DATE),
+               CAST(v['timestamp_value'] AS DATETIMEV2(6)),
+               CAST(v['binary_value'] AS STRING),
+               v['null_value'] IS NULL
+        FROM variant_type_matrix
+    """
+
+    String multiRowGroupColdToken =
+            "iceberg_variant_multi_row_group_cold_" + UUID.randomUUID().toString()
+    sql """
+        SELECT '${multiRowGroupColdToken}', COUNT(*), MIN(id), MAX(id)
+        FROM variant_multi_row_group
+        WHERE CAST(v['n'] AS INT) >= 8000
+    """
+    String multiRowGroupColdProfile = getProfileByToken(multiRowGroupColdToken,
+            ["RowGroupsTotalNum", "VariantDirectLeafPathMisses", "VariantReconstructedRows",
+             "FilteredRowsByLazyRead"]).toString()
+    assertTrue(counterSum(multiRowGroupColdProfile, "RowGroupsTotalNum") > 1,
+               "The generated Variant file did not contain multiple Parquet row groups")
+    assertTrue(counterSum(multiRowGroupColdProfile, "VariantDirectLeafPathMisses") > 0,
+               "The unshredded scan did not record its direct-leaf fallback")
+    assertTrue(counterSum(multiRowGroupColdProfile, "VariantReconstructedRows") > 0,
+               "The unshredded scan did not reconstruct Variant rows")
+    assertTrue(counterSum(multiRowGroupColdProfile, "FilteredRowsByLazyRead") > 0,
+               "The unshredded Variant predicate did not defer non-predicate columns")
+    String multiRowGroupWarmToken =
+            "iceberg_variant_multi_row_group_warm_" + UUID.randomUUID().toString()
+    sql """
+        SELECT '${multiRowGroupWarmToken}', COUNT(*), MIN(id), MAX(id)
+        FROM variant_multi_row_group
+        WHERE CAST(v['n'] AS INT) >= 8000
+    """
+    String multiRowGroupWarmProfile = getProfileByToken(multiRowGroupWarmToken,
+            ["VariantDirectLeafPathMisses"]).toString()
+    assertTrue(counterSum(multiRowGroupWarmProfile, "VariantDirectLeafPathMisses") > 0,
+               "The warm unshredded scan did not preserve its direct-leaf fallback")
+    qt_variant_multi_row_group_result """
+        SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
+        FROM variant_multi_row_group
+        WHERE CAST(v['n'] AS INT) >= 8000
+    """
+
+    qt_variant_deletion_vector_current """
+        SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
+        FROM variant_deletion_vector
+        WHERE v['keep'] = true
+    """
+    qt_variant_deletion_vector_before_delete """
+        SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
+        FROM variant_deletion_vector FOR VERSION AS OF ${deletionVectorBaseSnapshot}
+        WHERE v['n'] >= 0
+    """
+    order_qt_variant_equality_delete_current """
+        SELECT id, CAST(v['n'] AS INT), CAST(v['label'] AS STRING), CAST(v AS STRING)
+        FROM variant_equality_delete
+        WHERE v['n'] >= 0
+        ORDER BY id
+    """
+    order_qt_variant_equality_delete_before_delete """
+        SELECT id, CAST(v['n'] AS INT), CAST(v['label'] AS STRING), CAST(v AS STRING)
+        FROM variant_equality_delete FOR VERSION AS OF ${equalityDeleteBaseSnapshot}
+        WHERE v['n'] >= 0
+        ORDER BY id
+    """
+
+    // Keep the root Variant as output while the scalar comparison exercises the fallback path for
+    // the unshredded Spark files.
+    order_qt_variant_implicit_filter """
         SELECT id, CAST(v AS STRING)
         FROM variant_values
         WHERE v['n'] > 35
         ORDER BY id
     """
 
-    // The query projects the root Variant, while the predicate uses typed_value page metadata.
+    qt_variant_shredded_only_time_travel """
+        SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
+        FROM variant_page_pruning FOR VERSION AS OF ${shreddedOnlySnapshot}
+        WHERE CAST(v['n'] AS INT) > 3000
+    """
+    qt_variant_mixed_before_delete """
+        SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
+        FROM variant_page_pruning FOR VERSION AS OF ${mixedBeforeDeleteSnapshot}
+        WHERE CAST(v['n'] AS INT) > 3000
+    """
+
+    // The query projects the complete Variant while its predicate reads the shredded typed leaf.
+    // The appended unshredded file must fall back independently in the same scan.
     String pagePruningToken = "iceberg_variant_page_pruning_" + UUID.randomUUID().toString()
     sql """
         SELECT '${pagePruningToken}', id, CAST(v AS STRING)
         FROM variant_page_pruning
-        WHERE v['n'] > 3000
+        WHERE CAST(v['n'] AS INT) > 3000
         ORDER BY id
     """
-    String pagePruningProfile = getProfileByToken(pagePruningToken).toString()
+    String pagePruningProfile = getProfileByToken(pagePruningToken,
+            ["FilteredRowsByPage", "VariantLeafProjections", "VariantDirectLeafPathMisses",
+             "VariantDirectLeafRows", "VariantReconstructedRows",
+             "FilteredRowsByLazyRead"]).toString()
     assertTrue(counterSum(pagePruningProfile, "FilteredRowsByPage") > 0,
                "Shredded Variant typed_value did not filter any Parquet page")
     // The predicate_access_paths contract keeps the typed leaf eager while the complete Variant
     // root is read through the independent deferred-output projection.
     assertTrue(counterSum(pagePruningProfile, "VariantLeafProjections") > 0,
                "A root Variant output query did not retain its typed predicate leaf projection")
+    assertTrue(counterSum(pagePruningProfile, "VariantDirectLeafPathMisses") > 0,
+               "The mixed scan did not fall back for its unshredded Variant file")
+    assertTrue(counterSum(pagePruningProfile, "VariantDirectLeafRows") > 0,
+               "The mixed scan did not evaluate rows from the shredded typed leaf")
+    assertTrue(counterSum(pagePruningProfile, "VariantReconstructedRows") > 0,
+               "The mixed scan did not reconstruct complete Variant output")
+    assertTrue(counterSum(pagePruningProfile, "FilteredRowsByLazyRead") > 0,
+               "The mixed Variant scan did not delay output materialization")
     String leafProjectionToken =
             "iceberg_variant_leaf_projection_" + UUID.randomUUID().toString()
     sql """
         SELECT '${leafProjectionToken}', COUNT(*)
         FROM variant_page_pruning
-        WHERE v['n'] > 3000
+        WHERE CAST(v['n'] AS INT) > 3000
     """
-    String leafProjectionProfile = getProfileByToken(leafProjectionToken).toString()
+    String leafProjectionProfile = getProfileByToken(leafProjectionToken,
+            ["VariantLeafProjections"]).toString()
     assertTrue(counterSum(leafProjectionProfile, "VariantLeafProjections") > 0,
                "Variant typed predicate did not retain a physical leaf projection")
     qt_variant_page_pruning_result """
         SELECT COUNT(*), MIN(id), MAX(id)
         FROM variant_page_pruning
-        WHERE v['n'] > 3000
+        WHERE CAST(v['n'] AS INT) > 3000
     """
 
     // A later Variant metadata predicate must not prune away an earlier error-producing conjunct.
@@ -529,6 +901,7 @@ suite("test_iceberg_variant_read",
 
     // A delete-only MERGE emits only position deletes. It must remain available even though
     // update/insert actions would route the unchanged Variant through the unsupported data writer.
+    String beforePositionDeleteSnapshot = latestSnapshotId("variant_values")
     sql """
         MERGE INTO variant_values t
         USING (SELECT 11 AS id) s
@@ -536,6 +909,31 @@ suite("test_iceberg_variant_read",
         WHEN MATCHED THEN DELETE
     """
     qt_variant_delete_only_merge "SELECT COUNT(*) FROM variant_values WHERE id = 11"
+    order_qt_variant_position_delete_alignment """
+        SELECT id, CAST(v['name'] AS STRING), CAST(v['n'] AS INT), CAST(v AS STRING)
+        FROM variant_values
+        WHERE v['n'] >= 40
+        ORDER BY id
+    """
+    order_qt_variant_before_position_delete """
+        SELECT id, CAST(v['name'] AS STRING), CAST(v['n'] AS INT), CAST(v AS STRING)
+        FROM variant_values FOR VERSION AS OF ${beforePositionDeleteSnapshot}
+        WHERE v['n'] >= 40
+        ORDER BY id
+    """
+    String positionDeleteToken =
+            "iceberg_variant_position_delete_" + UUID.randomUUID().toString()
+    sql """
+        SELECT '${positionDeleteToken}', COUNT(*)
+        FROM variant_values
+        WHERE v['n'] >= 40
+    """
+    String positionDeleteProfile = getProfileByToken(positionDeleteToken,
+            ["VariantDirectLeafPathMisses", "VariantReconstructedRows"]).toString()
+    assertTrue(counterSum(positionDeleteProfile, "VariantDirectLeafPathMisses") > 0,
+               "Position-delete filtering did not preserve the unshredded Variant fallback")
+    assertTrue(counterSum(positionDeleteProfile, "VariantReconstructedRows") > 0,
+               "Position-delete filtering did not reconstruct its Variant rows")
 
     // Files written before the Variant field existed have no physical Variant payload. Schema
     // evolution must synthesize NULL instead of rejecting their non-Parquet file format.
