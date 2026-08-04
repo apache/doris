@@ -219,6 +219,11 @@ void QueryContext::init_query_task_controller() {
 #endif
 }
 
+void QueryContext::record_spill_data_dir(SpillDataDir* data_dir) {
+    std::lock_guard lock(_spill_data_dirs_mutex);
+    _spill_data_dirs.emplace(data_dir);
+}
+
 QueryContext::~QueryContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
@@ -246,6 +251,12 @@ QueryContext::~QueryContext() {
     file_scan_range_params_map.clear();
     obj_pool.clear();
     _merge_controller_handler.reset();
+
+    if (auto* spill_file_mgr = _exec_env->spill_file_mgr()) {
+        for (auto* data_dir : _spill_data_dirs) {
+            spill_file_mgr->delete_query_spill_directory(print_id(_query_id), data_dir);
+        }
+    }
 
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     // fragment_mgr is nullptr in unittest
