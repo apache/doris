@@ -182,6 +182,9 @@ public class MockJniScanner extends JniScanner {
     private int mockRows;
     private int readRows = 0;
     private final MockColumnValue columnValue = new MockColumnValue();
+    // Test hook ("unchecked"/"io"/null): fail getNext() after real data is appended, so tests can
+    // verify getNextBatchMeta() releases the off-heap table and normalizes the failure.
+    private final String throwType;
 
     public MockJniScanner(int batchSize, Map<String, String> params) {
         mockRows = Integer.parseInt(params.get("mock_rows"));
@@ -191,6 +194,7 @@ public class MockJniScanner extends JniScanner {
         for (int i = 0; i < types.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
         }
+        throwType = params.get("mock_throw_type");
         initTableInfo(columnTypes, requiredFields, batchSize);
     }
 
@@ -223,6 +227,12 @@ public class MockJniScanner extends JniScanner {
         }
         appendDataTime += System.nanoTime() - startTime;
         readRows += rows;
+        if (throwType != null) {
+            if ("io".equals(throwType)) {
+                throw new IOException("mock IO failure from getNext");
+            }
+            throw new IllegalStateException("mock unchecked failure from getNext");
+        }
         return rows;
     }
 }

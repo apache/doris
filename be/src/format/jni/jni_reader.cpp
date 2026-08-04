@@ -224,6 +224,15 @@ Status JniReader::close() {
                 COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
             }
 
+            // close() is best-effort cleanup that runs on a pooled scan thread. If a previous JNI
+            // call on this thread left an exception pending (the real scan error is already carried
+            // by the scan status), the early RETURN_ERROR_IF_EXC below would abort the
+            // resource-release calls and leak the Java scanner / off-heap table. Discard any
+            // residual exception up front so release/close always run on a clean thread state.
+            if (env->ExceptionCheck()) [[unlikely]] {
+                LOG(WARNING) << "discard stale pending JNI exception before closing JNI scanner: "
+                             << Jni::Env::GetJniExceptionMsg(env, false).to_string();
+            }
             RETURN_ERROR_IF_EXC(env);
             jlong _append = 0;
             RETURN_IF_ERROR(
@@ -395,6 +404,14 @@ Status JniReader::_fill_partition_columns(Block* block, size_t num_rows) {
 
 Status JniReader::_get_statistics(JNIEnv* env, std::map<std::string, std::string>* result) {
     result->clear();
+    // JNI exceptions are sticky per-thread until explicitly cleared. A stale exception left by
+    // an earlier JNI call on this pooled scan thread would make the JNI call below run under a
+    // pending exception (UB) and be misattributed here. The real scan error is already carried by
+    // the scan status, so discard any residual exception before touching the JVM again.
+    if (env->ExceptionCheck()) [[unlikely]] {
+        LOG(WARNING) << "discard stale pending JNI exception before collecting JNI scanner "
+                     << "statistics: " << Jni::Env::GetJniExceptionMsg(env, false).to_string();
+    }
     Jni::LocalObject metrics;
     RETURN_IF_ERROR(
             _jni_scanner_obj.call_object_method(env, _jni_scanner_get_statistics).call(&metrics));

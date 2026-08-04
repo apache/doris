@@ -100,9 +100,18 @@ public abstract class JniScanner {
         int numRows;
         try {
             numRows = getNext();
-        } catch (IOException e) {
+        } catch (Throwable t) {
+            // Catch Throwable, not just IOException: subclasses (and the libraries they call)
+            // routinely surface failures as unchecked RuntimeException/NPE. If such an exception
+            // escaped here, releaseTable() would be skipped (off-heap leak) and a bare pending JNI
+            // exception would be left on this pooled scan thread, later misattributed to an
+            // unrelated JNI call (e.g. getStatistics) and able to fail the whole query. Always
+            // release the table and normalize to a checked IOException so BE clears it cleanly.
             releaseTable();
-            throw e;
+            if (t instanceof IOException) {
+                throw (IOException) t;
+            }
+            throw new IOException("Failed to get next batch in JNI scanner: " + t.getMessage(), t);
         }
         if (numRows == 0) {
             releaseTable();
