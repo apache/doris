@@ -18,8 +18,10 @@
 #include "exprs/expr_zonemap_filter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <set>
+#include <type_traits>
 #include <utility>
 
 #include "common/check.h"
@@ -93,6 +95,24 @@ bool bloom_filter_probes_equal(const BloomFilterProbe& lhs, const BloomFilterPro
            data_types_compatible(lhs.value_type, rhs.value_type);
 }
 
+template <typename T>
+bool floating_point_bloom_filter_may_contain(const segment_v2::BloomFilter& bloom_filter, T value) {
+    static_assert(std::is_floating_point_v<T>);
+    // Doris equality collapses NaN payloads and signed zeros, while Parquet Bloom hashes physical
+    // bytes. A negative probe is safe only after covering the entire Doris-equivalent class.
+    if (std::isnan(value)) {
+        return true;
+    }
+    const auto test_value = [&](T candidate) {
+        return bloom_filter.test_bytes(reinterpret_cast<const char*>(&candidate),
+                                       sizeof(candidate));
+    };
+    if (test_value(value)) {
+        return true;
+    }
+    return value == T {0} && test_value(-value);
+}
+
 bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slot_filter,
                               const Field& value) {
     DORIS_CHECK(slot_filter.data_type != nullptr);
@@ -117,13 +137,11 @@ bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slo
     }
     case TYPE_FLOAT: {
         const float typed_value = value.get<TYPE_FLOAT>();
-        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
-                                                    sizeof(typed_value));
+        return floating_point_bloom_filter_may_contain(*slot_filter.bloom_filter, typed_value);
     }
     case TYPE_DOUBLE: {
         const double typed_value = value.get<TYPE_DOUBLE>();
-        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
-                                                    sizeof(typed_value));
+        return floating_point_bloom_filter_may_contain(*slot_filter.bloom_filter, typed_value);
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -302,27 +320,37 @@ std::optional<BloomFilterProbe> extract_bloom_filter_probe(const VExprSPtr& expr
     return probe;
 }
 
-std::optional<BloomFilterProbe> extract_bloom_filter_predicate_probe(const VExprSPtr& expr) {
+bool collect_unique_bloom_filter_probe(const VExprSPtr& expr,
+                                       std::optional<BloomFilterProbe>* result) {
+    DORIS_CHECK(result != nullptr);
     if (auto probe = extract_bloom_filter_probe(expr); probe.has_value()) {
-        return probe;
+        if (result->has_value() && !bloom_filter_probes_equal(**result, *probe)) {
+            return false;
+        }
+        *result = std::move(probe);
+        return true;
     }
     if (expr == nullptr) {
-        return std::nullopt;
+        return true;
     }
-    std::optional<BloomFilterProbe> result;
     for (uint16_t child_idx = 0; child_idx < expr->get_num_children(); ++child_idx) {
         const auto& child = expr->get_child(child_idx);
         if (child == nullptr || child->is_literal()) {
             continue;
         }
-        auto child_probe = extract_bloom_filter_predicate_probe(child);
-        if (!child_probe.has_value()) {
-            continue;
+        // Every Bloom-capable branch must bind to the same leaf; a conflicting subtree cannot be
+        // treated like a branch without a probe because the compound evaluator would use it.
+        if (!collect_unique_bloom_filter_probe(child, result)) {
+            return false;
         }
-        if (result.has_value() && !bloom_filter_probes_equal(*result, *child_probe)) {
-            return std::nullopt;
-        }
-        result = std::move(child_probe);
+    }
+    return true;
+}
+
+std::optional<BloomFilterProbe> extract_bloom_filter_predicate_probe(const VExprSPtr& expr) {
+    std::optional<BloomFilterProbe> result;
+    if (!collect_unique_bloom_filter_probe(expr, &result)) {
+        return std::nullopt;
     }
     return result;
 }
