@@ -148,6 +148,13 @@ public class PartitionIncrementMaintainer {
             boolean allReachRelationCheck = true;
             boolean allIsFromTablePartitionColumn = true;
             for (PartitionIncrementCheckContext childContext : childrenContextList) {
+                if (childContext.isFailFast()) {
+                    context.addFailReason(String.format(
+                            "union all child partition increment check failed, fail reason is %s",
+                            childContext.getFailReasons()));
+                    context.setFailFast(true);
+                    return null;
+                }
                 boolean childAnyIsFromTablePartitionColumn = false;
                 boolean childAnyReachRelationCheck = false;
                 for (RelatedTableColumnInfo tableColumnInfo : childContext.getPartitionAndRefExpressionMap().values()) {

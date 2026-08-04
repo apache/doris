@@ -1107,6 +1107,28 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                         });
     }
 
+    @Test
+    public void testUnionAllRejectsFailedChildContext() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select L_SHIPDATE as part_date\n"
+                                + "from lineitem\n"
+                                + "cross join (\n"
+                                + "  select O_ORDERKEY from orders\n"
+                                + "  intersect\n"
+                                + "  select L_ORDERKEY from lineitem\n"
+                                + ") unsupported_branch\n"
+                                + "union all\n"
+                                + "select O_ORDERDATE as part_date\n"
+                                + "from orders",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfos("part_date", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            failWith(relatedTableInfo, "LogicalIntersect");
+                        });
+    }
+
 
     // test with cte
     @Test
