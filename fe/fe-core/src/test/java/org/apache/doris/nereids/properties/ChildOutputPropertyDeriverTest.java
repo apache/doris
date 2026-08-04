@@ -1144,6 +1144,40 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
+    void testRepeatDropsNaturalMappingLocality() {
+        SlotReference k1 = new SlotReference(
+                new ExprId(1), "k1", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference d1 = new SlotReference(
+                new ExprId(2), "d1", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference groupingId = new SlotReference(
+                new ExprId(3), "grouping_id", BigIntType.INSTANCE, false, ImmutableList.of());
+        PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(k1, d1), ImmutableList.of(k1)),
+                ImmutableList.of(k1, d1),
+                groupingId,
+                logicalProperties,
+                groupPlan);
+        GroupExpression groupExpression = new GroupExpression(repeat);
+        new Group(null, groupExpression, null);
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+
+        PhysicalProperties result = new ChildOutputPropertyDeriver(
+                ImmutableList.of(new PhysicalProperties(childHash)))
+                .getOutputProperties(null, groupExpression);
+
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
+        Assertions.assertEquals(ShuffleType.NATURAL,
+                ((DistributionSpecHash) result.getDistributionSpec()).getShuffleType());
+        Assertions.assertTrue(((DistributionSpecHash) result.getDistributionSpec())
+                .getDistributionMappings().isEmpty());
+        Assertions.assertFalse(result.getNaturalDistributionMappingSpec().isPresent());
+    }
+
+    @Test
     void testRepeatReturnChild2() {
         SlotReference c1 = new SlotReference(
                 new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of());

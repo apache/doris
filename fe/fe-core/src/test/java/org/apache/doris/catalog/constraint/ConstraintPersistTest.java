@@ -226,6 +226,35 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     }
 
     @Test
+    void imageLoadAndFollowerReplayKeepDistributionMappingStoresConsistent() throws Exception {
+        TableIf table = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_image_replay", "mapping_image_replay", List.of("k2"), List.of("k1"));
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        manager.addConstraint(tableNameInfo, mapping.getName(), mapping, true);
+
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        manager.write(new DataOutputStream(image));
+        manager.dropConstraint(tableNameInfo, mapping.getName(), true);
+        Assertions.assertTrue(manager.getDistributionMappingConstraints(table).isEmpty());
+
+        Env.getCurrentEnv().loadConstraintManager(
+                new DataInputStream(new ByteArrayInputStream(image.toByteArray())), 0L);
+        Env.getCurrentEnv().migrateConstraintsFromTables();
+        ConstraintManager loadedManager = Env.getCurrentEnv().getConstraintManager();
+        Assertions.assertEquals(mapping, loadedManager.getConstraint(tableNameInfo, mapping.getName()));
+        Assertions.assertEquals(
+                List.of(mapping), loadedManager.getDistributionMappingConstraints(table));
+
+        replayConstraint(OperationType.OP_DROP_CONSTRAINT, tableNameInfo, mapping);
+        Assertions.assertNull(loadedManager.getConstraint(tableNameInfo, mapping.getName()));
+        Assertions.assertTrue(loadedManager.getDistributionMappingConstraints(table).isEmpty());
+    }
+
+    @Test
     void distributionMappingConstraintLifecycleIndexTest() {
         ConstraintManager manager = new ConstraintManager();
         TableNameInfo oldTableName = new TableNameInfo("internal.old_db.mapping_table");
@@ -241,6 +270,37 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         Assertions.assertEquals(
                 mapping.getName(),
                 manager.findConstraintWithColumn(newTableName, "USER_ID"));
+    }
+
+    @Test
+    void recoverTableRebuildsDistributionMappingIndexFromTableMetadata() throws Exception {
+        createTable("create table mapping_recover (\n"
+                + "    k1 int,\n"
+                + "    k2 int\n"
+                + ")\n"
+                + "unique key(k1, k2)\n"
+                + "distributed by hash(k1) buckets 4\n"
+                + "properties(\"replication_num\"=\"1\")");
+        TableIf table = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "mapping_recover")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_recover", "mapping_recover", List.of("k2"), List.of("k1"));
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        manager.addConstraint(tableNameInfo, mapping.getName(), mapping, true);
+
+        dropTableWithSql("drop table test.mapping_recover");
+        Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
+
+        recoverTable("recover table test.mapping_recover");
+        TableIf recoveredTable = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "mapping_recover")),
+                connectContext.getEnv(), Optional.empty());
+        Assertions.assertEquals(mapping, manager.getConstraint(tableNameInfo, mapping.getName()));
+        Assertions.assertEquals(
+                List.of(mapping), manager.getDistributionMappingConstraints(recoveredTable));
+        dropTableWithSql("drop table test.mapping_recover force");
     }
 
     @Test
@@ -266,10 +326,12 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         replayConstraint(OperationType.OP_ADD_CONSTRAINT, tableNameInfo, mapping);
         Assertions.assertEquals(initialEpoch + 1,
                 Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
+        Assertions.assertEquals(List.of(mapping), manager.getDistributionMappingConstraints(table));
         replayConstraint(OperationType.OP_DROP_CONSTRAINT, tableNameInfo, mapping);
         Assertions.assertEquals(initialEpoch + 2,
                 Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
         Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
+        Assertions.assertTrue(manager.getDistributionMappingConstraints(table).isEmpty());
     }
 
     private void replayConstraint(short operationType, TableNameInfo tableNameInfo, Constraint constraint)

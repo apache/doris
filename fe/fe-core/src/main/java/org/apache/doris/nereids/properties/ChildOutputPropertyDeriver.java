@@ -499,7 +499,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     intersectGroupingKeysId.add(((SlotReference) key).getExprId());
                 }
                 if (intersectGroupingKeysId.containsAll(orderedShuffledColumns)) {
-                    return childrenOutputProperties.get(0);
+                    return withoutNaturalDistributionMapping(childrenOutputProperties.get(0));
                 }
             }
             output = PhysicalProperties.createAnyFromHash((DistributionSpecHash) childDistributionSpec);
