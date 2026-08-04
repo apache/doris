@@ -1232,8 +1232,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         const auto& rowset_meta = rowset->rowset_meta();
         if (build_row_binlog) {
             const auto& binlog_rowset_meta = txn_info->attach_row_binlog.rowset->rowset_meta();
-            RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowsets(*rowset_meta, *binlog_rowset_meta,
-                                                                  table_id()));
+            RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id(),
+                                                                 binlog_rowset_meta.get()));
         } else {
             RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id()));
         }

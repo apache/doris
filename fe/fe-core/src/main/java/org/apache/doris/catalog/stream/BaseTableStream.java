@@ -81,7 +81,7 @@ public abstract class BaseTableStream extends Table {
     @SerializedName("sir")
     protected boolean showInitialRows;
 
-    @SerializedName(value = "bti", alternate = "sti")
+    @SerializedName("bti")
     protected TableStreamBaseTableInfo baseTableInfo;
 
     @SerializedName("d")

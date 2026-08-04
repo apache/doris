@@ -160,6 +160,7 @@ protected:
 
     bool _is_vertical;
     bool _is_ordered_data_compaction {false};
+    bool _trigger_quick_merge_by_binlog {false};
     bool _allow_delete_in_cumu_compaction;
     bool _enable_vertical_compact_variant_subcolumns;
 

@@ -174,8 +174,8 @@ void CloudGroupRowsetBuilder::update_tablet_stats() {
 }
 
 Status CloudGroupRowsetBuilder::commit_rowset(const std::string& job_id, int64_t table_id) {
-    return _engine.meta_mgr().commit_rowsets(*_data_builder->rowset_meta(),
-                                             *_row_binlog_builder->rowset_meta(), job_id, table_id);
+    return _engine.meta_mgr().commit_rowset(*_data_builder->rowset_meta(), job_id, table_id,
+                                            nullptr, _row_binlog_builder->rowset_meta().get());
 }
 
 Status CloudGroupRowsetBuilder::set_txn_related_info() {

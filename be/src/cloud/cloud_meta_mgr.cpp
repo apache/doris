@@ -1498,8 +1498,8 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
-                                   RowsetMetaSharedPtr* existed_rs_meta) {
+Status CloudMetaMgr::do_commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
+                                      int64_t table_id, RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
     {
@@ -1552,20 +1552,24 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     return st;
 }
 
-Status CloudMetaMgr::commit_rowsets(RowsetMeta& rs_meta, RowsetMeta& attach_row_binlog,
-                                    const std::string& job_id, int64_t table_id,
-                                    RowsetMetaSharedPtr* existed_rs_meta,
-                                    RowsetMetaSharedPtr* existed_attach_row_binlog) {
-    VLOG_DEBUG << "commit rowsets, tablet_id: " << rs_meta.tablet_id()
+Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
+                                   RowsetMetaSharedPtr* existed_rs_meta,
+                                   RowsetMeta* attach_row_binlog,
+                                   RowsetMetaSharedPtr* existed_attach_row_binlog) {
+    if (attach_row_binlog == nullptr) {
+        return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
+    }
+
+    VLOG_DEBUG << "commit rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id()
-               << ", attach_row_binlog_tablet_id: " << attach_row_binlog.tablet_id()
-               << ", attach_row_binlog_rowset_id: " << attach_row_binlog.rowset_id()
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id()
                << " txn_id: " << rs_meta.txn_id();
-    Status st = commit_rowset(attach_row_binlog, job_id, table_id, existed_attach_row_binlog);
+    Status st = do_commit_rowset(*attach_row_binlog, job_id, table_id, existed_attach_row_binlog);
     if (!st.ok() && !st.is<ALREADY_EXIST>()) {
         return st;
     }
-    return commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
+    return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
 }
 
 void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time) {
@@ -1579,7 +1583,7 @@ void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t e
             txn_id, tablet_id, std::move(rs_meta), expiration_time);
 }
 
-Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id) {
+Status CloudMetaMgr::do_update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id) {
     VLOG_DEBUG << "update committed rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id();
     CreateRowsetRequest req;
@@ -1606,16 +1610,20 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_
     return st;
 }
 
-Status CloudMetaMgr::update_tmp_rowsets(const RowsetMeta& rs_meta,
-                                        const RowsetMeta& attach_row_binlog, int64_t table_id) {
-    VLOG_DEBUG << "update committed rowsets, tablet_id: " << rs_meta.tablet_id()
+Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id,
+                                       const RowsetMeta* attach_row_binlog) {
+    if (attach_row_binlog == nullptr) {
+        return do_update_tmp_rowset(rs_meta, table_id);
+    }
+
+    VLOG_DEBUG << "update committed rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id()
-               << ", attach_row_binlog_tablet_id: " << attach_row_binlog.tablet_id()
-               << ", attach_row_binlog_rowset_id: " << attach_row_binlog.rowset_id();
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id();
     DCHECK_EQ(rs_meta.tablet_schema()->num_variant_columns(),
-              attach_row_binlog.tablet_schema()->num_variant_columns());
-    RETURN_IF_ERROR(update_tmp_rowset(attach_row_binlog, table_id));
-    return update_tmp_rowset(rs_meta, table_id);
+              attach_row_binlog->tablet_schema()->num_variant_columns());
+    RETURN_IF_ERROR(do_update_tmp_rowset(*attach_row_binlog, table_id));
+    return do_update_tmp_rowset(rs_meta, table_id);
 }
 
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP

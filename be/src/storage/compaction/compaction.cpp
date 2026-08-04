@@ -463,7 +463,8 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_index_disk_size(_input_rowsets_index_size);
     rowset_meta->set_empty(_input_row_num == 0);
     rowset_meta->set_num_segments(_input_num_segments);
-    rowset_meta->set_segments_overlap(NONOVERLAPPING);
+    rowset_meta->set_segments_overlap(_trigger_quick_merge_by_binlog ? OVERLAPPING
+                                                                     : NONOVERLAPPING);
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
     // If any input was already aggregated we have no way to recover per-segment
@@ -614,11 +615,12 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         if (!can_quick_merge_binlog) {
             return false;
         }
+        _trigger_quick_merge_by_binlog = true;
 
         // Binlog quick merge at LMax is a special meta/link compaction path selected by
         // BinlogCumulativeCompactionPolicy. It does not require the whole input to satisfy the normal
         // ordered-data tidy check, but the output rowset built by do_compact_ordered_rowsets()
-        // is still NONOVERLAPPING.
+        // is still NONOVERLAPPING (excluding row-binlog).
         auto st = do_compact_ordered_rowsets();
         if (!st.ok()) {
             LOG(WARNING) << "failed to compact ordered rowsets: " << st;
@@ -1396,7 +1398,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     }
     ctx.version = _output_version;
     ctx.rowset_state = VISIBLE;
-    ctx.segments_overlap = NONOVERLAPPING;
+    ctx.segments_overlap = _trigger_quick_merge_by_binlog ? OVERLAPPING : NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
