@@ -27,9 +27,11 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -242,48 +244,19 @@ public class KafkaUtil {
         try {
             while (retryTimes < 3) {
                 List<Long> candidateBackendIds;
-                if (Config.isCloudMode()) {
-                    candidateBackendIds = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                            .getBackendsByClusterName(computeGroupName).stream()
-                            .map(Backend::getId)
-                            .collect(Collectors.toList());
-                } else {
-                    candidateBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+                try {
+                    candidateBackendIds = getBackendIdsForMetaRequest(computeGroupName);
+                } catch (LoadException e) {
+                    MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
+                    throw new LoadException(getInfoFailureMessage(e.getDetailMessage(), computeGroupName));
                 }
-                List<Long> backendIds = new ArrayList<>();
-                for (Long beId : candidateBackendIds) {
-                    Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                    if (isBackendAvailableForMetaRequest(backend)
-                            && !failedBeIds.contains(beId)
-                            && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
-                        backendIds.add(beId);
-                    }
-                }
-                // If there are no available backends, utilize the blacklist.
-                // Special scenarios include:
-                // 1. A specific job that connects to Kafka may time out for topic config or network error,
-                //    leaving only one backend operational.
-                // 2. If that sole backend is decommissioned, the aliveBackends list becomes empty.
-                // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
-                if (backendIds.isEmpty()) {
-                    Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
-                    for (Long beId : blacklist.keySet()) {
-                        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                        if (isBackendAvailableForMetaRequest(backend) && !failedBeIds.contains(beId)) {
-                            backendIds.add(beId);
-                        } else if (backend == null) {
-                            blacklist.remove(beId);
-                            LOG.warn("remove stale backend {} from routine load blacklist when getting kafka meta",
-                                    beId);
-                        }
-                    }
-                }
+                List<Long> backendIds = getAvailableBackendIdsForMetaRequest(candidateBackendIds, failedBeIds);
                 if (backendIds.isEmpty()) {
                     MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
                     if (failedBeIds.isEmpty()) {
                         errorMsg = "no alive backends";
                     }
-                    throw new LoadException("failed to get info: " + errorMsg + ",");
+                    throw new LoadException(getInfoFailureMessage(errorMsg, computeGroupName));
                 }
                 Collections.shuffle(backendIds);
                 long selectedBeId = backendIds.get(0);
@@ -322,7 +295,7 @@ public class KafkaUtil {
             }
 
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
-            throw new LoadException("failed to get info: " + errorMsg + ",");
+            throw new LoadException(getInfoFailureMessage(errorMsg, computeGroupName));
         } finally {
             // Ensure that not all BE added to the blacklist.
             // For single request:
@@ -342,6 +315,61 @@ public class KafkaUtil {
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
         }
+    }
+
+    static String getInfoFailureMessage(String errorMsg, String computeGroupName) {
+        String computeGroupDetails = Strings.isNullOrEmpty(computeGroupName)
+                ? "" : " compute group: " + computeGroupName + ",";
+        return "failed to get info: " + errorMsg + "," + computeGroupDetails;
+    }
+
+    static List<Long> getAvailableBackendIdsForMetaRequest(
+            List<Long> candidateBackendIds, Set<Long> failedBeIds) {
+        List<Long> backendIds = new ArrayList<>();
+        for (Long beId : candidateBackendIds) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+            if (isBackendAvailableForMetaRequest(backend)
+                    && !failedBeIds.contains(beId)
+                    && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
+                backendIds.add(beId);
+            }
+        }
+        // If there are no available backends, utilize the blacklist.
+        // Special scenarios include:
+        // 1. A specific job that connects to Kafka may time out for topic config or network error,
+        //    leaving only one backend operational.
+        // 2. If that sole backend is decommissioned, the aliveBackends list becomes empty.
+        // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
+        if (backendIds.isEmpty()) {
+            Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
+            for (Long beId : candidateBackendIds) {
+                if (!blacklist.containsKey(beId)) {
+                    continue;
+                }
+                Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                if (isBackendAvailableForMetaRequest(backend)
+                        && !failedBeIds.contains(beId)) {
+                    backendIds.add(beId);
+                } else if (backend == null) {
+                    blacklist.remove(beId);
+                    LOG.warn("remove stale backend {} from routine load blacklist when getting kafka meta", beId);
+                }
+            }
+        }
+        return backendIds;
+    }
+
+    static List<Long> getBackendIdsForMetaRequest(String computeGroupName) throws LoadException {
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        if (!Config.isCloudMode()) {
+            return systemInfoService.getAllBackendIds(true);
+        }
+        if (Strings.isNullOrEmpty(computeGroupName)) {
+            throw new LoadException("compute group is empty when getting kafka meta");
+        }
+        return ((CloudSystemInfoService) systemInfoService).getBackendsByClusterName(computeGroupName).stream()
+                .map(Backend::getId)
+                .collect(Collectors.toList());
     }
 
     private static boolean isBackendAvailableForMetaRequest(Backend backend) {
