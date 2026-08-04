@@ -22,7 +22,9 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <semaphore>
 #include <utility>
 #include <vector>

@@ -19,7 +19,10 @@
 
 #include <stdint.h>
 
+#include <condition_variable>
 #include <functional>
+#include <memory>
+#include <mutex>
 
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
