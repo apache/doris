@@ -89,6 +89,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -169,6 +170,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
+    private final String serializedTableCacheKey = UUID.randomUUID().toString();
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
@@ -289,6 +291,11 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     protected Optional<String> getSerializedTable() {
         return Optional.of(serializedTable);
+    }
+
+    @Override
+    protected Optional<String> getSerializedTableCacheKey() {
+        return Optional.of(serializedTableCacheKey);
     }
 
     @Override

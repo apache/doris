@@ -76,11 +76,14 @@ public class PaimonJniScanner extends JniScanner {
     private static final String PAIMON_OPTION_PREFIX = "paimon.";
     private static final String ASYNC_READER_THREAD_NAME_PREFIX = "paimon-reader-async-thread";
     private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
+    private static final String SERIALIZED_TABLE = "serialized_table";
     private static final int MAX_MANIFEST_PARALLELISM = 256;
     static final String DORIS_MANIFEST_PARALLELISM_CAP =
             "doris.scan.manifest.parallelism-cap";
     static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
     static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
+    private static final String SERIALIZED_SYSTEM_SOURCE =
+            PAIMON_OPTION_PREFIX + DORIS_SERIALIZED_SYSTEM_SOURCE;
     static final String ENABLE_JNI_IO_MANAGER = "paimon.jni.enable_jni_io_manager";
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.jni.io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.jni.io_manager.impl_class";
@@ -95,7 +98,9 @@ public class PaimonJniScanner extends JniScanner {
     private final Map<String, String> hadoopOptionParams;
     private final String paimonSplit;
     private final String paimonPredicate;
+    private final String tableCacheKey;
     private Table table;
+    private PaimonTableCache.TableCacheEntry tableCacheEntry;
     private RecordReader<InternalRow> reader;
     private IOManager ioManager;
     private String ioManagerTempDirs;
@@ -134,6 +139,9 @@ public class PaimonJniScanner extends JniScanner {
         }
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
+        tableCacheKey = params.get("serialized_table_cache_key");
+        Preconditions.checkState(tableCacheKey != null && !tableCacheKey.isEmpty(),
+                "Missing required Paimon scanner parameter: serialized_table_cache_key");
         String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
         initTableInfo(columnTypes, requiredFields, batchSize);
@@ -156,8 +164,7 @@ public class PaimonJniScanner extends JniScanner {
             Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
                 PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
-                initTable();
-                initReader();
+                initTableAndReader();
                 return null;
             });
             resetDatetimeV2Precision();
@@ -361,6 +368,7 @@ public class PaimonJniScanner extends JniScanner {
                 }
             }
         } finally {
+            releaseCachedTable();
             markScannerClosedForMetrics();
         }
         if (exception != null) {
@@ -632,11 +640,13 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTable() {
-        Preconditions.checkState(params.containsKey("serialized_table"));
-        table = PaimonUtils.deserialize(params.get("serialized_table"));
-        String encodedSystemSource = params.get(PAIMON_OPTION_PREFIX + DORIS_SERIALIZED_SYSTEM_SOURCE);
+        Preconditions.checkState(params.containsKey(SERIALIZED_TABLE));
+        table = PaimonUtils.deserialize(params.get(SERIALIZED_TABLE));
+        params.remove(SERIALIZED_TABLE);
+        String encodedSystemSource = params.get(SERIALIZED_SYSTEM_SOURCE);
         FileStoreTable systemSource = encodedSystemSource == null
                 ? null : PaimonUtils.deserialize(encodedSystemSource);
+        params.remove(SERIALIZED_SYSTEM_SOURCE);
         table = applyBackendManifestParallelism(table,
                 params.get(PAIMON_OPTION_PREFIX + DORIS_MANIFEST_PARALLELISM_CAP),
                 Runtime.getRuntime().availableProcessors(), systemSource,
@@ -887,6 +897,40 @@ public class PaimonJniScanner extends JniScanner {
             // fail fast instead of allowing an invalid batch size to reach Paimon's read loop.
             throw new IllegalArgumentException("Paimon option '" + CoreOptions.READ_BATCH_SIZE.key()
                     + "' must be an integer between 1 and 65536, but was " + value, e);
+        }
+    }
+
+    private boolean initTableFromCache() {
+        PaimonTableCache.TableCacheEntry cachedEntry = PaimonTableCache.acquire(tableCacheKey);
+        if (cachedEntry == null) {
+            return false;
+        }
+        tableCacheEntry = cachedEntry;
+        table = cachedEntry.table();
+        paimonAllFieldNames = cachedEntry.fieldNames();
+        params.remove(SERIALIZED_TABLE);
+        params.remove(SERIALIZED_SYSTEM_SOURCE);
+        return true;
+    }
+
+    private void initTableAndReader() throws IOException {
+        if (initTableFromCache()) {
+            initReader();
+            return;
+        }
+        initTable();
+        initReader();
+        PaimonTableCache.TableCacheEntry candidate =
+                new PaimonTableCache.TableCacheEntry(table, paimonAllFieldNames);
+        if (PaimonTableCache.publish(tableCacheKey, candidate)) {
+            tableCacheEntry = candidate;
+        }
+    }
+
+    private void releaseCachedTable() {
+        if (tableCacheEntry != null) {
+            PaimonTableCache.release(tableCacheKey, tableCacheEntry);
+            tableCacheEntry = null;
         }
     }
 
