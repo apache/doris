@@ -88,6 +88,9 @@ jobs:
           if [ "$review_state" = "success" ]; then
             state="success"
             summary="Automated review was triggered for ${HEAD_SHA}."
+          elif [ "$review_state" = "failure" ]; then
+            state="failure"
+            summary="Automated review reported blocking issues for ${HEAD_SHA}."
           fi
 
           gh api repos/${REPO}/statuses/${HEAD_SHA} \
