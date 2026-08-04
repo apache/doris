@@ -107,7 +107,7 @@ public:
         auto outside_null_map = ColumnUInt8::create(
                 arguments[0].column->convert_to_full_column_if_const()->size(), 0);
         // offset column
-        MutableColumnPtr array_column_offset;
+        ColumnPtr array_column_offset;
         size_t nested_array_column_rows = 0;
         ColumnPtr first_array_offsets = nullptr;
         //2. get the result column from executed expr, and the needed is nested column of array
@@ -144,8 +144,7 @@ public:
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
                 first_array_offsets = col_array.get_offsets_ptr();
-                const auto& off_data = col_array.get_offsets_column();
-                array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
+                array_column_offset = first_array_offsets;
                 args_info.offsets_ptr = &col_array.get_offsets();
             } else {
                 // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
@@ -242,8 +241,8 @@ public:
             auto empty_nested_column = assert_cast<const DataTypeArray*>(nested_type.get())
                                                ->get_nested_type()
                                                ->create_column();
-            auto result_array_column = ColumnArray::create(std::move(empty_nested_column),
-                                                           std::move(array_column_offset));
+            auto result_array_column =
+                    ColumnArray::create(std::move(empty_nested_column), array_column_offset);
 
             if (is_nullable) {
                 result_column = ColumnNullable::create(std::move(result_array_column),
@@ -335,7 +334,7 @@ public:
         if (result_type->is_nullable()) {
             if (res_type->is_nullable()) {
                 result_column = ColumnNullable::create(
-                        ColumnArray::create(std::move(result_col), std::move(array_column_offset)),
+                        ColumnArray::create(std::move(result_col), array_column_offset),
                         std::move(outside_null_map));
             } else {
                 // deal with eg: select array_map(x -> x is null, [null, 1, 2]);
@@ -345,19 +344,18 @@ public:
                 result_column = ColumnNullable::create(
                         ColumnArray::create(ColumnNullable::create(std::move(result_col),
                                                                    std::move(nested_null_map)),
-                                            std::move(array_column_offset)),
+                                            array_column_offset),
                         std::move(outside_null_map));
             }
         } else {
             if (res_type->is_nullable()) {
-                result_column =
-                        ColumnArray::create(std::move(result_col), std::move(array_column_offset));
+                result_column = ColumnArray::create(std::move(result_col), array_column_offset);
             } else {
                 auto nested_null_map = ColumnUInt8::create(result_col->size(), 0);
 
                 result_column = ColumnArray::create(
                         ColumnNullable::create(std::move(result_col), std::move(nested_null_map)),
-                        std::move(array_column_offset));
+                        array_column_offset);
             }
         }
         return Status::OK();
