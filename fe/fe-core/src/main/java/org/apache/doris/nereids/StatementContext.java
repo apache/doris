@@ -30,6 +30,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -363,9 +364,10 @@ public class StatementContext implements Closeable {
                 // cannot set the queryId here because the queryId for the current query is set
                 // in the subsequent steps.
                 Env env = connectContext.getEnv();
+                NereidsSqlCacheManager sqlCacheManager = env == null ? null : env.getSqlCacheManager();
                 this.sqlCacheContext = new SqlCacheContext(
                         connectContext.getCurrentUserIdentity(),
-                        env == null ? 0L : env.getSqlCacheManager().getInvalidationEpoch());
+                        sqlCacheManager == null ? 0L : sqlCacheManager.getInvalidationEpoch());
                 if (originStatement != null) {
                     this.sqlCacheContext.setOriginSql(originStatement.originStmt);
                 }
