@@ -371,6 +371,11 @@ public final class ConnectorColumnConverter {
                 return ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH);
             case "JSONB":
                 return ScalarType.createType("JSON");
+            case "VARIANT_COMPUTE_V2":
+                // This carrier is execution-only: connector schemas use it for native external
+                // Variant encodings, while persisted Doris table metadata keeps regular Variant rules.
+                return new org.apache.doris.catalog.VariantType(
+                        new ArrayList<>(), 0, false, 10000, 0, false, 0L, 64, false, true);
             case "UNSUPPORTED":
                 return Type.UNSUPPORTED;
             default:

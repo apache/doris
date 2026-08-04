@@ -37,10 +37,12 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
@@ -196,6 +198,107 @@ private:
     bool _require_false_boolean;
     const std::string _expr_name = "MetadataBoundsProbeExpr";
 };
+
+class VariantPathTestExpr final : public VExpr {
+public:
+    VariantPathTestExpr(std::string name, DataTypePtr type,
+                        TExprNodeType::type node_type = TExprNodeType::FUNCTION_CALL)
+            : VExpr(std::move(type), false), _name(std::move(name)) {
+        set_node_type(node_type);
+    }
+
+    const std::string& expr_name() const override { return _name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("VariantPathTestExpr is metadata-only");
+    }
+
+private:
+    std::string _name;
+};
+
+VExprContextSPtr variant_path_gt_conjunct(int32_t literal_value,
+                                          bool add_narrowing_intermediate_cast = false,
+                                          bool decimal_comparison = false) {
+    auto slot = VSlotRef::create_shared(0, 0, -1,
+                                        make_nullable(std::make_shared<DataTypeVariantV2>()), "v");
+    auto key = VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                       Field::create_field<TYPE_STRING>("col"));
+    auto element_at = std::make_shared<VariantPathTestExpr>(
+            "element_at", make_nullable(std::make_shared<DataTypeVariantV2>()));
+    element_at->add_child(slot);
+    element_at->add_child(key);
+    DataTypePtr comparison_type = decimal_comparison
+                                          ? DataTypePtr(std::make_shared<DataTypeDecimal128>(38, 9))
+                                          : DataTypePtr(std::make_shared<DataTypeInt32>());
+    auto cast = std::make_shared<VariantPathTestExpr>("CAST", make_nullable(comparison_type),
+                                                      TExprNodeType::CAST_EXPR);
+    if (add_narrowing_intermediate_cast) {
+        auto narrowing = std::make_shared<VariantPathTestExpr>(
+                "CAST", make_nullable(std::make_shared<DataTypeInt8>()), TExprNodeType::CAST_EXPR);
+        narrowing->add_child(element_at);
+        cast->add_child(narrowing);
+    } else {
+        cast->add_child(element_at);
+    }
+    auto literal = decimal_comparison
+                           ? VLiteral::create_shared(
+                                     comparison_type,
+                                     Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(
+                                             static_cast<__int128>(literal_value) * 1'000'000'000)))
+                           : VLiteral::create_shared(comparison_type,
+                                                     Field::create_field<TYPE_INT>(literal_value));
+    auto gt = std::make_shared<VariantPathTestExpr>("gt", std::make_shared<DataTypeUInt8>(),
+                                                    TExprNodeType::BINARY_PRED);
+    gt->add_child(cast);
+    gt->add_child(literal);
+    return VExprContext::create_shared(std::move(gt));
+}
+
+VExprContextSPtr variant_path_float_gt_conjunct(float literal_value) {
+    auto slot = VSlotRef::create_shared(0, 0, -1,
+                                        make_nullable(std::make_shared<DataTypeVariantV2>()), "v");
+    auto key = VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                       Field::create_field<TYPE_STRING>("col"));
+    auto element_at = std::make_shared<VariantPathTestExpr>(
+            "element_at", make_nullable(std::make_shared<DataTypeVariantV2>()));
+    element_at->add_child(slot);
+    element_at->add_child(key);
+    auto comparison_type = std::make_shared<DataTypeFloat32>();
+    auto cast = std::make_shared<VariantPathTestExpr>("CAST", make_nullable(comparison_type),
+                                                      TExprNodeType::CAST_EXPR);
+    cast->add_child(element_at);
+    auto literal = VLiteral::create_shared(comparison_type,
+                                           Field::create_field<TYPE_FLOAT>(literal_value));
+    auto gt = std::make_shared<VariantPathTestExpr>("gt", std::make_shared<DataTypeUInt8>(),
+                                                    TExprNodeType::BINARY_PRED);
+    gt->add_child(cast);
+    gt->add_child(literal);
+    return VExprContext::create_shared(std::move(gt));
+}
+
+VExprContextSPtr variant_path_string_gt_conjunct(std::string literal_value) {
+    auto slot = VSlotRef::create_shared(0, 0, -1,
+                                        make_nullable(std::make_shared<DataTypeVariantV2>()), "v");
+    auto key = VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                       Field::create_field<TYPE_STRING>("col"));
+    auto element_at = std::make_shared<VariantPathTestExpr>(
+            "element_at", make_nullable(std::make_shared<DataTypeVariantV2>()));
+    element_at->add_child(slot);
+    element_at->add_child(key);
+    auto comparison_type = std::make_shared<DataTypeString>();
+    auto cast = std::make_shared<VariantPathTestExpr>("CAST", make_nullable(comparison_type),
+                                                      TExprNodeType::CAST_EXPR);
+    cast->add_child(element_at);
+    auto literal = VLiteral::create_shared(
+            comparison_type, Field::create_field<TYPE_STRING>(std::move(literal_value)));
+    auto gt = std::make_shared<VariantPathTestExpr>("gt", std::make_shared<DataTypeUInt8>(),
+                                                    TExprNodeType::BINARY_PRED);
+    gt->add_child(cast);
+    gt->add_child(literal);
+    return VExprContext::create_shared(std::move(gt));
+}
+
 VExprContextSPtrs bloom_conjuncts(DataTypePtr data_type, std::vector<Field> values) {
     return {VExprContext::create_shared(
             std::make_shared<BloomInExpr>(0, std::move(data_type), std::move(values)))};
@@ -331,8 +434,9 @@ TEST(NativeParquetStatisticsTest, InvalidTimeAndPaddedBooleanPageBoundsCannotPru
         page_indexes.emplace(0, std::move(page_index));
         std::vector<format::parquet::RowRange> selected_ranges;
         std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+        tparquet::RowGroup row_group;
         EXPECT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
-                            metadata, page_indexes, schema, request, 1, &selected_ranges,
+                            metadata, row_group, page_indexes, schema, request, 1, &selected_ranges,
                             &skip_plans, nullptr)
                             .ok());
         return selected_ranges;
@@ -650,8 +754,8 @@ TEST(NativeParquetStatisticsTest, TypeDefinedBoundsRequireSupportedColumnOrder) 
     std::vector<format::parquet::RowRange> selected_ranges;
     std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
     ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
-                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
-                        nullptr)
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 1,
+                        &selected_ranges, &skip_plans, nullptr)
                         .ok());
     EXPECT_EQ(selected_ranges.size(), 1);
 
@@ -664,8 +768,8 @@ TEST(NativeParquetStatisticsTest, TypeDefinedBoundsRequireSupportedColumnOrder) 
                         .ok());
     EXPECT_TRUE(selected_row_groups.empty());
     ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
-                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
-                        nullptr)
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 1,
+                        &selected_ranges, &skip_plans, nullptr)
                         .ok());
     EXPECT_TRUE(selected_ranges.empty());
 }
@@ -737,8 +841,8 @@ TEST(NativeParquetStatisticsTest, ZonemapPruningIgnoresDisabledSessionSwitch) {
     std::vector<format::parquet::RowRange> selected_ranges;
     std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
     ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
-                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
-                        nullptr, nullptr, &state)
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 1,
+                        &selected_ranges, &skip_plans, nullptr, nullptr, &state)
                         .ok());
     EXPECT_TRUE(selected_ranges.empty());
 }
@@ -780,8 +884,8 @@ TEST(NativeParquetStatisticsTest, ContradictoryAllNullPageCountsDisablePruning) 
         std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
 
         ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
-                            metadata, page_indexes, schema, request, 10, &selected_ranges,
-                            &skip_plans, nullptr)
+                            metadata, tparquet::RowGroup {}, page_indexes, schema, request, 10,
+                            &selected_ranges, &skip_plans, nullptr)
                             .ok());
         // ColumnIndex is optional. An impossible all-null claim must fall back to reading the
         // ten-row data page instead of proving that no value can satisfy the predicate.
@@ -789,6 +893,321 @@ TEST(NativeParquetStatisticsTest, ContradictoryAllNullPageCountsDisablePruning) 
         EXPECT_EQ(selected_ranges[0].start, 0);
         EXPECT_EQ(selected_ranges[0].length, 10);
     }
+}
+
+TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) {
+    auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+    auto primitive = [](std::string name, int local_id, int leaf_id) {
+        auto schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+        schema->name = std::move(name);
+        schema->local_id = local_id;
+        schema->leaf_column_id = leaf_id;
+        schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        schema->type = make_nullable(std::make_shared<DataTypeInt32>());
+        schema->type_descriptor.doris_type = schema->type;
+        schema->type_descriptor.physical_type = tparquet::Type::INT32;
+        return schema;
+    };
+    auto bytes = [&](std::string name, int local_id, int leaf_id) {
+        auto schema = primitive(std::move(name), local_id, leaf_id);
+        schema->type = make_nullable(std::make_shared<DataTypeString>());
+        schema->type_descriptor.doris_type = schema->type;
+        schema->type_descriptor.physical_type = tparquet::Type::BYTE_ARRAY;
+        return schema;
+    };
+
+    auto variant = std::make_unique<format::parquet::ParquetColumnSchema>();
+    variant->name = "v";
+    variant->local_id = 0;
+    variant->kind = format::parquet::ParquetColumnSchemaKind::VARIANT;
+    variant->type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    variant->children.push_back(bytes("metadata", 0, 0));
+    variant->children.push_back(bytes("value", 1, 1));
+    auto typed_object = std::make_unique<format::parquet::ParquetColumnSchema>();
+    typed_object->name = "typed_value";
+    typed_object->local_id = 2;
+    typed_object->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    auto field = std::make_unique<format::parquet::ParquetColumnSchema>();
+    field->name = "col";
+    field->local_id = 0;
+    field->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    field->children.push_back(bytes("value", 0, 2));
+    field->children.push_back(primitive("typed_value", 1, 3));
+    typed_object->children.push_back(std::move(field));
+    variant->children.push_back(std::move(typed_object));
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(variant));
+
+    auto chunk = [&](tparquet::Type::type type, int64_t num_values, int64_t null_count,
+                     std::optional<int32_t> min_value = std::nullopt,
+                     std::optional<int32_t> max_value = std::nullopt) {
+        tparquet::Statistics statistics;
+        statistics.__set_null_count(null_count);
+        if (min_value.has_value() && max_value.has_value()) {
+            statistics.__set_min_value(encode_int32(*min_value));
+            statistics.__set_max_value(encode_int32(*max_value));
+        }
+        tparquet::ColumnMetaData metadata;
+        metadata.__set_type(type);
+        metadata.__set_num_values(num_values);
+        metadata.__set_statistics(std::move(statistics));
+        tparquet::ColumnChunk result;
+        result.__set_meta_data(std::move(metadata));
+        return result;
+    };
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(100);
+    row_group.__set_columns({chunk(tparquet::Type::BYTE_ARRAY, 100, 0),
+                             chunk(tparquet::Type::BYTE_ARRAY, 100, 100),
+                             chunk(tparquet::Type::BYTE_ARRAY, 100, 100),
+                             chunk(tparquet::Type::INT32, 100, 0, 1, 200)});
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData metadata;
+    metadata.__set_row_groups({row_group});
+    metadata.__set_column_orders({order, order, order, order});
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {variant_path_gt_conjunct(50)};
+
+    auto footer_only_metadata = metadata;
+    footer_only_metadata.row_groups[0].columns[3].meta_data.statistics.__set_max_value(
+            encode_int32(2));
+    std::vector<int> selected_row_groups;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        footer_only_metadata, schema, request, nullptr, &selected_row_groups, false,
+                        nullptr, nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_TRUE(selected_row_groups.empty());
+
+    auto leaf_projection = format::LocalColumnIndex::partial_local(0);
+    auto typed_object_projection = format::LocalColumnIndex::partial_local(2);
+    auto field_projection = format::LocalColumnIndex::partial_local(0);
+    field_projection.children.push_back(format::LocalColumnIndex::local(1));
+    typed_object_projection.children.push_back(std::move(field_projection));
+    leaf_projection.children.push_back(std::move(typed_object_projection));
+    request.predicate_columns = {std::move(leaf_projection)};
+    for (int leaf = 0; leaf < 4; ++leaf) {
+        footer_only_metadata.row_groups[0].columns[leaf].meta_data.__set_total_compressed_size(
+                (leaf + 1) * 10);
+    }
+    format::parquet::ParquetPruningStats leaf_pruning_stats;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        footer_only_metadata, schema, request, nullptr, &selected_row_groups, false,
+                        &leaf_pruning_stats, nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_TRUE(selected_row_groups.empty());
+    EXPECT_EQ(leaf_pruning_stats.filtered_bytes, 40);
+
+    request.conjuncts = {variant_path_gt_conjunct(50, false, true)};
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        footer_only_metadata, schema, request, nullptr, &selected_row_groups, false,
+                        nullptr, nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_TRUE(selected_row_groups.empty());
+    request.conjuncts = {variant_path_gt_conjunct(50)};
+
+    // Missing typed statistics provide no proof and must retain the row group.
+    footer_only_metadata.row_groups[0].columns[3].meta_data.__isset.statistics = false;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        footer_only_metadata, schema, request, nullptr, &selected_row_groups, false,
+                        nullptr, nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+    // A populated fallback for the same path invalidates both footer and page pruning.
+    footer_only_metadata = metadata;
+    footer_only_metadata.row_groups[0].columns[3].meta_data.statistics.__set_max_value(
+            encode_int32(2));
+    footer_only_metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(99);
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        footer_only_metadata, schema, request, nullptr, &selected_row_groups, false,
+                        nullptr, nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+    // A contradictory non-repeated value count cannot prove that every row lacks fallback bytes.
+    footer_only_metadata.row_groups[0].columns[2].meta_data.__set_num_values(99);
+    footer_only_metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(99);
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        footer_only_metadata, schema, request, nullptr, &selected_row_groups, false,
+                        nullptr, nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+    format::parquet::NativeParquetPageIndex typed_pages;
+    typed_pages.column_index.__set_min_values({encode_int32(1), encode_int32(100)});
+    typed_pages.column_index.__set_max_values({encode_int32(2), encode_int32(200)});
+    typed_pages.column_index.__set_null_pages({false, false});
+    typed_pages.column_index.__set_null_counts({0, 0});
+    tparquet::PageLocation first;
+    first.__set_offset(0);
+    first.__set_compressed_page_size(10);
+    first.__set_first_row_index(0);
+    tparquet::PageLocation second;
+    second.__set_offset(10);
+    second.__set_compressed_page_size(10);
+    second.__set_first_row_index(50);
+    typed_pages.offset_index.__set_page_locations({first, second});
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+    page_indexes.emplace(3, std::move(typed_pages));
+
+    std::vector<format::parquet::RowRange> selected_ranges;
+    std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+    format::parquet::ParquetPruningStats pruning_stats;
+    ASSERT_TRUE(format::parquet::can_use_parquet_page_index(request, nullptr));
+    TQueryOptions query_options;
+    query_options.__set_enable_expr_zonemap_filter(false);
+    RuntimeState generic_zonemap_disabled {query_options, TQueryGlobals()};
+    EXPECT_TRUE(format::parquet::can_use_parquet_page_index(request, &generic_zonemap_disabled));
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
+                        &selected_ranges, &skip_plans, &pruning_stats, nullptr,
+                        &generic_zonemap_disabled)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 50);
+    EXPECT_EQ(selected_ranges[0].length, 50);
+    EXPECT_EQ(pruning_stats.page_index_read_calls, 1);
+    EXPECT_EQ(pruning_stats.filtered_page_rows, 50);
+
+    // Direct Variant numeric comparisons coerce integral literals to a wide DECIMAL domain.
+    request.conjuncts = {variant_path_gt_conjunct(50, false, true)};
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 50);
+    EXPECT_EQ(selected_ranges[0].length, 50);
+
+    // Bounds for the raw INT32 typed leaf are not valid for CAST(CAST(v['col'] AS TINYINT) AS INT).
+    request.conjuncts = {variant_path_gt_conjunct(50, true)};
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 100);
+
+    // Raw binary and UUID bounds are physical bytes, while the residual Variant-to-STRING cast
+    // compares their rendered values. Those domains differ, so neither footer nor page metadata
+    // may exclude a row solely from the raw byte interval.
+    auto assert_binary_identity_does_not_prune = [&](bool is_uuid) {
+        auto* binary_leaf = schema[0]->children[2]->children[0]->children[1].get();
+        binary_leaf->type = make_nullable(std::make_shared<DataTypeString>());
+        binary_leaf->type_descriptor = {};
+        binary_leaf->type_descriptor.doris_type = binary_leaf->type;
+        binary_leaf->type_descriptor.physical_type =
+                is_uuid ? tparquet::Type::FIXED_LEN_BYTE_ARRAY : tparquet::Type::BYTE_ARRAY;
+        binary_leaf->type_descriptor.fixed_length = is_uuid ? 16 : -1;
+        binary_leaf->type_descriptor.is_string_like = true;
+        binary_leaf->type_descriptor.is_uuid = is_uuid;
+
+        auto& binary_chunk = metadata.row_groups[0].columns[3].meta_data;
+        binary_chunk.__set_type(binary_leaf->type_descriptor.physical_type);
+        binary_chunk.statistics.__set_min_value("a");
+        binary_chunk.statistics.__set_max_value("b");
+        metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(100);
+        request.conjuncts = {variant_path_string_gt_conjunct("z")};
+        ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                            metadata, schema, request, nullptr, &selected_row_groups, false,
+                            nullptr, nullptr, nullptr, nullptr, {},
+                            format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                            .ok());
+        EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+        format::parquet::NativeParquetPageIndex binary_pages;
+        binary_pages.column_index.__set_min_values({"a"});
+        binary_pages.column_index.__set_max_values({"b"});
+        binary_pages.column_index.__set_null_pages({false});
+        binary_pages.column_index.__set_null_counts({0});
+        tparquet::PageLocation binary_location;
+        binary_location.__set_offset(0);
+        binary_location.__set_compressed_page_size(10);
+        binary_location.__set_first_row_index(0);
+        binary_pages.offset_index.__set_page_locations({binary_location});
+        page_indexes.clear();
+        page_indexes.emplace(3, std::move(binary_pages));
+        ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                            metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
+                            &selected_ranges, &skip_plans, nullptr)
+                            .ok());
+        ASSERT_EQ(selected_ranges.size(), 1);
+        EXPECT_EQ(selected_ranges[0].start, 0);
+        EXPECT_EQ(selected_ranges[0].length, 100);
+    };
+    assert_binary_identity_does_not_prune(false);
+    assert_binary_identity_does_not_prune(true);
+
+    // Parquet floating min/max omits NaN values. Without an explicit no-NaN proof, [0, NaN]
+    // cannot be represented by max=0 and must not prune a Variant comparison that retains NaN.
+    auto encode_float = [](float value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+    auto* float_leaf = schema[0]->children[2]->children[0]->children[1].get();
+    float_leaf->type = make_nullable(std::make_shared<DataTypeFloat32>());
+    float_leaf->type_descriptor.doris_type = float_leaf->type;
+    float_leaf->type_descriptor.physical_type = tparquet::Type::FLOAT;
+    auto& float_chunk = metadata.row_groups[0].columns[3].meta_data;
+    float_chunk.__set_type(tparquet::Type::FLOAT);
+    float_chunk.statistics.__set_min_value(encode_float(0.0F));
+    float_chunk.statistics.__set_max_value(encode_float(0.0F));
+    metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(100);
+    request.conjuncts = {variant_path_float_gt_conjunct(1.0F)};
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        metadata, schema, request, nullptr, &selected_row_groups, false, nullptr,
+                        nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+    format::parquet::NativeParquetPageIndex float_pages;
+    float_pages.column_index.__set_min_values({encode_float(0.0F)});
+    float_pages.column_index.__set_max_values({encode_float(0.0F)});
+    float_pages.column_index.__set_null_pages({false});
+    float_pages.column_index.__set_null_counts({0});
+    tparquet::PageLocation float_location;
+    float_location.__set_offset(0);
+    float_location.__set_compressed_page_size(10);
+    float_location.__set_first_row_index(0);
+    float_pages.offset_index.__set_page_locations({float_location});
+    page_indexes.clear();
+    page_indexes.emplace(3, std::move(float_pages));
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 100);
+
+    // A fallback value in the same row group may have a different Variant type. In that case the
+    // typed bounds cannot prove anything about the SQL comparison, so all pages must be read.
+    metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(99);
+    request.conjuncts = {variant_path_gt_conjunct(50)};
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 100);
 }
 
 } // namespace

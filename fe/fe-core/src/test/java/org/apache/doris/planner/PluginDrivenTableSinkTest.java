@@ -259,6 +259,20 @@ public class PluginDrivenTableSinkTest {
     }
 
     @Test
+    public void bindDataSinkThreadsDeleteOnlyMergeToHandle() throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                null, WriteOperation.MERGE, false, true);
+        sink.bindDataSink(Optional.empty());
+
+        // Delete-only MERGE must bypass data-file validation while retaining cardinality enforcement.
+        Assert.assertFalse(provider.seenHandle.isWritesDataFiles());
+        Assert.assertTrue(provider.seenHandle.isRequireMergeCardinalityCheck());
+    }
+
+    @Test
     public void getExplainStringThreadsWriteOperationToHandle() {
         // WHY: EXPLAIN of a post-flip MERGE/DELETE builds a (degraded) handle for appendExplainInfo; the
         // operation is a plan-time fact available here, so it must be threaded too, otherwise a connector

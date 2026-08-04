@@ -118,6 +118,14 @@ public interface ConnectorWriteHandle {
     }
 
     /**
+     * Whether this write can emit data files. A delete-only MERGE returns false so a connector may
+     * allow position-delete output even when the table has read-only column types.
+     */
+    default boolean isWritesDataFiles() {
+        return true;
+    }
+
+    /**
      * The named table branch this write targets ({@code INSERT INTO t@branch(name)}), or
      * {@link Optional#empty()} when the write goes to the table's default ref. Threaded from the
      * generic insert command context onto this handle; a versioned-table connector (iceberg / paimon)

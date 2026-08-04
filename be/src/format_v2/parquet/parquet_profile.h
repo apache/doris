@@ -38,6 +38,12 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* level_only_read_time = nullptr;
     RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
+    RuntimeProfile::Counter* variant_reconstruction_time = nullptr;
+    RuntimeProfile::Counter* variant_reconstructed_rows = nullptr;
+    RuntimeProfile::Counter* variant_direct_leaf_rows = nullptr;
+    RuntimeProfile::Counter* variant_direct_leaf_path_misses = nullptr;
+    RuntimeProfile::Counter* variant_direct_leaf_residual_fallbacks = nullptr;
+    RuntimeProfile::Counter* variant_direct_leaf_unsupported_fallbacks = nullptr;
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
@@ -145,6 +151,8 @@ struct ParquetProfile {
     RuntimeProfile::Counter* selected_row_ranges = nullptr;
     RuntimeProfile::Counter* filtered_group_rows = nullptr;
     RuntimeProfile::Counter* filtered_page_rows = nullptr;
+    // File-level Variant access paths that safely retained a physical typed-leaf projection.
+    RuntimeProfile::Counter* variant_leaf_projections = nullptr;
 
     // ======== Page Skip ========
     RuntimeProfile::Counter* pages_skipped_by_data_page_filter = nullptr;
@@ -166,6 +174,12 @@ struct ParquetProfile {
     RuntimeProfile::Counter* level_only_read_time = nullptr;
     RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;
+    RuntimeProfile::Counter* variant_reconstruction_time = nullptr;
+    RuntimeProfile::Counter* variant_reconstructed_rows = nullptr;
+    RuntimeProfile::Counter* variant_direct_leaf_rows = nullptr;
+    RuntimeProfile::Counter* variant_direct_leaf_path_misses = nullptr;
+    RuntimeProfile::Counter* variant_direct_leaf_residual_fallbacks = nullptr;
+    RuntimeProfile::Counter* variant_direct_leaf_unsupported_fallbacks = nullptr;
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;

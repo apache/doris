@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "exec/sink/sink_common.h"
 #include "exec/sink/viceberg_delete_sink.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "exprs/vexpr_context.h"
@@ -206,6 +207,43 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
 
     EXPECT_EQ(2, sink->_delete_row_count);
     EXPECT_EQ(2, sink->_insert_row_count);
+
+    ASSERT_TRUE(sink->close(Status::OK()).ok());
+}
+
+TEST_F(VIcebergMergeSinkTest, TestDeleteOnlySkipsVariantDataWriter) {
+    ObjectPool pool;
+    MockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    TDataSink t_sink = build_sink();
+    t_sink.iceberg_merge_sink.__set_writes_data_files(false);
+    t_sink.iceberg_merge_sink.__set_schema_json(
+            "{\"type\":\"struct\",\"schema-id\":0,\"fields\":["
+            "{\"id\":1,\"name\":\"payload\",\"required\":false,\"type\":\"variant\"}"
+            "]}");
+
+    auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    EXPECT_EQ(nullptr, sink->_table_writer);
+    RuntimeProfile profile("iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    // Delete-only plans must never use the insert opcode, which intentionally requires a data writer.
+    Block block = build_block_with_ops({kDeleteOperation});
+    Status status = sink->write(&state, block);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(1, sink->_delete_row_count);
+    EXPECT_EQ(0, sink->_insert_row_count);
 
     ASSERT_TRUE(sink->close(Status::OK()).ok());
 }

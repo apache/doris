@@ -19,8 +19,14 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <memory>
 
+#include "core/assert_cast.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/file_scanner.h"
@@ -31,6 +37,29 @@
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
+namespace {
+
+bool contains_variant_type(const DataTypePtr& input) {
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
+}
+
+} // namespace
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
@@ -163,6 +192,20 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     const bool use_file_scanner_v2 =
             _should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
     _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
+    const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+    DORIS_CHECK(output_tuple_desc != nullptr);
+    const bool metadata_only_count =
+            is_count_star_pushdown() && _split_source->all_ranges_have_table_level_row_count();
+    if (!is_load && !use_file_scanner_v2 && !metadata_only_count &&
+        std::ranges::any_of(output_tuple_desc->slots(), [](const SlotDescriptor* slot) {
+            return contains_variant_type(slot->get_data_type_ptr());
+        })) {
+        // A syntactic COUNT(*) alone is insufficient: every assigned range must prove that the
+        // legacy scanner will emit metadata counts without decoding a Variant carrier.
+        return Status::NotSupported(
+                "External VARIANT columns require FileScannerV2; the legacy file scanner does "
+                "not support VARIANT");
+    }
     for (int i = 0; i < _max_scanners; ++i) {
         ScannerSPtr scanner;
         if (use_file_scanner_v2) {

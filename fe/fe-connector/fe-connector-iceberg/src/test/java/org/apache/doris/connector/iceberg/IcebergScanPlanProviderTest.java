@@ -1784,6 +1784,22 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void metadataOnlyCountCapabilityUsesSnapshotSummary() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(
+                table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap());
+
+        Assertions.assertTrue(provider.canServeMetadataOnlyCount(
+                session, new IcebergTableHandle("db1", "t1"), Optional.empty()));
+        Assertions.assertFalse(provider.canServeMetadataOnlyCount(
+                session, IcebergTableHandle.forSystemTable(
+                        "db1", "t1", "snapshots", -1L, null, -1L), Optional.empty()));
+    }
+
+    @Test
     public void getScanNodePropertiesUnderPinEmitsFullPinnedSchemaDict() throws Exception {
         // T07 Option A: under a time-travel pin the field-id dict is built from the FULL pinned schema (covering
         // every BE slot), NOT the pruned `columns`. The pinned schema (S1) has id+name; after a rename the latest

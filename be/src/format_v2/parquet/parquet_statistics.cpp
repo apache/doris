@@ -37,7 +37,10 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
 #include "exprs/expr_zonemap_filter.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
@@ -457,6 +460,322 @@ std::optional<format::LocalColumnId> file_column_id_by_block_position(
     return std::nullopt;
 }
 
+enum class VariantComparisonOp { EQ, NE, LT, LE, GT, GE };
+
+struct VariantShreddedPredicate {
+    int slot_index = -1;
+    std::vector<std::string> path;
+    DataTypePtr comparison_type;
+    DataTypePtr literal_type;
+    Field literal;
+    VariantComparisonOp op = VariantComparisonOp::EQ;
+};
+
+std::string callable_name(const VExprSPtr& expr) {
+    if (const auto function = std::dynamic_pointer_cast<VectorizedFnCall>(expr);
+        function != nullptr) {
+        return function->function_name();
+    }
+    return expr == nullptr ? std::string {} : expr->expr_name();
+}
+
+std::optional<VariantComparisonOp> variant_comparison_op(std::string_view name) {
+    if (name == "eq") {
+        return VariantComparisonOp::EQ;
+    }
+    if (name == "ne") {
+        return VariantComparisonOp::NE;
+    }
+    if (name == "lt") {
+        return VariantComparisonOp::LT;
+    }
+    if (name == "le") {
+        return VariantComparisonOp::LE;
+    }
+    if (name == "gt") {
+        return VariantComparisonOp::GT;
+    }
+    if (name == "ge") {
+        return VariantComparisonOp::GE;
+    }
+    return std::nullopt;
+}
+
+VariantComparisonOp reverse_variant_comparison(VariantComparisonOp op) {
+    switch (op) {
+    case VariantComparisonOp::EQ:
+    case VariantComparisonOp::NE:
+        return op;
+    case VariantComparisonOp::LT:
+        return VariantComparisonOp::GT;
+    case VariantComparisonOp::LE:
+        return VariantComparisonOp::GE;
+    case VariantComparisonOp::GT:
+        return VariantComparisonOp::LT;
+    case VariantComparisonOp::GE:
+        return VariantComparisonOp::LE;
+    }
+    __builtin_unreachable();
+}
+
+std::optional<std::pair<Field, DataTypePtr>> variant_literal(const VExprSPtr& expr) {
+    const auto literal = std::dynamic_pointer_cast<VLiteral>(expr);
+    if (literal == nullptr || !literal->get_column_ptr() || literal->get_column_ptr()->empty()) {
+        return std::nullopt;
+    }
+    Field value;
+    literal->get_column_ptr()->get(0, value);
+    if (value.is_null()) {
+        return std::nullopt;
+    }
+    return std::make_pair(std::move(value), literal->get_data_type());
+}
+
+std::optional<VariantShreddedPredicate> extract_variant_shredded_predicate(
+        const VExprContextSPtr& conjunct) {
+    if (conjunct == nullptr || conjunct->root() == nullptr ||
+        conjunct->root()->get_num_children() != 2) {
+        return std::nullopt;
+    }
+    auto op = variant_comparison_op(callable_name(conjunct->root()));
+    if (!op.has_value()) {
+        return std::nullopt;
+    }
+
+    VExprSPtr value_expr;
+    std::optional<std::pair<Field, DataTypePtr>> literal;
+    if ((literal = variant_literal(conjunct->root()->get_child(1))).has_value()) {
+        value_expr = conjunct->root()->get_child(0);
+    } else if ((literal = variant_literal(conjunct->root()->get_child(0))).has_value()) {
+        value_expr = conjunct->root()->get_child(1);
+        op = reverse_variant_comparison(*op);
+    } else {
+        return std::nullopt;
+    }
+
+    const auto comparison_type = value_expr->data_type();
+    while (value_expr->node_type() == TExprNodeType::CAST_EXPR &&
+           value_expr->get_num_children() == 1) {
+        if (!expr_zonemap::data_types_compatible(value_expr->data_type(), comparison_type)) {
+            // Every removed cast must preserve the comparison domain. Otherwise bounds for the
+            // raw typed leaf could skip rows whose value changes in an intermediate narrowing cast.
+            return std::nullopt;
+        }
+        value_expr = value_expr->get_child(0);
+    }
+
+    std::vector<std::string> reverse_path;
+    while (callable_name(value_expr) == "element_at" && value_expr->get_num_children() == 2) {
+        const auto key = variant_literal(value_expr->get_child(1));
+        if (!key.has_value() || key->first.get_type() != TYPE_STRING) {
+            // Repeated array shredding has no single scalar page range, so only object keys are
+            // eligible for this file-level optimization.
+            return std::nullopt;
+        }
+        reverse_path.push_back(key->first.get<TYPE_STRING>());
+        value_expr = value_expr->get_child(0);
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(value_expr);
+    if (slot == nullptr || reverse_path.empty() || comparison_type == nullptr ||
+        remove_nullable(slot->data_type())->get_primitive_type() != TYPE_VARIANT ||
+        !expr_zonemap::data_types_compatible(comparison_type, literal->second)) {
+        return std::nullopt;
+    }
+    std::ranges::reverse(reverse_path);
+    return VariantShreddedPredicate {.slot_index = slot->column_id(),
+                                     .path = std::move(reverse_path),
+                                     .comparison_type = comparison_type,
+                                     .literal_type = literal->second,
+                                     .literal = std::move(literal->first),
+                                     .op = *op};
+}
+
+bool has_variant_shredded_filter(const format::FileScanRequest& request) {
+    return std::ranges::any_of(request.conjuncts, [](const auto& conjunct) {
+        return extract_variant_shredded_predicate(conjunct).has_value();
+    });
+}
+
+const ParquetColumnSchema* child_named(const ParquetColumnSchema& parent, std::string_view name) {
+    const auto it = std::ranges::find_if(parent.children, [&](const auto& child) {
+        return child != nullptr && child->name == name;
+    });
+    return it == parent.children.end() ? nullptr : it->get();
+}
+
+struct ResolvedVariantShredding {
+    const ParquetColumnSchema* fallback_value = nullptr;
+    const ParquetColumnSchema* typed_value = nullptr;
+};
+
+bool metadata_cast_is_order_preserving(const DataTypePtr& source, const DataTypePtr& target) {
+    if (expr_zonemap::data_types_compatible(source, target)) {
+        return true;
+    }
+    const auto source_type = remove_nullable(source);
+    const auto target_type = remove_nullable(target);
+    const auto source_primitive = source_type->get_primitive_type();
+    const auto target_primitive = target_type->get_primitive_type();
+    // Metadata bounds may cross only exact widening domains. This mirrors the residual CAST while
+    // excluding rounding, overflow, and narrowing cases that could reverse a pruning decision.
+    if (source_primitive == TYPE_FLOAT && target_primitive == TYPE_DOUBLE) {
+        return true;
+    }
+    if (is_int(source_primitive) && source_primitive != TYPE_LARGEINT &&
+        is_decimalv3(target_primitive)) {
+        const uint32_t required_integer_digits = source_primitive == TYPE_TINYINT    ? 3
+                                                 : source_primitive == TYPE_SMALLINT ? 5
+                                                 : source_primitive == TYPE_INT      ? 10
+                                                                                     : 19;
+        return target_type->get_precision() >= target_type->get_scale() &&
+               target_type->get_precision() - target_type->get_scale() >= required_integer_digits;
+    }
+    if (is_decimalv3(source_primitive) && is_decimalv3(target_primitive)) {
+        const uint32_t source_integer_digits =
+                source_type->get_precision() - source_type->get_scale();
+        const uint32_t target_integer_digits =
+                target_type->get_precision() - target_type->get_scale();
+        return target_integer_digits >= source_integer_digits &&
+               target_type->get_scale() >= source_type->get_scale();
+    }
+    return false;
+}
+
+std::optional<Field> cast_metadata_field(const Field& value, const DataTypePtr& source,
+                                         const DataTypePtr& target) {
+    if (expr_zonemap::data_types_compatible(source, target)) {
+        return value;
+    }
+    const auto source_type = remove_nullable(source);
+    const auto target_type = remove_nullable(target);
+    if (source_type->get_primitive_type() == TYPE_FLOAT &&
+        target_type->get_primitive_type() == TYPE_DOUBLE) {
+        return Field::create_field<TYPE_DOUBLE>(static_cast<double>(value.get<TYPE_FLOAT>()));
+    }
+    try {
+        auto source_column = source_type->create_column();
+        source_column->insert(value);
+        DataTypeSerDe::FormatOptions options = DataTypeSerDe::get_default_format_options();
+        options.converted_from_string = true;
+        std::string text = source_type->to_string(*source_column, 0, options);
+        StringRef input(text.data(), text.size());
+        auto target_column = target_type->create_column();
+        if (!target_type->get_serde()
+                     ->from_string_strict_mode(input, *target_column, options)
+                     .ok() ||
+            target_column->size() != 1) {
+            return std::nullopt;
+        }
+        Field result;
+        target_column->get(0, result);
+        return result;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<ParquetColumnStatistics> normalize_variant_statistics(
+        const VariantShreddedPredicate& predicate, const ParquetColumnSchema& typed_value,
+        const ParquetColumnStatistics& statistics) {
+    if (!statistics.has_min_max ||
+        expr_zonemap::data_types_compatible(typed_value.type, predicate.comparison_type)) {
+        return statistics;
+    }
+    auto min_value =
+            cast_metadata_field(statistics.min_value, typed_value.type, predicate.comparison_type);
+    auto max_value =
+            cast_metadata_field(statistics.max_value, typed_value.type, predicate.comparison_type);
+    if (!min_value.has_value() || !max_value.has_value()) {
+        return std::nullopt;
+    }
+    auto normalized = statistics;
+    normalized.min_value = std::move(*min_value);
+    normalized.max_value = std::move(*max_value);
+    return normalized;
+}
+
+std::optional<ResolvedVariantShredding> resolve_variant_shredding(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, const VariantShreddedPredicate& predicate) {
+    const auto local_id = file_column_id_by_block_position(request, predicate.slot_index);
+    if (!local_id.has_value() || local_id->value() < 0 ||
+        local_id->value() >= static_cast<int>(file_schema.size())) {
+        return std::nullopt;
+    }
+    const ParquetColumnSchema* wrapper = file_schema[local_id->value()].get();
+    if (wrapper == nullptr || wrapper->kind != ParquetColumnSchemaKind::VARIANT) {
+        return std::nullopt;
+    }
+    for (const auto& component : predicate.path) {
+        const auto* typed_object = child_named(*wrapper, "typed_value");
+        if (typed_object == nullptr || typed_object->kind != ParquetColumnSchemaKind::STRUCT) {
+            return std::nullopt;
+        }
+        wrapper = child_named(*typed_object, component);
+        if (wrapper == nullptr || wrapper->kind != ParquetColumnSchemaKind::STRUCT) {
+            return std::nullopt;
+        }
+    }
+    const auto* fallback = child_named(*wrapper, "value");
+    const auto* typed = child_named(*wrapper, "typed_value");
+    const auto typed_primitive = typed == nullptr || typed->type == nullptr
+                                         ? INVALID_TYPE
+                                         : remove_nullable(typed->type)->get_primitive_type();
+    if (fallback == nullptr || typed == nullptr ||
+        fallback->kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        typed->kind != ParquetColumnSchemaKind::PRIMITIVE || typed->max_repetition_level != 0 ||
+        // Parquet float statistics do not prove that a page contains no NaN. Min/max pruning in
+        // the presence of NaN is not order preserving, so keep those pages until such proof exists.
+        typed_primitive == TYPE_FLOAT || typed_primitive == TYPE_DOUBLE ||
+        !metadata_cast_is_order_preserving(typed->type, predicate.comparison_type) ||
+        !expr_zonemap::data_types_compatible(predicate.comparison_type, predicate.literal_type)) {
+        return std::nullopt;
+    }
+    return ResolvedVariantShredding {.fallback_value = fallback, .typed_value = typed};
+}
+
+bool fallback_is_all_null(const tparquet::RowGroup& row_group,
+                          const ParquetColumnSchema& fallback) {
+    if (fallback.max_repetition_level != 0 || fallback.leaf_column_id < 0 ||
+        fallback.leaf_column_id >= static_cast<int>(row_group.columns.size())) {
+        return false;
+    }
+    const auto& chunk = row_group.columns[fallback.leaf_column_id];
+    return row_group.num_rows >= 0 && chunk.__isset.meta_data &&
+           chunk.meta_data.num_values == row_group.num_rows && chunk.meta_data.__isset.statistics &&
+           chunk.meta_data.statistics.__isset.null_count &&
+           chunk.meta_data.statistics.null_count == chunk.meta_data.num_values;
+}
+
+bool variant_statistics_exclude(const VariantShreddedPredicate& predicate,
+                                const ParquetColumnStatistics& statistics) {
+    if (!statistics.has_any_statistics()) {
+        return false;
+    }
+    if (!statistics.has_not_null) {
+        return true;
+    }
+    if (!statistics.has_min_max) {
+        return false;
+    }
+    const auto& literal = predicate.literal;
+    switch (predicate.op) {
+    case VariantComparisonOp::EQ:
+        return literal < statistics.min_value || statistics.max_value < literal;
+    case VariantComparisonOp::NE:
+        return statistics.min_value == literal && statistics.max_value == literal;
+    case VariantComparisonOp::LT:
+        return statistics.min_value >= literal;
+    case VariantComparisonOp::LE:
+        return statistics.min_value > literal;
+    case VariantComparisonOp::GT:
+        return statistics.max_value <= literal;
+    case VariantComparisonOp::GE:
+        return statistics.max_value < literal;
+    }
+    __builtin_unreachable();
+}
+
 bool has_expr_zonemap_filter(const format::FileScanRequest& request, const RuntimeState*) {
     // FileScannerV2 metadata pruning is a fixed part of its scan pipeline and must not inherit
     // the legacy scanner's expression ZoneMap session gate.
@@ -468,7 +787,7 @@ bool has_expr_zonemap_filter(const format::FileScanRequest& request, const Runti
             return true;
         }
     }
-    return false;
+    return has_variant_shredded_filter(request);
 }
 
 std::set<int> collect_expr_zonemap_slot_indexes(const VExprContextSPtrs& conjuncts) {
@@ -622,9 +941,11 @@ void collect_filtered_leaf_ids(const ParquetColumnSchema& column_schema,
         if (!format::is_child_projected(projection, child_schema->local_id)) {
             continue;
         }
-        collect_filtered_leaf_ids(*child_schema,
-                                  format::find_child_projection(projection, child_schema->local_id),
-                                  leaf_column_ids);
+        // The leaf set must match the physical projection. A complete Variant projection naturally
+        // reaches every sibling; a validated typed-leaf projection reads only retained children.
+        const auto* child_projection =
+                format::find_child_projection(projection, child_schema->local_id);
+        collect_filtered_leaf_ids(*child_schema, child_projection, leaf_column_ids);
     }
 }
 
@@ -632,7 +953,21 @@ bool native_metadata_predicate_is_type_safe(const ParquetColumnSchema& column_sc
     DORIS_CHECK(column_schema.type != nullptr);
     // Raw VARBINARY file slots may feed table-side STRING casts. Footer/page metadata is still in
     // the pre-cast domain, so using it for a rewritten table predicate can cause false negatives.
-    return remove_nullable(column_schema.type)->get_primitive_type() != TYPE_VARBINARY;
+    if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_VARBINARY) {
+        return false;
+    }
+    // UUID readers render canonical text, so their physical 16-byte bounds are not STRING bounds.
+    return !column_schema.type_descriptor.is_uuid;
+}
+
+bool variant_metadata_predicate_is_type_safe(const ParquetColumnSchema& column_schema) {
+    if (!native_metadata_predicate_is_type_safe(column_schema)) {
+        return false;
+    }
+    const auto& descriptor = column_schema.type_descriptor;
+    // An ordinary raw-binary STRING slot preserves its bytes, but Variant reconstruction renders
+    // the binary identity before the residual STRING cast and therefore changes the domain.
+    return !descriptor.is_string_like || descriptor.is_string_annotation;
 }
 
 bool check_native_statistics(const tparquet::FileMetaData& metadata,
@@ -678,6 +1013,49 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
     const auto result = VExprContext::evaluate_zonemap_filter(request.conjuncts, ctx);
     accumulate_zonemap_stats(ctx, pruning_stats);
     return result == ZoneMapFilterResult::kNoMatch;
+}
+
+bool check_shredded_variant_statistics(
+        const tparquet::FileMetaData& metadata, const tparquet::RowGroup& row_group,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, const cctz::time_zone* timezone) {
+    for (const auto& conjunct : request.conjuncts) {
+        const auto predicate = extract_variant_shredded_predicate(conjunct);
+        if (!predicate.has_value()) {
+            continue;
+        }
+        const auto shredding = resolve_variant_shredding(file_schema, request, *predicate);
+        if (!shredding.has_value() || shredding->typed_value->leaf_column_id < 0 ||
+            shredding->typed_value->leaf_column_id >= static_cast<int>(row_group.columns.size()) ||
+            !fallback_is_all_null(row_group, *shredding->fallback_value) ||
+            !variant_metadata_predicate_is_type_safe(*shredding->typed_value) ||
+            !detail::has_supported_type_defined_order(metadata,
+                                                      shredding->typed_value->leaf_column_id)) {
+            continue;
+        }
+        const auto& chunk = row_group.columns[shredding->typed_value->leaf_column_id];
+        if (!chunk.__isset.meta_data) {
+            continue;
+        }
+        const auto& column_metadata = chunk.meta_data;
+        if (column_metadata.num_values != row_group.num_rows) {
+            continue;
+        }
+        std::optional<tparquet::Statistics> safe_statistics;
+        if (column_metadata.__isset.statistics) {
+            safe_statistics = detail::sanitize_native_footer_statistics(
+                    shredding->typed_value->type_descriptor, column_metadata.statistics, true);
+        }
+        const auto statistics = ParquetStatisticsUtils::TransformColumnStatistics(
+                *shredding->typed_value, safe_statistics.has_value() ? &*safe_statistics : nullptr,
+                column_metadata.num_values, timezone);
+        const auto normalized =
+                normalize_variant_statistics(*predicate, *shredding->typed_value, statistics);
+        if (normalized.has_value() && variant_statistics_exclude(*predicate, *normalized)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool is_native_dictionary_data_encoding(tparquet::Encoding::type encoding) {
@@ -929,8 +1307,10 @@ Status select_row_groups_by_metadata(
         ParquetRowGroupPruneReason prune_reason = ParquetRowGroupPruneReason::NONE;
         if (probe_mode != ParquetMetadataProbeMode::EXPENSIVE_ONLY &&
             has_expr_zonemap_filter(request, runtime_state) &&
-            check_native_statistics(metadata, row_group, file_schema, request, pruning_stats,
-                                    timezone)) {
+            (check_native_statistics(metadata, row_group, file_schema, request, pruning_stats,
+                                     timezone) ||
+             check_shredded_variant_statistics(metadata, row_group, file_schema, request,
+                                               timezone))) {
             prune_reason = ParquetRowGroupPruneReason::STATISTICS;
         }
         if (probe_mode != ParquetMetadataProbeMode::FOOTER_ONLY &&
@@ -1027,11 +1407,16 @@ void collect_leaf_schemas(const ParquetColumnSchema& column_schema,
         return;
     }
     for (const auto& child_schema : column_schema.children) {
-        if (!format::is_child_projected(projection, child_schema->local_id)) {
+        if (column_schema.kind != ParquetColumnSchemaKind::VARIANT &&
+            !format::is_child_projected(projection, child_schema->local_id)) {
             continue;
         }
+        // A logical Variant projection materializes every physical sibling; build skip plans for
+        // that identical leaf set so shredded columns cannot drift to different row positions.
         const auto* child_projection =
-                format::find_child_projection(projection, child_schema->local_id);
+                column_schema.kind == ParquetColumnSchemaKind::VARIANT
+                        ? nullptr
+                        : format::find_child_projection(projection, child_schema->local_id);
         collect_leaf_schemas(*child_schema, child_projection, leaf_schemas);
     }
 }
@@ -1236,7 +1621,7 @@ RowRange native_page_row_range(const tparquet::OffsetIndex& offset_index, size_t
 } // namespace
 
 Status select_row_group_ranges_by_native_page_index(
-        const tparquet::FileMetaData& metadata,
+        const tparquet::FileMetaData& metadata, const tparquet::RowGroup& row_group,
         const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int64_t row_group_rows,
@@ -1307,6 +1692,59 @@ Status select_row_group_ranges_by_native_page_index(
                 pruning_stats->in_zonemap_point_check_count +=
                         ctx.stats.in_zonemap_point_check_count;
                 pruning_stats->in_zonemap_range_only_count += ctx.stats.in_zonemap_range_only_count;
+            }
+        }
+        if (!usable) {
+            continue;
+        }
+        *selected_ranges = intersect_ranges(*selected_ranges, filter_ranges);
+        if (selected_ranges->empty()) {
+            if (pruning_stats != nullptr) {
+                pruning_stats->filtered_page_rows += row_group_rows;
+                ++pruning_stats->filtered_row_groups_by_page_index;
+            }
+            return Status::OK();
+        }
+    }
+
+    for (const auto& conjunct : request.conjuncts) {
+        const auto predicate = extract_variant_shredded_predicate(conjunct);
+        if (!predicate.has_value()) {
+            continue;
+        }
+        const auto shredding = resolve_variant_shredding(file_schema, request, *predicate);
+        if (!shredding.has_value() || shredding->typed_value->leaf_column_id < 0 ||
+            !fallback_is_all_null(row_group, *shredding->fallback_value) ||
+            !variant_metadata_predicate_is_type_safe(*shredding->typed_value) ||
+            !detail::has_supported_type_defined_order(metadata,
+                                                      shredding->typed_value->leaf_column_id)) {
+            continue;
+        }
+        const auto index_it = page_indexes.find(shredding->typed_value->leaf_column_id);
+        if (index_it == page_indexes.end()) {
+            continue;
+        }
+        const auto& indexes = index_it->second;
+        std::vector<RowRange> filter_ranges;
+        bool usable = true;
+        for (size_t page_idx = 0; page_idx < indexes.offset_index.page_locations.size();
+             ++page_idx) {
+            const auto page_range =
+                    native_page_row_range(indexes.offset_index, page_idx, row_group_rows);
+            ParquetColumnStatistics statistics;
+            if (!build_native_page_statistics(indexes.column_index, *shredding->typed_value,
+                                              page_idx, page_range.length, &statistics, timezone)) {
+                usable = false;
+                break;
+            }
+            const auto normalized =
+                    normalize_variant_statistics(*predicate, *shredding->typed_value, statistics);
+            if (!normalized.has_value()) {
+                usable = false;
+                break;
+            }
+            if (!variant_statistics_exclude(*predicate, *normalized)) {
+                append_row_range(page_range, &filter_ranges);
             }
         }
         if (!usable) {

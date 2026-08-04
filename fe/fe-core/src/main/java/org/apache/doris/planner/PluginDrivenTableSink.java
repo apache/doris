@@ -80,6 +80,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     // the INSERT TIcebergTableSink. Threaded onto the write handle so planWrite's buildWriteContext
     // reads it via ConnectorWriteHandle.getWriteOperation().
     private final WriteOperation writeOperation;
+    private final boolean writesDataFiles;
     // SQL MERGE INTO only: the statement must reject a target row matched by more than one source row.
     // Carried from PhysicalExternalRowLevelMergeSink onto the write handle so the connector can stamp the
     // enforcement flag onto its BE sink; false for UPDATE and for every non-row-level write.
@@ -144,8 +145,21 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             TSortInfo writeSortInfo, WriteOperation writeOperation, boolean requireMergeCardinalityCheck,
             ConnectorMetadata connectorMetadata) {
         this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
-                connectorColumns, writeSortInfo, writeOperation, requireMergeCardinalityCheck,
-                null, connectorMetadata);
+                connectorColumns, writeSortInfo, writeOperation, true,
+                requireMergeCardinalityCheck, null, connectorMetadata);
+    }
+
+    /**
+     * Plan-provider mode with explicit data-file and merge-cardinality requirements.
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            TSortInfo writeSortInfo, WriteOperation writeOperation, boolean writesDataFiles,
+            boolean requireMergeCardinalityCheck) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                connectorColumns, writeSortInfo, writeOperation, writesDataFiles,
+                requireMergeCardinalityCheck, null, null);
     }
 
     /**
@@ -157,7 +171,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             List<ConnectorColumn> boundTargetColumns, TSortInfo writeSortInfo,
             WriteOperation writeOperation, boolean requireMergeCardinalityCheck) {
         this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
-                boundTargetColumns, writeSortInfo, writeOperation, requireMergeCardinalityCheck, null);
+                boundTargetColumns, writeSortInfo, writeOperation, true,
+                requireMergeCardinalityCheck, null, null);
     }
 
     /**
@@ -170,8 +185,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             WriteOperation writeOperation, boolean requireMergeCardinalityCheck,
             String boundWriteMetadataIdentity) {
         this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
-                boundTargetColumns, writeSortInfo, writeOperation, requireMergeCardinalityCheck,
-                boundWriteMetadataIdentity, null);
+                boundTargetColumns, writeSortInfo, writeOperation, true,
+                requireMergeCardinalityCheck, boundWriteMetadataIdentity, null);
     }
 
     /**
@@ -184,6 +199,21 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             List<ConnectorColumn> boundTargetColumns, TSortInfo writeSortInfo,
             WriteOperation writeOperation, boolean requireMergeCardinalityCheck,
             String boundWriteMetadataIdentity, ConnectorMetadata connectorMetadata) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                boundTargetColumns, writeSortInfo, writeOperation, true,
+                requireMergeCardinalityCheck, boundWriteMetadataIdentity, connectorMetadata);
+    }
+
+    /**
+     * Plan-provider mode with explicit schema, data-file, metadata-generation, and MVCC settings.
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo writeSortInfo,
+            WriteOperation writeOperation, boolean writesDataFiles,
+            boolean requireMergeCardinalityCheck, String boundWriteMetadataIdentity,
+            ConnectorMetadata connectorMetadata) {
         super();
         this.targetTable = targetTable;
         this.writePlanProvider = writePlanProvider;
@@ -197,6 +227,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         this.writeSortInfo = writeSortInfo;
         this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
         this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
+        this.writesDataFiles = writesDataFiles;
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
     }
 
@@ -230,7 +261,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         // EXPLAIN), so the connector derives the detail from the write handle.
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
                 tableHandle, connectorColumns, boundTargetColumns, false, Collections.emptyMap(), null,
-                null, Optional.empty(), writeOperation, requireMergeCardinalityCheck);
+                null, Optional.empty(), writeOperation, writesDataFiles, requireMergeCardinalityCheck);
         writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }
@@ -267,7 +298,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         }
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
                 boundTableHandle, connectorColumns, boundTargetColumns, overwrite, writeContext, writeSortInfo,
-                boundWriteMetadataIdentity, branchName, writeOperation, requireMergeCardinalityCheck);
+                boundWriteMetadataIdentity, branchName, writeOperation, writesDataFiles,
+                requireMergeCardinalityCheck);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
     }
@@ -290,13 +322,14 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         private final String boundWriteMetadataIdentity;
         private final Optional<String> branchName;
         private final WriteOperation writeOperation;
+        private final boolean writesDataFiles;
         private final boolean requireMergeCardinalityCheck;
 
         private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
                 List<ConnectorColumn> boundTargetColumns, boolean overwrite,
                 Map<String, String> writeContext, TSortInfo sortInfo, String boundWriteMetadataIdentity,
                 Optional<String> branchName, WriteOperation writeOperation,
-                boolean requireMergeCardinalityCheck) {
+                boolean writesDataFiles, boolean requireMergeCardinalityCheck) {
             this.tableHandle = tableHandle;
             this.columns = columns;
             this.boundTargetColumns = boundTargetColumns;
@@ -306,7 +339,13 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
             this.branchName = branchName == null ? Optional.empty() : branchName;
             this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
+            this.writesDataFiles = writesDataFiles;
             this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
+        }
+
+        @Override
+        public boolean isWritesDataFiles() {
+            return writesDataFiles;
         }
 
         @Override

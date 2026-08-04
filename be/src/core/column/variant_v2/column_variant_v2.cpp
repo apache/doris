@@ -341,7 +341,8 @@ ColumnVariantV2::ColumnVariantV2(const ColumnVariantV2& other)
           _meta_ids(other._meta_ids),
           _values(other._values),
           _typed(other._typed),
-          _typed_type(other._typed_type) {}
+          _typed_type(other._typed_type),
+          _shredded(other._shredded) {}
 
 ColumnVariantV2::MutablePtr ColumnVariantV2::create_typed(ColumnPtr column,
                                                           DataTypePtr scalar_type) {
@@ -349,6 +350,15 @@ ColumnVariantV2::MutablePtr ColumnVariantV2::create_typed(ColumnPtr column,
     auto result = ColumnVariantV2::create();
     static_cast<IColumn::Ptr&>(result->_typed) = std::move(input.column);
     result->_typed_type = std::move(input.type);
+    result->_check_invariants();
+    return result;
+}
+
+ColumnVariantV2::MutablePtr ColumnVariantV2::create_shredded(
+        std::shared_ptr<VariantShreddedState> state) {
+    DORIS_CHECK(state != nullptr) << "shredded ColumnVariantV2 state must not be null";
+    auto result = ColumnVariantV2::create();
+    result->_shredded = std::move(state);
     result->_check_invariants();
     return result;
 }
@@ -363,7 +373,30 @@ const DataTypePtr& ColumnVariantV2::typed_type() const {
     return _typed_type;
 }
 
+std::optional<VariantShreddedTypedValue> ColumnVariantV2::find_shredded_typed_value(
+        std::span<const VariantShreddedPathSegment> path) const {
+    if (!_shredded) {
+        return std::nullopt;
+    }
+    return _shredded->find_typed_value(path);
+}
+
 void ColumnVariantV2::ensure_encoded() {
+    if (_shredded) {
+        const ColumnVariantV2& materialized = _shredded->materialized_column();
+        DORIS_CHECK(!materialized.is_shredded())
+                << "shredded state materializer returned another shredded column";
+        // The shredded state may cache and share its canonical materialization across readers.
+        // Detach every mutable buffer before dropping that owner so later COW mutations stay legal.
+        _metadatas = materialized._metadatas->clone_resized(materialized._metadatas->size());
+        _meta_ids = materialized._meta_ids->clone_resized(materialized._meta_ids->size());
+        _values = materialized._values->clone_resized(materialized._values->size());
+        _typed = materialized._typed == nullptr
+                         ? nullptr
+                         : materialized._typed->clone_resized(materialized._typed->size());
+        _typed_type = materialized._typed_type;
+        _shredded.reset();
+    }
     if (!_typed) {
         DCHECK(_typed_type == nullptr);
         return;
@@ -388,6 +421,9 @@ void ColumnVariantV2::ensure_encoded() {
 }
 
 std::string ColumnVariantV2::get_name() const {
+    if (_shredded) {
+        return "variant_v2(shredded)";
+    }
     if (_typed) {
         DORIS_CHECK(_typed_type != nullptr);
         return "variant_v2(typed=" + _typed_type->get_name() + ")";
@@ -397,6 +433,9 @@ std::string ColumnVariantV2::get_name() const {
 }
 
 size_t ColumnVariantV2::size() const {
+    if (_shredded) {
+        return _shredded->size();
+    }
     if (_typed) {
         DCHECK(_typed_type != nullptr);
         DCHECK(_metadatas->empty());
@@ -411,6 +450,9 @@ size_t ColumnVariantV2::size() const {
 }
 
 size_t ColumnVariantV2::byte_size() const {
+    if (_shredded) {
+        return _shredded->byte_size();
+    }
     if (_typed) {
         DCHECK(_metadatas->empty());
         DCHECK(_meta_ids->empty());
@@ -422,6 +464,9 @@ size_t ColumnVariantV2::byte_size() const {
 }
 
 size_t ColumnVariantV2::allocated_bytes() const {
+    if (_shredded) {
+        return _shredded->allocated_bytes();
+    }
     if (_typed) {
         DCHECK(_metadatas->empty());
         DCHECK(_meta_ids->empty());
@@ -435,6 +480,9 @@ size_t ColumnVariantV2::allocated_bytes() const {
 
 bool ColumnVariantV2::has_enough_capacity(const IColumn& src) const {
     const auto& source = assert_cast<const ColumnVariantV2&>(src);
+    if (_shredded || source._shredded) {
+        return false;
+    }
     if (static_cast<bool>(_typed) != static_cast<bool>(source._typed)) {
         return false;
     }
@@ -454,6 +502,11 @@ bool ColumnVariantV2::structure_equals(const IColumn& rhs) const {
 }
 
 void ColumnVariantV2::sanity_check() const {
+    if (_shredded) {
+        _shredded->sanity_check();
+        _check_invariants();
+        return;
+    }
     if (_typed) {
         _typed->sanity_check();
     } else {
@@ -481,6 +534,10 @@ void ColumnVariantV2::sanity_check() const {
 }
 
 void ColumnVariantV2::for_each_subcolumn(ColumnCallback callback) const {
+    if (_shredded) {
+        _shredded->for_each_subcolumn(callback);
+        return;
+    }
     if (_typed) {
         callback(*static_cast<const IColumn::Ptr&>(_typed));
     } else {
@@ -491,6 +548,11 @@ void ColumnVariantV2::for_each_subcolumn(ColumnCallback callback) const {
 }
 
 void ColumnVariantV2::mutate_subcolumns() {
+    if (_shredded) {
+        // Shredded state is immutable and reference-counted, so keep a partial leaf projection
+        // intact until an operation explicitly requires canonical bytes.
+        return;
+    }
     if (_typed) {
         mutate_subcolumn(_typed);
     } else {
@@ -501,6 +563,11 @@ void ColumnVariantV2::mutate_subcolumns() {
 }
 
 void ColumnVariantV2::clear() {
+    if (_shredded) {
+        _shredded.reset();
+        _check_invariants();
+        return;
+    }
     if (_typed) {
         mutate_subcolumn(_typed);
         _typed->clear();
@@ -574,7 +641,9 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
         }
     }
 
-    if (_typed) {
+    if (_typed || _shredded) {
+        // Validate the incoming batch before materializing the destination so malformed input
+        // cannot mutate a typed or segmented Variant column as a side effect.
         ensure_encoded();
     }
     DORIS_CHECK(_typed_type == nullptr) << "encoded state cannot retain a typed data type";
@@ -624,7 +693,9 @@ void ColumnVariantV2::insert_encoded_batch(const VariantBatchBuilder& block) {
     DORIS_CHECK_EQ(offsets.front(), 0);
     DORIS_CHECK_EQ(static_cast<size_t>(offsets.back()), value_bytes.size);
 
-    if (_typed) {
+    if (_typed || _shredded) {
+        // Preserve the no-op behavior above: an empty encoded append must not materialize the
+        // destination's lazy Variant representation.
         ensure_encoded();
     }
     DORIS_CHECK(_typed_type == nullptr) << "encoded state cannot retain a typed data type";
@@ -643,6 +714,9 @@ void ColumnVariantV2::insert_encoded_batch(const VariantBatchBuilder& block) {
 }
 
 VariantRef ColumnVariantV2::get_value_ref(size_t row) const {
+    if (_shredded) {
+        return _shredded->materialized_column().get_value_ref(row);
+    }
     DCHECK(!_typed);
     DCHECK(_typed_type == nullptr);
     DCHECK_LT(row, size());
@@ -724,7 +798,7 @@ void ColumnVariantV2::insert_many_defaults(size_t length) {
         return;
     }
 
-    if (_typed) {
+    if (_typed || _shredded) {
         ensure_encoded();
     }
 
@@ -773,6 +847,39 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
     DORIS_CHECK_LE(start, source.size()) << "source range starts past source size";
     DORIS_CHECK_LE(length, source.size() - start) << "source range exceeds source size";
     if (length == 0) {
+        return;
+    }
+
+    if (!_shredded && !_typed && empty() && _metadatas->empty() && source._shredded) {
+        // IColumn::cut() inserts into an empty clone. Select the physical tree directly because an
+        // incomplete leaf projection cannot be reconstructed merely to copy a row range.
+        _shredded = start == 0 && length == source.size()
+                            ? source._shredded
+                            : source._shredded->select_range(start, length);
+        _check_invariants();
+        return;
+    }
+    if (_shredded && source._shredded) {
+        auto selected_source = start == 0 && length == source.size()
+                                       ? source._shredded
+                                       : source._shredded->select_range(start, length);
+        // C++20 libc++ removed shared_ptr::unique(); use_count preserves the same COW invariant
+        // on every supported toolchain before mutating the format-owned state.
+        if (_shredded.use_count() != 1) {
+            _shredded = _shredded->select_range(0, size());
+        }
+        // A partial physical projection has no metadata/value pair to encode. Preserve that
+        // invariant by merging compatible scanner batches before the canonical fallback below.
+        if (_shredded->try_append(*selected_source)) {
+            _check_invariants();
+            return;
+        }
+    }
+    if (_shredded) {
+        ensure_encoded();
+    }
+    if (source._shredded) {
+        insert_range_from(source._shredded->materialized_column(), start, length);
         return;
     }
 
@@ -860,6 +967,21 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
         return;
     }
 
+    if (_shredded) {
+        ensure_encoded();
+    }
+    if (!_typed && empty() && _metadatas->empty() && source._shredded) {
+        // Gather into the native shredded representation for the same reason as range selection:
+        // row selection does not require, and may not have, a complete logical Variant value.
+        _shredded = source._shredded->select_indices(indices_begin, indices_end);
+        _check_invariants();
+        return;
+    }
+    if (source._shredded) {
+        insert_indices_from(source._shredded->materialized_column(), indices_begin, indices_end);
+        return;
+    }
+
     if (_typed && source._typed && exact_typed_identity(_typed_type, source._typed_type)) {
         mutate_subcolumn(_typed);
         _typed->insert_indices_from(*source._typed, indices_begin, indices_end);
@@ -937,6 +1059,9 @@ void ColumnVariantV2::pop_back(size_t length) {
     DORIS_CHECK_LE(length, size()) << "pop_back length exceeds the column size";
     if (length == 0) {
         return;
+    }
+    if (_shredded) {
+        ensure_encoded();
     }
     if (_typed) {
         mutate_subcolumn(_typed);
@@ -1205,6 +1330,9 @@ void ColumnVariantV2::replace_column_null_data(const uint8_t* __restrict null_ma
     if (std::none_of(null_map, null_map + size(), [](uint8_t value) { return value != 0; })) {
         return;
     }
+    if (_shredded) {
+        ensure_encoded();
+    }
 
     // Hash joins serialize the nested value even for a null-safe NULL key. Normalize those hidden
     // values to the canonical Variant default so build and probe keys compare byte-for-byte.
@@ -1229,6 +1357,9 @@ void ColumnVariantV2::replace_column_null_data(const uint8_t* __restrict null_ma
 
 ColumnPtr ColumnVariantV2::filter(const Filter& filter, ssize_t result_size_hint) const {
     column_match_filter_size(size(), filter.size());
+    if (_shredded) {
+        return ColumnVariantV2::create_shredded(_shredded->filter(filter, result_size_hint));
+    }
     if (_typed) {
         ColumnPtr filtered = _typed->filter(filter, result_size_hint);
         auto result = ColumnVariantV2::create();
@@ -1255,6 +1386,13 @@ ColumnPtr ColumnVariantV2::filter(const Filter& filter, ssize_t result_size_hint
 
 size_t ColumnVariantV2::filter(const Filter& filter) {
     column_match_filter_size(size(), filter.size());
+    if (_shredded) {
+        // Scanner-side compaction is a row-selection operation, not a request for canonical
+        // Variant bytes. Keep partial Parquet projections in their physical representation.
+        _shredded = _shredded->filter(filter, -1);
+        _check_invariants();
+        return size();
+    }
     if (_typed) {
         ColumnPtr filtered = static_cast<const IColumn::Ptr&>(_typed)->filter(filter, -1);
         const size_t filtered_size = filtered->size();
@@ -1286,6 +1424,10 @@ MutableColumnPtr ColumnVariantV2::permute(const Permutation& permutation, size_t
         }
     }
 
+    if (_shredded) {
+        return _shredded->materialized_column().permute(permutation, limit);
+    }
+
     if (_typed) {
         MutableColumnPtr permuted = _typed->permute(permutation, result_size);
         auto result = ColumnVariantV2::create();
@@ -1312,6 +1454,20 @@ MutableColumnPtr ColumnVariantV2::permute(const Permutation& permutation, size_t
 }
 
 MutableColumnPtr ColumnVariantV2::clone_resized(size_t new_size) const {
+    if (_shredded) {
+        if (new_size == 0) {
+            // Empty scanner placeholders carry no rows and therefore need no physical shredded
+            // state. Avoid forcing a partial leaf projection through full materialization.
+            return ColumnVariantV2::create();
+        }
+        if (new_size == size()) {
+            auto result = ColumnVariantV2::create();
+            result->_shredded = _shredded;
+            result->_check_invariants();
+            return result;
+        }
+        return _shredded->materialized_column().clone_resized(new_size);
+    }
     if (_typed) {
         auto result = ColumnVariantV2::create();
         if (new_size <= size()) {
@@ -1351,6 +1507,9 @@ MutableColumnPtr ColumnVariantV2::clone_resized(size_t new_size) const {
 
 void ColumnVariantV2::resize(size_t new_size) {
     const size_t old_size = size();
+    if (_shredded && new_size != old_size) {
+        ensure_encoded();
+    }
     if (_typed) {
         if (new_size == old_size) {
             return;
@@ -1412,6 +1571,7 @@ void ColumnVariantV2::_adopt_state_from(ColumnVariantV2& replacement) {
     _values = std::move(replacement._values);
     _typed = std::move(replacement._typed);
     _typed_type = std::move(replacement._typed_type);
+    _shredded = std::move(replacement._shredded);
     _check_invariants();
 }
 
@@ -1423,6 +1583,14 @@ void ColumnVariantV2::_detach_metadata_for_write() {
 }
 
 void ColumnVariantV2::_check_invariants() const {
+    if (_shredded) {
+        DORIS_CHECK(_typed == nullptr) << "shredded state cannot contain a typed column";
+        DORIS_CHECK(_typed_type == nullptr) << "shredded state cannot retain a typed data type";
+        DORIS_CHECK(_metadatas->empty()) << "shredded state cannot contain encoded metadata";
+        DORIS_CHECK(_meta_ids->empty()) << "shredded state cannot contain encoded metadata ids";
+        DORIS_CHECK(_values->empty()) << "shredded state cannot contain encoded values";
+        return;
+    }
     if (_typed) {
         DORIS_CHECK(_typed_type != nullptr) << "typed state requires a data type";
         const IColumn* typed_column = static_cast<const IColumn::Ptr&>(_typed).get();

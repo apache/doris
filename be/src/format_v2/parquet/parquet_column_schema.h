@@ -33,6 +33,7 @@ enum class ParquetColumnSchemaKind {
     STRUCT,    // Parquet group with STRUCT semantics
     LIST,      // Parquet group with LIST semantics
     MAP,       // Parquet group with MAP semantics
+    VARIANT,   // Parquet Variant logical group
 };
 
 // ============================================================================
@@ -48,6 +49,9 @@ struct ParquetColumnSchema {
     DataTypePtr type = nullptr;
 
     std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
+    // Set only for VARIANT. The public file type is DataTypeVariantV2, while this type describes
+    // the metadata/value/typed_value STRUCT consumed by the native decoder.
+    DataTypePtr variant_physical_type = nullptr;
 
     int leaf_column_id = -1;
 

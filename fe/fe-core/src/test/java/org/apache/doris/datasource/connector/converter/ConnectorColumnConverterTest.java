@@ -145,6 +145,13 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void testComputeVariantCarrierConversion() {
+        Type type = ConnectorColumnConverter.convertType(ConnectorType.of("VARIANT_COMPUTE_V2"));
+        Assertions.assertTrue(type instanceof org.apache.doris.catalog.VariantType);
+        Assertions.assertTrue(((org.apache.doris.catalog.VariantType) type).isComputeV2());
+    }
+
+    @Test
     void testUnknownTypeDefaultsToUnsupported() {
         ConnectorType ct = ConnectorType.of("GEOMETRY", -1, -1);
         Type back = ConnectorColumnConverter.convertType(ct);

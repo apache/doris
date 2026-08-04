@@ -414,6 +414,7 @@ protected:
         DORIS_CHECK(file_schema != nullptr);
         return Status::OK();
     }
+    virtual Status validate_file_mapping(const TableColumnMapper&) const { return Status::OK(); }
 
     // Open the concrete reader for the current split/task and build the file-local scan request.
     virtual Status open_reader() {
@@ -457,6 +458,7 @@ protected:
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
         }
+        RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
         // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
         // so the scan node still has an output tuple. Record only the current non-predicate file
         // columns before table-format hooks add row-position or equality-delete dependencies. This
@@ -479,40 +481,34 @@ protected:
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
         _file_scan_request.reset();
-        _data_reader.file_block_layout.resize(file_request->local_positions.size());
+        _data_reader.file_block_layout.resize(file_request->block_column_count());
 
         // 4. Build file block layout from file schema and column mapping. The layout describes
         // the block returned by file reader before table-column materialization.
-        for (const auto& [file_column_id, block_position] : file_request->local_positions) {
+        auto add_file_block_column = [&](const LocalColumnIndex& projection,
+                                         LocalIndex block_position) -> Status {
             DORIS_CHECK(block_position.value() < _data_reader.file_block_layout.size());
+            const auto file_column_id = projection.column_id();
             const auto* field = _find_column_definition(_data_reader.file_schema, file_column_id);
             DORIS_CHECK(field != nullptr);
 
             ColumnDefinition projected_field;
-            {
-                auto it = std::find_if(
-                        file_request->non_predicate_columns.begin(),
-                        file_request->non_predicate_columns.end(),
-                        [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
-                if (it != file_request->non_predicate_columns.end()) {
-                    RETURN_IF_ERROR(project_column_definition(*field, *it, &projected_field));
-                }
-            }
-            {
-                auto it = std::find_if(
-                        file_request->predicate_columns.begin(),
-                        file_request->predicate_columns.end(),
-                        [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
-                if (it != file_request->predicate_columns.end()) {
-                    RETURN_IF_ERROR(project_column_definition(*field, *it, &projected_field));
-                }
-            }
+            RETURN_IF_ERROR(project_column_definition(*field, projection, &projected_field));
             _data_reader.file_block_layout[block_position.value()] = {
                     .file_column_id = file_column_id,
                     .name = projected_field.name,
                     .type = projected_field.type,
             };
             DORIS_CHECK(_data_reader.file_block_layout[block_position.value()].type != nullptr);
+            return Status::OK();
+        };
+        for (const auto& projection : file_request->predicate_columns) {
+            RETURN_IF_ERROR(add_file_block_column(
+                    projection, file_request->local_positions.at(projection.column_id())));
+        }
+        for (const auto& projection : file_request->non_predicate_columns) {
+            RETURN_IF_ERROR(add_file_block_column(
+                    projection, file_request->non_predicate_position(projection.column_id())));
         }
 
         // 5. Prepare block template from file block layout. The block template stores the block

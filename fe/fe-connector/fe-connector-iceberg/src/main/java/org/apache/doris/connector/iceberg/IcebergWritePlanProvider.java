@@ -167,6 +167,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
     @Override
     public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
+        validateWriteSchema(handle.getColumns(), handle.isWritesDataFiles());
         IcebergTableHandle tableHandle = (IcebergTableHandle) handle.getTableHandle();
         IcebergConnectorTransaction transaction = currentTransaction(session);
 
@@ -221,7 +222,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             case MERGE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
                 dataSink.setIcebergMergeSink(buildMergeSink(table, tableHandle, rewritableDeletes,
-                        handle.isRequireMergeCardinalityCheck(), schemaContext));
+                        handle.isWritesDataFiles(), handle.isRequireMergeCardinalityCheck(), schemaContext));
                 return new ConnectorSinkPlan(dataSink);
             }
             case REWRITE: {
@@ -364,6 +365,27 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 || "VARBINARY".equals(typeName)
                 || "DATETIMEV2".equals(typeName)
                 || "TIMESTAMPTZ".equals(typeName);
+    }
+
+    static void validateWriteSchema(List<ConnectorColumn> columns, boolean writesDataFiles) {
+        if (!writesDataFiles) {
+            return;
+        }
+        if (columns.stream().anyMatch(column -> containsVariant(column.getType()))) {
+            // Reject the whole data-file write: validating only selected columns would let an
+            // unchanged Variant target flow through a writer that cannot preserve its physical identity.
+            throw new DorisConnectorException(
+                    "Iceberg VARIANT columns are read-only and cannot be written");
+        }
+    }
+
+    private static boolean containsVariant(ConnectorType type) {
+        String typeName = type.getTypeName();
+        if ("VARIANT".equalsIgnoreCase(typeName)
+                || "VARIANT_COMPUTE_V2".equalsIgnoreCase(typeName)) {
+            return true;
+        }
+        return type.getChildren().stream().anyMatch(IcebergWritePlanProvider::containsVariant);
     }
 
     @Override
@@ -778,7 +800,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      */
     private TIcebergMergeSink buildMergeSink(Table table, IcebergTableHandle tableHandle,
             Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes,
-            boolean requireMergeCardinalityCheck, IcebergWriteSchemaContext schemaContext) {
+            boolean writesDataFiles, boolean requireMergeCardinalityCheck,
+            IcebergWriteSchemaContext schemaContext) {
         TIcebergMergeSink tSink = new TIcebergMergeSink();
         tSink.setDbName(tableHandle.getDbName());
         tSink.setTbName(tableHandle.getTableName());
@@ -792,6 +815,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 IcebergWriterHelper.shouldCollectColumnStats(schemaContext, schema));
         // #66112: UPDATE and SQL MERGE share this sink, but only SQL MERGE has the one-source-row invariant.
         tSink.setRequireMergeCardinalityCheck(requireMergeCardinalityCheck);
+        tSink.setWritesDataFiles(writesDataFiles);
 
         PartitionSpec partitionSpec = schemaContext.getPartitionSpec();
         if (partitionSpec.isPartitioned()) {

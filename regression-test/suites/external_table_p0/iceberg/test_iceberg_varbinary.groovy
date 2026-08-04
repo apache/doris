@@ -22,6 +22,7 @@ suite("test_iceberg_varbinary", "p0,external") {
         logger.info("disable iceberg test.")
         return
     }
+    sql "SET ENABLE_VARIANT_V2=true"
 
     String catalog_name_no_mapping = "test_iceberg_no_mapping"
     String catalog_name_with_mapping = "test_iceberg_with_mapping"
@@ -29,13 +30,18 @@ suite("test_iceberg_varbinary", "p0,external") {
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    // A container-advertised REST URI may differ from the host port-forward address.
+    String restUri = context.config.otherConfigs.get("iceberg_rest_uri")
+    if (restUri == null) {
+        restUri = "http://${externalEnvIp}:${rest_port}"
+    }
     
     sql """drop catalog if exists ${catalog_name_no_mapping}"""
     sql """
     CREATE CATALOG ${catalog_name_no_mapping} PROPERTIES (
         'type'='iceberg',
         'iceberg.catalog.type'='rest',
-        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        'uri' = '${restUri}',
         "s3.access_key" = "admin",
         "s3.secret_key" = "password",
         "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
@@ -50,7 +56,7 @@ suite("test_iceberg_varbinary", "p0,external") {
     CREATE CATALOG ${catalog_name_with_mapping} PROPERTIES (
         'type'='iceberg',
         'iceberg.catalog.type'='rest',
-        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        'uri' = '${restUri}',
         "s3.access_key" = "admin",
         "s3.secret_key" = "password",
         "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
@@ -166,10 +172,8 @@ suite("test_iceberg_varbinary", "p0,external") {
     qt_select23 """
         select id from test_variant_repro;
     """
-    test {
-        sql """
-            select * from test_variant_repro;
-        """
-        exception "UNSUPPORTED"
-    }
+    sql """set enable_file_scanner_v2=true"""
+    qt_select_variant """
+        select id, cast(v as string) from test_variant_repro order by id;
+    """
 }

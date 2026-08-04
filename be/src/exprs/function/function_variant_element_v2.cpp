@@ -130,6 +130,42 @@ Status extract_encoded_variant_element(const ColumnVariantV2& source,
                                        const ResolvedVariantElementV2Path& path,
                                        std::span<const uint8_t> outer_nulls, ColumnPtr* output);
 
+std::optional<ColumnPtr> extract_shredded_typed_variant_element(
+        const ColumnVariantV2& source, const ResolvedVariantElementV2Path& path,
+        std::span<const uint8_t> outer_nulls) {
+    DorisVector<VariantShreddedPathSegment> shredded_path;
+    shredded_path.reserve(path.size());
+    for (size_t position = 0; position < path.size(); ++position) {
+        VariantShreddedPathSegment segment;
+        if (path.kind_at(position) == VariantElementV2PathSegment::Kind::OBJECT_KEY) {
+            segment.kind = VariantShreddedPathSegment::Kind::OBJECT_KEY;
+            segment.key = path.object_key_at(position);
+        } else {
+            segment.kind = VariantShreddedPathSegment::Kind::ARRAY_INDEX;
+            segment.index = path.array_index_at(position);
+        }
+        shredded_path.push_back(segment);
+    }
+
+    auto match = source.find_shredded_typed_value(shredded_path);
+    if (!match.has_value()) {
+        return std::nullopt;
+    }
+    const auto& leaf = assert_cast<const ColumnNullable&>(*match->column);
+    auto nulls = leaf.get_null_map_column().clone_resized(source.size());
+    auto& null_data = assert_cast<ColumnUInt8&>(*nulls).get_data();
+    for (size_t row = 0; row < source.size(); ++row) {
+        null_data[row] =
+                static_cast<uint8_t>(null_data[row] != 0 || is_outer_null(outer_nulls, row));
+    }
+
+    // The typed ColumnVariantV2 retains the exact decoded Parquet leaf. Only the SQL result null
+    // map is produced here, so predicates and casts can consume the leaf without reconstructing
+    // canonical Variant rows.
+    auto values = ColumnVariantV2::create_typed(match->column, match->type);
+    return ColumnNullable::create(std::move(values), std::move(nulls));
+}
+
 Status make_all_null_variant_element_result(size_t rows, ColumnPtr* output);
 
 } // namespace
@@ -216,7 +252,14 @@ Status extract_variant_element_v2(const ColumnVariantV2& source,
 
     ColumnPtr candidate;
     try {
-        if (!source.is_typed()) {
+        if (source.is_shredded()) {
+            if (auto typed = extract_shredded_typed_variant_element(source, path, outer_nulls)) {
+                candidate = std::move(*typed);
+            } else {
+                RETURN_IF_ERROR(
+                        extract_encoded_variant_element(source, path, outer_nulls, &candidate));
+            }
+        } else if (!source.is_typed()) {
             RETURN_IF_ERROR(extract_encoded_variant_element(source, path, outer_nulls, &candidate));
         } else {
             // A typed Variant is one scalar root value per row. String payloads are strings, not

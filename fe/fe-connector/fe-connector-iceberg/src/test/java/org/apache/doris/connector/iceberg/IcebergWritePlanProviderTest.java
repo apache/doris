@@ -108,6 +108,19 @@ public class IcebergWritePlanProviderTest {
     private static final Map<String, String> NON_REST_PROPS =
             Collections.singletonMap("iceberg.catalog.type", "hadoop");
 
+    @Test
+    public void rejectsVariantDataWritesButAllowsDeleteOnlyMerge() {
+        ConnectorColumn nestedVariant = new ConnectorColumn("payload",
+                ConnectorType.structOf(Collections.singletonList("nested"),
+                        Collections.singletonList(ConnectorType.of("VARIANT"))),
+                null, true, null);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWritePlanProvider.validateWriteSchema(
+                        Collections.singletonList(nestedVariant), true));
+        Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateWriteSchema(
+                Collections.singletonList(nestedVariant), false));
+    }
+
     private static InMemoryCatalog freshCatalog() {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());

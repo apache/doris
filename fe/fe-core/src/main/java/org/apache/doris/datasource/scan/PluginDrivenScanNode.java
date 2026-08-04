@@ -26,9 +26,14 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -192,6 +197,64 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         this.connector = connector;
         this.connectorSession = connectorSession;
         this.currentHandle = tableHandle;
+    }
+
+    @Override
+    protected void doInitialize() throws UserException {
+        super.doInitialize();
+        checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
+    }
+
+    void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
+            throws UserException {
+        boolean metadataCountProven = false;
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (isTableLevelCountStarPushdown() && conjuncts.isEmpty() && scanProvider != null) {
+            metadataCountProven = onPluginClassLoader(scanProvider,
+                    () -> scanProvider.canServeMetadataOnlyCount(
+                            connectorSession, currentHandle, Optional.empty()));
+        }
+        checkVariantBackendCompatibility(
+                !metadataCountProven && projectsComputeVariant(desc), backends);
+    }
+
+    static boolean projectsComputeVariant(TupleDescriptor tuple) {
+        // Nested-column pruning updates the effective slot type but deliberately keeps the original
+        // Column metadata; compatibility must follow the payload this scan actually projects.
+        return tuple.getSlots().stream().anyMatch(slot -> containsComputeVariant(slot.getType()));
+    }
+
+    private static boolean containsComputeVariant(Type type) {
+        if (type instanceof VariantType) {
+            return ((VariantType) type).isComputeV2();
+        }
+        if (type instanceof ArrayType) {
+            return containsComputeVariant(((ArrayType) type).getItemType());
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            return containsComputeVariant(map.getKeyType()) || containsComputeVariant(map.getValueType());
+        }
+        if (type instanceof StructType) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsComputeVariant(field.getType()));
+        }
+        return false;
+    }
+
+    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends)
+            throws UserException {
+        if (!projectsVariant) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                // Old backends cannot distinguish the logical Variant from its physical carrier,
+                // so scheduling this projection there could corrupt the result shape.
+                throw new UserException("Iceberg Variant is unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
+            }
+        }
     }
 
     // Lazily resolves this node's ConnectorMetadata through the per-statement funnel and caches it, so the

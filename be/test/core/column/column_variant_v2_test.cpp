@@ -34,6 +34,7 @@
 #include "common/exception.h"
 #include "core/arena.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
@@ -51,6 +52,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
@@ -1981,6 +1983,31 @@ TEST(ColumnVariantV2Test, CowDetachAndClear) {
     ASSERT_TRUE(assert_cast<const ColumnVariantV2&>(*original).get_value_ref(0).object_find(
             StringRef("a"), &a));
     EXPECT_EQ(a.num_elements(), 2);
+}
+
+TEST(ColumnVariantV2Test, BlockClearDetachesSharedEncodedSubcolumns) {
+    for (bool clear_selected_only : {false, true}) {
+        SCOPED_TRACE(clear_selected_only);
+        auto column = ColumnVariantV2::create();
+        insert_encoded_field(*column, encode_json(R"({"a":[1,2]})"));
+        const std::vector<ColumnPtr> shared_subcolumns = subcolumns(*column);
+
+        Block block;
+        block.insert({std::move(column), std::make_shared<DataTypeVariantV2>(), "v"});
+        ASSERT_TRUE(block.get_by_position(0).column->is_exclusive());
+
+        if (clear_selected_only) {
+            block.clear_column_data(std::vector<uint32_t> {0});
+        } else {
+            block.clear_column_data();
+        }
+
+        EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+        ASSERT_EQ(shared_subcolumns.size(), 3);
+        EXPECT_EQ(shared_subcolumns[0]->size(), 1);
+        EXPECT_EQ(shared_subcolumns[1]->size(), 1);
+        EXPECT_EQ(shared_subcolumns[2]->size(), 1);
+    }
 }
 
 TEST(ColumnVariantV2Test, EncodedRowCountInvariant) {
