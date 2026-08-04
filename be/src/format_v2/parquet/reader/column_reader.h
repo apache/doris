@@ -57,12 +57,15 @@ public:
     virtual Status select(const SelectionVector& selection, uint16_t selected_rows,
                           int64_t batch_rows, MutableColumnPtr& column);
 
+    // preserve_filter_values carries nonzero dictionary bitmap bytes to the compact row filter
+    // instead of normalizing them to one, allowing callers to retain branch identity.
     virtual Status select_with_dictionary_filter(const SelectionVector& selection,
                                                  uint16_t selected_rows, int64_t batch_rows,
                                                  const IColumn::Filter& dictionary_filter,
                                                  IColumn* projected_column,
                                                  IColumn::Filter* row_filter,
-                                                 uint16_t* survivor_count, bool* used_filter);
+                                                 uint16_t* survivor_count, bool* used_filter,
+                                                 bool preserve_filter_values = false);
 
     // Consume batch_rows and evaluate eligible fixed-width values without first constructing a
     // complete predicate column. Append survivors when projected_column is non-null. Implementations

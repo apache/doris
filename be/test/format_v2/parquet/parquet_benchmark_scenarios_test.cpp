@@ -175,8 +175,8 @@ TEST(ParquetBenchmarkScenariosTest, SelectionMatrixCoversIdentityAndSuccessiveCo
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversNullableSparseAndProjectionAxes) {
     const auto scenarios = reader_scenarios();
-    // Keep the exact count aligned with the upstream complex-residual scenario retained by rebase.
-    EXPECT_EQ(scenarios.size(), size_t {167});
+    // Keep the exact count aligned with the ordinary reader and paired OR implementation matrix.
+    EXPECT_EQ(scenarios.size(), size_t {435});
     for (const int null_percent : {0, 1, 10, 50, 90}) {
         for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
             for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
@@ -201,6 +201,7 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
     for (const auto operation :
          {ReaderOperation::OPEN_TO_FIRST_BLOCK, ReaderOperation::FULL_SCAN,
           ReaderOperation::PREDICATE_SCAN, ReaderOperation::COMPLEX_RESIDUAL_SCAN,
+          ReaderOperation::MULTI_COLUMN_OR_SCAN, ReaderOperation::MULTI_COLUMN_DNF_SCAN,
           ReaderOperation::LIMIT_1, ReaderOperation::LIMIT_1000}) {
         EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const ReaderScenario& scenario) {
             return scenario.operation == operation;
@@ -226,13 +227,74 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixHasExactUniqueRegistrationNames) {
     const auto scenarios = reader_scenarios();
-    EXPECT_EQ(scenarios.size(), size_t {167});
+    EXPECT_EQ(scenarios.size(), size_t {435});
 
     std::set<std::string> names;
     for (const auto& scenario : scenarios) {
         names.insert(reader_scenario_name(scenario));
     }
     EXPECT_EQ(names.size(), scenarios.size());
+}
+
+TEST(ParquetBenchmarkScenariosTest, ReaderMatrixPairsMultiColumnOrImplementations) {
+    const auto scenarios = reader_scenarios();
+    for (const auto encoding : {Encoding::PLAIN, Encoding::DICTIONARY}) {
+        for (const int null_percent : {0, 1, 10, 50, 90}) {
+            for (const int selectivity : {1, 10, 50, 90, 100}) {
+                for (const auto projection :
+                     {Projection::PREDICATE_ONLY, Projection::PREDICATE_PROJECTED}) {
+                    for (const auto implementation :
+                         {ReaderImplementation::LEGACY, ReaderImplementation::RAW_DISJUNCTION}) {
+                        EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const ReaderScenario&
+                                                                               scenario) {
+                            return scenario.operation == ReaderOperation::MULTI_COLUMN_OR_SCAN &&
+                                   scenario.encoding == encoding &&
+                                   scenario.null_percent == null_percent &&
+                                   scenario.selectivity_percent == selectivity &&
+                                   scenario.projection == projection &&
+                                   scenario.value_type == ValueType::DECIMAL64 &&
+                                   scenario.implementation == implementation;
+                        })) << "missing multi-column OR implementation pair";
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST(ParquetBenchmarkScenariosTest, ReaderMatrixPairsQ88ShapedDnfImplementations) {
+    const auto scenarios = reader_scenarios();
+    for (const auto encoding : {Encoding::PLAIN, Encoding::DICTIONARY}) {
+        for (const int null_percent : {0, 10, 50, 90}) {
+            for (const int selectivity : {1, 10, 50, 90}) {
+                for (const auto implementation :
+                     {ReaderImplementation::LEGACY, ReaderImplementation::RAW_DNF_MASK}) {
+                    EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const ReaderScenario& scenario) {
+                        return scenario.operation == ReaderOperation::MULTI_COLUMN_DNF_SCAN &&
+                               scenario.encoding == encoding &&
+                               scenario.null_percent == null_percent &&
+                               scenario.selectivity_percent == selectivity &&
+                               scenario.projection == Projection::PREDICATE_ONLY &&
+                               scenario.value_type == ValueType::INT32 &&
+                               scenario.implementation == implementation;
+                    })) << "missing Q88-shaped DNF implementation pair";
+                }
+            }
+        }
+    }
+    for (const auto encoding : {Encoding::PLAIN, Encoding::DICTIONARY}) {
+        for (const auto implementation :
+             {ReaderImplementation::LEGACY, ReaderImplementation::RAW_DNF_MASK}) {
+            EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const ReaderScenario& scenario) {
+                return scenario.operation == ReaderOperation::MULTI_COLUMN_DNF_SCAN &&
+                       scenario.encoding == encoding && scenario.null_percent == 50 &&
+                       scenario.selectivity_percent == 10 &&
+                       scenario.projection == Projection::PREDICATE_PROJECTED &&
+                       scenario.value_type == ValueType::INT32 &&
+                       scenario.implementation == implementation;
+            })) << "missing projected DNF fallback pair";
+        }
+    }
 }
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversComplexResidualLazyMaterialization) {

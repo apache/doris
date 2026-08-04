@@ -76,7 +76,8 @@ Status ParquetColumnReader::select(const SelectionVector& selection, uint16_t se
 
 Status ParquetColumnReader::select_with_dictionary_filter(const SelectionVector&, uint16_t, int64_t,
                                                           const IColumn::Filter&, IColumn*,
-                                                          IColumn::Filter*, uint16_t*, bool*) {
+                                                          IColumn::Filter*, uint16_t*, bool*,
+                                                          bool) {
     return Status::NotSupported("Parquet dictionary filter is not implemented for column {}",
                                 name());
 }

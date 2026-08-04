@@ -643,6 +643,8 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _state->scheduler.set_scan_profile(_parquet_profile.scan_profile());
     _state->scheduler.set_plan(std::move(row_group_plan));
     _state->scheduler.set_scan_request(request_snapshot);
+    _state->scheduler.preflight_raw_disjunctions(_state->file_schema, *request_snapshot,
+                                                 _state->file_context.native_metadata->to_thrift());
     _eof = _state->scheduler.empty();
     return Status::OK();
 }

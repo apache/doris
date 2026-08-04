@@ -531,7 +531,8 @@ Status NativeColumnReader::read_with_dictionary_filter(
         int64_t rows, const uint8_t* filter_data, bool filter_all,
         const IColumn::Filter& dictionary_filter, const IColumn* typed_dictionary,
         IColumn* projected_values, ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter,
-        int64_t* survivor_count, int64_t* rows_read, bool* projected_directly, bool* used_filter) {
+        int64_t* survivor_count, int64_t* rows_read, bool* projected_directly, bool* used_filter,
+        bool preserve_filter_values) {
     DORIS_CHECK(rows >= 0);
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(survivor_count != nullptr);
@@ -560,7 +561,7 @@ Status NativeColumnReader::read_with_dictionary_filter(
         RETURN_IF_ERROR(_native_reader->read_dictionary_filter(
                 dictionary_filter, filter, static_cast<size_t>(rows - *rows_read), typed_dictionary,
                 projected_values, matched_dictionary_ids, row_filter, &loop_survivors, &loop_rows,
-                &eof, &loop_projected_directly, &loop_used));
+                &eof, &loop_projected_directly, &loop_used, preserve_filter_values));
         if (!loop_used) {
             if (UNLIKELY(*rows_read != 0)) {
                 return Status::Corruption(
@@ -716,7 +717,8 @@ Status NativeColumnReader::select(const SelectionVector& selection, uint16_t sel
 Status NativeColumnReader::select_with_dictionary_filter(
         const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
         const IColumn::Filter& dictionary_filter, IColumn* projected_column,
-        IColumn::Filter* row_filter, uint16_t* survivor_count, bool* used_filter) {
+        IColumn::Filter* row_filter, uint16_t* survivor_count, bool* used_filter,
+        bool preserve_filter_values) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(survivor_count != nullptr);
     DORIS_CHECK(used_filter != nullptr);
@@ -761,7 +763,7 @@ Status NativeColumnReader::select_with_dictionary_filter(
     RETURN_IF_ERROR(read_with_dictionary_filter(
             batch_rows, filter_data, selected_rows == 0, dictionary_filter, typed_dictionary,
             projected_values, direct_matched_ids, row_filter, &direct_survivor_count,
-            &direct_rows_read, &projected_directly, &direct_filter_used));
+            &direct_rows_read, &projected_directly, &direct_filter_used, preserve_filter_values));
     if (direct_filter_used) {
         advance_selected_span(direct_rows_read);
         *survivor_count = cast_set<uint16_t>(direct_survivor_count);
@@ -842,7 +844,8 @@ Status NativeColumnReader::select_with_dictionary_filter(
                         "Invalid parquet dictionary id {} for column {} with {} entries",
                         dictionary_id, _name, dictionary_filter.size());
             }
-            keep = dictionary_filter[static_cast<size_t>(dictionary_id)] != 0;
+            const uint8_t filter_value = dictionary_filter[static_cast<size_t>(dictionary_id)];
+            keep = filter_value != 0;
             if (keep) {
                 ++fallback_survivor_count;
                 if (matched_ids != nullptr) {
@@ -850,7 +853,9 @@ Status NativeColumnReader::select_with_dictionary_filter(
                 }
             }
         }
-        row_filter->push_back(keep ? 1 : 0);
+        row_filter->push_back(preserve_filter_values && keep
+                                      ? dictionary_filter[static_cast<size_t>(id_data[row])]
+                                      : (keep ? 1 : 0));
     }
 
     if (projected_column != nullptr) {
