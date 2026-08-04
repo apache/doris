@@ -18,8 +18,8 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.hms.HmsClientConfig;
-import org.apache.doris.connector.metacache.spi.CacheSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 

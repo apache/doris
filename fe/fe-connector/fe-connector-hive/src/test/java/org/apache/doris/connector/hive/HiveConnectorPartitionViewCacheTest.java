@@ -18,8 +18,8 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.metacache.ConnectorMetadataCache;
-import org.apache.doris.connector.metacache.ConnectorTableKey;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

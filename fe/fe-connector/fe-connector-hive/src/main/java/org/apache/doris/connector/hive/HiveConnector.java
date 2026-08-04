@@ -29,12 +29,12 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.ThriftHmsClient;
 import org.apache.doris.connector.hms.event.HmsEventSource;
-import org.apache.doris.connector.metacache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -100,7 +100,7 @@ public class HiveConnector implements Connector {
     private final HiveFileListingCache fileListingCache;
 
     // PERF-06 (S6): cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache
-    // from fe-connector-metacache), layered ABOVE the raw per-name HMS listing served by CachingHmsClient: it
+    // from fe-connector-cache), layered ABOVE the raw per-name HMS listing served by CachingHmsClient: it
     // memoizes the BUILT List<ConnectorPartitionInfo> (HiveConnectorMetadata#listPartitionsUncached's per-name
     // HiveWriteUtils.toPartitionValues parse + ConnectorPartitionInfo construction), keyed by
     // (db, table, -1, -1) — hive is snapshot-less (beginQuerySnapshot always pins -1) and its handle carries no

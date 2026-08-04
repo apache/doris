@@ -32,10 +32,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * FE-specific immutable snapshot of remote/local names and the case-insensitive remote-name index.
- *
- * <p>This remains in fe-core because its public shape and replay semantics use the FE {@link Pair}
- * type. The data-source-neutral cache runtime only stores values and does not interpret this snapshot.
+ * Immutable snapshot of remote/local names and the case-insensitive remote-name index.
  */
 public final class NameCacheValue {
     private static final String CONFLICT_PREFIX = "Found conflicting external metadata name mapping: ";
