@@ -205,7 +205,6 @@ public class RepeatTest {
         // (id) -> index {0} -> slot id {3}
         Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(3)), result.get(1));
     }
-    }
 
     @Test
     public void testComputeGroupingFunctionsValuesUsePrecomputedGroupingIds() {

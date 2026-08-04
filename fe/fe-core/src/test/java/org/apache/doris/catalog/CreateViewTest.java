@@ -194,7 +194,7 @@ public class CreateViewTest extends TestWithFeService {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         View view = (View) db.getTableOrDdlException("no_alias_view");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 "select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
                         + "from `internal`.`test`.`tbl1`",
                 view.getInlineViewDef());
@@ -207,7 +207,7 @@ public class CreateViewTest extends TestWithFeService {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         View view = (View) db.getTableOrDdlException("with_alias_view");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 "select `internal`.`test`.`tbl1`.`k1` AS `c1`, `internal`.`test`.`tbl1`.`k2` AS `c2` "
                         + "from `internal`.`test`.`tbl1`",
                 view.getInlineViewDef());
