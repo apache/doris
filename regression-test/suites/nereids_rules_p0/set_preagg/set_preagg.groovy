@@ -1146,4 +1146,33 @@ suite("set_preagg") {
         from (select k1, v9, assert_true(v7 > 0, 'bad') as checked from preagg_g) t
     """
 
+    // Exercise the literal acceptance in KeyAndValueSlotsAggChecker.visitMax:
+    // max(if(k6 > 0, v9, 0)) has a cast-free non-NULL literal (0) in the else
+    // branch. It reaches the checker with pre-agg ON — k6 is a key column, v9 a
+    // MAX column, the literal 0 is accepted. If literal acceptance regressed to
+    // NULL-only, this scan would flip OFF and the suite would miss it.
+    explain {
+        sql("""
+            select max(if(k6 > 0, v9, 0)) from preagg_t1;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
+    order_qt_test_d """
+        select max(if(k6 > 0, v9, 0)) from preagg_t1;
+    """
+
+    // MIN/CASE symmetry for the parallel changed branch (visitMin): the CASE
+    // else branch holds a cast-free non-NULL literal 0, and preagg_f_l's
+    // non-positive key k1=-1 makes the else branch actually evaluate. pre-agg
+    // stays ON via the same literal acceptance.
+    explain {
+        sql("""
+            select min(case when k1 > 0 then v9m else 0 end) from preagg_f_l;
+        """)
+        contains "(preagg_f_l), PREAGGREGATION: ON"
+    }
+    order_qt_test_e """
+        select min(case when k1 > 0 then v9m else 0 end) from preagg_f_l;
+    """
+
 }
