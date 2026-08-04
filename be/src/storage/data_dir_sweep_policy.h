@@ -58,8 +58,9 @@ inline DataDirSweepPolicy build_data_dir_sweep_policy(bool is_used, bool ignore_
     DataDirSweepPolicy policy;
     policy.is_used = is_used;
     if (!is_used) {
-        policy.effective_trash_expire_seconds =
-                configured_trash_expire <= 0 ? 0 : configured_trash_expire;
+        // Avoid issuing more filesystem I/O against a DataDir that failed its health check.
+        // After an operator restores the path and clears its broken state, a BE restart reloads
+        // and processes the deferred tablets.
         policy.shutdown_tablet_gc.eligible = false;
         policy.shutdown_tablet_gc.reason = TabletPathGcReason::UNUSED_DATA_DIR;
         return policy;

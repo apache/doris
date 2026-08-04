@@ -66,7 +66,7 @@ TEST(DataDirSweepPolicyTest, BuildsConsistentTrashAndShutdownPolicies) {
              TabletPathGcMode::MOVE_TO_TRASH, TabletPathGcReason::NORMAL_RETENTION},
             {"at_watermark", true, false, 3600, 0.8, 0.8, 3600, true,
              TabletPathGcMode::MOVE_TO_TRASH, TabletPathGcReason::NORMAL_RETENTION},
-            {"unused_data_dir", false, true, 3600, 0.9, 0.8, 3600, false,
+            {"unused_data_dir", false, true, 3600, 0.9, 0.8, 0, false,
              TabletPathGcMode::MOVE_TO_TRASH, TabletPathGcReason::UNUSED_DATA_DIR},
     };
 

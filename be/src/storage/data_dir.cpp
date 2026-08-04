@@ -1156,6 +1156,7 @@ Status DataDir::_move_tablet_path_to_trash(const std::string& tablet_path) {
 Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_path) {
     auto fs_tablet_path = io::Path(tablet_path);
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
+    // A retry can arrive after the schema path and its empty parent were already deleted.
     bool exists = true;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(source_parent_dir, &exists));
     if (!exists) {
