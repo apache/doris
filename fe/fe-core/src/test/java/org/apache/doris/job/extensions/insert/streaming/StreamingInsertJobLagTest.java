@@ -31,7 +31,7 @@ import java.util.Map;
 public class StreamingInsertJobLagTest {
 
     @Test
-    public void testExplicitOffsetChangeKeepsLastObservedLagUntilNextFetch() throws Exception {
+    public void testExplicitOffsetChangeInvalidatesLastObservedLag() throws Exception {
         StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
         Map<String, String> properties = new HashMap<>();
         properties.put(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY, "10");
@@ -50,6 +50,6 @@ public class StreamingInsertJobLagTest {
         alterProperties.put(StreamingJobProperties.OFFSET_PROPERTY, "{\"lsn\":\"200\"}");
         Deencapsulation.invoke(job, "modifyPropertiesInternal", alterProperties);
 
-        Assert.assertEquals(4096, provider.getLagBytes());
+        Assert.assertEquals(-1, provider.getLagBytes());
     }
 }

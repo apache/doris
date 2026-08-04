@@ -356,7 +356,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     Map<String, String> getLagReferenceOffset() {
-        if (isSnapshotOnlyMode() || sourceType == DataSourceType.POSTGRES) {
+        if (isSnapshotOnlyMode()) {
             return null;
         }
         synchronized (splitsLock) {
@@ -365,6 +365,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 if (MapUtils.isNotEmpty(binlogSplit.getStartingOffset())) {
                     return new HashMap<>(binlogSplit.getStartingOffset());
                 }
+            }
+            if (sourceType == DataSourceType.POSTGRES) {
+                // PostgreSQL can use the replication slot's confirmed flush LSN during snapshot.
+                return null;
             }
             return finishedSplits.stream()
                     .map(SnapshotSplit::getHighWatermark)
@@ -995,6 +999,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public long getLagBytes() {
         return lagBytes;
+    }
+
+    @Override
+    public void resetLag() {
+        lagBytes = -1;
     }
 
     void updateLagBytes(long fetchedLagBytes) {

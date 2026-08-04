@@ -32,7 +32,6 @@ import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.util.List;
-import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -111,15 +110,8 @@ public class ClientController {
         try {
             SourceReader reader = Env.getCurrentEnv().getMetaReader(jobConfig);
             Env.getCurrentEnv().keepAlive(jobConfig.getJobId());
-            Map<String, String> endOffset = reader.getEndOffset(jobConfig);
-            long lagBytes;
-            try {
-                lagBytes = reader.getLagBytes(jobConfig, endOffset);
-            } catch (Exception ex) {
-                lagBytes = -1;
-                LOG.warn("Failed to calculate source log lag, jobId={}", jobConfig.getJobId(), ex);
-            }
-            return RestResponse.success(new FetchEndOffsetResult(endOffset, lagBytes));
+            FetchEndOffsetResult result = reader.fetchEndOffset(jobConfig);
+            return RestResponse.success(result);
         } catch (Exception ex) {
             LOG.error("Failed to fetch end offset, jobId={}", jobConfig.getJobId(), ex);
             return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));

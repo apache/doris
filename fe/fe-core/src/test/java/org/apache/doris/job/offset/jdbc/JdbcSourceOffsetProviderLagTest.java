@@ -36,12 +36,22 @@ import java.util.Map;
 public class JdbcSourceOffsetProviderLagTest {
 
     @Test
-    public void testPostgresDoesNotSendFeReferenceOffset() {
+    public void testPostgresSnapshotDoesNotSendFeReferenceOffset() {
         JdbcSourceOffsetProvider provider = provider(DataSourceType.POSTGRES, DataSourceConfigKeys.OFFSET_INITIAL);
         provider.finishedSplits.add(snapshotSplit("split-1", offset("lsn", "300")));
         provider.finishedSplits.add(snapshotSplit("split-2", offset("lsn", "100")));
 
         Assert.assertNull(provider.getLagReferenceOffset());
+    }
+
+    @Test
+    public void testPostgresIncrementalPhaseUsesCommittedOffset() {
+        JdbcSourceOffsetProvider provider = provider(DataSourceType.POSTGRES, DataSourceConfigKeys.OFFSET_INITIAL);
+        Map<String, String> committedOffset = offset("lsn", "700");
+        provider.currentOffset =
+                new JdbcOffset(Collections.singletonList(new BinlogSplit(committedOffset)));
+
+        Assert.assertEquals(committedOffset, provider.getLagReferenceOffset());
     }
 
     @Test

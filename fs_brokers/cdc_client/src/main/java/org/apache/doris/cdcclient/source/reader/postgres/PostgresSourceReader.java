@@ -29,6 +29,7 @@ import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
+import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -56,7 +57,6 @@ import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresTypeUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils;
 import org.apache.flink.table.types.DataType;
 
-import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -469,65 +469,74 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
     }
 
-    /**
-     * Why not call dialect.displayCurrentOffset(sourceConfig) ? The underlying system calls
-     * `txid_current()` to advance the WAL log. Here, it's just a query; retrieving the LSN is
-     * sufficient because `PostgresOffset.compare` only compares the LSN.
-     */
     @Override
-    public Map<String, String> getEndOffset(JobBaseConfig jobConfig) {
-        PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
-        try {
-            PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
-                PostgresConnection pgConnection = (PostgresConnection) jdbcConnection;
-                Long lsn = pgConnection.currentXLogLocation();
-                Map<String, String> offsetMap = new HashMap<>();
-                offsetMap.put(SourceInfo.LSN_KEY, lsn.toString());
-                offsetMap.put(
-                        SourceInfo.TIMESTAMP_USEC_KEY,
-                        String.valueOf(Conversions.toEpochMicros(Instant.MIN)));
-                return offsetMap;
+    public FetchEndOffsetResult fetchEndOffset(FetchEndOffsetRequest request) {
+        PostgresSourceConfig sourceConfig = getSourceConfig(request);
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        String slotName = dialect.getSlotName();
+        try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
+            PostgresConnection pgConnection = (PostgresConnection) jdbcConnection;
+            // displayCurrentOffset() calls txid_current() and advances WAL; reading the current LSN
+            // is sufficient because PostgresOffset.compare() only compares LSN.
+            Long lsn = pgConnection.currentXLogLocation();
+            Map<String, String> endOffset = new HashMap<>();
+            endOffset.put(SourceInfo.LSN_KEY, lsn.toString());
+            endOffset.put(
+                    SourceInfo.TIMESTAMP_USEC_KEY,
+                    String.valueOf(Conversions.toEpochMicros(Instant.MIN)));
+            long lagBytes;
+            try {
+                lagBytes = calculateLagBytes(request, lsn, slotName, jdbcConnection);
+            } catch (Exception exception) {
+                lagBytes = -1;
+                LOG.warn(
+                        "Failed to calculate source log lag for job {}",
+                        request.getJobId(),
+                        exception);
             }
-        } catch (Exception ex) {
-            throw new RuntimeException(ex);
+            return new FetchEndOffsetResult(endOffset, lagBytes);
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
         }
     }
 
-    @Override
-    public long getLagBytes(FetchEndOffsetRequest request, Map<String, String> endOffset) {
-        PostgresSourceConfig sourceConfig = getSourceConfig(request);
-        PostgresDialect dialect = new PostgresDialect(sourceConfig);
-        try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
-            return PostgresWalLagCalculator.calculate(
-                    dialect.getSlotName(),
-                    slotName -> {
-                        try (PreparedStatement statement =
-                                jdbcConnection
-                                        .connection()
-                                        .prepareStatement(
-                                                "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(),"
-                                                        + " confirmed_flush_lsn)"
-                                                        + " FROM pg_replication_slots"
-                                                        + " WHERE slot_name = ?")) {
-                            statement.setString(1, slotName);
-                            try (ResultSet resultSet = statement.executeQuery()) {
-                                if (!resultSet.next()) {
-                                    throw new SQLException(
-                                            "Replication slot not found: " + slotName);
-                                }
-                                BigDecimal lagBytes = resultSet.getBigDecimal(1);
-                                if (lagBytes == null) {
-                                    throw new SQLException(
-                                            "Replication slot has no confirmed flush LSN: "
-                                                    + slotName);
-                                }
-                                return lagBytes;
-                            }
-                        }
-                    });
-        } catch (Exception exception) {
-            throw new RuntimeException(exception);
+    private long calculateLagBytes(
+            FetchEndOffsetRequest request,
+            long endOffset,
+            String slotName,
+            JdbcConnection jdbcConnection)
+            throws SQLException {
+        try (PreparedStatement statement =
+                jdbcConnection
+                        .connection()
+                        .prepareStatement(
+                                "SELECT pg_wal_lsn_diff("
+                                        + "?::pg_lsn,"
+                                        + " GREATEST(confirmed_flush_lsn,"
+                                        + " COALESCE(?::pg_lsn, confirmed_flush_lsn)))::bigint"
+                                        + " FROM pg_replication_slots"
+                                        + " WHERE slot_name = ?")) {
+            String currentOffset = null;
+            Map<String, String> referenceOffset = request.getReferenceOffset();
+            if (referenceOffset != null && referenceOffset.get(SourceInfo.LSN_KEY) != null) {
+                currentOffset =
+                        Lsn.valueOf(Long.parseLong(referenceOffset.get(SourceInfo.LSN_KEY)))
+                                .asString();
+            }
+            statement.setString(1, Lsn.valueOf(endOffset).asString());
+            statement.setString(2, currentOffset);
+            statement.setString(3, slotName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    throw new SQLException("Replication slot not found: " + slotName);
+                }
+                long lagBytes = resultSet.getLong(1);
+                if (resultSet.wasNull()) {
+                    throw new SQLException(
+                            "Replication slot has no confirmed flush LSN: " + slotName);
+                }
+                return lagBytes >= 0 ? lagBytes : -1;
+            }
         }
     }
 

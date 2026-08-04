@@ -211,6 +211,9 @@ public interface SourceOffsetProvider {
         return -1;
     }
 
+    /** Discard a lag value that was calculated from an offset explicitly replaced by the user. */
+    default void resetLag() {}
+
     /** Get source lag as a numeric string for SHOW output. */
     default String getLag() {
         return String.valueOf(getLagBytes());

@@ -1067,6 +1067,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
+            this.offsetProvider.resetLag();
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
             log.info("modifyPropertiesInternal: offset updated to {}, job {}",
                     inputStreamProps.getOffsetProperty(), getJobId());

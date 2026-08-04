@@ -26,6 +26,7 @@ import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
+import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -475,13 +476,12 @@ final class CdcClientWriteHarness implements AutoCloseable {
     }
 
     long sourceLogLagBytes() throws Exception {
-        Map<String, String> referenceOffset =
-                "POSTGRES".equals(dataSource) ? null : committedBinlogOffset();
+        Map<String, String> referenceOffset = committedBinlogOffset();
         FetchEndOffsetRequest request =
                 new FetchEndOffsetRequest(jobId, dataSource, config, null, referenceOffset);
         SourceReader reader = openReader();
-        Map<String, String> endOffset = reader.getEndOffset(request);
-        return reader.getLagBytes(request, endOffset);
+        FetchEndOffsetResult result = reader.fetchEndOffset(request);
+        return result.getLagBytes();
     }
 
     @Override

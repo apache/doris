@@ -83,6 +83,20 @@ class MySqlBinlogLagCalculatorTest {
     }
 
     @Test
+    void missingEndFileReportsUnavailable() {
+        assertThat(
+                        MySqlBinlogLagCalculator.calculate(
+                                offset("mysql-bin.000001", 1500),
+                                offset("mysql-bin.000003", 700),
+                                Arrays.asList(
+                                        new MySqlBinlogLagCalculator.BinlogFile(
+                                                "mysql-bin.000001", 2000),
+                                        new MySqlBinlogLagCalculator.BinlogFile(
+                                                "mysql-bin.000002", 3000))))
+                .isEqualTo(-1);
+    }
+
+    @Test
     void referenceAheadOfHeadReportsUnavailable() {
         assertThat(
                         MySqlBinlogLagCalculator.calculate(
