@@ -23,8 +23,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

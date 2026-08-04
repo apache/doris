@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

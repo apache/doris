@@ -31,26 +31,26 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
-import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
-import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
-import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanProfile;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
-import org.apache.doris.connector.api.scan.ConnectorSplitSource;
-import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.pushdown.ProjectionApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
+import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.connector.converter.ExprToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -625,6 +625,29 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return ConnectorColumnCategory.DEFAULT;
         }
         return onPluginClassLoader(scanProvider, () -> scanProvider.classifyColumn(columnName));
+    }
+
+    /**
+     * Asks the connector which columns BE must read for this scan even when the query references none of them
+     * ({@link ConnectorScanPlanProvider#getMustReadColumns}), so the translator can keep their slots instead of
+     * pruning them ({@code PhysicalPlanTranslator.preserveConnectorMustReadSlots}, the plugin-table counterpart
+     * of {@code preserveExtraStorageKeySlots} for aggregate / merge-on-read unique-key OLAP tables).
+     *
+     * <p>Asked through the SAME memoized provider the rest of the scan uses, so a connector that memoizes the
+     * decision on its provider instance answers this question and plans its splits from one decision — the
+     * whole point, since a column preserved here and a split plan that assumes otherwise disagree silently.
+     * A connector with no scan provider (no scan capability) needs nothing. Public + overridable because the
+     * caller is the translator, in another package, and so the preservation is unit-testable without a live
+     * connector (mirrors {@link #classifyColumnByConnector}, whose caller is this class).</p>
+     */
+    public Set<String> mustReadColumnsFromConnector() {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null) {
+            return Collections.emptySet();
+        }
+        Set<String> columns = onPluginClassLoader(scanProvider,
+                () -> scanProvider.getMustReadColumns(connectorSession, currentHandle));
+        return columns == null ? Collections.emptySet() : columns;
     }
 
     /**

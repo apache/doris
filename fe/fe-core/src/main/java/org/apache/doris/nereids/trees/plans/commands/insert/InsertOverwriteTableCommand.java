@@ -26,7 +26,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
-import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;

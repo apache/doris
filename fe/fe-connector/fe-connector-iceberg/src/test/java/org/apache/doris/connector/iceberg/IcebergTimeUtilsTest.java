@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorSession;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

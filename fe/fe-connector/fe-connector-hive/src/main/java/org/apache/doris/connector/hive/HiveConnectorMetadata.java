@@ -17,45 +17,6 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorColumnStatistics;
-import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorTableStatistics;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.ConnectorViewDefinition;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.BranchChange;
-import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
-import org.apache.doris.connector.api.ddl.DropRefChange;
-import org.apache.doris.connector.api.ddl.PartitionFieldChange;
-import org.apache.doris.connector.api.ddl.TagChange;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
-import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
 import org.apache.doris.connector.hms.HiveShowCreateTableRenderer;
@@ -67,9 +28,48 @@ import org.apache.doris.connector.hms.HmsCreateTableRequest;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorColumnStatistics;
 import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorViewDefinition;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.BranchChange;
+import org.apache.doris.connector.spi.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
+import org.apache.doris.connector.spi.ddl.DropRefChange;
+import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
+import org.apache.doris.connector.spi.ddl.TagChange;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -300,8 +300,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * {@code "metadata:" + catalogId + ":" + ownerLabel}: the three connectors of a heterogeneous gateway
      * (hive + iceberg + hudi) share ONE catalogId, so the owner label keeps their metadata entries distinct — a
      * plain catalogId key would collapse them onto one metadata and misroute. Under a
-     * {@link org.apache.doris.connector.api.ConnectorStatementScope#NONE NONE} scope (offline / no statement) the
-     * factory runs on every call — byte-identical to the pre-funnel behavior. Only fe-connector-api types are
+     * {@link org.apache.doris.connector.spi.ConnectorStatementScope#NONE NONE} scope (offline / no statement) the
+     * factory runs on every call — byte-identical to the pre-funnel behavior. Only fe-connector-spi types are
      * touched, so no fe-core dependency is introduced. The returned metadata and any handle it produces are used
      * ONLY through the parent-first SPI interfaces and MUST NOT be cast (the sibling's concrete iceberg/hudi types
      * would CCE across the loader split).
@@ -2447,8 +2447,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     private String extractColumnName(ConnectorExpression expr) {
-        if (expr instanceof org.apache.doris.connector.api.pushdown.ConnectorColumnRef) {
-            return ((org.apache.doris.connector.api.pushdown.ConnectorColumnRef) expr).getColumnName();
+        if (expr instanceof org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) {
+            return ((org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) expr).getColumnName();
         }
         return null;
     }

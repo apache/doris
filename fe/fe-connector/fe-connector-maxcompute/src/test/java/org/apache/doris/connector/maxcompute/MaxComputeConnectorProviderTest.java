@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.ConnectorTestResult;
+import org.apache.doris.connector.spi.ConnectorTestResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

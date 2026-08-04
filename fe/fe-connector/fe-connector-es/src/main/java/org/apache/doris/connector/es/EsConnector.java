@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTestResult;
-import org.apache.doris.connector.api.rest.ConnectorRestPassthrough;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTestResult;
+import org.apache.doris.connector.spi.rest.ConnectorRestPassthrough;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
