@@ -176,6 +176,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             } else {
                 indexes = Lists.newArrayList();
             }
+            OlapFile.TabletRolePB tabletRole = isRowBinlogIndex
+                    ? OlapFile.TabletRolePB.TABLET_ROLE_ROW_BINLOG : OlapFile.TabletRolePB.TABLET_ROLE_DATA;
             List<Integer> clusterKeyUids = null;
             if (indexId == tbl.getBaseIndexId()) {
                 // only base and shadow index need cluster key unique column ids
@@ -205,7 +207,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
                         tbl.getColumnSeqMapping(),
-                        tbl.getVerticalCompactionNumColumnsPerGroup(), isRowBinlogIndex);
+                        tbl.getVerticalCompactionNumColumnsPerGroup(), tabletRole);
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -240,7 +242,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
             boolean createInitialRowset, Map<String, List<String>> columnSeqMapping,
-            int verticalCompactionNumColumnsPerGroup, boolean isRowBinlogTablet) throws DdlException {
+            int verticalCompactionNumColumnsPerGroup, OlapFile.TabletRolePB tabletRole) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -254,7 +256,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setIsInMemory(isInMemory);
         builder.setTtlSeconds(ttlSeconds);
         builder.setSchemaVersion(schemaVersion);
-        builder.setIsRowBinlogTablet(isRowBinlogTablet);
+        builder.setTabletRole(tabletRole);
         if (binlogConfig != null) {
             builder.setBinlogConfig(binlogConfig.toProtobuf());
         }
@@ -273,7 +275,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setReplicaId(tablet.getReplicas().get(0).getId());
         builder.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
-        builder.setCompactionPolicy(isRowBinlogTablet
+        builder.setCompactionPolicy(tabletRole == OlapFile.TabletRolePB.TABLET_ROLE_ROW_BINLOG
                 ? PropertyAnalyzer.BINLOG_COMPACTION_POLICY : compactionPolicy);
         builder.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
         builder.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);

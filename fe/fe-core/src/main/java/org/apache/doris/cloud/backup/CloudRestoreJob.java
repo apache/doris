@@ -53,6 +53,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -444,7 +445,9 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.storageDictPageSize(), false,
                                     localTbl.getColumnSeqMapping(),
                                     localTbl.getVerticalCompactionNumColumnsPerGroup(),
-                                    indexMeta.isRowBinlogIndex()));
+                                    indexMeta.isRowBinlogIndex()
+                                            ? OlapFile.TabletRolePB.TABLET_ROLE_ROW_BINLOG
+                                            : OlapFile.TabletRolePB.TABLET_ROLE_DATA));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                                 restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);

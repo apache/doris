@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
@@ -179,11 +180,12 @@ public class AgentTaskTest {
                 TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false,
                 binlogConfig, null, objectPool, rowStorePageSize, false, storagePageSize,
                 TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
-        createWithRowBinlog.setIsRowBinlogTablet(true);
+        createWithRowBinlog.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
         TAgentTaskRequest requestWithRowBinlog =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithRowBinlog);
         Assert.assertNotNull(requestWithRowBinlog.getCreateTabletReq());
-        Assert.assertTrue(requestWithRowBinlog.getCreateTabletReq().isIsRowBinlogTablet());
+        Assert.assertEquals(TTabletRole.TABLET_ROLE_ROW_BINLOG,
+                requestWithRowBinlog.getCreateTabletReq().getTabletRole());
 
         // drop
         TAgentTaskRequest request2 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, dropTask);

@@ -263,8 +263,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     std::unique_lock two_tablet_lock(_two_tablet_mtx, std::defer_lock);
     bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
     bool has_base_tablet = request.__isset.base_tablet_id && request.base_tablet_id > 0;
-    bool is_colocated_row_binlog =
-            has_base_tablet && request.__isset.is_row_binlog_tablet && request.is_row_binlog_tablet;
+    bool is_colocated_row_binlog = has_base_tablet && request.__isset.tablet_role &&
+                                   request.tablet_role == TTabletRole::TABLET_ROLE_ROW_BINLOG;
     bool is_schema_change_or_atomic_restore = has_base_tablet && !is_colocated_row_binlog;
     bool need_two_lock = has_base_tablet && ((_tablets_shards_mask & request.base_tablet_id) !=
                                              (_tablets_shards_mask & tablet_id));

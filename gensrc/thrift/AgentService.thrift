@@ -80,6 +80,11 @@ enum TTabletType {
     TABLET_TYPE_MEMORY = 1
 }
 
+enum TTabletRole {
+    TABLET_ROLE_DATA = 0,
+    TABLET_ROLE_ROW_BINLOG = 1
+}
+
 enum TObjStorageType {
     UNKNOWN = 0,
     AWS = 1,
@@ -246,7 +251,7 @@ struct TCreateTabletReq {
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
     30: optional TEncryptionAlgorithm tde_algorithm
     31: optional i32 vertical_compaction_num_columns_per_group = 5
-    32: optional bool is_row_binlog_tablet = false
+    32: optional TTabletRole tablet_role = TTabletRole.TABLET_ROLE_DATA
 
     // For cloud
     1000: optional bool is_in_memory = false

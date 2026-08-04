@@ -154,6 +154,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
@@ -2196,7 +2197,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getVerticalCompactionNumColumnsPerGroup());
                     if (isRowBinlogIndex) {
                         // BE locates the companion binlog tablet via base_tablet_id and writes it to the same disk.
-                        task.setIsRowBinlogTablet(true);
+                        task.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
                         task.setBaseTablet(baseTablet.getId(), tbl.getBaseIndexMeta().getSchemaHash());
                     }
 

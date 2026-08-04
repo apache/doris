@@ -176,7 +176,7 @@ public:
         _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
                                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
                                           TCompressionType::LZ4F));
-        _tablet_meta->set_is_row_binlog_tablet(true);
+        _tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
         _tablet_meta->set_compaction_policy(std::string(CUMULATIVE_BINLOG_POLICY));
     }
 

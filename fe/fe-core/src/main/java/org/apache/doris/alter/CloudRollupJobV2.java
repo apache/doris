@@ -247,7 +247,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                                     tbl.storageDictPageSize(), true,
                                     tbl.getColumnSeqMapping(),
-                                    tbl.getVerticalCompactionNumColumnsPerGroup(), false);
+                                    tbl.getVerticalCompactionNumColumnsPerGroup(),
+                                    OlapFile.TabletRolePB.TABLET_ROLE_DATA);
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);

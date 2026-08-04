@@ -91,6 +91,7 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletMetaInfo;
+import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
@@ -1100,7 +1101,7 @@ public class ReportHandler extends Daemon {
                                                         + "in partition %s",
                                                 tablet.getId(), tablet.getRowBinlogBaseTabletId(),
                                                 partition.getId());
-                                        createReplicaTask.setIsRowBinlogTablet(true);
+                                        createReplicaTask.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
                                         createReplicaTask.setBaseTablet(baseTablet.getId(),
                                                 olapTable.getBaseIndexMeta().getSchemaHash());
                                     }

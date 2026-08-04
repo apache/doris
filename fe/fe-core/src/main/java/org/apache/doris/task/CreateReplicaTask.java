@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
@@ -131,8 +132,7 @@ public class CreateReplicaTask extends AgentTask {
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
-    // whether this tablet is an independent row binlog tablet
-    private boolean isRowBinlogTablet = false;
+    private TTabletRole tabletRole = TTabletRole.TABLET_ROLE_DATA;
     private List<Integer> clusterKeyUids;
 
     private Map<Object, Object> objectPool;
@@ -283,8 +283,8 @@ public class CreateReplicaTask extends AgentTask {
         this.baseSchemaHash = baseSchemaHash;
     }
 
-    public void setIsRowBinlogTablet(boolean isRowBinlogTablet) {
-        this.isRowBinlogTablet = isRowBinlogTablet;
+    public void setTabletRole(TTabletRole tabletRole) {
+        this.tabletRole = tabletRole;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
@@ -450,7 +450,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
-        createTabletReq.setCompactionPolicy(isRowBinlogTablet
+        createTabletReq.setCompactionPolicy(tabletRole == TTabletRole.TABLET_ROLE_ROW_BINLOG
                 ? PropertyAnalyzer.BINLOG_COMPACTION_POLICY : compactionPolicy);
         createTabletReq.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
         createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
@@ -464,9 +464,7 @@ public class CreateReplicaTask extends AgentTask {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());
         }
 
-        if (isRowBinlogTablet) {
-            createTabletReq.setIsRowBinlogTablet(true);
-        }
+        createTabletReq.setTabletRole(tabletRole);
 
         return createTabletReq;
     }

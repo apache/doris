@@ -119,7 +119,7 @@ public:
                TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT,
                TStorageFormat::type storage_format = TStorageFormat::V2,
                int32_t vertical_compaction_num_columns_per_group = 5,
-               bool is_row_binlog_tablet = false);
+               TTabletRole::type tablet_role = TTabletRole::TABLET_ROLE_DATA);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -272,10 +272,11 @@ public:
     void set_binlog_config(BinlogConfig binlog_config) {
         _binlog_config = std::move(binlog_config);
     }
-    bool is_row_binlog_tablet() const { return _is_row_binlog_tablet; }
-    void set_is_row_binlog_tablet(bool is_row_binlog_tablet) {
-        _is_row_binlog_tablet = is_row_binlog_tablet;
+    TabletRolePB tablet_role() const { return _tablet_role; }
+    bool is_row_binlog_tablet() const {
+        return _tablet_role == TabletRolePB::TABLET_ROLE_ROW_BINLOG;
     }
+    void set_tablet_role(TabletRolePB tablet_role) { _tablet_role = tablet_role; }
 
     void set_compaction_policy(std::string compaction_policy) {
         _compaction_policy = compaction_policy;
@@ -381,7 +382,7 @@ private:
 
     // binlog config
     BinlogConfig _binlog_config {};
-    bool _is_row_binlog_tablet = false;
+    TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
 
     // meta for compaction
     std::string _compaction_policy;

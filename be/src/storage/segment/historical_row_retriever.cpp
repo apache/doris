@@ -43,6 +43,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 

@@ -208,7 +208,7 @@ TEST_F(CloudCompactionTest, binlog_compaction_max_score_ignores_normal_tablets) 
     CloudTabletMgr mgr(_engine);
 
     auto normal_meta = std::make_shared<TabletMeta>(*_tablet_meta);
-    normal_meta->set_is_row_binlog_tablet(false);
+    normal_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_DATA);
     CloudTabletSPtr normal_tablet = std::make_shared<CloudTablet>(_engine, normal_meta);
     normal_tablet->tablet_meta()->_tablet_id = 10001;
     normal_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
@@ -216,7 +216,7 @@ TEST_F(CloudCompactionTest, binlog_compaction_max_score_ignores_normal_tablets) 
     mgr.put_tablet_for_UT(normal_tablet);
 
     auto binlog_meta = std::make_shared<TabletMeta>(*_tablet_meta);
-    binlog_meta->set_is_row_binlog_tablet(true);
+    binlog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
     CloudTabletSPtr binlog_tablet = std::make_shared<CloudTablet>(_engine, binlog_meta);
     binlog_tablet->tablet_meta()->_tablet_id = 10002;
     binlog_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);

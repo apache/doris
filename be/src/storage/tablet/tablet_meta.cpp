@@ -128,7 +128,7 @@ TabletMetaSharedPtr TabletMeta::create(
             request.__isset.vertical_compaction_num_columns_per_group
                     ? request.vertical_compaction_num_columns_per_group
                     : 5,
-            request.__isset.is_row_binlog_tablet ? request.is_row_binlog_tablet : false);
+            request.__isset.tablet_role ? request.tablet_role : TTabletRole::TABLET_ROLE_DATA);
 }
 
 TabletMeta::~TabletMeta() {
@@ -158,7 +158,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format,
                        TEncryptionAlgorithm::type tde_algorithm,
                        TStorageFormat::type storage_format,
-                       int32_t vertical_compaction_num_columns_per_group, bool is_row_binlog_tablet)
+                       int32_t vertical_compaction_num_columns_per_group,
+                       TTabletRole::type tablet_role)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)),
@@ -193,7 +194,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             time_series_compaction_level_threshold);
     tablet_meta_pb.set_vertical_compaction_num_columns_per_group(
             vertical_compaction_num_columns_per_group);
-    tablet_meta_pb.set_is_row_binlog_tablet(is_row_binlog_tablet);
+    tablet_meta_pb.set_tablet_role(tablet_role == TTabletRole::TABLET_ROLE_ROW_BINLOG
+                                           ? TabletRolePB::TABLET_ROLE_ROW_BINLOG
+                                           : TabletRolePB::TABLET_ROLE_DATA);
     SchemaCreateOptions schema_create_options_for_data = {
             .col_ordinal_to_unique_id = col_ordinal_to_unique_id,
             .compression_type = compression_type,
@@ -264,7 +267,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap),
           _binlog_config(b._binlog_config),
-          _is_row_binlog_tablet(b._is_row_binlog_tablet),
+          _tablet_role(b._tablet_role),
           _compaction_policy(b._compaction_policy),
           _time_series_compaction_goal_size_mbytes(b._time_series_compaction_goal_size_mbytes),
           _time_series_compaction_file_count_threshold(
@@ -880,7 +883,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     if (tablet_meta_pb.has_binlog_config()) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
-    _is_row_binlog_tablet = tablet_meta_pb.is_row_binlog_tablet();
+    _tablet_role = tablet_meta_pb.tablet_role();
     _compaction_policy = tablet_meta_pb.compaction_policy();
     _time_series_compaction_goal_size_mbytes =
             tablet_meta_pb.time_series_compaction_goal_size_mbytes();
@@ -978,7 +981,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
         }
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
-    tablet_meta_pb->set_is_row_binlog_tablet(_is_row_binlog_tablet);
+    tablet_meta_pb->set_tablet_role(_tablet_role);
     tablet_meta_pb->set_compaction_policy(compaction_policy());
     tablet_meta_pb->set_time_series_compaction_goal_size_mbytes(
             time_series_compaction_goal_size_mbytes());

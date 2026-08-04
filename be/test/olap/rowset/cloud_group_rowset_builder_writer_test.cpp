@@ -128,7 +128,7 @@ private:
     }
 };
 
-TabletMetaSharedPtr create_tablet_meta(const TCreateTabletReq& request, bool is_row_binlog_tablet) {
+TabletMetaSharedPtr create_tablet_meta(const TCreateTabletReq& request, TabletRolePB tablet_role) {
     std::unordered_map<uint32_t, uint32_t> col_idx_to_unique_id;
     for (uint32_t col_idx = 0; col_idx < request.tablet_schema.columns.size(); ++col_idx) {
         col_idx_to_unique_id[col_idx] = col_idx;
@@ -136,7 +136,7 @@ TabletMetaSharedPtr create_tablet_meta(const TCreateTabletReq& request, bool is_
     auto tablet_meta = TabletMeta::create(request, TabletUid::gen_uid(), 0,
                                           cast_set<uint32_t>(request.tablet_schema.columns.size()),
                                           col_idx_to_unique_id);
-    tablet_meta->set_is_row_binlog_tablet(is_row_binlog_tablet);
+    tablet_meta->set_tablet_role(tablet_role);
     return tablet_meta;
 }
 
@@ -185,10 +185,11 @@ protected:
         _row_binlog_request.tablet_id = kRowBinlogTabletId;
         _row_binlog_request.tablet_schema = testutil::create_row_binlog_tablet_schema(
                 _request.tablet_schema, _request.tablet_schema.schema_hash + 1);
-        _row_binlog_request.__set_is_row_binlog_tablet(true);
+        _row_binlog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_ROW_BINLOG);
 
-        auto data_meta = create_tablet_meta(_request, false);
-        auto row_binlog_meta = create_tablet_meta(_row_binlog_request, true);
+        auto data_meta = create_tablet_meta(_request, TabletRolePB::TABLET_ROLE_DATA);
+        auto row_binlog_meta =
+                create_tablet_meta(_row_binlog_request, TabletRolePB::TABLET_ROLE_ROW_BINLOG);
         _tablet = std::make_shared<CloudTablet>(*_engine, data_meta);
         _row_binlog_tablet = std::make_shared<CloudTablet>(*_engine, row_binlog_meta);
         add_initial_rowset(_tablet, _request.version);

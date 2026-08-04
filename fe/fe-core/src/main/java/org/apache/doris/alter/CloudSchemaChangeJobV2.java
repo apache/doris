@@ -269,7 +269,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                                             tbl.storageDictPageSize(), true,
                                             columnSeqMapping,
-                                            tbl.getVerticalCompactionNumColumnsPerGroup(), false);
+                                            tbl.getVerticalCompactionNumColumnsPerGroup(),
+                                            OlapFile.TabletRolePB.TABLET_ROLE_DATA);
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 requestBuilder.setDbId(dbId);

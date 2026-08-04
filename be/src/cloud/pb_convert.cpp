@@ -762,8 +762,8 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->CopyFrom(in.binlog_config());
     }
-    if (in.has_is_row_binlog_tablet()) {
-        out->set_is_row_binlog_tablet(in.is_row_binlog_tablet());
+    if (in.has_tablet_role()) {
+        out->set_tablet_role(in.tablet_role());
     }
     if (in.has_binlog_tablet_id()) {
         out->set_binlog_tablet_id(in.binlog_tablet_id());
@@ -847,8 +847,8 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->Swap(in.mutable_binlog_config());
     }
-    if (in.has_is_row_binlog_tablet()) {
-        out->set_is_row_binlog_tablet(in.is_row_binlog_tablet());
+    if (in.has_tablet_role()) {
+        out->set_tablet_role(in.tablet_role());
     }
     if (in.has_binlog_tablet_id()) {
         out->set_binlog_tablet_id(in.binlog_tablet_id());
@@ -939,8 +939,8 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->CopyFrom(in.binlog_config());
     }
-    if (in.has_is_row_binlog_tablet()) {
-        out->set_is_row_binlog_tablet(in.is_row_binlog_tablet());
+    if (in.has_tablet_role()) {
+        out->set_tablet_role(in.tablet_role());
     }
     if (in.has_binlog_tablet_id()) {
         out->set_binlog_tablet_id(in.binlog_tablet_id());
@@ -1024,8 +1024,8 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->Swap(in.mutable_binlog_config());
     }
-    if (in.has_is_row_binlog_tablet()) {
-        out->set_is_row_binlog_tablet(in.is_row_binlog_tablet());
+    if (in.has_tablet_role()) {
+        out->set_tablet_role(in.tablet_role());
     }
     if (in.has_binlog_tablet_id()) {
         out->set_binlog_tablet_id(in.binlog_tablet_id());

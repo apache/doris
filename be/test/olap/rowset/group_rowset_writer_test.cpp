@@ -102,7 +102,7 @@ protected:
         _row_binlog_request.tablet_id = 10011;
         _row_binlog_request.tablet_schema = testutil::create_row_binlog_tablet_schema(
                 _request.tablet_schema, _request.tablet_schema.schema_hash + 1);
-        _row_binlog_request.__set_is_row_binlog_tablet(true);
+        _row_binlog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_ROW_BINLOG);
         ASSERT_TRUE(engine_ptr->create_tablet(_row_binlog_request, profile.get()).ok());
         _row_binlog_tablet =
                 engine_ptr->tablet_manager()->get_tablet(_row_binlog_request.tablet_id);
