@@ -385,7 +385,6 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
                 "Lance reader cannot mix dataset snapshots or storage options in one scan");
     }
 
-    RETURN_IF_ERROR(_prepare_conjuncts());
     RETURN_IF_ERROR(_open_scanner(options.current_range));
     _search_split_prepared = _vector_search;
     return Status::OK();
@@ -441,9 +440,6 @@ Status LanceTableReader::get_block(Block* block, bool* eos) {
             return Status::OK();
         }
 
-        if (!_conjuncts.empty()) {
-            RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
-        }
         if (block->rows() > 0) {
             // Preserve a non-empty final block. The next get_block() observes `_eof` and reports
             // split EOF, matching the generic reader contract.
@@ -878,15 +874,6 @@ Status LanceTableReader::_fill_block_from_arrow(LanceBatch* batch, Block* block,
         }
     }
     *rows = row_count;
-    return Status::OK();
-}
-
-Status LanceTableReader::_prepare_conjuncts() {
-    RowDescriptor row_desc;
-    for (const auto& conjunct : _conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
-        RETURN_IF_ERROR(conjunct->open(_runtime_state));
-    }
     return Status::OK();
 }
 

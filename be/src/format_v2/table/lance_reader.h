@@ -84,7 +84,6 @@ private:
     void _close_scanner();
     void _close_dataset();
     Status _fill_block_from_arrow(LanceBatch* batch, Block* block, size_t* rows);
-    Status _prepare_conjuncts();
     static std::vector<std::string> _storage_options(const TFileScanRangeParams* scan_params);
     DatasetKey _dataset_key(const TFileRangeDesc& range) const;
     static Status _lance_error(std::string_view operation);

@@ -44,8 +44,10 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/common/endian.h"
+#include "exprs/vexpr.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/timezone_utils.h"
@@ -55,6 +57,21 @@ namespace doris::format::lance {
 namespace {
 
 using Columns = std::vector<ColumnDefinition>;
+
+class FailingResidualPredicate final : public VExpr {
+public:
+    FailingResidualPredicate() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("Lance reader evaluated a scanner residual predicate");
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const std::string _expr_name = "FailingResidualPredicate";
+};
 
 struct LanceFixtureInfo {
     int64_t version = 0;
@@ -127,10 +144,10 @@ void add_output_columns(Block* block, const Columns& columns) {
 
 Status init_reader(LanceTableReader* reader, const Columns& projected_columns,
                    RuntimeState* runtime_state, RuntimeProfile* profile,
-                   TFileScanRangeParams* scan_params) {
+                   TFileScanRangeParams* scan_params, VExprContextSPtrs conjuncts = {}) {
     return reader->init({
             .projected_columns = projected_columns,
-            .conjuncts = {},
+            .conjuncts = std::move(conjuncts),
             .format = FileFormat::LANCE,
             .scan_params = scan_params,
             .io_ctx = nullptr,
@@ -368,6 +385,36 @@ TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
     }
     std::ranges::sort(labels);
     EXPECT_EQ((std::vector<std::string> {"extra", "mixed"}), labels);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, LeavesResidualPredicatesToScanner) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryOptions query_options;
+    query_options.__set_batch_size(4);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_scanner_residual_fixture");
+    TFileScanRangeParams scan_params;
+    auto residual = VExprContext::create_shared(std::make_shared<FailingResidualPredicate>());
+
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params, {residual}).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+    ASSERT_FALSE(reader.TEST_conjuncts_empty());
+
+    Block block;
+    add_output_columns(&block, columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_GT(block.rows(), 0);
     EXPECT_TRUE(reader.close().ok());
 }
 
