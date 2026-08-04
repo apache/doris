@@ -359,7 +359,8 @@ public:
         }
     }
 
-    void for_each_subcolumn(const IColumn::ImutableColumnCallback& callback) const override {
+    // Preserve master's immutable traversal contract while forwarding into each segment.
+    void for_each_subcolumn(IColumn::ColumnCallback callback) const override {
         for (const auto& segment : _segments) {
             segment->for_each_subcolumn(callback);
         }
