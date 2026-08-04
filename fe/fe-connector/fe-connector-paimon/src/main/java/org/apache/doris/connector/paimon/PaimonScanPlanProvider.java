@@ -107,6 +107,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
@@ -206,6 +207,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // Connector-private scan node property key (the engine never reads it): carries the base64-serialized
     // paimon Table from getScanNodeProperties to populateScanLevelParams, which puts it on the thrift.
     private static final String PROP_SERIALIZED_TABLE = "paimon.serialized_table";
+    private static final String PROP_SERIALIZED_TABLE_CACHE_KEY =
+            "paimon.serialized_table_cache_key";
     private static final String DORIS_MANIFEST_PARALLELISM_CAP =
             "doris.scan.manifest.parallelism-cap";
     private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
@@ -905,6 +908,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Table backendTable = tableForBackend(paimonHandle, table);
         String serializedTable = encodeObjectToString(backendTable);
         props.put(PROP_SERIALIZED_TABLE, serializedTable);
+        props.put(PROP_SERIALIZED_TABLE_CACHE_KEY, UUID.randomUUID().toString());
         OptionalInt backendManifestCap = backendManifestParallelism(paimonHandle, table);
 
         // Serialized predicates for BE's JNI scanner. ALWAYS emit, even for the no-filter / empty-predicate
@@ -1790,6 +1794,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         String serializedTable = properties.get(PROP_SERIALIZED_TABLE);
         if (serializedTable != null) {
             params.setSerializedTable(serializedTable);
+            params.setSerializedTableCacheKey(properties.get(PROP_SERIALIZED_TABLE_CACHE_KEY));
         }
 
         String predicate = properties.get("paimon.predicate");

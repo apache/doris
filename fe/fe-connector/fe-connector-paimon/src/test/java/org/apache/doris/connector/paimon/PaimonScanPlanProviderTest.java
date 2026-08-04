@@ -2426,6 +2426,13 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertTrue(params.isSetSerializedTable(),
                 "the serialized paimon table must reach the scan-level thrift params");
         Assertions.assertEquals(scanProps.get("paimon.serialized_table"), params.getSerializedTable());
+        Assertions.assertTrue(params.isSetSerializedTableCacheKey());
+        Assertions.assertFalse(params.getSerializedTableCacheKey().isEmpty());
+
+        TFileScanRangeParams repeatedParams = new TFileScanRangeParams();
+        provider.populateScanLevelParams(repeatedParams, scanProps);
+        Assertions.assertEquals(params.getSerializedTableCacheKey(),
+                repeatedParams.getSerializedTableCacheKey());
     }
 
     @Test

@@ -354,6 +354,7 @@ TFileRangeDesc make_legacy_paimon_native_range(TFileFormatType::type physical_fo
 TFileScanRangeParams make_paimon_jni_scan_params() {
     TFileScanRangeParams scan_params;
     scan_params.__set_serialized_table("serialized-paimon-table");
+    scan_params.__set_serialized_table_cache_key("serialized-paimon-table-cache-key");
     scan_params.__set_paimon_predicate("serialized-paimon-predicate");
     return scan_params;
 }
@@ -943,6 +944,7 @@ TEST(PaimonJniReaderTest, BuildScannerParamsKeepsExplicitIOManagerTempDir) {
     EXPECT_EQ(params["paimon.jni.enable_jni_io_manager"], "true");
     EXPECT_EQ(params["paimon.jni.io_manager.tmp_dir"], "/tmp/explicit-paimon-spill");
     EXPECT_EQ(params["paimon.jni.io_manager.impl_class"], "org.example.CustomIOManager");
+    EXPECT_EQ(params["serialized_table_cache_key"], "serialized-paimon-table-cache-key");
 }
 
 TEST(PaimonJniReaderTest, BuildScannerParamsInjectsStorageRootTmpDirForEnabledIOManager) {
