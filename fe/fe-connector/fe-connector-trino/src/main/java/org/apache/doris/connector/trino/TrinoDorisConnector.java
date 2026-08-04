@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorValidationContext;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 
 import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
@@ -84,12 +84,12 @@ public class TrinoDorisConnector implements Connector {
     }
 
     @Override
-    public org.apache.doris.connector.api.ConnectorTestResult testConnection(ConnectorSession session) {
+    public org.apache.doris.connector.spi.ConnectorTestResult testConnection(ConnectorSession session) {
         ensureInitialized();
         if (trinoConnector != null) {
-            return org.apache.doris.connector.api.ConnectorTestResult.success();
+            return org.apache.doris.connector.spi.ConnectorTestResult.success();
         }
-        return org.apache.doris.connector.api.ConnectorTestResult.failure("Trino connector not initialized");
+        return org.apache.doris.connector.spi.ConnectorTestResult.failure("Trino connector not initialized");
     }
 
     @Override

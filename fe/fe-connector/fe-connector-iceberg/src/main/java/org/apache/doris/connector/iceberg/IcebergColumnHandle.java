@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;

@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.common.util.Util;
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;

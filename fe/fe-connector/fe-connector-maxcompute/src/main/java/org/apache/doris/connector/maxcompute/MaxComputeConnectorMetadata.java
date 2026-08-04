@@ -17,21 +17,21 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
 import com.aliyun.odps.Column;
 import com.aliyun.odps.Odps;
@@ -312,7 +312,7 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
      * (they stay BE-only), restoring legacy parity: legacy {@code MaxComputeScanNode} likewise never
      * pushed CAST predicates (its {@code convertSlotRefToColumnName} threw on a CAST operand and the
      * conjunct was dropped). Mirrors {@code JdbcConnectorMetadata} and the contract documented on
-     * {@link org.apache.doris.connector.api.ConnectorPushdownOps#supportsCastPredicatePushdown}.
+     * {@link org.apache.doris.connector.spi.ConnectorPushdownOps#supportsCastPredicatePushdown}.
      */
     @Override
     public boolean supportsCastPredicatePushdown(ConnectorSession session) {

@@ -50,8 +50,10 @@ void bit_pack(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
 }
 
 static void BM_BitPack(benchmark::State& state) {
-    int w = (int)state.range(0);
-    int n = 255;
+    // Registrations cap these dimensions to the destination types; explicit casts keep the
+    // benchmark build independent of the compiler's implicit-conversion warning policy.
+    const auto w = static_cast<int>(state.range(0));
+    constexpr uint8_t n = 255;
 
     std::default_random_engine e;
     std::uniform_int_distribution<int64_t> u;
@@ -77,8 +79,8 @@ static void BM_BitPack(benchmark::State& state) {
 }
 
 static void BM_BitPackOptimized(benchmark::State& state) {
-    int w = (int)state.range(0);
-    int n = 255;
+    const auto w = static_cast<int>(state.range(0));
+    constexpr uint8_t n = 255;
 
     std::default_random_engine e;
     std::uniform_int_distribution<int64_t> u;

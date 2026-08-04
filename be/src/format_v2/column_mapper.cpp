@@ -2152,13 +2152,20 @@ Status TableColumnMapper::_build_filter_entries(const FileScanRequest& file_requ
 Status TableColumnMapper::create_scan_request(
         const std::vector<TableFilter>& table_filters,
         const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
-        RuntimeState* runtime_state) {
+        RuntimeState* runtime_state,
+        const std::map<LocalColumnId, LocalIndex>* fixed_local_positions) {
     // FileReader evaluates expressions against a file-local block. This mapper owns the
     // table-column to file-column conversion, so it also owns the file-local block positions.
     file_request->predicate_columns.clear();
     file_request->non_predicate_columns.clear();
     file_request->predicate_only_columns.clear();
     file_request->local_positions.clear();
+    if (fixed_local_positions != nullptr) {
+        // A refreshed predicate may promote a lazy column, but the active split's block slots are
+        // immutable. Seed their positions before rebuilding expressions so every rewritten SlotRef
+        // continues to address the same physical column.
+        file_request->local_positions = *fixed_local_positions;
+    }
     file_request->conjuncts.clear();
     file_request->delete_conjuncts.clear();
     _filter_entries.clear();

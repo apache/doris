@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;

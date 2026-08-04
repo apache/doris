@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.iceberg.action;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 
 import java.util.List;
 import java.util.Map;

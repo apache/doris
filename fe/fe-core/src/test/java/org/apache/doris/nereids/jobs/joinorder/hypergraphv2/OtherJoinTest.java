@@ -53,6 +53,7 @@ public class OtherJoinTest extends TPCHTestBase {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext.getStatementContext(),
                 plan);
         hyperGraphBuilder.initStats("tpch", cascadesContext);
+        connectContext.getSessionVariable().dphyperLimit = 100000;
         try {
             Plan optimizedPlan = PlanChecker.from(cascadesContext)
                     .dpHypOptimize()

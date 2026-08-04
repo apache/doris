@@ -529,7 +529,7 @@ public final class IcebergSchemaUtils {
      * value can't be carried as a plain unquoted literal that DESCRIBE / INSERT re-parse — return null.
      * Non-binary scalars reuse the same human-string form as the read-side initial default (timestamp
      * normalized to DATETIMEV2 spacing, timestamptz offset handling honored) so a write default displays
-     * exactly like a read default. This ONLY populates the FE {@link org.apache.doris.connector.api.ConnectorColumn}
+     * exactly like a read default. This ONLY populates the FE {@link org.apache.doris.connector.spi.ConnectorColumn}
      * metadata; it is orthogonal to the initialDefault BE-dictionary path in {@link #buildField} (#65502).
      */
     static String writeDefaultToDorisString(Type type, Object writeDefault, boolean enableTimestampTz) {

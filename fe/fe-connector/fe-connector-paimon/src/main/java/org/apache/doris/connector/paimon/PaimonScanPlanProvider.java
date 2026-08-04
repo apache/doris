@@ -17,19 +17,19 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanProfile;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -353,6 +353,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
             return PaimonReaderOptions.runtimeSafeSystemTable(
                     handle.getSysTableName(), systemTable, dataTable, scanOptions);
+        } catch (IllegalArgumentException e) {
+            // Validation details must reach the SQL boundary so users can correct unsafe table options.
+            throw new DorisConnectorException(e.getMessage(), e);
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to validate Paimon system table source", e);
         }
@@ -761,7 +764,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                             (optDeletionFiles.isPresent() && i < optDeletionFiles.get().size())
                                     ? optDeletionFiles.get().get(i) : null;
                     ranges.addAll(buildNativeRanges(file, deletionFile, defaultFileFormat,
-                            partitionValues, vendedToken, effectiveSplitSize, weightDenominator));
+                            partitionValues, vendedToken, effectiveSplitSize, weightDenominator,
+                            dataSplit.bucket()));
                 }
             } else {
                 // JNI reader path
@@ -798,7 +802,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     PaimonScanRange buildNativeRange(RawFile file, DeletionFile deletionFile,
             String defaultFileFormat, Map<String, String> partitionValues,
-            Map<String, String> vendedToken, long start, long length, long weightDenominator) {
+            Map<String, String> vendedToken, long start, long length, long weightDenominator,
+            int bucket) {
         String fileFormat = getFileFormatBySuffix(file.path()).orElse(defaultFileFormat);
         // FIX-A1: native sub-split FE weight = the sub-range byte length, + the deletion-vector length when
         // attached (legacy PaimonSplit(LocationPath,...).selfSplitWeight = length, setDeletionFile += DV).
@@ -814,7 +819,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .partitionValues(partitionValues)
                 .selfSplitWeight(selfSplitWeight)
                 .targetSplitSize(weightDenominator)
-                .schemaId(file.schemaId());
+                .schemaId(file.schemaId())
+                .bucket(bucket);
         if (deletionFile != null) {
             builder.deletionFile(
                     normalizeUri(deletionFile.path(), vendedToken),
@@ -836,11 +842,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     List<PaimonScanRange> buildNativeRanges(RawFile file, DeletionFile deletionFile,
             String defaultFileFormat, Map<String, String> partitionValues,
-            Map<String, String> vendedToken, long targetSplitSize, long weightDenominator) {
+            Map<String, String> vendedToken, long targetSplitSize, long weightDenominator,
+            int bucket) {
         List<PaimonScanRange> result = new ArrayList<>();
         for (long[] offset : computeFileSplitOffsets(file.length(), targetSplitSize)) {
             result.add(buildNativeRange(file, deletionFile, defaultFileFormat,
-                    partitionValues, vendedToken, offset[0], offset[1], weightDenominator));
+                    partitionValues, vendedToken, offset[0], offset[1], weightDenominator, bucket));
         }
         return result;
     }
@@ -1372,13 +1379,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         String fileFormat = isDataSplit
                 ? dataSplitFileFormat((DataSplit) split, defaultFileFormat)
                 : defaultFileFormat;
-        return new PaimonScanRange.Builder()
+        PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
                 .fileFormat(fileFormat)
                 .paimonSplit(serializedSplit)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(splitWeight)
-                .targetSplitSize(weightDenominator)
-                .build();
+                .targetSplitSize(weightDenominator);
+        if (isDataSplit) {
+            // Same bucket property as the native arm: which reader BE ends up using must not change
+            // what a sibling connector can learn about the split (see PaimonScanRange's props).
+            builder.bucket(((DataSplit) split).bucket());
+        }
+        return builder.build();
     }
 
     /**

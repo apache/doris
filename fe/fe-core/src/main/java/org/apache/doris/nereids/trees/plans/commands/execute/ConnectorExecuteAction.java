@@ -28,16 +28,16 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
-import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.UnboundExpressionToConnectorPredicateConverter;
@@ -78,7 +78,7 @@ import java.util.Optional;
  * <p><b>Live for the flipped SPI catalogs; per-handle for a gateway.</b> Iceberg and paimon are served by
  * their connector plugins, so their tables are {@code PluginDrivenExternalTable}s and {@code ALTER TABLE EXECUTE}
  * on them routes through this adapter today. Procedure ops are selected {@link Connector#getProcedureOps(
- * org.apache.doris.connector.api.handle.ConnectorTableHandle) per-handle}: a single-format connector just returns
+ * org.apache.doris.connector.spi.handle.ConnectorTableHandle) per-handle}: a single-format connector just returns
  * its connector-level ops, but a flipped {@code hms} gateway
  * exposes none at the connector level and diverts a foreign iceberg-on-HMS handle to its iceberg sibling.</p>
  */

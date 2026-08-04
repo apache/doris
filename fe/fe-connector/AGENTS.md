@@ -14,7 +14,7 @@ mvn -f fe/pom.xml -pl :fe-connector-<module> -am test
 
 # Run a single test class. Keep -DfailIfNoTests=false: with -am, upstream
 # modules have no matching tests and would fail the build otherwise.
-mvn -f fe/pom.xml -pl :fe-connector-api -am test \
+mvn -f fe/pom.xml -pl :fe-connector-spi -am test \
     -Dtest=ConnectorMetadataSurfaceTest -DfailIfNoTests=false
 ```
 
@@ -40,20 +40,25 @@ self-tests live in `build-support/` and `build-support/tests/`):
    wired into this directory's `pom.xml`. fe-connector modules must not
    import fe-core internals, in main OR test sources. When a connector needs
    something from the engine, the fix is to extend the SPI in
-   fe-connector-api / fe-connector-spi — never to import fe-core.
+   fe-connector-spi — never to import fe-core.
 2. **Metadata funnel** — `build-support/check-fe-core-metadata-funnel.sh`,
    wired into fe-core's `pom.xml`. Inside fe-core, only
    `PluginDrivenMetadata` may call `Connector#getMetadata`; exempt call
    sites carry a `getMetadata-funnel-exempt` marker, and deleting a marker
    auto-tightens the gate.
 
-**Changing the shared SPI surface (fe-connector-api):** regenerate
-`fe-connector-api/src/test/resources/connector-metadata-methods.txt` in the
-SAME commit — run `ConnectorMetadataSurfaceTest` and copy the "actual" set
-from the failure output. Always run fe-connector-api's OWN suite after an
-SPI change; running only consumer modules will not catch a stale baseline.
-The same suite pins the `@ConnectorMustImplement` set, so promoting a method
-into the minimum implementation set is a deliberate, reviewed change.
+**Changing the shared SPI surface (fe-connector-spi):** regenerate BOTH
+recorded baselines in the SAME commit — `connector-metadata-methods.txt`
+(`ConnectorMetadataSurfaceTest`) and `connector-plugin-surface.txt`
+(`ConnectorPluginSurfaceTest`), under
+`fe-connector-spi/src/test/resources/`; run the test and copy the "actual"
+set from the failure output. Any surface change is a MAJOR change: bump
+`connector.plugin.api.version` in `fe/fe-connector/pom.xml` and the version
+pinned in `ConnectorPluginSurfaceTest` in that same commit. Always run
+fe-connector-spi's OWN suite after an SPI change; running only consumer
+modules will not catch a stale baseline. The same suite pins the
+`@ConnectorMustImplement` set, so promoting a method into the minimum
+implementation set is a deliberate, reviewed change.
 
 ## Invariants Without a Gate
 
@@ -94,8 +99,9 @@ these has a concrete failure mode.
 
 ## Task Recipes
 
-- **Change the SPI surface**: edit fe-connector-api → regenerate the
-  baseline in the same commit → run fe-connector-api's suite → adjust
+- **Change the SPI surface**: edit fe-connector-spi → regenerate both
+  baselines and bump the plugin API version in the same commit → run
+  fe-connector-spi's suite → adjust
   affected connectors (grep for overrides) → run their module tests.
 - **Fix a connector bug**: module-scoped build + tests (recipes above;
   paimon via `install`). For user-visible behavior, extend the e2e suites

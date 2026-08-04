@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.iceberg.IcebergCatalogOps.CatalogBackedIcebergCatalogOps;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;

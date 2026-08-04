@@ -21,7 +21,7 @@ import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
