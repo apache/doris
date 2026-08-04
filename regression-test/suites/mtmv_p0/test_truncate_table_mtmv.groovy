@@ -86,6 +86,7 @@ suite("test_truncate_table_mtmv","mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_truncate_partition "SELECT * FROM ${mvName}"
 
     // Save a non-PCT table snapshot at version 3 while the MV does not contain k2=2.
     sql """delete from test_truncate_table_mtmv_dim where k2=2"""
@@ -98,7 +99,7 @@ suite("test_truncate_table_mtmv","mtmv") {
     sql """insert into test_truncate_table_mtmv_dim values(3)"""
     sql """REFRESH MATERIALIZED VIEW ${mvName} AUTO"""
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_truncate_partition "SELECT * FROM ${mvName}"
+    order_qt_non_pct_truncate "SELECT * FROM ${mvName}"
 
     // truncate table
     sql """

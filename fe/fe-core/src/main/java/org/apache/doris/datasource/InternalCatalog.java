@@ -3712,8 +3712,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             //replace
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
+            long version = Config.isNotCloudMode() ? olapTable.getNextVersion() : 0L;
+            long versionTime = Config.isNotCloudMode() ? System.currentTimeMillis() : 0L;
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
-                    truncateEntireTable, recyclePartitionParamMap, forceDrop);
+                    truncateEntireTable, recyclePartitionParamMap, forceDrop, version, versionTime);
             if (truncateEntireTable) {
                 Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
             } else {
@@ -3725,7 +3727,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                     newPartitions, truncateEntireTable,
-                            rawTruncateSql, oldPartitions, forceDrop, updateRecords);
+                            rawTruncateSql, oldPartitions, forceDrop, updateRecords, version, versionTime);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
@@ -3741,7 +3743,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private List<Partition> truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions,
-            boolean isEntireTable, Map<Long, RecyclePartitionParam> recyclePartitionParamMap, boolean isforceDrop) {
+            boolean isEntireTable, Map<Long, RecyclePartitionParam> recyclePartitionParamMap, boolean isforceDrop,
+            long version, long versionTime) {
         // use new partitions to replace the old ones.
         List<Partition> oldPartitions = Lists.newArrayList();
         for (Partition newPartition : newPartitions) {
@@ -3771,10 +3774,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.dropPartitionForTruncate(olapTable.getDatabase().getId(), isforceDrop, pair.getValue());
         }
 
-        // Truncate changes visible data without changing the table ID. Keep the table version
-        // monotonic so snapshot consumers cannot mistake new data for an old version.
-        if (Config.isNotCloudMode()) {
-            olapTable.updateVisibleVersionAndTime(olapTable.getNextVersion(), System.currentTimeMillis());
+        if (Config.isNotCloudMode() && version > 0) {
+            // Persisted values make the version transition deterministic during journal replay.
+            olapTable.updateVisibleVersionAndTime(version, versionTime);
+        } else {
+            // Preserve legacy replay and Cloud's local cache invalidation behavior.
+            olapTable.resetVisibleVersion();
         }
 
         return oldPartitions;
@@ -3789,7 +3794,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap =  new HashMap<>();
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
-                                    recyclePartitionParamMap, isForceDrop);
+                                    recyclePartitionParamMap, isForceDrop,
+                                    info.getVersion(), info.getVersionTime());
 
             // add tablet to inverted index
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
