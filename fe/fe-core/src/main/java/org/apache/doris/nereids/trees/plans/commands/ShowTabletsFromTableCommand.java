@@ -246,21 +246,19 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                     }
                 }
             }
-            if (offset >= tabletInfos.size()) {
-                tabletInfos.clear();
-            } else {
-                // order by
-                ListComparator<List<Comparable>> comparator = null;
+            //If offset is greater than tabletinfo's size, we shall skip further processing and return the empty list 'rows'.
+            if(offset < tabletInfos.size()) {
+                List<List<Comparable>> orderedTableInfos;
+
                 if (orderByPairs != null) {
+                    // order by
                     OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-                    comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+                    ListComparator<List<Comparable>> comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+                    orderedTableInfos = SortAndLimit.sortAndLimit(tabletInfos, comparator, sizeLimit);
                 } else {
-                    // order by tabletId, replicaId
-                    comparator = new ListComparator<>(0, 1);
+                    orderedTableInfos = tabletInfos;
                 }
 
-                List<List<Comparable>> orderedTableInfos =
-                        SortAndLimit.sortAndLimit(tabletInfos, comparator, sizeLimit);
                 int resultOffset = (int) Math.min(offset, orderedTableInfos.size());
                 for (List<Comparable> tabletInfo
                         : orderedTableInfos.subList(resultOffset, orderedTableInfos.size())) {
