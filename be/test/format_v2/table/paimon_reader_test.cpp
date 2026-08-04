@@ -79,6 +79,18 @@ public:
     }
 };
 
+class RefreshTrackingTableReader final : public TableReader {
+public:
+    Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
+
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+        ++refresh_count;
+        return TableReader::refresh_conjuncts(std::move(conjuncts));
+    }
+
+    int refresh_count = 0;
+};
+
 class SplitFormatTrackingTableReader final : public TableReader {
 public:
     Status prepare_split(const SplitReadOptions& options) override {
@@ -342,6 +354,7 @@ TFileRangeDesc make_legacy_paimon_native_range(TFileFormatType::type physical_fo
 TFileScanRangeParams make_paimon_jni_scan_params() {
     TFileScanRangeParams scan_params;
     scan_params.__set_serialized_table("serialized-paimon-table");
+    scan_params.__set_serialized_table_cache_key("serialized-paimon-table-cache-key");
     scan_params.__set_paimon_predicate("serialized-paimon-predicate");
     return scan_params;
 }
@@ -754,6 +767,38 @@ TEST(PaimonHybridReaderTest, AggregatesConditionCacheHitsFromBothChildren) {
     EXPECT_EQ(reader.condition_cache_hit_count(), 8);
 }
 
+TEST(PaimonHybridReaderTest, ForwardsLatePredicatesToActiveChild) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    paimon::PaimonHybridReader reader;
+    RefreshTrackingTableReader* child = nullptr;
+    reader.TEST_set_child_reader_factories(
+            [&] {
+                auto tracking = std::make_unique<RefreshTrackingTableReader>();
+                child = tracking.get();
+                return tracking;
+            },
+            [] { return std::make_unique<TableReader>(); });
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_split_format = FileFormat::PARQUET;
+    split.current_range = make_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    ASSERT_NE(child, nullptr);
+    ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
+    EXPECT_EQ(child->refresh_count, 1);
+}
+
 TEST(PaimonHybridReaderTest, NativeCountColumnReportsMetadataRowsThroughHybridReader) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_paimon_hybrid_count_column_test";
@@ -899,6 +944,7 @@ TEST(PaimonJniReaderTest, BuildScannerParamsKeepsExplicitIOManagerTempDir) {
     EXPECT_EQ(params["paimon.jni.enable_jni_io_manager"], "true");
     EXPECT_EQ(params["paimon.jni.io_manager.tmp_dir"], "/tmp/explicit-paimon-spill");
     EXPECT_EQ(params["paimon.jni.io_manager.impl_class"], "org.example.CustomIOManager");
+    EXPECT_EQ(params["serialized_table_cache_key"], "serialized-paimon-table-cache-key");
 }
 
 TEST(PaimonJniReaderTest, BuildScannerParamsInjectsStorageRootTmpDirForEnabledIOManager) {

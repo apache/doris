@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <new>
 #include <set>
 
 #include "core/data_type/data_type_number.h"
@@ -25,6 +26,7 @@
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exec/common/hash_table/ph_hash_map.h"
+#include "exec/common/hash_table/ph_hash_set.h"
 #include "testutil/column_helper.h"
 
 namespace doris {
@@ -130,6 +132,33 @@ TEST(HashTableMethodTest, testMethodStringNoCache) {
               {0, 1, -1, 3, -1, 4});
 }
 
+// For join, null keys are routed to a dedicated null bucket and matched by raw key
+// comparison. The nested column of a null row may hold residual bytes left by expression
+// evaluation, so init_serialized_keys must normalize null keys to a canonical empty
+// StringRef to make null keys equal (e.g. single-column null-safe equal join).
+TEST(HashTableMethodTest, testMethodStringNoCacheNullKeyNormalized) {
+    MethodStringNoCache<StringHashMap<IColumn::ColumnIndex>> method;
+
+    // Row 1 is null but its nested data holds residual bytes, row 2 is a real empty string.
+    auto column =
+            ColumnHelper::create_nullable_column<DataTypeString>({"a", "residual", ""}, {0, 1, 0});
+    ColumnRawPtrs key_columns {column.get()};
+    const auto& null_map = assert_cast<const ColumnNullable&>(*column).get_null_map_data();
+
+    const uint32_t bucket_size = 8;
+    method.init_serialized_keys(key_columns, 3, null_map.data(), true, false, bucket_size);
+
+    // Null key is normalized to a canonical empty StringRef instead of the residual bytes.
+    EXPECT_TRUE(method._stored_keys[1] == StringRef());
+    // Non-null rows keep their real bytes, including the real empty string.
+    EXPECT_TRUE(method._stored_keys[0] == StringRef("a", 1));
+    EXPECT_TRUE(method._stored_keys[2] == StringRef("", 0));
+    // Null row is routed to the dedicated null bucket, real rows to normal hash buckets.
+    EXPECT_EQ(method.bucket_nums[1], bucket_size);
+    EXPECT_LT(method.bucket_nums[0], bucket_size);
+    EXPECT_LT(method.bucket_nums[2], bucket_size);
+}
+
 // Verify that iterating a DataWithNullKey hash map via init_iterator()/begin/end
 // does NOT visit the null key entry. The null key must be accessed separately
 // through has_null_key_data()/get_null_key_data().
@@ -225,6 +254,145 @@ TEST(HashTableMethodTest, testNullableIteratorSkipsNullKey) {
 // Helper: create distinguishable AggregateDataPtr values for testing
 static AggregateDataPtr make_mapped(size_t val) {
     return reinterpret_cast<AggregateDataPtr>(val);
+}
+
+struct TrackedNullAggregateState {
+    explicit TrackedNullAggregateState(size_t& destroy_count_) : destroy_count(destroy_count_) {}
+    ~TrackedNullAggregateState() { ++destroy_count; }
+
+    size_t& destroy_count;
+};
+
+static void create_null_state_then_fail(AggregateDataPtr& mapped, void* storage,
+                                        size_t& destroy_count) {
+    auto* new_state = new (storage) TrackedNullAggregateState(destroy_count);
+    commit_aggregate_state(
+            mapped, reinterpret_cast<AggregateDataPtr>(new_state),
+            [] {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "post-construction null key creation failed");
+            },
+            [](AggregateDataPtr state) {
+                reinterpret_cast<TrackedNullAggregateState*>(state)->~TrackedNullAggregateState();
+            });
+}
+
+TEST(HashTableMethodTest, testNullableNullKeyCreationExceptionSafety) {
+    using NullableMethod =
+            MethodSingleNullableColumn<MethodOneNumber<UInt32, AggDataNullable<UInt32>>>;
+    NullableMethod method;
+    using State = NullableMethod::State;
+
+    auto col = ColumnHelper::create_nullable_column<DataTypeInt32>({0}, {1});
+    ColumnRawPtrs key_columns = {col.get()};
+    State state(key_columns);
+    method.init_serialized_keys(key_columns, 1);
+
+    EXPECT_THROW(method.lazy_emplace(
+                         state, 0, [](const auto&, auto&, auto&) {},
+                         [](auto&) {
+                             throw Exception(ErrorCode::INTERNAL_ERROR, "null key creation failed");
+                         }),
+                 Exception);
+    EXPECT_FALSE(method.hash_table->has_null_key_data());
+    EXPECT_TRUE(method.hash_table->empty());
+    EXPECT_FALSE(method.find(state, 0).is_found());
+
+    alignas(TrackedNullAggregateState) char state_storage[sizeof(TrackedNullAggregateState)];
+    size_t destroy_count = 0;
+    EXPECT_THROW(method.lazy_emplace(
+                         state, 0, [](const auto&, auto&, auto&) {},
+                         [&](auto& null_mapped) {
+                             create_null_state_then_fail(null_mapped, state_storage, destroy_count);
+                         }),
+                 Exception);
+    EXPECT_EQ(destroy_count, 1);
+    EXPECT_FALSE(method.hash_table->has_null_key_data());
+    EXPECT_EQ(method.hash_table->get_null_key_data<AggregateDataPtr>(), nullptr);
+    EXPECT_TRUE(method.hash_table->empty());
+    EXPECT_FALSE(method.find(state, 0).is_found());
+
+    auto* mapped = method.lazy_emplace(
+            state, 0, [](const auto&, auto&, auto&) {},
+            [](auto& null_mapped) { null_mapped = make_mapped(123); });
+    ASSERT_NE(mapped, nullptr);
+    EXPECT_EQ(*mapped, make_mapped(123));
+    EXPECT_TRUE(method.hash_table->has_null_key_data());
+    EXPECT_EQ(method.hash_table->size(), 1);
+}
+
+TEST(HashTableMethodTest, testNullableVoidNullKeyCreationExceptionSafety) {
+    using NullableMethod = MethodSingleNullableColumn<
+            MethodOneNumber<UInt32, DataWithNullKey<PHHashSet<UInt32, HashCRC32<UInt32>>>>>;
+    NullableMethod method;
+    using State = NullableMethod::State;
+
+    auto col = ColumnHelper::create_nullable_column<DataTypeInt32>({0}, {1});
+    ColumnRawPtrs key_columns = {col.get()};
+    State state(key_columns);
+    method.init_serialized_keys(key_columns, 1);
+
+    EXPECT_THROW(
+            method.lazy_emplace(
+                    state, 0, [](const auto&, auto&, auto&) {},
+                    [] { throw Exception(ErrorCode::INTERNAL_ERROR, "null key creation failed"); }),
+            Exception);
+    EXPECT_FALSE(method.hash_table->has_null_key_data());
+    EXPECT_TRUE(method.hash_table->empty());
+
+    method.lazy_emplace(
+            state, 0, [](const auto&, auto&, auto&) {}, [] {});
+    EXPECT_TRUE(method.hash_table->has_null_key_data());
+    EXPECT_EQ(method.hash_table->size(), 1);
+}
+
+TEST(HashTableMethodTest, testNullableStringBatchNullKeyCreationExceptionSafety) {
+    using NullableMethod = MethodSingleNullableColumn<
+            MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>;
+    NullableMethod method;
+    using State = NullableMethod::State;
+
+    auto col = ColumnHelper::create_nullable_column<DataTypeString>({""}, {1});
+    ColumnRawPtrs key_columns = {col.get()};
+    State state(key_columns);
+    method.init_serialized_keys(key_columns, 1);
+
+    EXPECT_THROW(lazy_emplace_batch(
+                         method, state, 1, [](const auto&, auto&, auto&) {},
+                         [](auto&) {
+                             throw Exception(ErrorCode::INTERNAL_ERROR, "null key creation failed");
+                         },
+                         [](uint32_t, auto&) {}),
+                 Exception);
+    EXPECT_FALSE(method.hash_table->has_null_key_data());
+    EXPECT_TRUE(method.hash_table->empty());
+
+    alignas(TrackedNullAggregateState) char state_storage[sizeof(TrackedNullAggregateState)];
+    size_t destroy_count = 0;
+    EXPECT_THROW(lazy_emplace_batch(
+                         method, state, 1, [](const auto&, auto&, auto&) {},
+                         [&](auto& null_mapped) {
+                             create_null_state_then_fail(null_mapped, state_storage, destroy_count);
+                         },
+                         [](uint32_t, auto&) {}),
+                 Exception);
+    EXPECT_EQ(destroy_count, 1);
+    EXPECT_FALSE(method.hash_table->has_null_key_data());
+    EXPECT_EQ(method.hash_table->get_null_key_data<AggregateDataPtr>(), nullptr);
+    EXPECT_TRUE(method.hash_table->empty());
+
+    bool result_handled = false;
+    lazy_emplace_batch(
+            method, state, 1, [](const auto&, auto&, auto&) {},
+            [](auto& null_mapped) { null_mapped = make_mapped(456); },
+            [&](uint32_t row, auto& mapped) {
+                EXPECT_EQ(row, 0);
+                EXPECT_EQ(mapped, make_mapped(456));
+                result_handled = true;
+            });
+    EXPECT_TRUE(result_handled);
+    EXPECT_TRUE(method.hash_table->has_null_key_data());
+    EXPECT_EQ(method.hash_table->size(), 1);
 }
 
 // ========== MethodOneNumber<UInt32, AggData<UInt32>> ==========

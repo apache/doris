@@ -134,6 +134,12 @@ public class ExecutionProfile {
             for (int pipelineIdx = 0; pipelineIdx < pipelineSize; pipelineIdx++) {
                 List<RuntimeProfile> allPipelineTask = new ArrayList<RuntimeProfile>();
                 for (List<RuntimeProfile> profileSingleBE : multiPipeline.values()) {
+                    // BEs may report different pipeline counts (pipelineSize is the max
+                    // above); a BE with fewer pipelines simply has no profile at this
+                    // index, so skip it instead of indexing out of bounds.
+                    if (pipelineIdx >= profileSingleBE.size()) {
+                        continue;
+                    }
                     RuntimeProfile pipeline = profileSingleBE.get(pipelineIdx);
                     for (Pair<RuntimeProfile, Boolean> pipelineTaskProfile : pipeline.getChildList()) {
                         allPipelineTask.add(pipelineTaskProfile.first);

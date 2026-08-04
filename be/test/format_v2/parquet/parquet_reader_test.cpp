@@ -21,7 +21,9 @@
 #include <arrow/io/api.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
+#include <parquet/api/writer.h>
 #include <parquet/arrow/writer.h>
+#include <parquet/column_page.h>
 #include <parquet/page_index.h>
 
 #include <array>
@@ -835,6 +837,123 @@ std::shared_ptr<arrow::Array> build_nullable_struct_with_list_array(bool list_fi
     return finish_array(&builder);
 }
 
+constexpr size_t SPANNING_NESTED_VALUES = 128;
+
+void write_sparse_filter_nested_parquet_file(const std::string& file_path) {
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    const auto id = ::parquet::schema::PrimitiveNode::Make("id", ::parquet::Repetition::REQUIRED,
+                                                           ::parquet::LogicalType::None(),
+                                                           ::parquet::Type::INT32);
+    const auto map_key = ::parquet::schema::PrimitiveNode::Make(
+            "key", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::None(),
+            ::parquet::Type::INT32);
+    const auto map_value = ::parquet::schema::PrimitiveNode::Make(
+            "value", ::parquet::Repetition::OPTIONAL, ::parquet::LogicalType::String(),
+            ::parquet::Type::BYTE_ARRAY);
+    const auto key_value = ::parquet::schema::GroupNode::Make(
+            "key_value", ::parquet::Repetition::REPEATED, {map_key, map_value});
+    const auto map = ::parquet::schema::GroupNode::Make("m", ::parquet::Repetition::OPTIONAL,
+                                                        {key_value}, ::parquet::LogicalType::Map());
+    const auto element = ::parquet::schema::PrimitiveNode::Make(
+            "element", ::parquet::Repetition::OPTIONAL, ::parquet::LogicalType::None(),
+            ::parquet::Type::INT32);
+    const auto list =
+            ::parquet::schema::GroupNode::Make("list", ::parquet::Repetition::REPEATED, {element});
+    const auto items = ::parquet::schema::GroupNode::Make("items", ::parquet::Repetition::OPTIONAL,
+                                                          {list}, ::parquet::LogicalType::List());
+    const auto marker = ::parquet::schema::PrimitiveNode::Make(
+            "marker", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::None(),
+            ::parquet::Type::INT32);
+    const auto nested_struct = ::parquet::schema::GroupNode::Make(
+            "s", ::parquet::Repetition::OPTIONAL, {items, marker});
+    const auto schema_node = ::parquet::schema::GroupNode::Make(
+            "schema", ::parquet::Repetition::REQUIRED, {id, map, nested_struct});
+    const auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(schema_node);
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    // V2 and page-index writers preserve record boundaries, so use V1 here to produce the
+    // continuation pages that the reader must still handle correctly.
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V1);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.disable_dictionary();
+    builder.write_batch_size(8);
+    builder.data_pagesize(64);
+    auto writer = ::parquet::ParquetFileWriter::Open(out, schema, builder.build());
+    auto* row_group = writer->AppendRowGroup();
+
+    auto* id_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+    const int32_t ids[] = {1, 2, 3, 4, 5, 6};
+    EXPECT_EQ(id_writer->WriteBatch(6, nullptr, nullptr, ids), 6);
+    id_writer->Close();
+
+    std::vector<int16_t> map_repetition_levels {0, 0, 0, 0};
+    std::vector<int16_t> map_key_definition_levels {2, 0, 2, 1};
+    std::vector<int16_t> map_value_definition_levels {3, 0, 2, 1};
+    std::vector<int32_t> map_keys {10, 30};
+    std::vector<::parquet::ByteArray> map_values;
+    const std::string rejected_value = "rejected";
+    const std::string selected_value = "selected-wide-value";
+    map_values.emplace_back(static_cast<uint32_t>(rejected_value.size()),
+                            reinterpret_cast<const uint8_t*>(rejected_value.data()));
+    for (size_t value = 0; value < SPANNING_NESTED_VALUES; ++value) {
+        map_repetition_levels.push_back(value == 0 ? 0 : 1);
+        map_key_definition_levels.push_back(2);
+        map_value_definition_levels.push_back(3);
+        map_keys.push_back(static_cast<int32_t>(5000 + value));
+        map_values.emplace_back(static_cast<uint32_t>(selected_value.size()),
+                                reinterpret_cast<const uint8_t*>(selected_value.data()));
+    }
+    map_repetition_levels.push_back(0);
+    map_key_definition_levels.push_back(2);
+    map_value_definition_levels.push_back(2);
+    map_keys.push_back(6000);
+
+    auto* map_key_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+    EXPECT_EQ(map_key_writer->WriteBatch(static_cast<int64_t>(map_repetition_levels.size()),
+                                         map_key_definition_levels.data(),
+                                         map_repetition_levels.data(), map_keys.data()),
+              static_cast<int64_t>(map_keys.size()));
+    map_key_writer->Close();
+    auto* map_value_writer = static_cast<::parquet::ByteArrayWriter*>(row_group->NextColumn());
+    EXPECT_EQ(map_value_writer->WriteBatch(static_cast<int64_t>(map_repetition_levels.size()),
+                                           map_value_definition_levels.data(),
+                                           map_repetition_levels.data(), map_values.data()),
+              static_cast<int64_t>(map_values.size()));
+    map_value_writer->Close();
+
+    std::vector<int16_t> element_repetition_levels {0, 0, 0, 1, 0};
+    std::vector<int16_t> element_definition_levels {4, 0, 4, 3, 1};
+    std::vector<int32_t> element_values {10, 30};
+    for (size_t value = 0; value < SPANNING_NESTED_VALUES; ++value) {
+        element_repetition_levels.push_back(value == 0 ? 0 : 1);
+        element_definition_levels.push_back(4);
+        element_values.push_back(static_cast<int32_t>(5000 + value));
+    }
+    element_repetition_levels.push_back(0);
+    element_definition_levels.push_back(4);
+    element_values.push_back(6000);
+    element_repetition_levels.push_back(1);
+    element_definition_levels.push_back(3);
+
+    auto* element_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+    EXPECT_EQ(element_writer->WriteBatch(static_cast<int64_t>(element_repetition_levels.size()),
+                                         element_definition_levels.data(),
+                                         element_repetition_levels.data(), element_values.data()),
+              static_cast<int64_t>(element_values.size()));
+    element_writer->Close();
+    auto* marker_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+    const int16_t marker_definition_levels[] = {1, 0, 1, 1, 1, 1};
+    const int32_t marker_values[] = {10, 30, 40, 50, 60};
+    EXPECT_EQ(marker_writer->WriteBatch(6, marker_definition_levels, nullptr, marker_values), 5);
+    marker_writer->Close();
+    row_group->Close();
+    writer->Close();
+}
+
 void write_nullable_map_parquet_file(const std::string& file_path) {
     auto array = build_nullable_int_string_map_array();
     auto field = arrow::field("arr", array->type(), true);
@@ -1641,6 +1760,139 @@ TEST_F(NewParquetReaderTest, NativeComplexColumnsMaterializeDirectlyAcrossBatchC
     EXPECT_EQ(profile.get_counter("LevelOnlyReadTime")->value(), 0);
     ASSERT_NE(profile.get_counter("NativeReadCalls"), nullptr);
     EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
+    ASSERT_NE(profile.get_counter("NestedBatches"), nullptr);
+    EXPECT_GT(profile.get_counter("NestedBatches")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, SparseFilterPreservesNestedShapeAcrossPhysicalPages) {
+    write_sparse_filter_nested_parquet_file(_file_path);
+
+    auto physical_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    auto row_group_metadata = physical_reader->metadata()->RowGroup(0);
+    auto row_group_reader = physical_reader->RowGroup(0);
+    for (const std::string path :
+         {"m.key_value.key", "m.key_value.value", "s.items.list.element"}) {
+        int column_ordinal = -1;
+        for (int column = 0; column < row_group_metadata->num_columns(); ++column) {
+            if (row_group_metadata->ColumnChunk(column)->path_in_schema()->ToDotString() == path) {
+                column_ordinal = column;
+                break;
+            }
+        }
+        ASSERT_GE(column_ordinal, 0) << path;
+        auto page_reader = row_group_reader->GetColumnPageReader(column_ordinal);
+        bool saw_continuation_page = false;
+        std::vector<int16_t> first_repetition_levels;
+        while (auto page = page_reader->NextPage()) {
+            if (page->type() != ::parquet::PageType::DATA_PAGE) {
+                continue;
+            }
+            auto data_page = std::static_pointer_cast<::parquet::DataPageV1>(page);
+            ::parquet::LevelDecoder repetition_decoder;
+            repetition_decoder.SetData(data_page->repetition_level_encoding(), 1,
+                                       data_page->num_values(), data_page->data(),
+                                       data_page->size());
+            int16_t first_repetition_level = 0;
+            ASSERT_EQ(repetition_decoder.Decode(1, &first_repetition_level), 1);
+            first_repetition_levels.push_back(first_repetition_level);
+            saw_continuation_page |= first_repetition_level > 0;
+        }
+        EXPECT_TRUE(saw_continuation_page)
+                << path << " must contain a parent row split across data pages; page starts: "
+                << testing::PrintToString(first_repetition_levels);
+    }
+    physical_reader.reset();
+
+    RuntimeProfile profile("sparse_filter_nested_pages");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(2);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 3);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1), field_projection(2)};
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 3));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    MutableColumns output;
+    for (const auto& field : schema) {
+        output.push_back(field.type->create_column());
+    }
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        for (size_t column = 0; column < output.size(); ++column) {
+            output[column]->insert_range_from(*block.get_by_position(column).column, 0, rows);
+        }
+    }
+
+    const auto& ids = assert_cast<const ColumnNullable&>(*output[0]);
+    const auto& id_values = assert_cast<const ColumnInt32&>(ids.get_nested_column());
+    EXPECT_EQ(std::vector<int32_t>(id_values.get_data().begin(), id_values.get_data().end()),
+              std::vector<int32_t>({4, 5, 6}));
+
+    const auto& nullable_map = assert_cast<const ColumnNullable&>(*output[1]);
+    EXPECT_EQ(nullable_map.get_null_map_data(), NullMap({0, 0, 0}));
+    const auto& map = assert_cast<const ColumnMap&>(nullable_map.get_nested_column());
+    EXPECT_EQ(map.get_offsets(),
+              ColumnArray::Offsets64({0, SPANNING_NESTED_VALUES, SPANNING_NESTED_VALUES + 1}));
+    const auto& map_keys = assert_cast<const ColumnNullable&>(map.get_keys());
+    const auto& key_values = assert_cast<const ColumnInt32&>(map_keys.get_nested_column());
+    ASSERT_EQ(key_values.size(), SPANNING_NESTED_VALUES + 1);
+    EXPECT_EQ(std::count(map_keys.get_null_map_data().begin(), map_keys.get_null_map_data().end(),
+                         uint8_t {1}),
+              0);
+    for (size_t value = 0; value < SPANNING_NESTED_VALUES; ++value) {
+        EXPECT_EQ(key_values.get_element(value), 5000 + value);
+    }
+    EXPECT_EQ(key_values.get_element(SPANNING_NESTED_VALUES), 6000);
+    const auto& map_values = assert_cast<const ColumnNullable&>(map.get_values());
+    const auto& map_strings = assert_cast<const ColumnString&>(map_values.get_nested_column());
+    EXPECT_EQ(std::count(map_values.get_null_map_data().begin(),
+                         map_values.get_null_map_data().end(), uint8_t {1}),
+              1);
+    for (size_t value = 0; value < SPANNING_NESTED_VALUES; ++value) {
+        EXPECT_EQ(map_strings.get_data_at(value).to_string(), "selected-wide-value");
+    }
+    EXPECT_TRUE(map_values.is_null_at(SPANNING_NESTED_VALUES));
+
+    const auto& nullable_struct = assert_cast<const ColumnNullable&>(*output[2]);
+    EXPECT_EQ(nullable_struct.get_null_map_data(), NullMap({0, 0, 0}));
+    const auto& struct_column =
+            assert_cast<const ColumnStruct&>(nullable_struct.get_nested_column());
+    const auto& nullable_list = assert_cast<const ColumnNullable&>(struct_column.get_column(0));
+    EXPECT_EQ(nullable_list.get_null_map_data(), NullMap({1, 0, 0}));
+    const auto& list = assert_cast<const ColumnArray&>(nullable_list.get_nested_column());
+    EXPECT_EQ(list.get_offsets(),
+              ColumnArray::Offsets64({0, SPANNING_NESTED_VALUES, SPANNING_NESTED_VALUES + 2}));
+    const auto& nullable_elements = assert_cast<const ColumnNullable&>(list.get_data());
+    const auto& element_values =
+            assert_cast<const ColumnInt32&>(nullable_elements.get_nested_column());
+    ASSERT_EQ(element_values.size(), SPANNING_NESTED_VALUES + 2);
+    for (size_t value = 0; value < SPANNING_NESTED_VALUES; ++value) {
+        EXPECT_EQ(element_values.get_element(value), 5000 + value);
+        EXPECT_FALSE(nullable_elements.is_null_at(value));
+    }
+    EXPECT_EQ(element_values.get_element(SPANNING_NESTED_VALUES), 6000);
+    EXPECT_TRUE(nullable_elements.is_null_at(SPANNING_NESTED_VALUES + 1));
+    const auto& markers = assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+    const auto& marker_values = assert_cast<const ColumnInt32&>(markers.get_nested_column());
+    EXPECT_EQ(std::count(markers.get_null_map_data().begin(), markers.get_null_map_data().end(),
+                         uint8_t {1}),
+              0);
+    EXPECT_EQ(
+            std::vector<int32_t>(marker_values.get_data().begin(), marker_values.get_data().end()),
+            std::vector<int32_t>({40, 50, 60}));
+
+    ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
+    EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 3);
     ASSERT_NE(profile.get_counter("NestedBatches"), nullptr);
     EXPECT_GT(profile.get_counter("NestedBatches")->value(), 0);
 }

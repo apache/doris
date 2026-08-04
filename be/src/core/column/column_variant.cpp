@@ -142,6 +142,9 @@ size_t get_number_of_dimensions(const IDataType& type) {
 // which indicates NG-originated array<object> data.
 bool is_nested_group_type(const DataTypePtr& type) {
     auto base = get_base_type_of_array(type);
+    if (get_number_of_dimensions(*type) > 0) {
+        base = remove_nullable(base);
+    }
     return typeid_cast<const DataTypeVariant*>(base.get()) != nullptr;
 }
 
@@ -824,6 +827,20 @@ size_t ColumnVariant::allocated_bytes() const {
     res += serialized_sparse_column->allocated_bytes();
     res += serialized_doc_value_column->allocated_bytes();
     return res;
+}
+
+bool ColumnVariant::is_exclusive() const {
+    if (!IColumn::is_exclusive()) {
+        return false;
+    }
+    for (const auto& entry : subcolumns) {
+        for (const auto& part : entry->data.data) {
+            if (!part->is_exclusive()) {
+                return false;
+            }
+        }
+    }
+    return serialized_sparse_column->is_exclusive() && serialized_doc_value_column->is_exclusive();
 }
 
 void ColumnVariant::mutate_subcolumns() {

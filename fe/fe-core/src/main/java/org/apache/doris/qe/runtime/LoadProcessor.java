@@ -21,9 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.datasource.hive.HMSTransaction;
-import org.apache.doris.datasource.iceberg.IcebergTransaction;
-import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AbstractJobProcessor;
 import org.apache.doris.qe.CoordinatorContext;
@@ -31,6 +28,8 @@ import org.apache.doris.qe.LoadContext;
 import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.CommitDataSerializer;
+import org.apache.doris.transaction.Transaction;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -222,17 +221,17 @@ public class LoadProcessor extends AbstractJobProcessor {
             loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
         }
         long txnId = loadContext.getTransactionId();
-        if (params.isSetHivePartitionUpdates()) {
-            ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                    .updateHivePartitionUpdates(params.getHivePartitionUpdates());
-        }
-        if (params.isSetIcebergCommitDatas()) {
-            ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                    .updateIcebergCommitData(params.getIcebergCommitDatas());
-        }
-        if (params.isSetMcCommitDatas()) {
-            ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                    .updateMCCommitData(params.getMcCommitDatas());
+        if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas()) {
+            Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
+            if (params.isSetHivePartitionUpdates()) {
+                CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
+            }
+            if (params.isSetIcebergCommitDatas()) {
+                CommitDataSerializer.feed(txn, params.getIcebergCommitDatas());
+            }
+            if (params.isSetMcCommitDatas()) {
+                CommitDataSerializer.feed(txn, params.getMcCommitDatas());
+            }
         }
 
         if (fragmentTask.isDone()) {

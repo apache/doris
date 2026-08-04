@@ -21,7 +21,7 @@ import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
@@ -377,7 +377,12 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         Pair<Boolean, List<Slot>> replaced = replaceExpressions(fileScan.getOutput(), false, true);
         if (replaced.first) {
             List<Slot> replaceSlots = new ArrayList<>(replaced.second);
-            if (fileScan.getTable() instanceof IcebergExternalTable) {
+            // Gate the name-to-field-id access-path rewrite on the nested-column-prune capability (not the
+            // legacy exact-class IcebergExternalTable, which is dead post-flip — the table is a
+            // PluginDrivenExternalTable). The translation below is connector-agnostic: it reads
+            // column.getUniqueId()/getChildren(), which the connector populates with its stable field ids.
+            if (fileScan.getTable() instanceof PluginDrivenExternalTable
+                    && ((PluginDrivenExternalTable) fileScan.getTable()).supportsNestedColumnPrune()) {
                 for (int i = 0; i < replaceSlots.size(); i++) {
                     Slot slot = replaceSlots.get(i);
                     if (!(slot instanceof SlotReference)) {
@@ -389,8 +394,8 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                         continue;
                     }
                     List<ColumnAccessPath> allAccessPathsWithId
-                            = replaceIcebergAccessPathToId(allAccessPaths.get(), slotReference);
-                    List<ColumnAccessPath> predicateAccessPathsWithId = replaceIcebergAccessPathToId(
+                            = replaceAccessPathToFieldId(allAccessPaths.get(), slotReference);
+                    List<ColumnAccessPath> predicateAccessPathsWithId = replaceAccessPathToFieldId(
                             slotReference.getPredicateAccessPaths().get(), slotReference);
                     replaceSlots.set(i, ((SlotReference) slot).withAccessPaths(
                             allAccessPathsWithId,
@@ -621,37 +626,37 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         return new Cast(newChild, newType);
     }
 
-    private List<ColumnAccessPath> replaceIcebergAccessPathToId(
+    private List<ColumnAccessPath> replaceAccessPathToFieldId(
             List<ColumnAccessPath> originAccessPaths, SlotReference slotReference) {
         Column column = slotReference.getOriginalColumn().get();
         List<ColumnAccessPath> replacedAccessPaths = new ArrayList<>();
         for (ColumnAccessPath accessPath : originAccessPaths) {
-            List<String> icebergColumnAccessPath = new ArrayList<>(accessPath.getPath());
-            replaceIcebergAccessPathToId(
-                    icebergColumnAccessPath, 0, slotReference.getDataType(), column
+            List<String> fieldIdAccessPath = new ArrayList<>(accessPath.getPath());
+            replaceAccessPathToFieldId(
+                    fieldIdAccessPath, 0, slotReference.getDataType(), column
             );
-            replacedAccessPaths.add(new ColumnAccessPath(accessPath.getType(), icebergColumnAccessPath));
+            replacedAccessPaths.add(new ColumnAccessPath(accessPath.getType(), fieldIdAccessPath));
         }
         return replacedAccessPaths;
     }
 
-    private void replaceIcebergAccessPathToId(List<String> originPath, int index, DataType type, Column column) {
+    private void replaceAccessPathToFieldId(List<String> originPath, int index, DataType type, Column column) {
         if (index >= originPath.size()) {
             return;
         }
         if (index == 0) {
             originPath.set(index, String.valueOf(column.getUniqueId()));
-            replaceIcebergAccessPathToId(originPath, index + 1, type, column);
+            replaceAccessPathToFieldId(originPath, index + 1, type, column);
         } else {
             String fieldName = originPath.get(index);
             if (type instanceof ArrayType) {
                 // skip replace *
-                replaceIcebergAccessPathToId(
+                replaceAccessPathToFieldId(
                         originPath, index + 1, ((ArrayType) type).getItemType(), column.getChildren().get(0)
                 );
             } else if (type instanceof MapType) {
                 if (fieldName.equals(AccessPathInfo.ACCESS_ALL) || fieldName.equals(AccessPathInfo.ACCESS_MAP_VALUES)) {
-                    replaceIcebergAccessPathToId(
+                    replaceAccessPathToFieldId(
                             originPath, index + 1, ((MapType) type).getValueType(), column.getChildren().get(1)
                     );
                 }
@@ -660,7 +665,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                     if (child.getName().equals(fieldName)) {
                         originPath.set(index, String.valueOf(child.getUniqueId()));
                         DataType childType = ((StructType) type).getNameToFields().get(fieldName).getDataType();
-                        replaceIcebergAccessPathToId(originPath, index + 1, childType, child);
+                        replaceAccessPathToFieldId(originPath, index + 1, childType, child);
                         break;
                     }
                 }

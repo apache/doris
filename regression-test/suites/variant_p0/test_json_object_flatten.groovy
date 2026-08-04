@@ -80,5 +80,5 @@ suite("regression_test_json_object_flatten", "p0") {
     sql """INSERT INTO json_object_flatten_variant_t VALUES (16, '[1, 2, {"x": 3}]')"""
     sql """INSERT INTO json_object_flatten_variant_t VALUES (17, '{"x": {"s": 1, "a": [1, 2], "o": {"k": "v"}}}')"""
 
-    qt_sql_variant """SELECT k, json_object_flatten(v) FROM json_object_flatten_variant_t ORDER BY k"""
+    qt_sql_variant """SELECT k, json_object_flatten(cast(v AS JSONB)) FROM json_object_flatten_variant_t ORDER BY k"""
 }

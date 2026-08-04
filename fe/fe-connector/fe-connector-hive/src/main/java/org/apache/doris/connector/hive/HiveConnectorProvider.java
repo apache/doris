@@ -17,11 +17,15 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.hms.HmsClientConfig;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the Hive (HMS) connector plugin.
@@ -39,5 +43,44 @@ public class HiveConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new HiveConnector(properties, context);
+    }
+
+    /**
+     * An HMS catalog has always created hive-engine tables, so {@code CREATE TABLE ... ENGINE=hive} keeps
+     * working. The name deliberately differs from {@link #getType()} and from the {@code hms} a table
+     * displays: the engine keyword and the catalog type are separate legacy vocabularies.
+     */
+    @Override
+    public Set<String> acceptedCreateTableEngineNames() {
+        return Collections.singleton("hive");
+    }
+
+    @Override
+    public boolean providesEventSource() {
+        // HiveConnector returns an HmsEventSource, and an HMS catalog must seed its event cursor even on an
+        // FE that never queries it (see MetastoreEventSyncDriver).
+        return true;
+    }
+
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        // Reject removed metastore types at CREATE/ALTER CATALOG. This runs only for a user-issued statement,
+        // never during edit-log replay, so an already-created glue catalog cannot block FE startup here; it is
+        // rejected later, at HiveConnector.createClient(). IllegalArgumentException is required: it is the only
+        // type PluginDrivenExternalCatalog.checkProperties unwraps, preserving the message verbatim.
+        String removedType = HmsClientConfig.removedMetastoreTypeError(properties);
+        if (removedType != null) {
+            throw new IllegalArgumentException(removedType);
+        }
+
+        // Restore the legacy HMSExternalCatalog.checkProperties fail-fast for the two meta-cache TTL knobs:
+        // after the hms cutover an "hms" catalog is created via this SPI provider (not HMSExternalCatalog), so
+        // the old per-property validation no longer runs and an invalid ttl (e.g. -2) was silently accepted.
+        // Legacy semantics: the value, when present, must be a long >= 0 (CACHE_TTL_DISABLE_CACHE); < 0 is
+        // rejected. checkLongProperty emits the identical "The parameter ... is wrong, value is ..." message.
+        CacheSpec.checkLongProperty(properties.get("file.meta.cache.ttl-second"),
+                0L, "file.meta.cache.ttl-second");
+        CacheSpec.checkLongProperty(properties.get("partition.cache.ttl-second"),
+                0L, "partition.cache.ttl-second");
     }
 }

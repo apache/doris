@@ -23,7 +23,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -35,8 +34,6 @@ public class InsertOverwriteManagerTest {
 
     private OlapTable table = Mockito.mock(OlapTable.class);
 
-    private HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
-
     private MTMV mtmv = Mockito.mock(MTMV.class);
 
     @Before
@@ -47,8 +44,6 @@ public class InsertOverwriteManagerTest {
         Mockito.when(db.getFullName()).thenReturn("db1");
         Mockito.when(table.getId()).thenReturn(2L);
         Mockito.when(table.getName()).thenReturn("table1");
-        Mockito.when(hmsExternalTable.getId()).thenReturn(3L);
-        Mockito.when(hmsExternalTable.getName()).thenReturn("hmsTable");
         Mockito.when(mtmv.getId()).thenReturn(4L);
         Mockito.when(mtmv.getName()).thenReturn("mtmv1");
     }
@@ -61,14 +56,6 @@ public class InsertOverwriteManagerTest {
                 () -> manager.recordRunningTableOrException(db, mtmv));
         manager.dropRunningRecord(db.getId(), mtmv.getId());
         Assertions.assertDoesNotThrow(() -> manager.recordRunningTableOrException(db, mtmv));
-    }
-
-    @Test
-    public void testHmsTableParallel() {
-        InsertOverwriteManager manager = new InsertOverwriteManager();
-        manager.recordRunningTableOrException(db, hmsExternalTable);
-        Assertions.assertDoesNotThrow(() -> manager.recordRunningTableOrException(db, hmsExternalTable));
-        manager.dropRunningRecord(db.getId(), hmsExternalTable.getId());
     }
 
     @Test

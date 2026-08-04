@@ -285,6 +285,14 @@ DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
 // the interval time(seconds) for agent report index policy to FE
 DEFINE_mInt32(report_index_policy_interval_seconds, "10");
 
+// DNS cache: throttle "use cached ip" warning to once per N failures per host.
+DEFINE_mInt32(dns_cache_log_every_n_failures, "10");
+// DNS cache: evict a hostname after this many consecutive resolution failures.
+DEFINE_mInt32(dns_cache_max_consecutive_failures, "30");
+// DNS cache: after eviction, block re-resolve attempts for this many seconds.
+// Set <= 0 to disable the negative cache (legacy behavior).
+DEFINE_mInt32(dns_cache_negative_ttl_seconds, "60");
+
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
 // INFO, WARNING, ERROR, FATAL
@@ -1550,7 +1558,38 @@ DEFINE_mInt64(s3_put_token_limit, "0");
 DEFINE_mInt64(s3_rate_limiter_log_interval, "1000");
 DEFINE_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 
-DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
+// CPU-aware S3 rate limiter. Effective GET/PUT requests per second =
+// requests_per_second_per_core * BE cpu cores, capped by the corresponding
+// requests_per_second_max. A negative value means unset: fall back to the legacy absolute
+// s3_{get,put}_token_* configs above. 0 disables request-rate limiting for that operation.
+DEFINE_mInt64(s3_get_requests_per_second_per_core, "-1");
+DEFINE_mInt64(s3_put_requests_per_second_per_core, "-1");
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
+DEFINE_mInt64(s3_get_requests_per_second_max, "0");
+DEFINE_mInt64(s3_put_requests_per_second_max, "0");
+
+// CPU-aware S3 bandwidth limiter. Effective GET/PUT bytes/s = bytes_per_second_per_core *
+// BE cpu cores, capped by the corresponding bytes_per_second_max. A non-positive value disables
+// byte-rate limiting for that operation (there is no legacy fallback for bandwidth).
+// Note: the derived per-BE bytes/s should not be set below the single IO upper bound
+// per second (s3_write_buffer_size, 5MB by default). A single IO larger than 1 second
+// of quota only reserves 1 second worth of tokens; the excess bytes are not accounted
+// (reservation clamp in S3RateLimitGuard).
+DEFINE_mInt64(s3_get_bytes_per_second_per_core, "-1");
+DEFINE_mInt64(s3_put_bytes_per_second_per_core, "-1");
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
+DEFINE_mInt64(s3_get_bytes_per_second_max, "0");
+DEFINE_mInt64(s3_put_bytes_per_second_max, "0");
+
+// Override the CPU cores used to derive the effective S3 rate limits. A non-positive value
+// means auto-detect from the cgroup cpu quota (fall back to physical cores); the control plane
+// can push a positive value via /api/update_config when resizing a serverless BE.
+DEFINE_mInt32(s3_rate_limiter_cpu_cores_override, "0");
+
+// The dir TrinoConnectorPluginLoader loads Trino's own plugins from, used verbatim. Keep the default
+// in sync with FE Config.trino_connector_plugin_dir: FE and BE load the same plugins and an operator
+// who leaves both untouched expects both to find them.
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
@@ -1614,8 +1653,8 @@ DEFINE_Validator(paimon_file_system_scheme_mappings,
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
-// http scheme in S3Client to use. E.g. http or https
-DEFINE_String(s3_client_http_scheme, "http");
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
+DEFINE_String(s3_client_http_scheme, "https");
 DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });

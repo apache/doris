@@ -17,14 +17,15 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,26 +59,11 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
-    }
-
-    @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        return planScan(session, handle, columns, filter, -1);
-    }
-
-    @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit) {
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        ConnectorTableHandle handle = request.getTableHandle();
+        List<ConnectorColumnHandle> columns = request.getColumns();
+        Optional<ConnectorExpression> filter = request.getFilter();
+        long limit = request.getLimit();
         String querySql;
         if (handle instanceof PassthroughQueryTableHandle) {
             // Query passthrough from TVF — use the raw SQL directly
@@ -148,11 +134,6 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         return Collections.singletonList(scanRange);
     }
 
-    @Override
-    public long estimateScanRangeCount(ConnectorSession session, ConnectorTableHandle handle) {
-        return 1;
-    }
-
     private String getProperty(String key, String defaultValue) {
         return catalogProperties.getOrDefault(key, defaultValue);
     }
@@ -182,7 +163,7 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
                     columns, filter, -1);
         }
         Map<String, String> props = new HashMap<>();
-        props.put("query", querySql);
+        props.put(ScanNodePropertyKeys.REMOTE_QUERY, querySql);
         return props;
     }
 }

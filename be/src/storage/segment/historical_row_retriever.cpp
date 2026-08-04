@@ -86,8 +86,6 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
     auto* tablet = static_cast<Tablet*>(_context.tablet.get());
     auto& tablet_schema = _context.tablet_schema;
 
-    DCHECK(_context.partial_update_info);
-
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_context.tablet->get_header_lock());
@@ -169,7 +167,7 @@ Status PrimaryKeyModelRowRetriever::build_after_block(Block* block, size_t row_p
     }
     return _rssid_to_rid.fill_missing_columns(
             _context, _rsid_to_rowset, *_context.tablet_schema, *block, _use_default_or_null_flag,
-            _has_default_or_nullable, cast_set<uint32_t>(row_pos), block);
+            _has_default_or_nullable, cast_set<uint32_t>(row_pos), block, &_old_delete_signs);
 }
 
 Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
@@ -193,8 +191,9 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
     // key: logical row index in current batch; value: index in old_value_block
     std::map<uint32_t, uint32_t> read_index;
     RETURN_IF_ERROR(_rssid_to_rid.read_columns_by_plan(*tablet_schema, value_cids, _rsid_to_rowset,
-                                                       old_value_block, &read_index, false,
+                                                       old_value_block, &read_index, true,
                                                        nullptr));
+    RETURN_IF_ERROR(_fill_old_delete_signs(old_value_block, read_index, num_rows));
 
     {
         auto mutable_before_columns_guard = before_block->mutate_columns_scoped();
@@ -202,8 +201,8 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
         // Fill each row in before_block.
         for (uint32_t idx = 0; idx < num_rows; ++idx) {
             auto it = read_index.find(idx);
-            if (it == read_index.end()) {
-                // No historical row, fill BEFORE with NULL.
+            if (it == read_index.end() || _old_delete_signs[idx] != 0) {
+                // No live historical row, fill BEFORE with NULL.
                 for (size_t i = 0; i < value_cids.size(); ++i) {
                     auto* nullable_column =
                             assert_cast<ColumnNullable*>(mutable_before_columns[i].get());
@@ -221,6 +220,38 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
         }
     }
     return Status::OK();
+}
+
+Status PrimaryKeyModelRowRetriever::revise_operators_by_old_delete_sign(size_t num_rows) {
+    if (_operators.empty() || _rssid_to_rid.empty()) {
+        return Status::OK();
+    }
+    DCHECK_EQ(_operators.size(), num_rows);
+
+    if (_old_delete_signs.empty()) {
+        // If no BEFORE/missing column was read, read only old delete signs here.
+        Block old_delete_sign_block;
+        std::map<uint32_t, uint32_t> read_index;
+        RETURN_IF_ERROR(_rssid_to_rid.read_columns_by_plan(
+                *_context.tablet_schema, std::vector<uint32_t> {}, _rsid_to_rowset,
+                old_delete_sign_block, &read_index, true, nullptr));
+        RETURN_IF_ERROR(_fill_old_delete_signs(old_delete_sign_block, read_index, num_rows));
+    }
+    DCHECK_EQ(_old_delete_signs.size(), num_rows);
+
+    for (size_t idx = 0; idx < num_rows; ++idx) {
+        if (_operators[idx] == ROW_BINLOG_UPDATE && _old_delete_signs[idx] != 0) {
+            _operators[idx] = ROW_BINLOG_APPEND;
+        }
+    }
+    return Status::OK();
+}
+
+Status PrimaryKeyModelRowRetriever::_fill_old_delete_signs(
+        const Block& old_value_block, const std::map<uint32_t, uint32_t>& read_index,
+        size_t num_rows) {
+    return _rssid_to_rid.fill_old_delete_signs(old_value_block, read_index, num_rows,
+                                               &_old_delete_signs);
 }
 
 std::string PrimaryKeyModelRowRetriever::_full_encode_keys(

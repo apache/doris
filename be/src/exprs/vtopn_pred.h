@@ -121,13 +121,63 @@ public:
         RETURN_IF_ERROR(_function->execute(nullptr, temp_block, arguments,
                                            num_columns_without_result, temp_block.rows()));
         result_column = std::move(temp_block.get_by_position(num_columns_without_result).column);
-        if (is_nullable() && _predicate->nulls_first()) {
-            // null values ​​are always not filtered
-            result_column = change_null_to_true(std::move(result_column));
+        if (auto mutable_result = IColumn::mutate(std::move(result_column));
+            auto* nullable = check_and_get_column<ColumnNullable>(*mutable_result)) {
+            auto& values = assert_cast<ColumnUInt8&>(*nullable->get_nested_column_ptr()).get_data();
+            const auto& null_map = nullable->get_null_map_data();
+            // Master validates execute_type() against the physical result column. Collapse SQL
+            // NULL to the filter decision here: NULLS FIRST keeps it, while NULLS LAST rejects it.
+            for (size_t row = 0; row < values.size(); ++row) {
+                values[row] = null_map[row] ? _predicate->nulls_first() : values[row];
+            }
+            result_column = nullable->get_nested_column_ptr();
+        } else {
+            result_column = std::move(mutable_result);
         }
         DCHECK_EQ(result_column->size(), count);
         return Status::OK();
     }
+
+    // Returns true only for a direct slot binding whose logical fixed-width type exactly matches
+    // `data_type`. Eligibility does not depend on whether the dynamic TopN bound has arrived: a
+    // reader may cache this answer during initialization and observe the bound in a later batch.
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override;
+
+    // Compares the contiguous non-NULL physical values with one snapshot of the current TopN bound
+    // and ANDs the result into `matches`. `value_width` must equal the logical Doris value width.
+    // When no bound is available yet, this is deliberately an all-pass operation.
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override;
+
+    // Returns true for a directly bound STRING-like or VARBINARY slot. As with the fixed-width
+    // capability, a not-yet-published bound does not force the scanner onto a materializing path.
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override;
+
+    // Compares decoder-owned immutable byte slices with the current TopN bound and ANDs each
+    // decision into `matches`; it never copies the slices into a ColumnString/ColumnVarbinary.
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override;
+
+    bool raw_predicate_result_for_null() const override {
+        // execute_column() is all-pass until publication; afterwards NULLS FIRST keeps NULL while
+        // NULLS LAST rejects it. Sample this state per fragment just like the mutable bound.
+        return _predicate != nullptr && (!_predicate->has_value() || _predicate->nulls_first());
+    }
+
+    // Dictionary capability is restricted to a direct slot and NULLS-LAST semantics. It stays
+    // enabled before the first bound so row-group setup can cache an all-pass bitmap; the scan
+    // scheduler retains a per-batch residual and defers dictionary-id filtering while NULL still
+    // matches, then safely resumes it after bound publication.
+    bool can_evaluate_dictionary_filter() const override;
+
+    // Evaluates every non-NULL entry in the bound slot dictionary against one current-bound
+    // snapshot. kNoMatch proves that no entry can pass; kMayMatch includes both a matching entry and
+    // a not-yet-published bound; kUnsupported reports an absent or incompatible dictionary slot.
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
 
     const std::string& expr_name() const override { return _expr_name; }
 

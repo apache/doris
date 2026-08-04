@@ -65,6 +65,12 @@ public:
                 NullMap* null_map, FilterMap* filter_map, size_t filter_map_index,
                 const std::unordered_set<size_t>* skipped_indices = nullptr);
 
+    Status init_nested(std::vector<level_t>* repetition_levels,
+                       std::vector<level_t>* definition_levels, size_t level_start_index,
+                       level_t repeated_parent_def_level, level_t definition_level,
+                       NullMap* null_map, FilterMap* parent_filter, size_t filter_map_index,
+                       size_t* ancestor_null_count);
+
     size_t num_values() const { return _num_values; }
     size_t num_nulls() const { return _num_nulls; }
     size_t num_filtered() const { return _num_filtered; }
@@ -99,6 +105,8 @@ public:
     }
 
 private:
+    void reset(bool has_filter);
+
     std::vector<DataReadType> _data_map;
     const std::vector<uint16_t>* _run_length_null_map = nullptr;
     bool _has_filter = false;

@@ -17,6 +17,7 @@
 
 #include <gmock/gmock.h>
 
+#include "storage/index/index_writer.h"
 #include "storage/index/inverted/compaction/util/index_compaction_utils.cpp"
 #include "storage/utils.h"
 

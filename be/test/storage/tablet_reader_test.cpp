@@ -128,4 +128,57 @@ TEST_F(TabletReaderTest, remove_delete_columns_keeps_unrelated_paths) {
     EXPECT_EQ(size_t(2), access_paths.size());
 }
 
+// Contract test for the binlog/snapshot incremental-read TSO range forwarding added to
+// TabletReader::_capture_rs_readers (tablet_reader.cpp:184-186):
+//   _reader_context.start_tso = read_params.start_tso;
+//   _reader_context.end_tso   = read_params.end_tso;
+// Exercising _capture_rs_readers end to end would require a fully constructed Tablet + rowset
+// readers (it unconditionally dereferences _tablet), which is far too heavy and brittle for a
+// unit test. Instead we pin down the field contract on both sides: both must be
+// std::optional<int64_t> defaulting to nullopt, and the forwarding must preserve the optional
+// state (both set / only one / none). This guards against the fields being dropped or their
+// type changed, which would silently break the forwarding.
+TEST_F(TabletReaderTest, forward_tso_range_field_contract) {
+    // Both sides default to nullopt.
+    TabletReader::ReaderParams params;
+    EXPECT_FALSE(params.start_tso.has_value());
+    EXPECT_FALSE(params.end_tso.has_value());
+
+    RowsetReaderContext default_ctx;
+    EXPECT_FALSE(default_ctx.start_tso.has_value());
+    EXPECT_FALSE(default_ctx.end_tso.has_value());
+
+    // Equivalent of the forwarding assignments; the optional state must be preserved verbatim.
+    auto forward = [](const TabletReader::ReaderParams& p) {
+        RowsetReaderContext ctx;
+        ctx.start_tso = p.start_tso;
+        ctx.end_tso = p.end_tso;
+        return ctx;
+    };
+
+    // both set
+    params.start_tso = 100;
+    params.end_tso = 200;
+    RowsetReaderContext ctx = forward(params);
+    ASSERT_TRUE(ctx.start_tso.has_value());
+    ASSERT_TRUE(ctx.end_tso.has_value());
+    EXPECT_EQ(*ctx.start_tso, 100);
+    EXPECT_EQ(*ctx.end_tso, 200);
+
+    // only start set
+    params.start_tso = 100;
+    params.end_tso = std::nullopt;
+    ctx = forward(params);
+    ASSERT_TRUE(ctx.start_tso.has_value());
+    EXPECT_EQ(*ctx.start_tso, 100);
+    EXPECT_FALSE(ctx.end_tso.has_value());
+
+    // none set
+    params.start_tso = std::nullopt;
+    params.end_tso = std::nullopt;
+    ctx = forward(params);
+    EXPECT_FALSE(ctx.start_tso.has_value());
+    EXPECT_FALSE(ctx.end_tso.has_value());
+}
+
 } // namespace doris

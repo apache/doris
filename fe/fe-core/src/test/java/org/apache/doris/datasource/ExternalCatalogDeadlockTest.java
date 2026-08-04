@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.datasource.InitCatalogLog.Type;
+import org.apache.doris.datasource.log.InitCatalogLog.Type;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;

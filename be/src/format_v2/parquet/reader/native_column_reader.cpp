@@ -27,6 +27,8 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -35,6 +37,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -317,19 +321,19 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     return Status::OK();
 }
 
-Status NativeColumnReader::read_with_fixed_width_filter(int64_t rows, const uint8_t* filter_data,
-                                                        bool filter_all,
-                                                        const VExprSPtrs& conjuncts, int column_id,
-                                                        IColumn* projected_column,
-                                                        IColumn::Filter* row_filter,
-                                                        int64_t* rows_read, bool* used_filter) {
+Status NativeColumnReader::read_with_fixed_width_filter(
+        int64_t rows, const uint8_t* filter_data, bool filter_all, const VExprSPtrs& conjuncts,
+        int column_id, IColumn* projected_column, IColumn::Filter* row_filter, int64_t* rows_read,
+        bool* used_filter, DirectPredicateExecutionKind* execution_kind) {
     DORIS_CHECK(rows >= 0);
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(rows_read != nullptr);
     DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK(execution_kind != nullptr);
     row_filter->clear();
     *rows_read = 0;
     *used_filter = false;
+    *execution_kind = DirectPredicateExecutionKind::NONE;
     if (rows == 0) {
         return Status::OK();
     }
@@ -343,9 +347,10 @@ Status NativeColumnReader::read_with_fixed_width_filter(int64_t rows, const uint
         size_t loop_rows = 0;
         IColumn::Filter loop_filter;
         bool loop_used = false;
+        DirectPredicateExecutionKind loop_kind = DirectPredicateExecutionKind::NONE;
         RETURN_IF_ERROR(_native_reader->read_fixed_width_filter(
                 conjuncts, column_id, filter, static_cast<size_t>(rows - *rows_read),
-                projected_column, &loop_filter, &loop_rows, &eof, &loop_used));
+                projected_column, &loop_filter, &loop_rows, &eof, &loop_used, &loop_kind));
         if (!loop_used) {
             if (UNLIKELY(*rows_read != 0)) {
                 // Footer encoding lists are untrusted. Once a prior page advanced the cursor, a
@@ -358,6 +363,13 @@ Status NativeColumnReader::read_with_fixed_width_filter(int64_t rows, const uint
             }
             row_filter->clear();
             return Status::OK();
+        }
+        if (*execution_kind == DirectPredicateExecutionKind::NONE) {
+            *execution_kind = loop_kind;
+        } else if (loop_kind != DirectPredicateExecutionKind::DEFINITION_LEVEL) {
+            DORIS_CHECK(*execution_kind == DirectPredicateExecutionKind::DEFINITION_LEVEL ||
+                        *execution_kind == loop_kind);
+            *execution_kind = loop_kind;
         }
         row_filter->insert(row_filter->end(), loop_filter.begin(), loop_filter.end());
         if (loop_rows == 0 && !eof) {
@@ -720,17 +732,18 @@ Status NativeColumnReader::select_with_dictionary_filter(
 Status NativeColumnReader::select_with_fixed_width_filter(
         const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
         const VExprSPtrs& conjuncts, int column_id, IColumn* projected_column,
-        IColumn::Filter* row_filter, bool* used_filter) {
+        IColumn::Filter* row_filter, bool* used_filter,
+        DirectPredicateExecutionKind* execution_kind) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK(execution_kind != nullptr);
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
-    RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
     const uint8_t* filter_data = nullptr;
     RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
     int64_t rows_read = 0;
     RETURN_IF_ERROR(read_with_fixed_width_filter(batch_rows, filter_data, selected_rows == 0,
                                                  conjuncts, column_id, projected_column, row_filter,
-                                                 &rows_read, used_filter));
+                                                 &rows_read, used_filter, execution_kind));
     if (!*used_filter) {
         return Status::OK();
     }
@@ -744,6 +757,86 @@ Status NativeColumnReader::select_with_fixed_width_filter(
     advance_selected_span(rows_read);
     update_reader_read_rows(selected_rows);
     update_reader_skip_rows(batch_rows - selected_rows);
+    return Status::OK();
+}
+
+Status NativeColumnReader::select_with_runtime_filter(
+        const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
+        const VExprContextSPtrs& conjuncts, int column_id, MutableColumnPtr* projected_column,
+        IColumn::Filter* row_filter, bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    RETURN_IF_ERROR(validate_selected_span(batch_rows));
+    row_filter->clear();
+    *used_filter = false;
+    if (_nested || conjuncts.empty() || !std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return conjunct != nullptr && conjunct->root() != nullptr &&
+                   conjunct->root()->is_rf_wrapper() &&
+                   conjunct->root()->can_execute_on_reader_values(_type, column_id);
+        })) {
+        return Status::OK();
+    }
+
+    const uint8_t* selection_filter = nullptr;
+    RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &selection_filter));
+    // The scan contract can synthesize NULL on conversion even for a required Parquet field.
+    // Always retain that effective nullability in the RF temporary instead of turning a
+    // permissive conversion failure into a DataQualityError.
+    const auto value_type = make_nullable(_type);
+    auto values = value_type->create_column();
+    int64_t rows_read = 0;
+    RETURN_IF_ERROR(read_with_filter(batch_rows, selection_filter, selected_rows == 0, values,
+                                     value_type, false, &rows_read));
+    DORIS_CHECK_EQ(rows_read, batch_rows);
+    DORIS_CHECK_EQ(values->size(), selected_rows);
+
+    row_filter->resize_fill(selected_rows, 1);
+    {
+        Block value_block;
+        const auto dummy_type = std::make_shared<DataTypeUInt8>();
+        for (int position = 0; position < column_id; ++position) {
+            value_block.insert({ColumnConst::create(ColumnUInt8::create(1, 0), selected_rows),
+                                dummy_type, "runtime_filter_dummy"});
+        }
+        value_block.insert({values->get_ptr(), value_type, "runtime_filter_value"});
+        for (const auto& conjunct : conjuncts) {
+            bool can_filter_all = false;
+            // Once eligibility is established, adaptive RF sampling may make a later batch a
+            // no-op but must not send this forward-only reader back to scheduler materialization.
+            RETURN_IF_ERROR(conjunct->root()->execute_filter(conjunct.get(), &value_block,
+                                                             row_filter->data(), selected_rows,
+                                                             false, &can_filter_all));
+            if (can_filter_all) {
+                row_filter->clear();
+                row_filter->resize_fill(selected_rows, 0);
+                break;
+            }
+        }
+    }
+
+    if (projected_column != nullptr) {
+        const bool target_is_nullable = is_column_nullable(**projected_column);
+        auto filtered_values = IColumn::mutate(values->filter(*row_filter, -1));
+        // A required file field may back a nullable table slot after schema evolution. Preserve
+        // the target wrapper even though reader-local RF evaluation uses the physical file type.
+        if (target_is_nullable && !is_column_nullable(*filtered_values)) {
+            auto null_map = ColumnUInt8::create(filtered_values->size(), 0);
+            filtered_values =
+                    ColumnNullable::create(std::move(filtered_values), std::move(null_map));
+        } else if (!target_is_nullable && is_column_nullable(*filtered_values)) {
+            const auto& nullable = assert_cast<const ColumnNullable&>(*filtered_values);
+            DORIS_CHECK(!nullable.has_null());
+            filtered_values = IColumn::mutate(nullable.get_nested_column_ptr());
+        }
+        *projected_column = std::move(filtered_values);
+    }
+    advance_selected_span(rows_read);
+    if (_profile.reader_select_rows != nullptr) {
+        COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
+    }
+    update_reader_read_rows(selected_rows);
+    update_reader_skip_rows(batch_rows - selected_rows);
+    *used_filter = true;
     return Status::OK();
 }
 

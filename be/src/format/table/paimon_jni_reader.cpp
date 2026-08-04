@@ -27,6 +27,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
+#include "util/uid_util.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -54,10 +55,14 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                   [&]() {
                       std::vector<std::string> column_names;
                       std::vector<std::string> column_types;
+                      std::vector<std::string> encoded_column_types;
                       for (const auto& desc : file_slot_descs) {
                           column_names.emplace_back(desc->col_name());
                           column_types.emplace_back(
                                   JniDataBridge::get_jni_type_with_different_string(desc->type()));
+                          encoded_column_types.emplace_back(
+                                  JniDataBridge::get_jni_type_with_encoded_struct_fields(
+                                          desc->type()));
                       }
                       const auto& paimon_params = range.table_format_params.paimon_params;
                       std::map<String, String> params;
@@ -70,10 +75,21 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                       }
                       params["required_fields"] = join(column_names, ",");
                       params["columns_types"] = join(column_types, "#");
+                      // V1 and V2 must publish the same safe schema protocol because session
+                      // routing can select either producer for the same Paimon scanner.
+                      params["required_fields_base64"] =
+                              JniDataBridge::encode_schema_values(column_names);
+                      params["columns_types_base64"] =
+                              JniDataBridge::encode_schema_values(encoded_column_types);
                       params["time_zone"] = state->timezone();
                       if (range_params->__isset.serialized_table) {
                           params["serialized_table"] = range_params->serialized_table;
                       }
+                      params["serialized_table_cache_key"] =
+                              range_params->__isset.serialized_table_cache_key &&
+                                              !range_params->serialized_table_cache_key.empty()
+                                      ? range_params->serialized_table_cache_key
+                                      : generate_uuid_string();
                       if (range_params->__isset.paimon_options &&
                           !range_params->paimon_options.empty()) {
                           for (const auto& kv : range_params->paimon_options) {

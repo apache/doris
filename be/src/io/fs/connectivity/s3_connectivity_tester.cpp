@@ -24,6 +24,10 @@ namespace doris::io {
 
 Status S3ConnectivityTester::test(const std::map<std::string, std::string>& properties) {
     auto it = properties.find(TEST_LOCATION);
+    if (it == properties.end()) {
+        return Status::InvalidArgument("Missing '{}' property in S3 connectivity test request",
+                                       TEST_LOCATION);
+    }
     S3URI s3_uri(it->second);
     RETURN_IF_ERROR(s3_uri.parse());
 

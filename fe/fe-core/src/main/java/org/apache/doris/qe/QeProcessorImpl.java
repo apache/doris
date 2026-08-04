@@ -57,6 +57,7 @@ public final class QeProcessorImpl implements QeProcessor {
     private Map<TUniqueId, Integer> queryToInstancesNum;
     private Map<String, AtomicInteger> userToInstancesCount;
     private ExecutorService writeProfileExecutor;
+    private final QueryFinishCallbackRegistry queryFinishCallbackRegistry = new QueryFinishCallbackRegistry();
 
     public static final QeProcessor INSTANCE;
 
@@ -206,8 +207,14 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         }
 
-        // commit hive tranaction if needed
-        Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
+        // Run connector-registered query-finish callbacks (e.g. committing a hive
+        // read transaction). Connector-agnostic: fe-core names no source here.
+        queryFinishCallbackRegistry.runAndClear(DebugUtil.printId(queryId));
+    }
+
+    @Override
+    public void registerQueryFinishCallback(String queryId, Runnable callback) {
+        queryFinishCallbackRegistry.register(queryId, callback);
     }
 
     @Override

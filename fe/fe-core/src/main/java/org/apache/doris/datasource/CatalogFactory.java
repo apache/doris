@@ -23,14 +23,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.DefaultConnectorContext;
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalogFactory;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
 import com.google.common.base.Strings;
@@ -47,10 +44,19 @@ import java.util.Set;
 public class CatalogFactory {
     private static final Logger LOG = LogManager.getLogger(CatalogFactory.class);
 
-    // Only these catalog types are routed through the SPI connector path.
-    // Other types (hms, iceberg, paimon, trino-connector, hudi, max_compute) still use
-    // their built-in ExternalCatalog implementations until their ConnectorProviders are fully ready.
-    private static final Set<String> SPI_READY_TYPES = ImmutableSet.of("jdbc", "es");
+    // The catalog types the engine implements itself, i.e. the ones served by the switch in createCatalog below
+    // rather than by a connector plugin. These names are RESERVED: ConnectorPluginManager refuses a provider
+    // that claims one of them, so a plugin can never shadow an engine built-in and the order in which the two
+    // are consulted cannot change behaviour.
+    // Keep in sync with that switch. A name listed here with no case there would be reported as "no connector
+    // plugin claimed", which CatalogFactoryPluginRoutingTest catches.
+    // Package-visible so CatalogFactoryPluginRoutingTest can assert each name is really served by that switch.
+    static final Set<String> BUILTIN_CATALOG_TYPES = ImmutableSet.of("lakesoul", "doris", "test");
+
+    /** Returns true if the engine implements this catalog type itself, i.e. no connector plugin may claim it. */
+    public static boolean isBuiltinCatalogType(String catalogType) {
+        return catalogType != null && BUILTIN_CATALOG_TYPES.contains(catalogType.toLowerCase());
+    }
 
     /**
      * create the catalog instance from catalog log.
@@ -100,58 +106,40 @@ public class CatalogFactory {
         // after FE restart would lose the type and initLocalObjectsImpl() would fail.
         props.putIfAbsent(CatalogMgr.CATALOG_TYPE_PROP, catalogType);
 
-        // Try SPI connector plugin path first, but only for whitelisted types.
-        // Returns null if no ConnectorProvider matches the catalog type.
-        Connector spiConnector = null;
-        if (SPI_READY_TYPES.contains(catalogType)) {
-            spiConnector = ConnectorFactory.createConnector(
+        // Ask the connector plugins first. Any registered provider that claims this type and can stand on its
+        // own as a catalog wins; the engine keeps no list of accepted types, so installing a plugin is all it
+        // takes to make its type usable here. Returns null when nothing claims it — including for a
+        // sibling-only connector, whose type must never become a catalog (see ConnectorProvider
+        // .isStandaloneCatalogType).
+        Connector spiConnector;
+        try {
+            spiConnector = ConnectorFactory.createStandaloneCatalogConnector(
                     catalogType, props, new DefaultConnectorContext(name, catalogId));
+        } catch (RuntimeException | Error e) {
+            if (!isReplay) {
+                // Creating a catalog interactively must still fail loud: the user is waiting for the error.
+                throw e;
+            }
+            // On replay we must not propagate. The edit-log replay fallback turns any exception from a
+            // replayed operation into System.exit(-1), so a connector constructor that rejects a property an
+            // older FE stored without validating — or a half-installed plugin throwing NoClassDefFoundError —
+            // would keep the whole FE from starting instead of making one catalog unusable. Fall through to
+            // the degraded registration below; the failure resurfaces at first access as a query error.
+            // (The image path never had this problem: it builds the connector lazily.)
+            LOG.warn("Connector for catalog type '{}' failed to build while replaying catalog '{}'. "
+                    + "Registering it in degraded mode; accessing it will fail until the cause is fixed.",
+                    catalogType, name, e);
+            spiConnector = null;
         }
         if (spiConnector != null) {
             LOG.info("Created plugin-driven catalog '{}' via SPI connector for type '{}'",
                     name, catalogType);
             catalog = new PluginDrivenExternalCatalog(
                     catalogId, name, resource, props, comment, spiConnector);
-        } else if (SPI_READY_TYPES.contains(catalogType)) {
-            // SPI-only type but no connector provider loaded.
-            if (isReplay) {
-                // During replay we must not throw — FE startup would be blocked.
-                // Register a degraded catalog; it will throw at first access with a
-                // clear error message from initLocalObjectsImpl().
-                LOG.warn("No SPI connector plugin loaded for type '{}'. Catalog '{}' will be "
-                        + "registered in degraded mode until the plugin is available.",
-                        catalogType, name);
-                catalog = new PluginDrivenExternalCatalog(
-                        catalogId, name, resource, props, comment, null);
-            } else {
-                throw new DdlException("No connector plugin loaded for catalog type '"
-                        + catalogType + "'. Ensure the connector plugin is installed in the "
-                        + "plugin directory configured by connector_plugin_root.");
-            }
-        }
-
-        // Fallback to built-in catalog types if no SPI connector matched.
-        if (catalog == null) {
+        } else {
+            // No plugin claimed it: try the catalog types the engine implements itself. Keep the set of names
+            // in BUILTIN_CATALOG_TYPES above in sync with the cases here.
             switch (catalogType) {
-                case "hms":
-                    catalog = new HMSExternalCatalog(catalogId, name, resource, props, comment);
-                    break;
-                case "iceberg":
-                    catalog = IcebergExternalCatalogFactory.createCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
-                case "paimon":
-                    catalog = PaimonExternalCatalogFactory.createCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
-                case "trino-connector":
-                    catalog = TrinoConnectorExternalCatalogFactory.createCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
-                case "max_compute":
-                    catalog = new MaxComputeExternalCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
                 case "lakesoul":
                     throw new DdlException("Lakesoul catalog is no longer supported");
                 case "doris":
@@ -166,7 +154,24 @@ public class CatalogFactory {
                             catalogId, name, resource, props, comment);
                     break;
                 default:
-                    throw new DdlException("Unknown catalog type: " + catalogType);
+                    // Neither a connector plugin nor the engine knows this type.
+                    if (isReplay) {
+                        // During replay we must not throw: the edit-log replay fallback turns an exception here
+                        // into System.exit(-1), so a missing plugin would keep the whole FE from starting
+                        // instead of just making one catalog unusable. Register a degraded catalog; it throws
+                        // at first access with a clear message from initLocalObjectsImpl().
+                        LOG.warn("No connector plugin claimed catalog type '{}'. Catalog '{}' will be "
+                                + "registered in degraded mode until the plugin is available.",
+                                catalogType, name);
+                        catalog = new PluginDrivenExternalCatalog(
+                                catalogId, name, resource, props, comment, null);
+                    } else {
+                        throw new DdlException("No connector plugin claimed catalog type '" + catalogType
+                                + "'. Installed connector types: " + ConnectorFactory.getStandaloneCatalogTypes()
+                                + ". Ensure the connector plugin is installed in the plugin directory "
+                                + "configured by connector_plugin_root.");
+                    }
+                    break;
             }
         }
 

@@ -82,6 +82,8 @@ public:
     Status build_before_block(Block* before_block, const std::vector<uint32_t>& value_cids,
                               size_t /*row_pos*/, size_t num_rows) override;
 
+    Status revise_operators_by_old_delete_sign(size_t num_rows);
+
     void clear() override {
         _key_columns.clear();
         _seq_column = nullptr;
@@ -90,11 +92,15 @@ public:
         _rssid_to_rid.clear();
         _rsid_to_rowset.clear();
         _operators.clear();
+        _old_delete_signs.clear();
     }
 
     std::vector<int64_t>& get_operators() override { return _operators; };
 
 private:
+    Status _fill_old_delete_signs(const Block& old_value_block,
+                                  const std::map<uint32_t, uint32_t>& read_index, size_t num_rows);
+
     void _maybe_invalid_row_cache(const std::string& key);
 
     // used for unique-key with merge on write and segment min_max key
@@ -128,6 +134,8 @@ private:
 
     // cache operator for fill_binlog_columns
     std::vector<int64_t> _operators;
+    // Aligned by row position in the current append batch.
+    std::vector<signed char> _old_delete_signs;
 };
 
 } // namespace segment_v2

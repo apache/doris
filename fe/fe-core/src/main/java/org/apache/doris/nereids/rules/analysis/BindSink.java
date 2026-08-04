@@ -33,17 +33,15 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveUtil;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -51,9 +49,6 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
-import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -84,9 +79,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -108,15 +100,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.iceberg.PartitionField;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -162,12 +152,6 @@ public class BindSink implements AnalysisRuleFactory {
                             return fileSink.withOutputExprs(output);
                         })
                 ),
-                // TODO: bind hive target table
-                RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
-                RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
-                    unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
-                RuleType.BINDING_INSERT_MAX_COMPUTE_TABLE.build(
-                    unboundMaxComputeTableSink().thenApply(this::bindMaxComputeTableSink)),
                 RuleType.BINDING_INSERT_CONNECTOR_TABLE.build(
                     unboundConnectorTableSink().thenApply(this::bindConnectorTableSink)),
                 RuleType.BINDING_INSERT_DICTIONARY_TABLE
@@ -389,7 +373,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> materializedViewColumn = Lists.newArrayList();
         List<Column> shadowColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
-        for (Column column : boundSink.getTargetTable().getFullSchema()) {
+        for (Column column : sinkTargetFullSchema(boundSink.getTargetTable())) {
             if (column.isGeneratedColumn()) {
                 generatedColumns.add(column);
                 continue;
@@ -667,262 +651,134 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(), Optional.empty(), projectWithCast);
     }
 
-    private Plan bindHiveTableSink(MatchingContext<UnboundHiveTableSink<Plan>> ctx) {
-        UnboundHiveTableSink<?> sink = ctx.root;
-        Pair<HMSExternalDatabase, HMSExternalTable> pair = bind(ctx.cascadesContext, sink);
-        HMSExternalDatabase database = pair.first;
-        HMSExternalTable table = pair.second;
-        LogicalPlan child = ((LogicalPlan) sink.child());
-
-        if (!sink.getPartitions().isEmpty()) {
-            throw new AnalysisException("Not support insert with partition spec in hive catalog.");
+    /**
+     * Returns the schema of a write target without inheriting a snapshot pinned by a source relation.
+     *
+     * <p>An INSERT may read an older version of the same connector table. The no-arg external-table schema
+     * lookup consults that statement-level ambient pin, but a sink is not that source reference and must bind
+     * against the latest write schema. Non-connector tables retain their existing lookup.</p>
+     */
+    private static List<Column> sinkTargetFullSchema(TableIf table) {
+        if (table instanceof PluginDrivenExternalTable) {
+            return ((PluginDrivenExternalTable) table).getFullSchema(Optional.empty());
         }
-
-        // Fast-fail: if the table-level SD already declares an LZO InputFormat, reject immediately
-        // without entering the expensive partition-lookup path in bindDataSink().
-        // Note: this is a best-effort early check.  The definitive LZO guard lives in
-        // BaseExternalTableDataSink.getTFileFormatType(), which is called for both the table-level
-        // SD and every existing partition SD — covering the case where the table SD is plain text
-        // but individual partitions override it with an LZO InputFormat.
-        String inputFormat = table.getRemoteTable().getSd().getInputFormat();
-        if (HiveUtil.isLzoInputFormat(inputFormat)) {
-            throw new AnalysisException("INSERT INTO is not supported for LZO Hive tables "
-                    + "(input format: " + inputFormat + "). LZO tables are read-only in Doris.");
-        }
-
-        List<Column> bindColumns;
-        if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
-        } else {
-            bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
-                if (column == null) {
-                    throw new AnalysisException(String.format("column %s is not found in table %s",
-                            cn, table.getName()));
-                }
-                return column;
-            }).collect(ImmutableList.toImmutableList());
-        }
-        LogicalHiveTableSink<?> boundSink = new LogicalHiveTableSink<>(
-                database,
-                table,
-                bindColumns,
-                child.getOutput().stream()
-                    .map(NamedExpression.class::cast)
-                    .collect(ImmutableList.toImmutableList()),
-                sink.getDMLCommandType(),
-                Optional.empty(),
-                Optional.empty(),
-                child);
-        // we need to insert all the columns of the target table
-        if (boundSink.getCols().size() != child.getOutput().size()) {
-            throw new AnalysisException("insert into cols should be corresponding to the query output");
-        }
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
-        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+        return table.getFullSchema();
     }
 
-    private Plan bindIcebergTableSink(MatchingContext<UnboundIcebergTableSink<Plan>> ctx) {
-        UnboundIcebergTableSink<?> sink = ctx.root;
-        Pair<IcebergExternalDatabase, IcebergExternalTable> pair = bind(ctx.cascadesContext, sink);
-        IcebergExternalDatabase database = pair.first;
-        IcebergExternalTable table = pair.second;
-        LogicalPlan child = ((LogicalPlan) sink.child());
-
-        // Get static partition columns if present
-        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
-        Set<String> staticPartitionColNames = staticPartitions != null
-                ? staticPartitions.keySet()
-                : Sets.newHashSet();
-
-        // Validate static partition if present
-        if (sink.hasStaticPartition()) {
-            validateStaticPartition(sink, table);
-        }
-
-        // Build bindColumns: exclude static partition columns from the columns that
-        // need to come from SELECT
-        // Because static partition column values come from PARTITION clause, not from
-        // SELECT
-        List<Column> bindColumns;
-        if (sink.getColNames().isEmpty()) {
-            // When no column names specified, include all non-static-partition columns
-            if (sink.isRewrite()) {
-                bindColumns = table.getBaseSchema(true).stream()
-                        .filter(col -> !staticPartitionColNames.contains(col.getName()))
-                        .filter(col -> col.isVisible() || IcebergUtils.isIcebergRowLineageColumn(col))
-                        .collect(ImmutableList.toImmutableList());
-            } else {
-                bindColumns = table.getBaseSchema(true).stream()
-                        .filter(col -> !staticPartitionColNames.contains(col.getName()))
-                        .filter(Column::isVisible)
-                        .collect(ImmutableList.toImmutableList());
-            }
-        } else {
-            bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
-                if (column == null) {
-                    throw new AnalysisException(String.format("column %s is not found in table %s",
-                            cn, table.getName()));
-                }
-                if (IcebergUtils.isIcebergRowLineageColumn(column)) {
-                    throw new AnalysisException(String.format(
-                            "Cannot specify row lineage column '%s' in INSERT statement", cn));
-                }
-                return column;
-            }).collect(ImmutableList.toImmutableList());
-        }
-
-        LogicalIcebergTableSink<?> boundSink = new LogicalIcebergTableSink<>(
-                database,
-                table,
-                bindColumns,
-                child.getOutput().stream()
-                        .map(NamedExpression.class::cast)
-                        .collect(ImmutableList.toImmutableList()),
-                sink.getDMLCommandType(),
-                Optional.empty(),
-                Optional.empty(),
-                child);
-
-        // Check column count: SELECT columns should match bindColumns (excluding static
-        // partition columns)
-        if (boundSink.getCols().size() != child.getOutput().size()) {
-            throw new AnalysisException("insert into cols should be corresponding to the query output. "
-                    + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
-        }
-
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
-
-        // For static partition columns, add constant expressions from PARTITION clause
-        // This ensures partition column values are written to the data file
-        if (!staticPartitionColNames.isEmpty()) {
-            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
-                String colName = entry.getKey();
-                Expression valueExpr = entry.getValue();
-                Column column = table.getColumn(colName);
-                if (column != null) {
-                    // Cast the literal to the correct column type
-                    Expression castExpr = TypeCoercionUtils.castIfNotSameType(
-                            valueExpr, DataType.fromCatalogType(column.getType()));
-                    columnToOutput.put(colName, new Alias(castExpr, colName));
-                }
-            }
-        }
-
-        List<Column> insertSchema = table.getFullSchema();
-        if (!sink.isRewrite()) {
-            insertSchema = insertSchema.stream()
-                    .filter(Column::isVisible)
-                    .collect(Collectors.toList());
-        }
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(insertSchema, child, columnToOutput);
-        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+    private static Column connectorSinkTargetColumn(PluginDrivenExternalTable table, String name) {
+        return sinkTargetFullSchema(table).stream()
+                .filter(column -> name.equalsIgnoreCase(column.getName()))
+                .findFirst()
+                .orElse(null);
     }
 
     /**
-     * Validate static partition specification for Iceberg table
+     * Connector analogue of the retired legacy iceberg static-partition validation: validates a
+     * flipped-connector table's
+     * static-partition spec through the neutral {@code ConnectorMetadata#validateStaticPartitionColumns} SPI, so
+     * the partition-spec knowledge (unknown column / non-identity transform / unpartitioned) and its messages
+     * stay in the connector (iceberg). A connector {@link DorisConnectorException} is surfaced as the
+     * analysis-time {@link AnalysisException} the legacy native path threw, preserving the user-facing message
+     * and the exception type. The literal-value check is connector-agnostic and stays here, where the Nereids
+     * expression is available. Plumbing mirrors {@code IcebergRowLevelDmlTransform.checkPluginMode}.
      */
-    private void validateStaticPartition(UnboundIcebergTableSink<?> sink, IcebergExternalTable table) {
-        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+    private void checkConnectorStaticPartitions(PluginDrivenExternalTable table,
+            Map<String, Expression> staticPartitions, Set<String> staticPartitionColNames) {
         if (staticPartitions == null || staticPartitions.isEmpty()) {
             return;
         }
-
-        Table icebergTable = table.getIcebergTable();
-        PartitionSpec partitionSpec = icebergTable.spec();
-
-        // Check if table is partitioned
-        if (!partitionSpec.isPartitioned()) {
-            throw new AnalysisException(
-                    String.format("Table %s is not partitioned, cannot use static partition syntax", table.getName()));
+        if (!(table.getCatalog() instanceof PluginDrivenExternalCatalog)) {
+            return;
         }
-
-        // Get partition field names
-        Map<String, PartitionField> partitionFieldMap = Maps.newHashMap();
-        for (PartitionField field : partitionSpec.fields()) {
-            String fieldName = field.name();
-            partitionFieldMap.put(fieldName, field);
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
+        ConnectorTableHandle handle = metadata.getTableHandle(
+                        session, table.getRemoteDbName(), table.getRemoteName())
+                .orElseThrow(() -> new AnalysisException("Table not found: "
+                        + table.getRemoteDbName() + "." + table.getRemoteName()
+                        + " in catalog " + catalog.getName()));
+        try {
+            metadata.validateStaticPartitionColumns(session, handle, new ArrayList<>(staticPartitionColNames));
+        } catch (DorisConnectorException e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
-
-        // Validate each static partition column
+        // Partition values must be literals (mirrors the retired legacy iceberg literal check; connector-agnostic).
         for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
-            String partitionColName = entry.getKey();
-            Expression partitionValue = entry.getValue();
-
-            // 1. Check if partition column exists
-            if (!partitionFieldMap.containsKey(partitionColName)) {
-                throw new AnalysisException(
-                        String.format("Unknown partition column '%s' in table '%s'. Available partition columns: %s",
-                                partitionColName, table.getName(), partitionFieldMap.keySet()));
-            }
-
-            // 2. Check if it's an identity partition.
-            // Static partition overwrite is only supported for identity partitions.
-            PartitionField field = partitionFieldMap.get(partitionColName);
-            if (!field.transform().isIdentity()) {
-                throw new AnalysisException(
-                        String.format("Cannot use static partition syntax for non-identity partition field '%s'"
-                                + " (transform: %s).", partitionColName, field.transform().toString()));
-            }
-
-            // 3. Validate partition value type must be a literal
-            if (!(partitionValue instanceof Literal)) {
-                throw new AnalysisException(
-                        String.format("Partition value for column '%s' must be a literal, but got: %s",
-                                partitionColName, partitionValue));
+            if (!(entry.getValue() instanceof Literal)) {
+                throw new AnalysisException(String.format(
+                        "Partition value for column '%s' must be a literal, but got: %s",
+                        entry.getKey(), entry.getValue()));
             }
         }
     }
 
-    private Plan bindMaxComputeTableSink(MatchingContext<UnboundMaxComputeTableSink<Plan>> ctx) {
-        UnboundMaxComputeTableSink<?> sink = ctx.root;
-        Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> pair = bind(ctx.cascadesContext, sink);
-        MaxComputeExternalDatabase database = pair.first;
-        MaxComputeExternalTable table = pair.second;
-        LogicalPlan child = ((LogicalPlan) sink.child());
-
-        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
-        Set<String> staticPartitionColNames = staticPartitions != null
-                ? staticPartitions.keySet()
-                : Sets.newHashSet();
-
-        List<Column> bindColumns;
-        if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream()
-                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
-                    .collect(ImmutableList.toImmutableList());
-        } else {
-            bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
-                if (column == null) {
-                    throw new AnalysisException(String.format("column %s is not found in table %s",
-                            cn, table.getName()));
-                }
-                return column;
-            }).collect(ImmutableList.toImmutableList());
+    /**
+     * Connector analogue of the legacy hive partition-spec reject (retired legacy {@code bindHiveTableSink}):
+     * rejects the dynamic partition-NAME list form ({@code INSERT ... PARTITION(p1, p2)}) through the neutral
+     * {@code ConnectorMetadata#validateWritePartitionNames} SPI, so the rejection and its message stay in the
+     * connector (hive rejects, iceberg accepts). A connector {@link DorisConnectorException} is surfaced as the
+     * analysis-time {@link AnalysisException} the legacy native path threw, preserving the message and exception
+     * type. The handle round-trip + SPI call happen only when the list is non-empty, so a plain {@code INSERT ...
+     * SELECT} (empty list) is byte-unchanged for every live connector. Mirrors {@link #checkConnectorStaticPartitions}.
+     */
+    private void checkConnectorWritePartitionNames(PluginDrivenExternalTable table, List<String> partitionNames) {
+        if (partitionNames == null || partitionNames.isEmpty()) {
+            return;
         }
-        LogicalMaxComputeTableSink<?> boundSink = new LogicalMaxComputeTableSink<>(
-                database,
-                table,
-                bindColumns,
-                child.getOutput().stream()
-                        .map(NamedExpression.class::cast)
-                        .collect(ImmutableList.toImmutableList()),
-                sink.getDMLCommandType(),
-                Optional.empty(),
-                Optional.empty(),
-                child);
-        if (boundSink.getCols().size() != child.getOutput().size()) {
-            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        if (!(table.getCatalog() instanceof PluginDrivenExternalCatalog)) {
+            return;
         }
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
-        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
+        ConnectorTableHandle handle = metadata.getTableHandle(
+                        session, table.getRemoteDbName(), table.getRemoteName())
+                .orElseThrow(() -> new AnalysisException("Table not found: "
+                        + table.getRemoteDbName() + "." + table.getRemoteName()
+                        + " in catalog " + catalog.getName()));
+        try {
+            metadata.validateWritePartitionNames(session, handle, partitionNames);
+        } catch (DorisConnectorException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Resolves the user-typed static-partition column names ({@code PARTITION(TS_DATE='x')}) to their canonical
+     * schema names ({@code ts_date}), and rejects a column named twice.
+     *
+     * <p>Resolution goes through {@link org.apache.doris.datasource.ExternalTable#getColumn}, which already
+     * matches with {@code equalsIgnoreCase} — the same lookup the two sibling statements in
+     * {@link #bindConnectorTableSink} use (the materialize block and the explicit-column-list bind). Only the
+     * exclusion filter in {@link #selectConnectorSinkBindColumns} compared raw names, so this removes an
+     * inconsistency rather than introducing a case rule into the engine. It is safe because no plugin-driven
+     * schema may hold two columns differing only by case ({@code SchemaCacheValue.validateSchema} rejects that
+     * on every schema load), so the fold cannot merge two distinct columns.</p>
+     *
+     * <p>A name that resolves to no column is kept VERBATIM: on iceberg the PARTITION clause names a partition
+     * FIELD (e.g. {@code category_bucket} for {@code bucket(4, category)}), which is not a table column. The
+     * connector already validated those names, so fe-core must not rewrite them.</p>
+     *
+     * <p>The duplicate check is why this is not a plain {@code map()}: {@code PARTITION(dt='1', DT='2')} is two
+     * entries here but ONE entry in the case-insensitive {@code columnToOutput} map (see
+     * {@link #getColumnToOutput}), so without this the later value would silently overwrite the earlier one.
+     * The message quotes the user's spelling.</p>
+     */
+    @VisibleForTesting
+    static Set<String> canonicalStaticPartitionColNames(PluginDrivenExternalTable table,
+            Map<String, Expression> staticPartitions) {
+        if (staticPartitions == null || staticPartitions.isEmpty()) {
+            return Sets.newHashSet();
+        }
+        Set<String> canonical = Sets.newLinkedHashSet();
+        for (String name : staticPartitions.keySet()) {
+            Column column = connectorSinkTargetColumn(table, name);
+            if (!canonical.add(column != null ? column.getName() : name)) {
+                throw new AnalysisException("Duplicate partition column: " + name);
+            }
+        }
+        return canonical;
     }
 
     private Plan bindConnectorTableSink(MatchingContext<UnboundConnectorTableSink<Plan>> ctx) {
@@ -932,19 +788,34 @@ public class BindSink implements AnalysisRuleFactory {
         PluginDrivenExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
 
-        List<Column> bindColumns;
-        if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
-        } else {
-            bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
-                if (column == null) {
-                    throw new AnalysisException(String.format("column %s is not found in table %s",
-                            cn, table.getName()));
-                }
-                return column;
-            }).collect(ImmutableList.toImmutableList());
-        }
+        // Static-partition columns (e.g. MaxCompute `PARTITION(pt='x')`) carry their value via the
+        // static partition spec rather than the query output, so they are excluded from the bound
+        // columns when no explicit column list is given (mirrors legacy bindMaxComputeTableSink).
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        Set<String> staticPartitionColNames = staticPartitions != null
+                ? staticPartitions.keySet()
+                : Sets.newHashSet();
+
+        // Validate the static-partition spec against the connector's partition metadata (unknown column /
+        // non-identity transform / unpartitioned table) via the neutral SPI, so the iceberg PartitionSpec
+        // knowledge and its messages stay in the connector — the retired legacy validation never ran on this
+        // path. Fail loud at analysis time, before the write plan is synthesized (otherwise an unknown column is
+        // silently swallowed by the materialize block below and surfaces as an unrelated planning error).
+        // Deliberately fed the RAW (user-typed) names, so a connector message quotes what the user wrote.
+        checkConnectorStaticPartitions(table, staticPartitions, staticPartitionColNames);
+
+        // Resolve the user-typed static-partition names to their canonical schema names before they are used
+        // to exclude / reject bound columns below. Runs AFTER the connector validated them.
+        staticPartitionColNames = canonicalStaticPartitionColNames(table, staticPartitions);
+
+        // Reject the dynamic partition-NAME list form (INSERT ... PARTITION(p1, p2)) via the neutral SPI, so the
+        // reject and its message stay in the connector (hive rejects with the legacy message; iceberg accepts).
+        // The retired legacy hive path threw "Not support insert with partition spec in hive catalog." here.
+        // Guarded on non-empty inside the helper, so a plain INSERT ... SELECT is byte-unchanged for live connectors.
+        checkConnectorWritePartitionNames(table, sink.getPartitions());
+
+        List<Column> bindColumns = selectConnectorSinkBindColumns(
+                table, sink.getColNames(), staticPartitionColNames, sink.isRewrite());
         LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
@@ -953,20 +824,125 @@ public class BindSink implements AnalysisRuleFactory {
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
                 sink.getDMLCommandType(),
+                sink.isRewrite(),
                 Optional.empty(),
                 Optional.empty(),
                 child);
         if (boundSink.getCols().size() != child.getOutput().size()) {
-            throw new AnalysisException("insert into cols should be corresponding to the query output");
+            // Carry the "Expected N columns but got M" detail that legacy (and the sibling count-check in this
+            // file) emit; the terser form dropped it on the connector path.
+            throw new AnalysisException("insert into cols should be corresponding to the query output. "
+                    + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
-        // For JDBC-backed connector tables, we must keep columns in user-specified order
-        // because the INSERT SQL column list is built from cols (user order) and the data
-        // values must match. For file-based writes, full schema order with defaults is needed.
-        // Currently only JDBC catalogs use connector sink, so use the JDBC-compatible approach:
-        // only project user-specified columns in user-specified order.
+        if (table.requiresFullSchemaWriteOrder()) {
+            // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
+            // against the full table schema, so project the child to FULL-SCHEMA order with any
+            // unmentioned / static-partition columns filled in (NULL literals), exactly like legacy
+            // bindMaxComputeTableSink — for ALL such writes, partitioned or not. Required on three
+            // counts: (1) a reordered/partial explicit column list must land values in the correct
+            // remote columns (not user order); (2) for a static-partition write the BE writer strips the
+            // trailing partition columns by position, so they must sit at their full-schema (tail)
+            // positions; and (3) PhysicalConnectorTableSink.getRequirePhysicalProperties locates
+            // partition columns by their full-schema position, so the child must be in full-schema order.
+            Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false, boundSink, child);
+            if (table.materializeStaticPartitionValues() && !staticPartitionColNames.isEmpty()) {
+                // Connectors that consume the partition value FROM THE ROW must write the static partition value
+                // INTO the data column: getColumnToOutput excluded it from the bound columns and NULL-filled it,
+                // so re-project the PARTITION-clause literal here (mirrors the retired legacy iceberg bind).
+                // Two reasons put a connector here — its files retain the column (Iceberg), or its files strip
+                // the column but the BE derives the partition DIRECTORY from the row value (Hive, where a NULL
+                // would become __HIVE_DEFAULT_PARTITION__). Connectors that STRIP partition columns and refill
+                // them from static_partition_values (e.g. MaxCompute) do not declare the capability and keep the
+                // NULL fill.
+                for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                    Column column = connectorSinkTargetColumn(table, entry.getKey());
+                    if (column != null) {
+                        Expression castExpr = TypeCoercionUtils.castIfNotSameType(
+                                entry.getValue(), DataType.fromCatalogType(column.getType()));
+                        // Key and alias use the canonical schema name, so they line up with
+                        // getOutputProjectByCoercion, which looks columnToOutput up by getFullSchema() names.
+                        columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
+                    }
+                }
+            }
+            // The BE writer validates its incoming data columns against the connector's write schema-json,
+            // which for an ORDINARY write is the DATA (visible) schema only; a rewrite (rewrite_data_files)
+            // additionally carries the engine-managed invisible columns (iceberg v3 row-lineage) that its
+            // rewrite schema-json declares. Projecting the full schema unconditionally would emit invisible
+            // columns an ordinary write's BE schema does not declare ("data columns N do not match schema
+            // columns M"), so drop them unless this is a rewrite — mirroring the retired legacy iceberg
+            // bind's insertSchema visible filter. Connectors with no invisible columns (e.g. MaxCompute) are
+            // unaffected: the filter is a no-op there.
+            List<Column> targetFullSchema = sinkTargetFullSchema(table);
+            List<Column> writeSchema = sink.isRewrite()
+                    ? targetFullSchema
+                    : targetFullSchema.stream()
+                            .filter(Column::isVisible)
+                            .collect(ImmutableList.toImmutableList());
+            LogicalProject<?> fullOutputProject =
+                    getOutputProjectByCoercion(writeSchema, child, columnToOutput);
+            return boundSink.withChildAndUpdateOutput(fullOutputProject);
+        }
+        // Name-mapped connector tables (JDBC / ES): keep columns in user-specified order because the
+        // INSERT SQL column list is built from cols (user order) and the data values must match; only
+        // project user-specified columns in user order.
         Map<String, NamedExpression> columnToOutput = getConnectorColumnToOutput(bindColumns, child);
         LogicalProject<?> outputProject = getOutputProjectByCoercion(bindColumns, child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(outputProject);
+    }
+
+    /**
+     * Selects the bound columns for a connector table sink. With an explicit column list, binds those
+     * columns in user order. Without one, binds the base schema minus any static partition columns
+     * (their value comes from the static partition spec, not the query output, so they must not be
+     * matched against the query columns) — mirrors legacy {@code bindMaxComputeTableSink}.
+     *
+     * <p>Invisible columns (e.g. iceberg v3 row-lineage {@code _row_id} /
+     * {@code _last_updated_sequence_number}) are excluded from an ordinary write's default target — the
+     * user never supplies their values, so counting them would break the "insert cols == query output"
+     * check. They are RETAINED for a {@code rewrite} (a distributed {@code rewrite_data_files} reads and
+     * rewrites full rows, preserving the engine-managed lineage values), mirroring the retired
+     * legacy iceberg bind's rewrite branch. The {@code isVisible} / {@code isRewrite} split is
+     * connector-agnostic, so no source-specific code enters the generic SPI path.
+     *
+     * <p>{@code staticPartitionColNames} must already be canonicalized by
+     * {@link #canonicalStaticPartitionColNames}, so both the exclusion filter and the explicit-column-list
+     * rejection below can compare against schema names directly.</p>
+     */
+    @VisibleForTesting
+    static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
+            List<String> colNames, Set<String> staticPartitionColNames, boolean isRewrite) {
+        if (colNames.isEmpty()) {
+            return sinkTargetFullSchema(table).stream()
+                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                    .filter(col -> isRewrite || col.isVisible())
+                    .collect(ImmutableList.toImmutableList());
+        }
+        return colNames.stream().map(cn -> {
+            Column column = connectorSinkTargetColumn(table, cn);
+            if (column == null) {
+                throw new AnalysisException(String.format("column %s is not found in table %s",
+                        cn, table.getName()));
+            }
+            // A column whose value comes from the PARTITION clause must not ALSO be supplied by the query:
+            // the materialize block would overwrite the query's value, silently discarding it. Both sides are
+            // canonical schema names here, so this catches PARTITION(TS_DATE=..) (col1, ts_date) too.
+            if (staticPartitionColNames.contains(column.getName())) {
+                throw new AnalysisException(String.format(
+                        "column %s is a static partition column, should not be in the insert column list", cn));
+            }
+            // Reject explicitly naming an engine-managed invisible column (e.g. iceberg v3 row-lineage
+            // _row_id / _last_updated_sequence_number) in an ordinary INSERT: the user never supplies
+            // its value. RETAINED for a rewrite (rewrite_data_files reads/rewrites full rows, preserving
+            // the engine-managed values), mirroring the isVisible/isRewrite split of the empty-colNames
+            // branch above. Uses only Column.isVisible(), so no source-specific code enters the generic
+            // SPI path (replaces the retired legacy source-specific iceberg row-lineage guard).
+            if (!isRewrite && !column.isVisible()) {
+                throw new AnalysisException(String.format(
+                        "Cannot specify invisible column '%s' in INSERT statement", cn));
+            }
+            return column;
+        }).collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -990,9 +966,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     private Plan bindDictionarySink(MatchingContext<UnboundDictionarySink<Plan>> ctx) {
         UnboundDictionarySink<?> sink = ctx.root;
-        Pair<Database, Dictionary> pair = bind(ctx.cascadesContext, sink);
-        Database database = pair.first;
-        Dictionary dictionary = pair.second;
+        Database database = sink.getDatabase();
+        Dictionary dictionary = sink.getDictionary();
         LogicalPlan child = ((LogicalPlan) sink.child());
 
         // 1. bind target columns: from sink's column names to target tables' Columns
@@ -1066,45 +1041,6 @@ public class BindSink implements AnalysisRuleFactory {
                 ? ((RemoteDorisExternalTable) pair.second).getOlapTable() : (OlapTable) pair.second);
     }
 
-    private Pair<HMSExternalDatabase, HMSExternalTable> bind(CascadesContext cascadesContext,
-                                                             UnboundHiveTableSink<? extends Plan> sink) {
-        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
-                sink.getNameParts());
-        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv(), Optional.empty());
-        if (pair.second instanceof HMSExternalTable) {
-            HMSExternalTable table = (HMSExternalTable) pair.second;
-            if (table.getDlaType() == HMSExternalTable.DLAType.HIVE) {
-                return Pair.of(((HMSExternalDatabase) pair.first), table);
-            }
-        }
-        throw new AnalysisException("the target table of insert into is not a Hive table");
-    }
-
-    private Pair<IcebergExternalDatabase, IcebergExternalTable> bind(CascadesContext cascadesContext,
-                                                                     UnboundIcebergTableSink<? extends Plan> sink) {
-        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
-                sink.getNameParts());
-        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv(), Optional.empty());
-        if (pair.second instanceof IcebergExternalTable) {
-            return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
-        }
-        throw new AnalysisException("the target table of insert into is not an iceberg table");
-    }
-
-    private Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> bind(CascadesContext cascadesContext,
-            UnboundMaxComputeTableSink<? extends Plan> sink) {
-        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
-                sink.getNameParts());
-        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv(), Optional.empty());
-        if (pair.second instanceof MaxComputeExternalTable) {
-            return Pair.of(((MaxComputeExternalDatabase) pair.first), (MaxComputeExternalTable) pair.second);
-        }
-        throw new AnalysisException("the target table of insert into is not a MaxCompute table");
-    }
-
     @SuppressWarnings("rawtypes")
     private Pair<ExternalDatabase, PluginDrivenExternalTable> bind(CascadesContext cascadesContext,
             UnboundConnectorTableSink<? extends Plan> sink) {
@@ -1116,19 +1052,6 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((ExternalDatabase) pair.first), (PluginDrivenExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not a plugin-driven connector table");
-    }
-
-    private Pair<Database, Dictionary> bind(CascadesContext cascadesContext,
-            UnboundDictionarySink<? extends Plan> sink) {
-        Dictionary dictionary = sink.getDictionary();
-        Database db;
-        try {
-            db = cascadesContext.getConnectContext().getEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(dictionary.getDatabase().getName());
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-        return Pair.of(db, dictionary);
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {

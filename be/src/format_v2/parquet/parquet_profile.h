@@ -92,6 +92,10 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* raw_value_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* raw_value_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_batches = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;
@@ -107,6 +111,8 @@ struct ParquetScanProfile {
             nullptr; // fixed-width typed comparison columns
     RuntimeProfile::Counter* dict_filter_string_compare_columns =
             nullptr; // string typed comparison columns
+    RuntimeProfile::Counter* dict_filter_vectorized_runtime_filter_columns =
+            nullptr; // vectorized runtime-filter columns
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr; // unsupported columns
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;       // dictionary read failures
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;    // rows filtered by dict
@@ -127,6 +133,7 @@ struct ParquetProfile {
     ParquetScanProfile scan_profile() const;
 
     RuntimeProfile::Counter* total_time = nullptr;
+    RuntimeProfile::Counter* refresh_scan_request_time = nullptr;
 
     RuntimeProfile::Counter* filtered_row_groups = nullptr;
     RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
@@ -216,6 +223,10 @@ struct ParquetProfile {
     RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* raw_value_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* raw_value_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_batches = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;
@@ -227,6 +238,7 @@ struct ParquetProfile {
     RuntimeProfile::Counter* dict_filter_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_typed_compare_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_string_compare_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_vectorized_runtime_filter_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;

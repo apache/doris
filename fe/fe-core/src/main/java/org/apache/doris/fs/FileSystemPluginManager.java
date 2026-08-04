@@ -20,6 +20,7 @@ package org.apache.doris.fs;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.storage.StorageRegistry;
+import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
@@ -92,6 +93,15 @@ public class FileSystemPluginManager {
     /** Family label in the process-wide {@link PluginRegistry}. */
     private static final String PLUGIN_FAMILY = "FILESYSTEM";
 
+    /**
+     * The filesystem plugin API contract this FE serves. Built from the version filtered into
+     * fe-filesystem-spi at build time, anchored on {@link FileSystemProvider} so that it is read from the
+     * very artifact carrying the SPI. A missing or malformed resource is a build defect and fails class
+     * initialization loudly rather than degrading into a check that admits everything.
+     */
+    private static final ApiVersionGate API_VERSION_GATE =
+            ApiVersionGate.forFamily("filesystem", FileSystemProvider.class);
+
     private final List<FileSystemProvider> providers = new CopyOnWriteArrayList<>();
     private final DirectoryPluginRuntimeManager<FileSystemProvider> runtimeManager =
             new DirectoryPluginRuntimeManager<>();
@@ -130,7 +140,8 @@ public class FileSystemPluginManager {
                 pluginRoots,
                 FileSystemPluginManager.class.getClassLoader(),
                 FileSystemProvider.class,
-                classLoadingPolicy);
+                classLoadingPolicy,
+                API_VERSION_GATE);
 
         LOG.info("Filesystem plugin load summary: rootsScanned={}, dirsScanned={}, "
                         + "successCount={}, failureCount={}",

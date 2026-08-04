@@ -35,11 +35,12 @@ suite("test_array_index_write", "nonConcurrent"){
                         "DUPLICATE KEY(`k1`)\n" +
                         "COMMENT 'OLAP'\n" +
                     "DISTRIBUTED BY HASH(`k1`) BUCKETS 10\n" +
-                    "PROPERTIES(\"replication_num\" = \"1\", \"inverted_index_storage_format\" = \"$storageFormat\");"
+                    "PROPERTIES(\"replication_num\" = \"1\", \"inverted_index_storage_format\" = \"$storageFormat\", \"disable_auto_compaction\" = \"true\");"
             return stmt
         }
 
         def indexTbName = "test_variant_index_parser_empty"
+        sql "DROP TABLE IF EXISTS ${indexTbName}"
         sql create_variant_index_table.call(indexTbName, "")
 
         def checkpoints_name = "array_inverted_index.write_index"

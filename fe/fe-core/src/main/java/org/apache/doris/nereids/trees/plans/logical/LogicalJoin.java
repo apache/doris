@@ -287,6 +287,22 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return joinReorderContext;
     }
 
+    /**
+     * Output slots of the null-extended side(s) of an outer join, i.e. the slots that
+     * this join may turn into NULL. Rejecting NULL on them lets an outer join be eliminated
+     * or weakened. Returns empty for non-outer joins.
+     */
+    public Set<Slot> getNullableSideOutput() {
+        ImmutableSet.Builder<Slot> nullableSide = ImmutableSet.builder();
+        if (joinType.isLeftSideNullable()) {
+            nullableSide.addAll(left().getOutputSet());
+        }
+        if (joinType.isRightSideNullable()) {
+            nullableSide.addAll(right().getOutputSet());
+        }
+        return nullableSide.build();
+    }
+
     @Override
     public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()

@@ -216,8 +216,12 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
                     AuthenticationFailureType.MISCONFIGURED);
         }
         if (!pluginManager.hasFactory(pluginType)) {
+            // Same reasoning as AuthenticationIntegrationRuntime#ensurePluginFactoryLoaded: without the
+            // hint, a plugin refused on its declared API version is indistinguishable from one that was
+            // never installed.
             throw new AuthenticationException(
-                    "No AuthenticationPluginFactory found for plugin: " + pluginType,
+                    "No AuthenticationPluginFactory found for plugin: " + pluginType
+                            + pluginManager.apiVersionRejectionHint(),
                     AuthenticationFailureType.MISCONFIGURED);
         }
     }

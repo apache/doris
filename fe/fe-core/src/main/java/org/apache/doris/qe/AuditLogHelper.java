@@ -227,7 +227,7 @@ public class AuditLogHelper {
         String cloudCluster = "";
         try {
             if (Config.isCloudMode()) {
-                cloudCluster = ctx.getCloudCluster(false);
+                cloudCluster = getCloudClusterForAudit(ctx);
             }
         } catch (ComputeGroupException e) {
             LOG.warn("Failed to get cloud cluster", e);
@@ -413,6 +413,13 @@ public class AuditLogHelper {
         return queueToken == null ? -1 : queueToken.getQueueEndTime() - queueToken.getQueueStartTime();
     }
 
+    static String getCloudClusterForAudit(ConnectContext ctx) throws ComputeGroupException {
+        if (!Strings.isNullOrEmpty(ctx.getEffectiveCloudCluster())) {
+            return ctx.getEffectiveCloudCluster();
+        }
+        return ctx.getCloudCluster(false);
+    }
+
     /**
      * Update query metrics without writing audit log. This is used when
      * enable_prepared_stmt_audit_log is disabled, to ensure QPS metrics
@@ -448,7 +455,7 @@ public class AuditLogHelper {
         String physicalClusterName = "";
         try {
             if (Config.isCloudMode()) {
-                cloudCluster = ctx.getCloudCluster(false);
+                cloudCluster = getCloudClusterForAudit(ctx);
                 physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getPhysicalCluster(cloudCluster);
                 if (!cloudCluster.equals(physicalClusterName)) {
@@ -512,4 +519,3 @@ public class AuditLogHelper {
         }
     }
 }
-

@@ -174,6 +174,8 @@ public class SessionVariable implements Serializable, Writable {
             "enable_distinct_streaming_agg_force_passthrough";
     public static final String ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH = "enable_broadcast_join_force_passthrough";
     public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_AGG = "enable_local_exchange_before_agg";
+    public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG =
+            "enable_local_exchange_before_streaming_agg";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
     public static final String COLOCATE_MAX_PARALLEL_NUM = "colocate_max_parallel_num";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
@@ -543,8 +545,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MINIDUMP_PATH = "minidump_path";
 
-    public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
-
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
     public static final String MEMO_LOGICAL_ROW_COUNT_AGGREGATION_POLICY = "memo_logical_row_count_aggregation_policy";
@@ -848,6 +848,7 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
     public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
+    public static final String ENABLE_VARIANT_V2 = "enable_variant_v2";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -1406,6 +1407,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, fuzzy = true)
     public boolean enableLocalExchangeBeforeAgg = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, fuzzy = true)
+    public boolean enableLocalExchangeBeforeStreamingAgg = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
     public boolean enableDistinctStreamingAggForcePassthrough = true;
@@ -2192,7 +2196,15 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterPrune = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true)
+    @VarAttrDef.VarAttr(
+            name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE,
+            description = {"控制支持该变量的 scanner 是否启用运行时过滤器分区裁剪。"
+                    + "File Scanner V2 始终启用安全的分区裁剪。默认为 true。",
+                    "Controls runtime-filter partition pruning in scanners that honor this variable. "
+                            + "File Scanner V2 always enables safe partition pruning. "
+                            + "The default value is true."},
+            needForward = true,
+            fuzzy = true)
     public boolean enableRuntimeFilterPartitionPrune = true;
 
     /**
@@ -2497,6 +2509,12 @@ public class SessionVariable implements Serializable, Writable {
     public String forceEagerAggHint = "";
     private Map<String, Action> forceEagerAggHintMap = ImmutableMap.of();
 
+    @VarAttrDef.VarAttr(name = "eager_agg_broadcast_row_count", needForward = true)
+    public int eagerAggBroadcastRowCount = 250_000;
+
+    @VarAttrDef.VarAttr(name = "eager_aggregation_on_broadcast_join", needForward = true)
+    public boolean eagerAggregationOnBroadcastJoin = true;
+
     public static int getEagerAggregationMode() {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().eagerAggregationMode;
@@ -2522,17 +2540,6 @@ public class SessionVariable implements Serializable, Writable {
         return forceEagerAggHintMap;
     }
 
-    @VarAttrDef.VarAttr(name = "eager_aggregation_on_join", needForward = true)
-    public boolean eagerAggregationOnJoin = false;
-
-    public static boolean isEagerAggregationOnJoin() {
-        if (ConnectContext.get() != null) {
-            return ConnectContext.get().getSessionVariable().eagerAggregationOnJoin;
-        } else {
-            return VariableMgr.getDefaultSessionVariable().eagerAggregationOnJoin;
-        }
-    }
-
     @VarAttrDef.VarAttr(
             name = ENABLE_PAGE_CACHE,
             description = {"控制是否启用 page cache。默认为 true。",
@@ -2551,8 +2558,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
 
-    @VarAttrDef.VarAttr(name = PLAN_NEREIDS_DUMP)
-    public boolean planNereidsDump = false;
+    // Internal state, not a session variable: it is turned on only by MinidumpUtils while replaying
+    // a minidump file (PLAY '<dumpfile>'), where tables and statistics come from the dump instead of
+    // the catalog. It is intentionally not settable through SET, not forwarded and not serialized.
+    private boolean planNereidsDump = false;
 
     // If set to true, all query will be executed without returning result
     @VarAttrDef.VarAttr(name = DRY_RUN_QUERY, needForward = true)
@@ -2713,8 +2722,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(
             name = ENABLE_EXPR_ZONEMAP_FILTER,
             fuzzy = true,
-            description = {"控制 scanner 是否启用表达式 ZoneMap 过滤。默认为 true。",
-                    "Controls whether to enable expression ZoneMap filtering in scanners. "
+            description = {"控制支持该变量的 scanner 是否启用表达式 ZoneMap 过滤。"
+                    + "File Scanner V2 始终启用安全的表达式 ZoneMap 过滤。默认为 true。",
+                    "Controls expression ZoneMap filtering in scanners that honor this variable. "
+                            + "File Scanner V2 always enables safe expression ZoneMap filtering. "
                             + "The default value is true."},
             needForward = true)
     public boolean enableExprZonemapFilter = true;
@@ -3779,6 +3790,18 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVariantSchemaAutoCast = true;
 
     @VarAttrDef.VarAttr(
+            name = ENABLE_VARIANT_V2,
+            needForward = true,
+            affectQueryResultInPlan = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {
+                    "是否对纯计算表达式启用 ColumnVariantV2，默认关闭。",
+                    "Whether to enable ColumnVariantV2 for compute expressions. The default is false."
+            }
+    )
+    public boolean enableVariantV2 = false;
+
+    @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             needForward = true,
             fuzzy = true
@@ -3890,6 +3913,7 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
+        this.enableLocalExchangeBeforeStreamingAgg = random.nextBoolean();
         this.enableDistinctStreamingAggForcePassthrough = random.nextBoolean();
         this.enableBroadcastJoinForcePassthrough = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
@@ -5706,6 +5730,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
         tResult.setEnableLocalExchangeBeforeAgg(enableLocalExchangeBeforeAgg);
+        tResult.setEnableLocalExchangeBeforeStreamingAgg(enableLocalExchangeBeforeStreamingAgg);
         tResult.setEnableDistinctStreamingAggForcePassthrough(enableDistinctStreamingAggForcePassthrough);
         tResult.setEnableBroadcastJoinForcePassthrough(enableBroadcastJoinForcePassthrough);
         tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
@@ -6676,6 +6701,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableVariantSchemaAutoCast() {
         return enableVariantSchemaAutoCast;
+    }
+
+    public boolean isEnableVariantV2() {
+        return enableVariantV2;
     }
 
     public void setProfileLevel(String profileLevel) {

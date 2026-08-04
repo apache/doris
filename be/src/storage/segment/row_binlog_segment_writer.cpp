@@ -194,8 +194,9 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
     // We read historical rows only when we really need them:
     // 1. partial update: build the full AFTER row.
     // 2. write_before: fill __BEFORE__* columns.
-    // Otherwise we do not compare with old rows here, so row binlog op only
-    // keeps the simple meaning: append for non-delete rows, delete for delete rows.
+    // 3. partial update / write_before need the old delete sign to identify INSERT -> DELETE
+    //    -> INSERT correctly; otherwise the last INSERT may be treated as UPDATE because lookup
+    //    hits the tombstone row.
     if (is_partial_update || _write_before) {
         auto* pk_retriever =
                 dynamic_cast<PrimaryKeyModelRowRetriever*>(_historical_data_writer.get());
@@ -263,14 +264,21 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
         }
     }
 
+    if (_write_before) {
+        RETURN_IF_ERROR(_fill_before_columns(num_rows));
+    }
+
+    if (is_partial_update || _write_before) {
+        auto* pk_retriever =
+                dynamic_cast<PrimaryKeyModelRowRetriever*>(_historical_data_writer.get());
+        DCHECK(pk_retriever != nullptr);
+        RETURN_IF_ERROR(pk_retriever->revise_operators_by_old_delete_sign(num_rows));
+    }
+
     RETURN_IF_ERROR(_fill_binlog_columns(num_rows, operators));
 
     // row-binlog key don't need seq column
     RETURN_IF_ERROR(build_key_index(_converted_key_columns, nullptr, num_rows));
-
-    if (_write_before) {
-        RETURN_IF_ERROR(_fill_before_columns(num_rows));
-    }
 
     _num_rows_written += num_rows;
     // need to clean olap_data_convertor that be used when fill binlog columns and build key index
@@ -334,7 +342,6 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
             assert_cast<ColumnInt64*>(lsn_col_ptr)->insert_value(_lsn_ids->at(i));
         }
 
-        // wrong op only happens when partial-update, it will be fixed by delete bitmap when publish
         const FieldType op_col_type = _tablet_schema->column(binlog_cids[2]).type();
         IColumn* op_col_ptr = binlog_prefix_columns[2].get();
         auto* op_nullable_column = check_and_get_column<ColumnNullable>(op_col_ptr);

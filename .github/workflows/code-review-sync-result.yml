@@ -17,6 +17,7 @@ jobs:
     if: >
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request != null &&
+      !startsWith(github.event.comment.body, '/review') &&
       contains(github.event.comment.body, 'skip buildall')
     steps:
       - name: Check user permission and mark review as success

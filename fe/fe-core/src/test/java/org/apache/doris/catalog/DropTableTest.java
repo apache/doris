@@ -19,89 +19,23 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.util.List;
-import java.util.UUID;
 
-public class DropTableTest {
-    private static String runningDir = "fe/mocked/DropTableTest/" + UUID.randomUUID().toString() + "/";
+public class DropTableTest extends TestWithFeService {
 
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-        // create database
-        String createDbStmtStr = "create database test;";
-        String createTablleStr1 = "create table test.tbl1(k1 int, k2 bigint) duplicate key(k1) "
-                + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
-        String createTablleStr2 = "create table test.tbl2(k1 int, k2 bigint)" + "duplicate key(k1) "
-                + "distributed by hash(k2) buckets 1 " + "properties('replication_num' = '1');";
-        createDb(createDbStmtStr);
-        createTable(createTablleStr1);
-        createTable(createTablleStr2);
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+        createTable("create table test.tbl1(k1 int, k2 bigint) duplicate key(k1) "
+                + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');");
+        createTable("create table test.tbl2(k1 int, k2 bigint)" + "duplicate key(k1) "
+                + "distributed by hash(k2) buckets 1 " + "properties('replication_num' = '1');");
     }
-
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-    }
-
-    private static void createDb(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void createTable(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof CreateTableCommand) {
-            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void dropTable(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof DropTableCommand) {
-            ((DropTableCommand) parsed).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void recoverTable(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof RecoverTableCommand) {
-            ((RecoverTableCommand) parsed).run(connectContext, stmtExecutor);
-        }
-    }
-
 
     @Test
     public void testNormalDropTable() throws Exception {
@@ -109,21 +43,18 @@ public class DropTableTest {
         OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
-        String dropTableSql = "drop table test.tbl1";
-        dropTable(dropTableSql);
+        dropTableWithSql("drop table test.tbl1");
         List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
-        Assert.assertEquals(1, replicaList.size());
-        String recoverDbSql = "recover table test.tbl1";
-        recoverTable(recoverDbSql);
+        Assertions.assertEquals(1, replicaList.size());
+        recoverTable("recover table test.tbl1");
         table = (OlapTable) db.getTableOrMetaException("tbl1");
-        Assert.assertNotNull(table);
-        Assert.assertEquals("tbl1", table.getName());
+        Assertions.assertNotNull(table);
+        Assertions.assertEquals("tbl1", table.getName());
     }
 
     @Test
     public void testForceDropTable() throws Exception {
-        String dropTableSql = "drop table test.tbl2 force";
-        dropTable(dropTableSql);
+        dropTableWithSql("drop table test.tbl2 force");
         // After unify force and non-force drop table, the replicas will be recycled eventually.
         //
         // Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");

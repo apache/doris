@@ -26,21 +26,14 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
-import org.apache.doris.datasource.PluginDrivenExternalDatabase;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -127,25 +120,52 @@ public class StatisticsAutoCollectorTest {
         OlapTable table1 = new OlapTable(200, "testTable", schema, null, null, null);
         Assertions.assertTrue(collector.supportAutoAnalyze(table1));
 
-        PluginDrivenExternalDatabase pluginDatabase = new PluginDrivenExternalDatabase(null, 1L, "jdbcdb", "jdbcdb");
-        PluginDrivenExternalCatalog pluginCatalog = new PluginDrivenExternalCatalog(0, "jdbc_ctl", null,
-                Maps.newHashMap(), "", null);
-        ExternalTable externalTable = new PluginDrivenExternalTable(1, "jdbctable", "jdbctable", pluginCatalog,
-                pluginDatabase);
-        Assertions.assertFalse(collector.supportAutoAnalyze(externalTable));
+        // A plugin-driven table is admitted to auto-analyze IFF its connector declares column auto-analyze:
+        // the capability — not the PluginDrivenExternalTable type — is the gate (post-cutover iceberg/paimon
+        // declare it; jdbc/es do not). The real getConnector()->capability plumbing is covered by
+        // PluginDrivenExternalTableTest; here we pin the whitelist decision in both directions.
+        PluginDrivenExternalTable capablePluginTable = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(capablePluginTable.supportsColumnAutoAnalyze()).thenReturn(true);
+        Assertions.assertTrue(collector.supportAutoAnalyze(capablePluginTable));
 
-        HMSExternalDatabase hmsExternalDatabase = new HMSExternalDatabase(null, 1L, "hmsDb", "hmsDb");
-        HMSExternalCatalog hmsCatalog = new HMSExternalCatalog(0, "jdbc_ctl", null, Maps.newHashMap(), "");
-        HMSExternalTable icebergRaw = new HMSExternalTable(1, "hmsTable", "hmsDb", hmsCatalog,
-                hmsExternalDatabase);
-        ExternalTable icebergExternalTable = Mockito.spy(icebergRaw);
-        Mockito.doReturn(DLAType.ICEBERG).when((HMSExternalTable) icebergExternalTable).getDlaType();
-        Assertions.assertTrue(collector.supportAutoAnalyze(icebergExternalTable));
+        PluginDrivenExternalTable incapablePluginTable = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(incapablePluginTable.supportsColumnAutoAnalyze()).thenReturn(false);
+        Assertions.assertFalse(collector.supportAutoAnalyze(incapablePluginTable));
+    }
 
-        HMSExternalTable hiveRaw = new HMSExternalTable(1, "hmsTable", "hmsDb", hmsCatalog, hmsExternalDatabase);
-        ExternalTable hiveExternalTable = Mockito.spy(hiveRaw);
-        Mockito.doReturn(DLAType.HIVE).when((HMSExternalTable) hiveExternalTable).getDlaType();
-        Assertions.assertTrue(collector.supportAutoAnalyze(hiveExternalTable));
+    @Test
+    public void testProcessOneJobForcesFullAnalyzeForCapablePluginTable() {
+        // A flipped plugin table (iceberg/paimon) whose connector declares column auto-analyze must be
+        // analyzed with FULL, never SAMPLE: ExternalAnalysisTask.doSample throws for external SQL-driven
+        // tables. Force the SAMPLE precondition (huge data size, not partitioned) so only the plugin FULL
+        // arm under test can flip the method to FULL. We assert via the isSampleAnalyze flag the decision
+        // is passed to readyToSample with.
+        StatisticsAutoCollector collector = Mockito.spy(new StatisticsAutoCollector());
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.supportsColumnAutoAnalyze()).thenReturn(true);
+        Mockito.when(table.getDataSize(true)).thenReturn(Long.MAX_VALUE);
+        Mockito.when(table.isPartitionedTable()).thenReturn(false);
+        Mockito.when(table.getId()).thenReturn(1L);
+        Mockito.when(table.getRowCount()).thenReturn(100L);
+
+        AnalysisManager manager = Mockito.mock(AnalysisManager.class);
+        Env mockEnv = Mockito.mock(Env.class);
+        Mockito.when(mockEnv.getAnalysisManager()).thenReturn(manager);
+        // Early-return out of processOneJob immediately after the analysis-method decision is consumed by
+        // readyToSample, capturing the isSampleAnalyze flag it was called with.
+        ArgumentCaptor<Boolean> isSampleAnalyze = ArgumentCaptor.forClass(Boolean.class);
+        Mockito.doReturn(false).when(collector).readyToSample(Mockito.any(), Mockito.anyLong(),
+                Mockito.any(), Mockito.any(), Mockito.anyBoolean());
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getServingEnv).thenReturn(mockEnv);
+            collector.processOneJob(table, Sets.newHashSet(), JobPriority.HIGH);
+        }
+
+        Mockito.verify(collector).readyToSample(Mockito.eq(table), Mockito.anyLong(), Mockito.any(),
+                Mockito.any(), isSampleAnalyze.capture());
+        Assertions.assertFalse(isSampleAnalyze.getValue(),
+                "plugin table with column-auto-analyze capability must use FULL analyze, not SAMPLE");
     }
 
     @Test

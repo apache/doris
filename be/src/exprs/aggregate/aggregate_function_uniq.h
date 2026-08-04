@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
@@ -82,6 +83,24 @@ struct AggregateFunctionUniqExactData {
     static String get_name() { return "multi_distinct"; }
 
     void reset() { set.clear(); }
+};
+
+struct AggregateFunctionUniqVariantData {
+    using Set = flat_hash_set<StringRef, StringRefHash>;
+
+    Set set;
+
+    static String get_name() { return "multi_distinct"; }
+
+    void reset() { set.clear(); }
+
+    void insert_borrowed(StringRef key, Arena& arena) {
+        if (set.contains(key)) {
+            return;
+        }
+        key.data = arena.insert(key.data, key.size);
+        set.emplace(key);
+    }
 };
 
 namespace detail {
@@ -254,6 +273,79 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 this->data(place).set.size());
+    }
+};
+
+class AggregateFunctionUniqVariant final
+        : public IAggregateFunctionDataHelper<AggregateFunctionUniqVariantData,
+                                              AggregateFunctionUniqVariant>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
+public:
+    using Base = IAggregateFunctionDataHelper<AggregateFunctionUniqVariantData,
+                                              AggregateFunctionUniqVariant>;
+
+    explicit AggregateFunctionUniqVariant(const DataTypes& argument_types_)
+            : Base(argument_types_) {}
+
+    String get_name() const override { return AggregateFunctionUniqVariantData::get_name(); }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+
+    void reset(AggregateDataPtr __restrict place) const override { Base::data(place).reset(); }
+
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
+             Arena& arena) const override {
+        const char* begin = nullptr;
+        const StringRef key = columns[0]->serialize_value_into_arena(row_num, arena, begin);
+        const auto [unused, inserted] = Base::data(place).set.emplace(key);
+        static_cast<void>(unused);
+        if (!inserted) {
+            const auto* rolled_back = static_cast<const char*>(arena.rollback(key.size));
+            DCHECK_EQ(rolled_back, key.data);
+        }
+    }
+
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena& arena) const override {
+        auto& destination = Base::data(place);
+        const auto& source = Base::data(rhs);
+        destination.set.reserve(destination.set.size() + source.set.size());
+        for (const StringRef key : source.set) {
+            destination.insert_borrowed(key, arena);
+        }
+    }
+
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        const auto& set = Base::data(place).set;
+        buf.write_var_uint(set.size());
+        for (const StringRef key : set) {
+            buf.write_binary(key);
+        }
+    }
+
+    void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
+                               BufferReadable& buf, Arena& arena) const override {
+        static_cast<void>(rhs);
+        deserialize(place, buf, arena);
+    }
+
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena& arena) const override {
+        auto& data = Base::data(place);
+        UInt64 size = 0;
+        buf.read_var_uint(size);
+        data.set.reserve(data.set.size() + size);
+        for (size_t index = 0; index < size; ++index) {
+            StringRef borrowed;
+            buf.read_binary(borrowed);
+            data.insert_borrowed(borrowed, arena);
+        }
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                Base::data(place).set.size());
     }
 };
 

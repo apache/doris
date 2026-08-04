@@ -226,7 +226,9 @@ public:
             state->enable_streaming_agg_hash_join_force_passthrough()) {
             return {TLocalPartitionType::PASSTHROUGH};
         }
-        if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
+        // Preserve the inherited distribution by default, but still reshuffle after a child
+        // non-hash exchange because it invalidates the grouping-key distribution.
+        if (!state->enable_local_exchange_before_streaming_agg() &&
             !child_breaks_local_key_distribution(state)) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
         }

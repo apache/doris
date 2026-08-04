@@ -43,6 +43,10 @@ import java.util.jar.Manifest;
  */
 class DirectoryPluginRuntimeManagerMetadataTest {
 
+    /** Reads api.version=7.2 from src/test/resources/META-INF/doris/test-plugin-api-version.properties. */
+    static final ApiVersionGate TEST_GATE =
+            ApiVersionGate.forFamily("test", DirectoryPluginRuntimeManagerMetadataTest.class);
+
     @TempDir
     Path tempDir;
 
@@ -57,7 +61,8 @@ class DirectoryPluginRuntimeManagerMetadataTest {
                 Collections.singletonList(root),
                 Thread.currentThread().getContextClassLoader(),
                 PluginFactory.class,
-                null);
+                null,
+                TEST_GATE);
 
         Assertions.assertEquals(1, report.getSuccesses().size(), () -> failures(report));
         PluginHandle<PluginFactory> handle = report.getSuccesses().get(0);
@@ -77,7 +82,8 @@ class DirectoryPluginRuntimeManagerMetadataTest {
                 Collections.singletonList(root),
                 Thread.currentThread().getContextClassLoader(),
                 PluginFactory.class,
-                null);
+                null,
+                TEST_GATE);
 
         Assertions.assertEquals(1, report.getSuccesses().size(), () -> failures(report));
         Assertions.assertNull(report.getSuccesses().get(0).getVersion());
@@ -94,7 +100,8 @@ class DirectoryPluginRuntimeManagerMetadataTest {
                 Collections.singletonList(root),
                 Thread.currentThread().getContextClassLoader(),
                 PluginFactory.class,
-                null);
+                null,
+                TEST_GATE);
 
         Assertions.assertTrue(report.getSuccesses().isEmpty());
         Assertions.assertEquals(1, report.getFailures().size());
@@ -104,15 +111,25 @@ class DirectoryPluginRuntimeManagerMetadataTest {
 
     /**
      * Builds a plugin jar containing the factory's class bytes, a ServiceLoader
-     * registration, and (optionally) a MANIFEST Implementation-Version.
+     * registration, a plugin API version accepted by {@link #TEST_GATE}, and
+     * (optionally) a MANIFEST Implementation-Version.
      */
-    private static void createPluginJar(Path jarPath, Class<? extends PluginFactory> factoryClass,
+    static void createPluginJar(Path jarPath, Class<? extends PluginFactory> factoryClass,
             String implementationVersion) throws IOException {
+        createPluginJar(jarPath, factoryClass, implementationVersion, TEST_GATE.getExpectedVersion());
+    }
+
+    /** Same, with an explicit declared plugin API version (null writes no such attribute at all). */
+    static void createPluginJar(Path jarPath, Class<? extends PluginFactory> factoryClass,
+            String implementationVersion, String declaredApiVersion) throws IOException {
         Files.createDirectories(jarPath.getParent());
         Manifest manifest = new Manifest();
         manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         if (implementationVersion != null) {
             manifest.getMainAttributes().put(Attributes.Name.IMPLEMENTATION_VERSION, implementationVersion);
+        }
+        if (declaredApiVersion != null) {
+            manifest.getMainAttributes().putValue(TEST_GATE.getManifestAttribute(), declaredApiVersion);
         }
         String classEntry = factoryClass.getName().replace('.', '/') + ".class";
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
