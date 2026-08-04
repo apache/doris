@@ -20,20 +20,33 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cmath>
+#include <functional>
+#include <initializer_list>
+#include <limits>
 #include <string_view>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "core/value/timestamptz_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/function_variant_element_v2.h"
@@ -90,6 +103,16 @@ ParquetColumnSchema shredded_int64_schema() {
     return schema;
 }
 
+ParquetColumnSchema shredded_primitive_schema(DataTypePtr type) {
+    auto schema = unshredded_schema();
+    auto typed = std::make_unique<ParquetColumnSchema>();
+    typed->name = "typed_value";
+    typed->kind = ParquetColumnSchemaKind::PRIMITIVE;
+    typed->type = make_nullable(std::move(type));
+    schema.children.push_back(std::move(typed));
+    return schema;
+}
+
 ParquetColumnSchema shredded_object_schema() {
     auto schema = unshredded_schema();
     auto typed = std::make_unique<ParquetColumnSchema>();
@@ -107,6 +130,12 @@ ParquetColumnSchema shredded_object_schema() {
     field->children.push_back(std::move(field_typed));
     typed->children.push_back(std::move(field));
     schema.children.push_back(std::move(typed));
+    return schema;
+}
+
+ParquetColumnSchema shredded_named_object_schema(std::string field_name) {
+    auto schema = shredded_object_schema();
+    schema.children.back()->children[0]->name = std::move(field_name);
     return schema;
 }
 
@@ -136,6 +165,17 @@ ParquetColumnSchema shredded_array_schema() {
     return schema;
 }
 
+ParquetColumnSchema shredded_mixed_array_schema() {
+    auto schema = shredded_array_schema();
+    auto* element = schema.children.back()->children[0].get();
+    auto value = std::make_unique<ParquetColumnSchema>();
+    value->name = "value";
+    value->kind = ParquetColumnSchemaKind::PRIMITIVE;
+    value->type = make_nullable(std::make_shared<DataTypeString>());
+    element->children.insert(element->children.begin(), std::move(value));
+    return schema;
+}
+
 MutableColumnPtr shredded_int64_physical(const std::vector<int64_t>& values) {
     const std::array<char, 1> ignored {0};
     const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
@@ -155,6 +195,20 @@ MutableColumnPtr shredded_int64_physical(const std::vector<int64_t>& values) {
     auto root_nulls = ColumnUInt8::create();
     root_nulls->get_data().resize_fill(values.size(), 0);
     return ColumnNullable::create(std::move(structure), std::move(root_nulls));
+}
+
+MutableColumnPtr shredded_primitive_physical(MutableColumnPtr typed) {
+    const size_t rows = typed->size();
+    const std::array<char, 1> ignored {0};
+    const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
+    MutableColumns fields;
+    fields.push_back(nullable_strings(std::vector<StringRef>(rows, metadata),
+                                      std::vector<uint8_t>(rows, 0)));
+    fields.push_back(nullable_strings(std::vector<StringRef>(rows, {ignored.data(), 0}),
+                                      std::vector<uint8_t>(rows, 1)));
+    fields.push_back(std::move(typed));
+    return ColumnNullable::create(ColumnStruct::create(std::move(fields)),
+                                  ColumnUInt8::create(rows, 0));
 }
 
 MutableColumnPtr projected_shredded_object_physical(const std::vector<int64_t>& values,
@@ -180,6 +234,37 @@ MutableColumnPtr projected_shredded_object_physical(const std::vector<int64_t>& 
             ColumnNullable::create(std::move(object), ColumnUInt8::create(values.size(), 0)));
     auto root = ColumnStruct::create(std::move(root_fields));
     return ColumnNullable::create(std::move(root), ColumnUInt8::create(values.size(), 0));
+}
+
+MutableColumnPtr root_wrapper(MutableColumns fields, NullMap root_nulls = {0});
+MutableColumnPtr nullable_int64(const std::vector<int64_t>& values,
+                                const std::vector<uint8_t>& nulls);
+
+MutableColumnPtr complete_shredded_object_physical(std::string_view residual_key,
+                                                   int64_t residual_value, int64_t typed_value) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef(residual_key.data(), residual_key.size()));
+    row.add_int(residual_value);
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef residual = batch.value_at(0);
+
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(nullable_int64({typed_value}, {0}));
+    MutableColumns object_fields;
+    object_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(wrapper_fields)),
+                                                   ColumnUInt8::create(1, 0)));
+    MutableColumns root_fields;
+    root_fields.push_back(
+            nullable_strings({StringRef(residual.metadata.data, residual.metadata.size)}, {0}));
+    root_fields.push_back(
+            nullable_strings({StringRef(residual.value.data, residual.value.size)}, {0}));
+    root_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(object_fields)),
+                                                 ColumnUInt8::create(1, 0)));
+    return root_wrapper(std::move(root_fields));
 }
 
 MutableColumnPtr projected_two_field_object_physical(const std::vector<int64_t>& first,
@@ -224,6 +309,58 @@ MutableColumnPtr projected_wide_object_physical(size_t field_count, int64_t valu
                                                  ColumnUInt8::create(1, 0)));
     return ColumnNullable::create(ColumnStruct::create(std::move(root_fields)),
                                   ColumnUInt8::create(1, 0));
+}
+
+std::string materialization_error(const ParquetColumnSchema& schema, ColumnPtr physical) {
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const Status status = materialize_variant_rows(schema, std::move(physical), output);
+    if (!status.ok()) {
+        return status.to_string();
+    }
+    try {
+        const auto& variants = assert_cast<const ColumnVariantV2&>(
+                assert_cast<const ColumnNullable&>(*output).get_nested_column());
+        (void)variants.get_value_ref(0);
+    } catch (const Exception& exception) {
+        return exception.what();
+    }
+    return {};
+}
+
+MutableColumnPtr root_wrapper(MutableColumns fields, NullMap root_nulls) {
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().assign(root_nulls.begin(), root_nulls.end());
+    return ColumnNullable::create(ColumnStruct::create(std::move(fields)), std::move(null_map));
+}
+
+MutableColumnPtr nullable_int64(const std::vector<int64_t>& values,
+                                const std::vector<uint8_t>& nulls) {
+    auto data = ColumnInt64::create();
+    data->get_data().assign(values.begin(), values.end());
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().assign(nulls.begin(), nulls.end());
+    return ColumnNullable::create(std::move(data), std::move(null_map));
+}
+
+template <typename ColumnType, typename Value>
+MutableColumnPtr nullable_fixed(std::initializer_list<Value> values,
+                                std::initializer_list<uint8_t> nulls) {
+    auto data = ColumnType::create();
+    for (const Value& value : values) {
+        data->insert_value(value);
+    }
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().assign(nulls.begin(), nulls.end());
+    return ColumnNullable::create(std::move(data), std::move(null_map));
+}
+
+template <typename ColumnType, typename Value>
+MutableColumnPtr nullable_decimal(uint32_t scale, std::initializer_list<Value> values) {
+    auto data = ColumnType::create(0, scale);
+    for (const Value& value : values) {
+        data->insert_value(value);
+    }
+    return ColumnNullable::create(std::move(data), ColumnUInt8::create(values.size(), 0));
 }
 
 } // namespace
@@ -304,6 +441,177 @@ TEST(VariantColumnReaderTest, ShreddedIntegerKeepsDeclaredPhysicalWidth) {
     EXPECT_EQ(variants.get_value_ref(0).primitive_id(), VariantPrimitiveId::INT64);
 }
 
+TEST(VariantColumnReaderTest, ReconstructsShreddedPrimitiveTypeMatrix) {
+    auto decode = [](ParquetColumnSchema schema, MutableColumnPtr typed,
+                     const std::function<void(const ColumnVariantV2&)>& verify) {
+        auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+        const Status status = materialize_variant_rows(
+                schema, shredded_primitive_physical(std::move(typed)), output);
+        ASSERT_TRUE(status.ok()) << status;
+        verify(assert_cast<const ColumnVariantV2&>(
+                assert_cast<const ColumnNullable&>(*output).get_nested_column()));
+    };
+
+    decode(shredded_primitive_schema(std::make_shared<DataTypeBool>()),
+           nullable_fixed<ColumnUInt8, UInt8>({0, 1}, {0, 0}), [](const auto& values) {
+               EXPECT_EQ(values.get_value_ref(0).primitive_id(), VariantPrimitiveId::FALSE_VALUE);
+               EXPECT_EQ(values.get_value_ref(1).primitive_id(), VariantPrimitiveId::TRUE_VALUE);
+           });
+
+    auto verify_integer = [&](DataTypePtr type, MutableColumnPtr typed, int width, int64_t first,
+                              int64_t second) {
+        auto schema = shredded_primitive_schema(std::move(type));
+        schema.children.back()->type_descriptor.integer_bit_width = width;
+        decode(std::move(schema), std::move(typed), [&](const auto& values) {
+            EXPECT_EQ(values.get_value_ref(0).get_int(), first);
+            EXPECT_EQ(values.get_value_ref(1).get_int(), second);
+        });
+    };
+    verify_integer(
+            std::make_shared<DataTypeInt8>(),
+            nullable_fixed<ColumnInt8, Int8>(
+                    {std::numeric_limits<Int8>::min(), std::numeric_limits<Int8>::max()}, {0, 0}),
+            8, std::numeric_limits<Int8>::min(), std::numeric_limits<Int8>::max());
+    verify_integer(
+            std::make_shared<DataTypeInt16>(),
+            nullable_fixed<ColumnInt16, Int16>(
+                    {std::numeric_limits<Int16>::min(), std::numeric_limits<Int16>::max()}, {0, 0}),
+            16, std::numeric_limits<Int16>::min(), std::numeric_limits<Int16>::max());
+    verify_integer(
+            std::make_shared<DataTypeInt32>(),
+            nullable_fixed<ColumnInt32, Int32>(
+                    {std::numeric_limits<Int32>::min(), std::numeric_limits<Int32>::max()}, {0, 0}),
+            32, std::numeric_limits<Int32>::min(), std::numeric_limits<Int32>::max());
+    verify_integer(
+            std::make_shared<DataTypeInt64>(),
+            nullable_fixed<ColumnInt64, Int64>(
+                    {std::numeric_limits<Int64>::min(), std::numeric_limits<Int64>::max()}, {0, 0}),
+            64, std::numeric_limits<Int64>::min(), std::numeric_limits<Int64>::max());
+
+    decode(shredded_primitive_schema(std::make_shared<DataTypeFloat32>()),
+           nullable_fixed<ColumnFloat32, Float32>({std::numeric_limits<Float32>::quiet_NaN(),
+                                                   std::numeric_limits<Float32>::infinity()},
+                                                  {0, 0}),
+           [](const auto& values) {
+               EXPECT_TRUE(std::isnan(values.get_value_ref(0).get_float()));
+               EXPECT_TRUE(std::isinf(values.get_value_ref(1).get_float()));
+           });
+    decode(shredded_primitive_schema(std::make_shared<DataTypeFloat64>()),
+           nullable_fixed<ColumnFloat64, Float64>({-std::numeric_limits<Float64>::infinity(), 1.25},
+                                                  {0, 0}),
+           [](const auto& values) {
+               EXPECT_EQ(values.get_value_ref(0).get_double(),
+                         -std::numeric_limits<Float64>::infinity());
+               EXPECT_EQ(values.get_value_ref(1).get_double(), 1.25);
+           });
+
+    {
+        auto schema = shredded_primitive_schema(std::make_shared<DataTypeDecimal32>(9, 2));
+        schema.children.back()->type_descriptor.decimal_precision = 9;
+        schema.children.back()->type_descriptor.decimal_scale = 2;
+        decode(std::move(schema),
+               nullable_decimal<ColumnDecimal32, Decimal32>(2, {Decimal32 {12345}, Decimal32 {-1}}),
+               [](const auto& values) {
+                   EXPECT_EQ(values.get_value_ref(0).get_decimal(), (VariantDecimal {12345, 2, 4}));
+                   EXPECT_EQ(values.get_value_ref(1).get_decimal(), (VariantDecimal {-1, 2, 4}));
+               });
+    }
+    {
+        auto schema = shredded_primitive_schema(std::make_shared<DataTypeDecimal64>(18, 3));
+        schema.children.back()->type_descriptor.decimal_precision = 18;
+        schema.children.back()->type_descriptor.decimal_scale = 3;
+        decode(std::move(schema),
+               nullable_decimal<ColumnDecimal64, Decimal64>(
+                       3, {Decimal64 {123456789}, Decimal64 {-123456789}}),
+               [](const auto& values) {
+                   EXPECT_EQ(values.get_value_ref(0).get_decimal(),
+                             (VariantDecimal {123456789, 3, 8}));
+                   EXPECT_EQ(values.get_value_ref(1).get_decimal(),
+                             (VariantDecimal {-123456789, 3, 8}));
+               });
+    }
+    {
+        auto schema = shredded_primitive_schema(std::make_shared<DataTypeDecimal128>(38, 4));
+        schema.children.back()->type_descriptor.decimal_precision = 38;
+        schema.children.back()->type_descriptor.decimal_scale = 4;
+        decode(std::move(schema),
+               nullable_decimal<ColumnDecimal128V3, Decimal128V3>(
+                       4, {Decimal128V3 {static_cast<Int128>(1234567890123456789LL)}}),
+               [](const auto& values) {
+                   EXPECT_EQ(values.get_value_ref(0).get_decimal(),
+                             (VariantDecimal {1234567890123456789LL, 4, 16}));
+               });
+    }
+
+    const auto date = DateV2Value<DateV2ValueType>::create_from_olap_date(
+            (static_cast<uint32_t>(1970) << 9) | (static_cast<uint32_t>(1) << 5) | 2);
+    decode(shredded_primitive_schema(std::make_shared<DataTypeDateV2>()),
+           nullable_fixed<ColumnDateV2, DateV2Value<DateV2ValueType>>({date}, {0}),
+           [](const auto& values) { EXPECT_EQ(values.get_value_ref(0).get_date(), 1); });
+
+    auto datetime = DateV2Value<DateTimeV2ValueType>::create_from_olap_datetime(19700101000001ULL);
+    datetime.set_microsecond(234567);
+    {
+        auto schema = shredded_primitive_schema(std::make_shared<DataTypeDateTimeV2>(6));
+        schema.children.back()->type_descriptor.time_unit = ParquetTimeUnit::MICROS;
+        schema.children.back()->type_descriptor.timestamp_is_adjusted_to_utc = false;
+        decode(std::move(schema),
+               nullable_fixed<ColumnDateTimeV2, DateV2Value<DateTimeV2ValueType>>({datetime}, {0}),
+               [](const auto& values) {
+                   EXPECT_EQ(values.get_value_ref(0).get_timestamp_ntz_micros(), 1234567);
+               });
+    }
+    TimestampTzValue timestamp;
+    timestamp.unchecked_set_time(1970, 1, 1, 0, 0, 2, 345678);
+    {
+        auto schema = shredded_primitive_schema(std::make_shared<DataTypeTimeStampTz>(6));
+        schema.children.back()->type_descriptor.time_unit = ParquetTimeUnit::MICROS;
+        schema.children.back()->type_descriptor.timestamp_is_adjusted_to_utc = true;
+        decode(std::move(schema),
+               nullable_fixed<ColumnTimeStampTz, TimestampTzValue>({timestamp}, {0}),
+               [](const auto& values) {
+                   EXPECT_EQ(values.get_value_ref(0).get_timestamp_micros(), 2345678);
+               });
+    }
+
+    auto verify_bytes = [&](bool string_annotation, bool uuid) {
+        const std::array<uint8_t, 16> bytes {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+        auto schema = shredded_primitive_schema(std::make_shared<DataTypeString>());
+        schema.children.back()->type_descriptor.is_string_annotation = string_annotation;
+        schema.children.back()->type_descriptor.is_uuid = uuid;
+        auto strings = ColumnString::create();
+        if (uuid) {
+            strings->insert_data(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        } else {
+            strings->insert_data("bytes", 5);
+        }
+        auto typed = ColumnNullable::create(std::move(strings), ColumnUInt8::create(1, 0));
+        decode(std::move(schema), std::move(typed), [&](const auto& values) {
+            if (uuid) {
+                EXPECT_EQ(values.get_value_ref(0).get_uuid(), bytes);
+            } else if (string_annotation) {
+                EXPECT_EQ(values.get_value_ref(0).get_string(), StringRef("bytes"));
+            } else {
+                EXPECT_EQ(values.get_value_ref(0).get_binary(), StringRef("bytes"));
+            }
+        });
+    };
+    verify_bytes(false, false);
+    verify_bytes(true, false);
+    verify_bytes(false, true);
+}
+
+TEST(VariantColumnReaderTest, RejectsInvalidShreddedUuidWidth) {
+    auto schema = shredded_primitive_schema(std::make_shared<DataTypeString>());
+    schema.children.back()->type_descriptor.is_uuid = true;
+    auto strings = ColumnString::create();
+    strings->insert_data("short", 5);
+    auto typed = ColumnNullable::create(std::move(strings), ColumnUInt8::create(1, 0));
+    const std::string error =
+            materialization_error(schema, shredded_primitive_physical(std::move(typed)));
+    EXPECT_NE(error.find("UUID has 5 bytes instead of 16"), std::string::npos) << error;
+}
+
 TEST(VariantColumnReaderTest, DifferentMetadataDictionariesRemainIndependent) {
     VariantBatchBuilder first_builder;
     auto first_row = first_builder.begin_row();
@@ -347,6 +655,31 @@ TEST(VariantColumnReaderTest, DifferentMetadataDictionariesRemainIndependent) {
     EXPECT_EQ(field.get_int(), 1);
     ASSERT_TRUE(variants.get_value_ref(1).object_find(StringRef("beta"), &field));
     EXPECT_EQ(field.get_int(), 2);
+}
+
+TEST(VariantColumnReaderTest, AppendsCompleteShreddedStatesWithDifferentSchemasAndMetadata) {
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    auto first_schema = shredded_named_object_schema("a");
+    ASSERT_TRUE(materialize_variant_rows(first_schema,
+                                         complete_shredded_object_physical("left", 1, 11), output)
+                        .ok());
+    auto second_schema = shredded_named_object_schema("b");
+    ASSERT_TRUE(materialize_variant_rows(second_schema,
+                                         complete_shredded_object_physical("right", 2, 22), output)
+                        .ok());
+
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    ASSERT_EQ(variants.size(), 2);
+    VariantRef field;
+    ASSERT_TRUE(variants.get_value_ref(0).object_find(StringRef("left"), &field));
+    EXPECT_EQ(field.get_int(), 1);
+    ASSERT_TRUE(variants.get_value_ref(0).object_find(StringRef("a"), &field));
+    EXPECT_EQ(field.get_int(), 11);
+    ASSERT_TRUE(variants.get_value_ref(1).object_find(StringRef("right"), &field));
+    EXPECT_EQ(field.get_int(), 2);
+    ASSERT_TRUE(variants.get_value_ref(1).object_find(StringRef("b"), &field));
+    EXPECT_EQ(field.get_int(), 22);
 }
 
 TEST(VariantColumnReaderTest, ShreddedObjectFieldMayOmitResidualValueColumn) {
@@ -776,6 +1109,273 @@ TEST(VariantColumnReaderTest, MaterializesShreddedArrayElements) {
     EXPECT_EQ(value.array_at(1).get_int(), 4);
 }
 
+TEST(VariantColumnReaderTest, RejectsCorruptShreddedWrappersWithoutCrashing) {
+    const std::array<char, 2> int_seven {
+            static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
+                              << VARIANT_VALUE_HEADER_SHIFT),
+            7};
+    const std::array<char, 1> invalid_value {static_cast<char>(0xff)};
+    const std::array<char, 1> ignored {0};
+    const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
+    const StringRef residual_int(int_seven.data(), int_seven.size());
+    auto expect_error = [](const std::string& error, std::string_view expected) {
+        EXPECT_NE(error.find(expected), std::string::npos) << error;
+    };
+    std::string_view current_case;
+
+    try {
+        {
+            current_case = "null metadata";
+            SCOPED_TRACE("null metadata");
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {1}));
+            fields.push_back(nullable_strings({residual_int}, {0}));
+            expect_error(
+                    materialization_error(unshredded_schema(), root_wrapper(std::move(fields))),
+                    "null metadata");
+        }
+        {
+            current_case = "wrapper without carriers";
+            SCOPED_TRACE("wrapper without carriers");
+            auto schema = unshredded_schema();
+            schema.children.pop_back();
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {0}));
+            expect_error(materialization_error(schema, root_wrapper(std::move(fields))),
+                         "neither value nor typed_value");
+        }
+        {
+            current_case = "scalar with residual";
+            SCOPED_TRACE("scalar with residual");
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {0}));
+            fields.push_back(nullable_strings({residual_int}, {0}));
+            fields.push_back(nullable_int64({8}, {0}));
+            expect_error(
+                    materialization_error(shredded_int64_schema(), root_wrapper(std::move(fields))),
+                    "scalar typed_value cannot have residual");
+        }
+        {
+            current_case = "object with scalar residual";
+            SCOPED_TRACE("object with scalar residual");
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {0}));
+            fields.push_back(nullable_strings({residual_int}, {0}));
+            MutableColumns wrapper_fields;
+            wrapper_fields.push_back(nullable_int64({9}, {0}));
+            MutableColumns object_fields;
+            object_fields.push_back(ColumnNullable::create(
+                    ColumnStruct::create(std::move(wrapper_fields)), ColumnUInt8::create(1, 0)));
+            fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(object_fields)),
+                                                    ColumnUInt8::create(1, 0)));
+            expect_error(materialization_error(shredded_object_schema(),
+                                               root_wrapper(std::move(fields))),
+                         "non-object residual");
+        }
+        {
+            current_case = "object field count mismatch";
+            SCOPED_TRACE("object field count mismatch");
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {0}));
+            fields.push_back(nullable_strings({{ignored.data(), 0}}, {1}));
+            MutableColumns unexpected_object_fields;
+            unexpected_object_fields.push_back(nullable_int64({1}, {0}));
+            unexpected_object_fields.push_back(nullable_int64({2}, {0}));
+            fields.push_back(ColumnNullable::create(
+                    ColumnStruct::create(std::move(unexpected_object_fields)),
+                    ColumnUInt8::create(1, 0)));
+            expect_error(materialization_error(shredded_object_schema(),
+                                               root_wrapper(std::move(fields))),
+                         "physical field count mismatch");
+        }
+        {
+            current_case = "array with residual";
+            SCOPED_TRACE("array with residual");
+            MutableColumns empty_wrapper_fields;
+            empty_wrapper_fields.push_back(nullable_int64({}, {}));
+            auto empty_elements = ColumnNullable::create(
+                    ColumnStruct::create(std::move(empty_wrapper_fields)), ColumnUInt8::create());
+            auto offsets = ColumnArray::ColumnOffsets::create();
+            offsets->insert_value(0);
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {0}));
+            fields.push_back(nullable_strings({residual_int}, {0}));
+            fields.push_back(ColumnNullable::create(
+                    ColumnArray::create(std::move(empty_elements), std::move(offsets)),
+                    ColumnUInt8::create(1, 0)));
+            expect_error(
+                    materialization_error(shredded_array_schema(), root_wrapper(std::move(fields))),
+                    "array typed_value cannot have residual");
+        }
+        {
+            current_case = "null array element wrapper";
+            SCOPED_TRACE("null array element wrapper");
+            MutableColumns wrapper_fields;
+            wrapper_fields.push_back(nullable_int64({0}, {1}));
+            auto wrappers = ColumnStruct::create(std::move(wrapper_fields));
+            auto elements = ColumnNullable::create(std::move(wrappers), ColumnUInt8::create(1, 1));
+            auto offsets = ColumnArray::ColumnOffsets::create();
+            offsets->insert_value(1);
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {0}));
+            fields.push_back(nullable_strings({{ignored.data(), 0}}, {1}));
+            fields.push_back(ColumnNullable::create(
+                    ColumnArray::create(std::move(elements), std::move(offsets)),
+                    ColumnUInt8::create(1, 0)));
+            expect_error(
+                    materialization_error(shredded_array_schema(), root_wrapper(std::move(fields))),
+                    "array element wrapper is null");
+        }
+        {
+            current_case = "missing array element";
+            SCOPED_TRACE("missing array element");
+            MutableColumns element_fields;
+            element_fields.push_back(nullable_strings({{ignored.data(), 0}}, {1}));
+            element_fields.push_back(nullable_int64({0}, {1}));
+            auto elements = ColumnNullable::create(ColumnStruct::create(std::move(element_fields)),
+                                                   ColumnUInt8::create(1, 0));
+            auto offsets = ColumnArray::ColumnOffsets::create();
+            offsets->insert_value(1);
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {0}));
+            fields.push_back(nullable_strings({{ignored.data(), 0}}, {1}));
+            fields.push_back(ColumnNullable::create(
+                    ColumnArray::create(std::move(elements), std::move(offsets)),
+                    ColumnUInt8::create(1, 0)));
+            expect_error(materialization_error(shredded_mixed_array_schema(),
+                                               root_wrapper(std::move(fields))),
+                         "array element is missing");
+        }
+        {
+            current_case = "root field count mismatch";
+            SCOPED_TRACE("root field count mismatch");
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {0}));
+            fields.push_back(nullable_strings({residual_int}, {0}));
+            fields.push_back(nullable_int64({8}, {0}));
+            fields.push_back(nullable_int64({9}, {0}));
+            expect_error(
+                    materialization_error(shredded_int64_schema(), root_wrapper(std::move(fields))),
+                    "physical field count mismatch");
+        }
+        {
+            current_case = "invalid metadata";
+            SCOPED_TRACE("invalid metadata");
+            MutableColumns fields;
+            fields.push_back(nullable_strings({StringRef("bad")}, {0}));
+            fields.push_back(nullable_strings({residual_int}, {0}));
+            expect_error(
+                    materialization_error(unshredded_schema(), root_wrapper(std::move(fields))),
+                    "metadata");
+        }
+        {
+            current_case = "invalid residual value";
+            SCOPED_TRACE("invalid residual value");
+            MutableColumns fields;
+            fields.push_back(nullable_strings({metadata}, {0}));
+            fields.push_back(nullable_strings({{invalid_value.data(), invalid_value.size()}}, {0}));
+            expect_error(
+                    materialization_error(unshredded_schema(), root_wrapper(std::move(fields))),
+                    "Variant");
+        }
+    } catch (const std::exception& error) {
+        FAIL() << "Unexpected exception in " << current_case << ": " << error.what();
+    }
+}
+
+TEST(VariantColumnReaderTest, ImmediateCorruptionLeavesDestinationUnchanged) {
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(
+            materialize_variant_rows(shredded_int64_schema(), shredded_int64_physical({7}), output)
+                    .ok());
+    MutableColumns invalid_fields;
+    invalid_fields.push_back(nullable_strings(
+            {{VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size()}}, {0}));
+    const Status status = materialize_variant_rows(shredded_int64_schema(),
+                                                   root_wrapper(std::move(invalid_fields)), output);
+    EXPECT_FALSE(status.ok());
+    ASSERT_EQ(output->size(), 1);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    EXPECT_EQ(variants.get_value_ref(0).get_int(), 7);
+}
+
+TEST(VariantColumnReaderTest, MaterializesMixedRootArraysAndNullKinds) {
+    VariantBatchBuilder residual_builder;
+    {
+        auto row = residual_builder.begin_row();
+        row.add_null();
+        row.finish();
+    }
+    {
+        auto row = residual_builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("x"));
+        row.add_int(2);
+        object.finish();
+        row.finish();
+    }
+    {
+        auto row = residual_builder.begin_row();
+        auto array = row.start_array();
+        row.add_int(3);
+        row.add_int(4);
+        array.finish();
+        row.finish();
+    }
+    {
+        auto row = residual_builder.begin_row();
+        row.add_string(StringRef("tail"));
+        row.finish();
+    }
+    VariantBatchBuilder residuals = residual_builder.finish_batch();
+    const VariantRef first = residuals.value_at(0);
+    std::vector<StringRef> residual_values;
+    for (size_t row = 0; row < residuals.num_rows(); ++row) {
+        residual_values.push_back(residuals.value_at(row).value);
+    }
+    residual_values.insert(residual_values.begin() + 1, StringRef {});
+
+    MutableColumns element_fields;
+    element_fields.push_back(nullable_strings(residual_values, {0, 1, 0, 0, 0}));
+    element_fields.push_back(nullable_int64({0, 1, 0, 0, 0}, {1, 0, 1, 1, 1}));
+    auto elements = ColumnNullable::create(ColumnStruct::create(std::move(element_fields)),
+                                           ColumnUInt8::create(5, 0));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({0, 5, 5, 5});
+    auto arrays = ColumnArray::create(std::move(elements), std::move(offsets));
+
+    const StringRef metadata(first.metadata.data, first.metadata.size);
+    const std::array<char, 1> ignored {0};
+    MutableColumns root_fields;
+    root_fields.push_back(nullable_strings({metadata, metadata, metadata, metadata}, {0, 0, 0, 0}));
+    root_fields.push_back(nullable_strings(
+            {{ignored.data(), 0}, {ignored.data(), 0}, {ignored.data(), 0}, {ignored.data(), 0}},
+            {1, 1, 1, 1}));
+    auto typed_nulls = ColumnUInt8::create(4, 0);
+    typed_nulls->get_data()[2] = 1;
+    typed_nulls->get_data()[3] = 1;
+    root_fields.push_back(ColumnNullable::create(std::move(arrays), std::move(typed_nulls)));
+    auto physical = root_wrapper(std::move(root_fields), {0, 0, 0, 1});
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(shredded_mixed_array_schema(), *physical, output).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    EXPECT_EQ(nullable.get_null_map_data(), (NullMap {0, 0, 0, 1}));
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    EXPECT_EQ(variants.get_value_ref(0).num_elements(), 0);
+    const VariantRef mixed = variants.get_value_ref(1);
+    ASSERT_EQ(mixed.num_elements(), 5);
+    EXPECT_TRUE(mixed.array_at(0).is_null());
+    EXPECT_EQ(mixed.array_at(1).get_int(), 1);
+    VariantRef object_field;
+    ASSERT_TRUE(mixed.array_at(2).object_find(StringRef("x"), &object_field));
+    EXPECT_EQ(object_field.get_int(), 2);
+    EXPECT_EQ(mixed.array_at(3).array_at(1).get_int(), 4);
+    EXPECT_EQ(mixed.array_at(4).get_string(), StringRef("tail"));
+    EXPECT_TRUE(variants.get_value_ref(2).is_null());
+}
+
 TEST(VariantColumnReaderTest, MaterializesVariantNestedInStruct) {
     const std::array<char, 2> int_seven {
             static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
@@ -815,6 +1415,124 @@ TEST(VariantColumnReaderTest, MaterializesVariantNestedInStruct) {
     const auto& nullable = assert_cast<const ColumnNullable&>(output_struct.get_column(0));
     const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
     EXPECT_EQ(variants.get_value_ref(0).get_int(), 7);
+}
+
+TEST(VariantColumnReaderTest, MaterializesPhysicallyShreddedVariantInStructArrayAndMap) {
+    auto make_plan_child = [](const ParquetColumnSchema* schema) {
+        auto child = std::make_unique<VariantMaterializationNode>();
+        child->schema = schema;
+        child->contains_variant = schema->kind == ParquetColumnSchemaKind::VARIANT;
+        return child;
+    };
+
+    {
+        ParquetColumnSchema root_schema;
+        root_schema.name = "root";
+        root_schema.kind = ParquetColumnSchemaKind::STRUCT;
+        root_schema.children.push_back(
+                std::make_unique<ParquetColumnSchema>(shredded_int64_schema()));
+        VariantMaterializationNode plan;
+        plan.schema = &root_schema;
+        plan.contains_variant = true;
+        plan.children.push_back(make_plan_child(root_schema.children[0].get()));
+        MutableColumns physical_fields;
+        physical_fields.push_back(shredded_int64_physical({11}));
+        auto physical = ColumnStruct::create(std::move(physical_fields));
+        auto output = std::make_shared<DataTypeStruct>(
+                              DataTypes {make_nullable(std::make_shared<DataTypeVariantV2>())},
+                              Strings {"v"})
+                              ->create_column();
+        ASSERT_TRUE(materialize_variant_columns(plan, *physical, output).ok());
+        const auto& variants = assert_cast<const ColumnVariantV2&>(
+                assert_cast<const ColumnNullable&>(
+                        assert_cast<const ColumnStruct&>(*output).get_column(0))
+                        .get_nested_column());
+        EXPECT_EQ(variants.get_value_ref(0).get_int(), 11);
+    }
+
+    {
+        ParquetColumnSchema root_schema;
+        root_schema.name = "items";
+        root_schema.kind = ParquetColumnSchemaKind::LIST;
+        root_schema.children.push_back(
+                std::make_unique<ParquetColumnSchema>(shredded_int64_schema()));
+        VariantMaterializationNode plan;
+        plan.schema = &root_schema;
+        plan.contains_variant = true;
+        plan.children.push_back(make_plan_child(root_schema.children[0].get()));
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        offsets->insert_value(2);
+        auto physical = ColumnArray::create(shredded_int64_physical({12, 13}), std::move(offsets));
+        auto output = std::make_shared<DataTypeArray>(
+                              make_nullable(std::make_shared<DataTypeVariantV2>()))
+                              ->create_column();
+        ASSERT_TRUE(materialize_variant_columns(plan, *physical, output).ok());
+        const auto& variants = assert_cast<const ColumnVariantV2&>(
+                assert_cast<const ColumnNullable&>(
+                        assert_cast<const ColumnArray&>(*output).get_data())
+                        .get_nested_column());
+        EXPECT_EQ(variants.get_value_ref(0).get_int(), 12);
+        EXPECT_EQ(variants.get_value_ref(1).get_int(), 13);
+    }
+
+    {
+        ParquetColumnSchema root_schema;
+        root_schema.name = "entries";
+        root_schema.kind = ParquetColumnSchemaKind::MAP;
+        auto key_schema = std::make_unique<ParquetColumnSchema>();
+        key_schema->name = "key";
+        key_schema->kind = ParquetColumnSchemaKind::PRIMITIVE;
+        key_schema->type = std::make_shared<DataTypeString>();
+        root_schema.children.push_back(std::move(key_schema));
+        root_schema.children.push_back(
+                std::make_unique<ParquetColumnSchema>(shredded_int64_schema()));
+        VariantMaterializationNode plan;
+        plan.schema = &root_schema;
+        plan.contains_variant = true;
+        plan.children.push_back(make_plan_child(root_schema.children[0].get()));
+        plan.children.push_back(make_plan_child(root_schema.children[1].get()));
+        auto keys = ColumnString::create();
+        keys->insert_data("a", 1);
+        keys->insert_data("b", 1);
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        offsets->insert_value(2);
+        auto physical = ColumnMap::create(std::move(keys), shredded_int64_physical({14, 15}),
+                                          std::move(offsets));
+        auto output =
+                std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                              make_nullable(std::make_shared<DataTypeVariantV2>()))
+                        ->create_column();
+        ASSERT_TRUE(materialize_variant_columns(plan, *physical, output).ok());
+        const auto& variants = assert_cast<const ColumnVariantV2&>(
+                assert_cast<const ColumnNullable&>(
+                        assert_cast<const ColumnMap&>(*output).get_values())
+                        .get_nested_column());
+        EXPECT_EQ(variants.get_value_ref(0).get_int(), 14);
+        EXPECT_EQ(variants.get_value_ref(1).get_int(), 15);
+    }
+}
+
+TEST(VariantColumnReaderTest, ProjectedShreddedStateRejectsRootMaterialization) {
+    auto schema = shredded_object_schema();
+    schema.local_id = 0;
+    schema.children[2]->local_id = 2;
+    schema.children[2]->children[0]->local_id = 0;
+    schema.children[2]->children[0]->children[0]->local_id = 0;
+    auto projection = format::LocalColumnIndex::partial_local(0);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+    projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(0));
+    VariantMaterializationNode plan;
+    plan.schema = &schema;
+    plan.contains_variant = true;
+    plan.variant_projection = std::move(projection);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_columns(plan, projected_shredded_object_physical({17}), output)
+                        .ok());
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    EXPECT_THROW((void)variants.get_value_ref(0), Exception);
 }
 
 TEST(VariantColumnReaderTest, AlignsNestedPrimitiveNullabilityAroundVariant) {
