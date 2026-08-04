@@ -3134,6 +3134,76 @@ TEST(TableReaderTest, ScalarProjectionRejectsNullInRequiredTableColumn) {
               std::string::npos);
 }
 
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeArrayWhenNearerMaskCoversVisibleNull) {
+    constexpr size_t visible_entries = 500000;
+    const size_t entries = visible_entries + 1;
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_struct_type = make_nullable(struct_type);
+
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto element_null_map = ColumnUInt8::create(entries, 0);
+    element_null_map->get_data().back() = 1;
+    ColumnPtr nullable_elements = ColumnNullable::create(
+            ColumnStruct::create(std::move(struct_children)), std::move(element_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, entries};
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_elements, nullable_struct_type, 2, offsets));
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeMapWhenNearerMaskCoversVisibleNull) {
+    constexpr size_t visible_entries = 500000;
+    const size_t entries = visible_entries + 1;
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_struct_type = make_nullable(struct_type);
+
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto value_struct_null_map = ColumnUInt8::create(entries, 0);
+    value_struct_null_map->get_data().back() = 1;
+    ColumnPtr nullable_value_structs = ColumnNullable::create(
+            ColumnStruct::create(std::move(struct_children)), std::move(value_struct_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, entries};
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_value_structs, nullable_struct_type, 2, offsets));
+}
+
+TEST(TableReaderTest, CollectionParentMaskKeepsRequiredNullInHiddenEntry) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_struct_type = make_nullable(struct_type);
+
+    auto values = ColumnInt32::create(2, 0);
+    auto value_null_map = ColumnUInt8::create();
+    value_null_map->get_data().assign({1, 1});
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto element_null_map = ColumnUInt8::create();
+    element_null_map->get_data().assign({0, 1});
+    ColumnPtr nullable_elements = ColumnNullable::create(
+            ColumnStruct::create(std::move(struct_children)), std::move(element_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, 2};
+
+    EXPECT_TRUE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_elements, nullable_struct_type, 2, offsets));
+}
+
 TEST(TableReaderTest, ReopenSplitAfterClose) {
     const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_test";
     std::filesystem::remove_all(test_dir);
