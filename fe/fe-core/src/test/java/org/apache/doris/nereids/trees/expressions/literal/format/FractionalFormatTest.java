@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
 import com.fasterxml.jackson.core.io.schubfach.DoubleToDecimal;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
@@ -34,30 +34,30 @@ public class FractionalFormatTest {
 
     @Test
     public void testBoundaryValues() {
-        Assert.assertEquals("0", FractionalFormat.getFormatStringValue(0.0));
-        Assert.assertEquals("-0", FractionalFormat.getFormatStringValue(-0.0));
-        Assert.assertEquals("NaN", FractionalFormat.getFormatStringValue(Double.NaN));
-        Assert.assertEquals("Infinity",
+        Assertions.assertEquals("0", FractionalFormat.getFormatStringValue(0.0));
+        Assertions.assertEquals("-0", FractionalFormat.getFormatStringValue(-0.0));
+        Assertions.assertEquals("NaN", FractionalFormat.getFormatStringValue(Double.NaN));
+        Assertions.assertEquals("Infinity",
                 FractionalFormat.getFormatStringValue(Double.POSITIVE_INFINITY));
-        Assert.assertEquals("-Infinity",
+        Assertions.assertEquals("-Infinity",
                 FractionalFormat.getFormatStringValue(Double.NEGATIVE_INFINITY));
-        Assert.assertEquals("0.0001", FractionalFormat.getFormatStringValue(1e-4));
-        Assert.assertEquals("1e-05", FractionalFormat.getFormatStringValue(1e-5));
-        Assert.assertEquals("1000000000000000",
+        Assertions.assertEquals("0.0001", FractionalFormat.getFormatStringValue(1e-4));
+        Assertions.assertEquals("1e-05", FractionalFormat.getFormatStringValue(1e-5));
+        Assertions.assertEquals("1000000000000000",
                 FractionalFormat.getFormatStringValue(1e15));
-        Assert.assertEquals("1e+16", FractionalFormat.getFormatStringValue(1e16));
-        Assert.assertEquals("1e+23", FractionalFormat.getFormatStringValue(1e23));
-        Assert.assertEquals("5.960464477539063e-08",
+        Assertions.assertEquals("1e+16", FractionalFormat.getFormatStringValue(1e16));
+        Assertions.assertEquals("1e+23", FractionalFormat.getFormatStringValue(1e23));
+        Assertions.assertEquals("5.960464477539063e-08",
                 FractionalFormat.getFormatStringValue(Math.scalb(1.0, -24)));
-        Assert.assertEquals("5e-324", FractionalFormat.getFormatStringValue(Double.MIN_VALUE));
-        Assert.assertEquals("1.7976931348623157e+308",
+        Assertions.assertEquals("5e-324", FractionalFormat.getFormatStringValue(Double.MIN_VALUE));
+        Assertions.assertEquals("1.7976931348623157e+308",
                 FractionalFormat.getFormatStringValue(Double.MAX_VALUE));
 
-        Assert.assertEquals("10000000", FractionalFormat.getFormatStringValue(1e7f));
-        Assert.assertEquals("1.2621775e-29",
+        Assertions.assertEquals("10000000", FractionalFormat.getFormatStringValue(1e7f));
+        Assertions.assertEquals("1.2621775e-29",
                 FractionalFormat.getFormatStringValue(Math.scalb(1.0f, -96)));
-        Assert.assertEquals("1e-45", FractionalFormat.getFormatStringValue(Float.MIN_VALUE));
-        Assert.assertEquals("3.4028235e+38",
+        Assertions.assertEquals("1e-45", FractionalFormat.getFormatStringValue(Float.MIN_VALUE));
+        Assertions.assertEquals("3.4028235e+38",
                 FractionalFormat.getFormatStringValue(Float.MAX_VALUE));
     }
 
@@ -67,13 +67,13 @@ public class FractionalFormatTest {
         for (int i = 0; i < 10_000; i++) {
             double value = nextFiniteDouble(random);
             String formatted = FractionalFormat.getFormatStringValue(value);
-            Assert.assertEquals(Double.doubleToRawLongBits(value),
+            Assertions.assertEquals(Double.doubleToRawLongBits(value),
                     Double.doubleToRawLongBits(Double.parseDouble(formatted)));
         }
         for (int i = 0; i < 10_000; i++) {
             float value = nextFiniteFloat(random);
             String formatted = FractionalFormat.getFormatStringValue(value);
-            Assert.assertEquals(Float.floatToRawIntBits(value),
+            Assertions.assertEquals(Float.floatToRawIntBits(value),
                     Float.floatToRawIntBits(Float.parseFloat(formatted)));
         }
     }
@@ -112,7 +112,7 @@ public class FractionalFormatTest {
 
         // Formatting may add notation normalization on top of Schubfach, but must remain
         // within a small constant factor of the bounded-allocation converter.
-        // Assert.assertTrue("Doris formatting took " + dorisNanos
+        // Assertions.assertTrue("Doris formatting took " + dorisNanos
         //                 + "ns, Schubfach conversion took " + schubfachNanos + "ns",
         //         dorisNanos < schubfachNanos * 3);
     }
