@@ -22,9 +22,11 @@
 #include <bit>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <string_view>
 #include <typeinfo>
 #include <utility>
+#include <vector>
 
 #include "common/check.h"
 #include "common/exception.h"
@@ -311,6 +313,266 @@ ValidatedTypedInput validate_typed_input(ColumnPtr column, DataTypePtr scalar_ty
 [[noreturn]] void throw_unsupported(std::string_view method) {
     throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                     "ColumnVariantV2::{} is intentionally unsupported for Variant values", method);
+}
+
+class CompositeVariantShreddedState final : public VariantShreddedState {
+public:
+    explicit CompositeVariantShreddedState(
+            std::vector<std::shared_ptr<VariantShreddedState>> segments)
+            : _segments(std::move(segments)) {
+        DORIS_CHECK(std::ranges::all_of(_segments, [](const auto& segment) {
+            return segment != nullptr;
+        })) << "composite Variant shredded segments must not be null";
+    }
+
+    size_t size() const override {
+        size_t rows = 0;
+        for (const auto& segment : _segments) {
+            DORIS_CHECK_LE(segment->size(), std::numeric_limits<size_t>::max() - rows)
+                    << "composite Variant shredded row count overflows size_t";
+            rows += segment->size();
+        }
+        return rows;
+    }
+
+    size_t byte_size() const override {
+        size_t bytes = 0;
+        for (const auto& segment : _segments) {
+            bytes += segment->byte_size();
+        }
+        std::lock_guard lock(_materialization_lock);
+        return bytes + (_materialized ? _materialized->byte_size() : 0);
+    }
+
+    size_t allocated_bytes() const override {
+        size_t bytes = 0;
+        for (const auto& segment : _segments) {
+            bytes += segment->allocated_bytes();
+        }
+        std::lock_guard lock(_materialization_lock);
+        return bytes + (_materialized ? _materialized->allocated_bytes() : 0);
+    }
+
+    void sanity_check() const override {
+        for (const auto& segment : _segments) {
+            segment->sanity_check();
+        }
+    }
+
+    void for_each_subcolumn(const IColumn::ImutableColumnCallback& callback) const override {
+        for (const auto& segment : _segments) {
+            segment->for_each_subcolumn(callback);
+        }
+    }
+
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                 ssize_t /*result_size_hint*/) const override {
+        DORIS_CHECK_EQ(filter.size(), size())
+                << "composite Variant shredded filter size does not match row count";
+        std::vector<std::shared_ptr<VariantShreddedState>> selected;
+        selected.reserve(_segments.size());
+        size_t offset = 0;
+        for (const auto& segment : _segments) {
+            IColumn::Filter segment_filter;
+            segment_filter.insert(filter.begin() + offset,
+                                  filter.begin() + offset + segment->size());
+            auto filtered = segment->filter(segment_filter, -1);
+            if (filtered->size() != 0) {
+                selected.push_back(std::move(filtered));
+            }
+            offset += segment->size();
+        }
+        return pack(std::move(selected));
+    }
+
+    std::shared_ptr<VariantShreddedState> select_range(size_t start, size_t length) const override {
+        DORIS_CHECK_LE(start, size()) << "composite Variant range starts past source size";
+        DORIS_CHECK_LE(length, size() - start) << "composite Variant range exceeds source size";
+        std::vector<std::shared_ptr<VariantShreddedState>> selected;
+        if (length == 0) {
+            return pack(std::move(selected));
+        }
+        const size_t end = start + length;
+        size_t offset = 0;
+        for (const auto& segment : _segments) {
+            const size_t segment_end = offset + segment->size();
+            const size_t overlap_begin = std::max(start, offset);
+            const size_t overlap_end = std::min(end, segment_end);
+            if (overlap_begin < overlap_end) {
+                selected.push_back(
+                        segment->select_range(overlap_begin - offset, overlap_end - overlap_begin));
+            }
+            offset = segment_end;
+            if (offset >= end) {
+                break;
+            }
+        }
+        return pack(std::move(selected));
+    }
+
+    std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const override {
+        if (indices_begin == indices_end) {
+            return pack({});
+        }
+        DORIS_CHECK(indices_begin != nullptr && indices_end != nullptr &&
+                    indices_begin < indices_end)
+                << "composite Variant indices are invalid";
+
+        std::vector<size_t> segment_ends;
+        segment_ends.reserve(_segments.size());
+        size_t rows = 0;
+        for (const auto& segment : _segments) {
+            rows += segment->size();
+            segment_ends.push_back(rows);
+        }
+
+        std::vector<std::shared_ptr<VariantShreddedState>> selected;
+        const uint32_t* cursor = indices_begin;
+        while (cursor != indices_end) {
+            DORIS_CHECK_LT(*cursor, rows) << "composite Variant source index is out of range";
+            const size_t segment_index =
+                    std::upper_bound(segment_ends.begin(), segment_ends.end(), *cursor) -
+                    segment_ends.begin();
+            const size_t segment_begin = segment_index == 0 ? 0 : segment_ends[segment_index - 1];
+            DorisVector<uint32_t> local_indices;
+            while (cursor != indices_end && *cursor >= segment_begin &&
+                   *cursor < segment_ends[segment_index]) {
+                local_indices.push_back(static_cast<uint32_t>(*cursor - segment_begin));
+                ++cursor;
+            }
+            selected.push_back(_segments[segment_index]->select_indices(
+                    local_indices.data(), local_indices.data() + local_indices.size()));
+        }
+        return pack(std::move(selected));
+    }
+
+    bool can_materialize() const override {
+        return std::ranges::all_of(_segments,
+                                   [](const auto& segment) { return segment->can_materialize(); });
+    }
+
+    bool try_append(const VariantShreddedState& source) override {
+        if (const auto* composite = dynamic_cast<const CompositeVariantShreddedState*>(&source)) {
+            for (const auto& segment : composite->_segments) {
+                append(segment);
+            }
+        } else {
+            append(source.select_range(0, source.size()));
+        }
+        std::lock_guard lock(_materialization_lock);
+        _materialized.reset();
+        return true;
+    }
+
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment> path) const override {
+        if (_segments.empty()) {
+            return std::nullopt;
+        }
+        std::vector<VariantShreddedTypedValue> matches;
+        matches.reserve(_segments.size());
+        for (const auto& segment : _segments) {
+            auto match = segment->find_typed_value(path);
+            if (!match.has_value()) {
+                return std::nullopt;
+            }
+            matches.push_back(std::move(*match));
+        }
+
+        const bool homogeneous = matches.front().column && matches.front().type &&
+                                 std::ranges::all_of(matches, [&](const auto& match) {
+                                     return match.column && match.type && !match.normalized &&
+                                            exact_typed_identity(matches.front().type, match.type);
+                                 });
+        if (homogeneous) {
+            MutableColumnPtr combined = matches.front().column->clone_empty();
+            for (const auto& match : matches) {
+                combined->insert_range_from(*match.column, 0, match.column->size());
+            }
+            return VariantShreddedTypedValue {.column = std::move(combined),
+                                              .type = matches.front().type,
+                                              .normalized = nullptr};
+        }
+
+        auto values = ColumnVariantV2::create();
+        auto nulls = ColumnUInt8::create();
+        nulls->reserve(size());
+        for (const auto& match : matches) {
+            if (match.normalized) {
+                const auto& nullable = assert_cast<const ColumnNullable&>(*match.normalized);
+                const auto& variants =
+                        assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+                values->insert_range_from(variants, 0, variants.size());
+                nulls->insert_range_from(nullable.get_null_map_column(), 0, nullable.size());
+                continue;
+            }
+            auto typed = ColumnVariantV2::create_typed(match.column, match.type);
+            values->insert_range_from(*typed, 0, typed->size());
+            const auto& nullable = assert_cast<const ColumnNullable&>(*match.column);
+            nulls->insert_range_from(nullable.get_null_map_column(), 0, nullable.size());
+        }
+        return VariantShreddedTypedValue {
+                .column = nullptr,
+                .type = nullptr,
+                .normalized = ColumnNullable::create(std::move(values), std::move(nulls))};
+    }
+
+    const ColumnVariantV2& materialized_column() const override {
+        std::lock_guard lock(_materialization_lock);
+        if (!_materialized) {
+            auto materialized = ColumnVariantV2::create();
+            for (const auto& segment : _segments) {
+                const ColumnVariantV2& source = segment->materialized_column();
+                materialized->insert_range_from(source, 0, source.size());
+            }
+            _materialized = std::move(materialized);
+        }
+        return *_materialized;
+    }
+
+private:
+    static std::shared_ptr<VariantShreddedState> pack(
+            std::vector<std::shared_ptr<VariantShreddedState>> segments) {
+        if (segments.size() == 1) {
+            return std::move(segments.front());
+        }
+        return std::make_shared<CompositeVariantShreddedState>(std::move(segments));
+    }
+
+    void append(std::shared_ptr<VariantShreddedState> source) {
+        if (source->size() == 0) {
+            return;
+        }
+        if (const auto* composite =
+                    dynamic_cast<const CompositeVariantShreddedState*>(source.get())) {
+            _segments.insert(_segments.end(), composite->_segments.begin(),
+                             composite->_segments.end());
+            return;
+        }
+        if (!_segments.empty()) {
+            auto& tail = _segments.back();
+            if (tail.use_count() != 1) {
+                tail = tail->select_range(0, tail->size());
+            }
+            if (tail->try_append(*source)) {
+                return;
+            }
+        }
+        _segments.push_back(std::move(source));
+    }
+
+    std::vector<std::shared_ptr<VariantShreddedState>> _segments;
+    mutable std::mutex _materialization_lock;
+    mutable ColumnVariantV2::MutablePtr _materialized;
+};
+
+std::shared_ptr<VariantShreddedState> combine_shredded_states(
+        std::shared_ptr<VariantShreddedState> left, std::shared_ptr<VariantShreddedState> right) {
+    auto combined = std::make_shared<CompositeVariantShreddedState>(
+            std::vector<std::shared_ptr<VariantShreddedState>> {std::move(left)});
+    combined->try_append(*right);
+    return combined;
 }
 
 } // namespace
@@ -804,6 +1066,14 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
             _check_invariants();
             return;
         }
+        if (!_shredded->can_materialize() && !selected_source->can_materialize()) {
+            // Different files may shred the same projected path with different physical
+            // identities. Keep both incomplete states ordered because neither can reconstruct the
+            // root value.
+            _shredded = combine_shredded_states(std::move(_shredded), std::move(selected_source));
+            _check_invariants();
+            return;
+        }
     }
     if (_shredded) {
         ensure_encoded();
@@ -897,15 +1167,32 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
         return;
     }
 
-    if (_shredded) {
-        ensure_encoded();
-    }
     if (!_typed && empty() && _metadatas->empty() && source._shredded) {
         // Gather into the native shredded representation for the same reason as range selection:
         // row selection does not require, and may not have, a complete logical Variant value.
         _shredded = source._shredded->select_indices(indices_begin, indices_end);
         _check_invariants();
         return;
+    }
+    if (_shredded && source._shredded) {
+        auto selected_source = source._shredded->select_indices(indices_begin, indices_end);
+        if (_shredded.use_count() != 1) {
+            _shredded = _shredded->select_range(0, size());
+        }
+        if (_shredded->try_append(*selected_source)) {
+            _check_invariants();
+            return;
+        }
+        if (!_shredded->can_materialize() && !selected_source->can_materialize()) {
+            // Exchange channels can gather projected rows from files whose shredded leaf types
+            // differ. Preserve the segments instead of encoding an incomplete logical Variant.
+            _shredded = combine_shredded_states(std::move(_shredded), std::move(selected_source));
+            _check_invariants();
+            return;
+        }
+    }
+    if (_shredded) {
+        ensure_encoded();
     }
     if (source._shredded) {
         insert_indices_from(source._shredded->materialized_column(), indices_begin, indices_end);

@@ -236,6 +236,27 @@ MutableColumnPtr projected_shredded_object_physical(const std::vector<int64_t>& 
     return ColumnNullable::create(std::move(root), ColumnUInt8::create(values.size(), 0));
 }
 
+MutableColumnPtr projected_shredded_binary_object_physical(
+        const std::vector<std::string_view>& values) {
+    std::vector<StringRef> refs;
+    refs.reserve(values.size());
+    for (const auto value : values) {
+        refs.emplace_back(value.data(), value.size());
+    }
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(nullable_strings(refs, std::vector<uint8_t>(values.size(), 0)));
+    auto wrapper = ColumnStruct::create(std::move(wrapper_fields));
+    MutableColumns object_fields;
+    object_fields.push_back(
+            ColumnNullable::create(std::move(wrapper), ColumnUInt8::create(values.size(), 0)));
+    auto object = ColumnStruct::create(std::move(object_fields));
+    MutableColumns root_fields;
+    root_fields.push_back(
+            ColumnNullable::create(std::move(object), ColumnUInt8::create(values.size(), 0)));
+    auto root = ColumnStruct::create(std::move(root_fields));
+    return ColumnNullable::create(std::move(root), ColumnUInt8::create(values.size(), 0));
+}
+
 MutableColumnPtr root_wrapper(MutableColumns fields, NullMap root_nulls = {0});
 MutableColumnPtr nullable_int64(const std::vector<int64_t>& values,
                                 const std::vector<uint8_t>& nulls);
@@ -837,6 +858,126 @@ TEST(VariantColumnReaderTest, AppendsProjectedShreddedBatchesWithoutMaterializin
     ColumnPtr filtered = output->filter(filter, 2);
     EXPECT_EQ(filtered->size(), 2);
     EXPECT_EQ(plan.variant_state_schema.use_count(), 3);
+}
+
+TEST(VariantColumnReaderTest, GathersConsecutiveProjectedShreddedBatches) {
+    auto schema = shredded_object_schema();
+    schema.local_id = 0;
+    schema.children[2]->local_id = 2;
+    schema.children[2]->children[0]->local_id = 0;
+    schema.children[2]->children[0]->children[0]->local_id = 0;
+    auto projection = format::LocalColumnIndex::partial_local(0);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+    projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(0));
+    VariantMaterializationNode plan;
+    plan.schema = &schema;
+    plan.contains_variant = true;
+    plan.variant_projection = std::move(projection);
+    plan.variant_state_schema = create_variant_state_schema(schema, &*plan.variant_projection);
+
+    auto first = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    auto second = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(
+            materialize_variant_columns(plan, projected_shredded_object_physical({10, 20}), first)
+                    .ok());
+    ASSERT_TRUE(materialize_variant_columns(plan, projected_shredded_object_physical({30}), second)
+                        .ok());
+
+    auto gathered = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const std::array<uint32_t, 2> first_indices {1, 0};
+    const std::array<uint32_t, 1> second_indices {0};
+    gathered->insert_indices_from(*first, first_indices.begin(), first_indices.end());
+    gathered->insert_indices_from(*second, second_indices.begin(), second_indices.end());
+
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*gathered).get_nested_column());
+    const std::array path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("a")}};
+    const auto match = variants.find_shredded_typed_value(path);
+    ASSERT_TRUE(match.has_value());
+    const auto& values = assert_cast<const ColumnInt64&>(
+            assert_cast<const ColumnNullable&>(*match->column).get_nested_column());
+    EXPECT_EQ(values.get_data(), ColumnInt64::Container({20, 10, 30}));
+}
+
+TEST(VariantColumnReaderTest, GathersProjectedShreddedBatchesWithDifferentLeafTypes) {
+    auto integer_schema = shredded_object_schema();
+    auto string_schema = shredded_binary_object_schema();
+    for (auto* schema : {&integer_schema, &string_schema}) {
+        schema->local_id = 0;
+        schema->children[2]->local_id = 2;
+        schema->children[2]->children[0]->local_id = 0;
+        schema->children[2]->children[0]->children[0]->local_id = 0;
+    }
+    auto make_plan = [](const ParquetColumnSchema& schema) {
+        auto projection = format::LocalColumnIndex::partial_local(0);
+        projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+        projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+        projection.children.back().children.back().children.push_back(
+                format::LocalColumnIndex::local(0));
+        VariantMaterializationNode plan;
+        plan.schema = &schema;
+        plan.contains_variant = true;
+        plan.variant_projection = std::move(projection);
+        plan.variant_state_schema = create_variant_state_schema(schema, &*plan.variant_projection);
+        return plan;
+    };
+    auto integer_plan = make_plan(integer_schema);
+    auto string_plan = make_plan(string_schema);
+    auto integers = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    auto strings = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_columns(integer_plan, projected_shredded_object_physical({7}),
+                                            integers)
+                        .ok());
+    ASSERT_TRUE(materialize_variant_columns(
+                        string_plan, projected_shredded_binary_object_physical({"seven"}), strings)
+                        .ok());
+
+    auto gathered = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const std::array<uint32_t, 1> selected {0};
+    gathered->insert_indices_from(*integers, selected.begin(), selected.end());
+    gathered->insert_indices_from(*strings, selected.begin(), selected.end());
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*gathered);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    const std::array path_segments {VariantElementV2PathSegment::object_key(StringRef("a"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(path_segments, &path).ok());
+    ColumnPtr extracted;
+    ASSERT_TRUE(
+            extract_variant_element_v2(variants, *path, nullable.get_null_map_data(), &extracted)
+                    .ok());
+    const auto& extracted_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
+    EXPECT_EQ(extracted_variants.get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(extracted_variants.get_value_ref(1).get_binary(), StringRef("seven"));
+
+    const std::array shredded_path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("a")}};
+    auto reordered = ColumnVariantV2::create();
+    const std::array<uint32_t, 2> reversed {1, 0};
+    reordered->insert_indices_from(variants, reversed.begin(), reversed.end());
+    const auto reordered_match = reordered->find_shredded_typed_value(shredded_path);
+    ASSERT_TRUE(reordered_match.has_value());
+    ASSERT_TRUE(reordered_match->normalized);
+    const auto& reordered_values = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*reordered_match->normalized).get_nested_column());
+    EXPECT_EQ(reordered_values.get_value_ref(0).get_binary(), StringRef("seven"));
+    EXPECT_EQ(reordered_values.get_value_ref(1).get_int(), 7);
+
+    IColumn::Filter keep_integer {1, 0};
+    const auto filtered = variants.filter(keep_integer, 1);
+    const auto filtered_match =
+            assert_cast<const ColumnVariantV2&>(*filtered).find_shredded_typed_value(shredded_path);
+    ASSERT_TRUE(filtered_match.has_value());
+    ASSERT_TRUE(filtered_match->column);
+    EXPECT_EQ(
+            assert_cast<const ColumnInt64&>(
+                    assert_cast<const ColumnNullable&>(*filtered_match->column).get_nested_column())
+                    .get_data()[0],
+            7);
 }
 
 TEST(VariantColumnReaderTest, WideProjectionSharesSchemaAcrossBatchesAndSelections) {
