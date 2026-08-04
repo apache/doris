@@ -445,6 +445,55 @@ const ParquetColumnSchema* resolve_local_leaf_schema(
     return column_schema;
 }
 
+const ParquetColumnSchema* resolve_bloom_filter_leaf_schema(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+        const format::LocalColumnId file_column_id, const expr_zonemap::BloomFilterProbe& probe) {
+    if (probe.path.empty()) {
+        return resolve_local_leaf_schema(schema, file_column_id);
+    }
+    if (!file_column_id.is_valid() || file_column_id.value() >= static_cast<int>(schema.size())) {
+        return nullptr;
+    }
+    const ParquetColumnSchema* column_schema = schema[file_column_id.value()].get();
+    // A nested predicate must bind to its exact localized primitive path. Falling back to a
+    // sibling leaf's Bloom filter could turn absence in that sibling into an invalid row-group skip.
+    for (const auto& path_element : probe.path) {
+        if (column_schema == nullptr) {
+            return nullptr;
+        }
+        if (path_element.kind == expr_zonemap::BloomFilterPathKind::STRUCT_FIELD) {
+            if (column_schema->kind != ParquetColumnSchemaKind::STRUCT) {
+                return nullptr;
+            }
+            const ParquetColumnSchema* field_schema = nullptr;
+            if (!path_element.field_name.empty()) {
+                auto field = std::ranges::find_if(column_schema->children, [&](const auto& child) {
+                    return child != nullptr && child->name == path_element.field_name;
+                });
+                if (field != column_schema->children.end()) {
+                    field_schema = field->get();
+                }
+            } else if (path_element.field_ordinal >= 0 &&
+                       path_element.field_ordinal <
+                               static_cast<int32_t>(column_schema->children.size())) {
+                field_schema = column_schema->children[path_element.field_ordinal].get();
+            }
+            column_schema = field_schema;
+        } else {
+            if (column_schema->kind != ParquetColumnSchemaKind::LIST ||
+                column_schema->children.size() != 1) {
+                return nullptr;
+            }
+            column_schema = column_schema->children[0].get();
+        }
+    }
+    if (column_schema == nullptr || column_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        column_schema->leaf_column_id < 0) {
+        return nullptr;
+    }
+    return column_schema;
+}
+
 std::optional<format::LocalColumnId> file_column_id_by_block_position(
         const format::FileScanRequest& request, int block_position) {
     for (const auto& [file_column_id, local_index] : request.local_positions) {
@@ -1187,23 +1236,17 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
     if (file_context == nullptr || file_context->native_file == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    const auto conjuncts_by_slot = collect_conjuncts_by_single_slot(
-            request.conjuncts, expr_zonemap::single_slot_bloom_filter_index);
-    for (const auto& [slot_index, conjuncts] : conjuncts_by_slot) {
-        const auto file_column_id = file_column_id_by_block_position(request, slot_index);
-        if (!file_column_id.has_value()) {
-            continue;
+    const auto bloom_filter_excludes = [&](const ParquetColumnSchema& column_schema, int slot_index,
+                                           const VExprContextSPtrs& conjuncts) {
+        if (column_schema.type == nullptr ||
+            !native_metadata_predicate_is_type_safe(column_schema) ||
+            !bloom_filter_supported(column_schema) || column_schema.leaf_column_id < 0 ||
+            column_schema.leaf_column_id >= static_cast<int>(row_group.columns.size())) {
+            return false;
         }
-        const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
-        if (column_schema == nullptr || column_schema->type == nullptr ||
-            !native_metadata_predicate_is_type_safe(*column_schema) ||
-            !bloom_filter_supported(*column_schema) ||
-            column_schema->leaf_column_id >= static_cast<int>(row_group.columns.size())) {
-            continue;
-        }
-        const auto& chunk = row_group.columns[column_schema->leaf_column_id];
+        const auto& chunk = row_group.columns[column_schema.leaf_column_id];
         if (!chunk.__isset.meta_data) {
-            continue;
+            return false;
         }
         std::unique_ptr<native::BlockSplitBloomFilter> bloom_filter;
         Status status;
@@ -1214,11 +1257,47 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
             status = read_native_bloom_filter(chunk.meta_data, file_context->native_file,
                                               file_context->native_io_ctx, &bloom_filter);
         }
-        if (!status.ok() || bloom_filter == nullptr) {
+        return status.ok() && bloom_filter != nullptr &&
+               ParquetStatisticsUtils::NativeBloomFilterExcludes(column_schema, slot_index,
+                                                                 conjuncts, *bloom_filter);
+    };
+
+    const auto conjuncts_by_slot = collect_conjuncts_by_single_slot(
+            request.conjuncts, expr_zonemap::single_slot_bloom_filter_index);
+    for (const auto& [slot_index, conjuncts] : conjuncts_by_slot) {
+        const auto file_column_id = file_column_id_by_block_position(request, slot_index);
+        if (!file_column_id.has_value()) {
             continue;
         }
-        if (ParquetStatisticsUtils::NativeBloomFilterExcludes(*column_schema, slot_index, conjuncts,
-                                                              *bloom_filter)) {
+        const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
+        if (column_schema == nullptr) {
+            continue;
+        }
+        if (bloom_filter_excludes(*column_schema, slot_index, conjuncts)) {
+            return ParquetRowGroupPruneReason::BLOOM_FILTER;
+        }
+    }
+
+    for (const auto& conjunct : request.conjuncts) {
+        if (conjunct == nullptr || conjunct->root() == nullptr ||
+            !conjunct->root()->can_evaluate_bloom_filter()) {
+            continue;
+        }
+        auto probe = expr_zonemap::extract_bloom_filter_predicate_probe(conjunct->root());
+        if (!probe.has_value() || probe->path.empty()) {
+            continue;
+        }
+        const auto file_column_id = file_column_id_by_block_position(request, probe->slot_index);
+        if (!file_column_id.has_value()) {
+            continue;
+        }
+        const auto* column_schema =
+                resolve_bloom_filter_leaf_schema(file_schema, *file_column_id, *probe);
+        if (column_schema == nullptr ||
+            !expr_zonemap::data_types_compatible(column_schema->type, probe->value_type)) {
+            continue;
+        }
+        if (bloom_filter_excludes(*column_schema, probe->slot_index, {conjunct})) {
             return ParquetRowGroupPruneReason::BLOOM_FILTER;
         }
     }

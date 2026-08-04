@@ -439,7 +439,7 @@ inline ZoneMapFilterResult evaluate_dictionary(const DictionaryEvalContext& ctx,
 inline ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
                                                  const VExprSPtrs& arguments, Op op) {
     DORIS_CHECK(op == Op::EQ);
-    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    auto slot_literal = expr_zonemap::extract_bloom_filter_slot_and_literal(arguments);
     DORIS_CHECK(slot_literal.has_value());
     return expr_zonemap::eval_eq_bloom_filter(ctx, *slot_literal);
 }
@@ -680,7 +680,8 @@ public:
 
     bool can_evaluate_bloom_filter(const VExprSPtrs& arguments) const override {
         auto op = comparison_zonemap_detail::op_from_name(name);
-        return op.has_value() && comparison_zonemap_detail::can_evaluate_equality(arguments, *op);
+        return op == comparison_zonemap_detail::Op::EQ &&
+               expr_zonemap::can_evaluate_bloom_filter_equality(arguments);
     }
 
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.

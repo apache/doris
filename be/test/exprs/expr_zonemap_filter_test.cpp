@@ -32,11 +32,13 @@
 
 #include "common/object_pool.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/value/vdatetime_value.h"
@@ -242,6 +244,27 @@ public:
 private:
     ZoneMapFilterResult _result;
     std::string _expr_name = "fixed_zonemap_expr";
+};
+
+class MetadataAccessorExpr final : public VExpr {
+public:
+    MetadataAccessorExpr(std::string function_name, DataTypePtr result_type, VExprSPtr parent,
+                         VExprSPtr selector)
+            : VExpr(std::move(result_type), false), _expr_name(std::move(function_name)) {
+        _fn.name.function_name = _expr_name;
+        add_child(std::move(parent));
+        add_child(std::move(selector));
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataAccessorExpr is metadata-only");
+    }
+
+private:
+    std::string _expr_name;
 };
 
 class UnsupportedSingleSlotExpr final : public VExpr {
@@ -640,6 +663,60 @@ TEST(ExprZonemapFilterTest, DefaultFunctionForwardsDictionaryAndBloomEvaluation)
               equals->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(2)}));
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               equals->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(3)}));
+}
+
+TEST(ExprZonemapFilterTest, NullSafeEqualityUsesBloomOnlyForNonNullLiteral) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    auto equals_for_null = SimpleFunctionFactory::instance().get_function(
+            "eq_for_null",
+            ColumnsWithTypeAndName {{nullptr, type, "slot"}, {nullptr, type, "literal"}},
+            std::make_shared<DataTypeUInt8>());
+    ASSERT_NE(equals_for_null, nullptr);
+
+    auto bloom_filter = make_int_bloom_filter({1, 3});
+    auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
+    EXPECT_TRUE(equals_for_null->can_evaluate_bloom_filter({slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals_for_null->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals_for_null->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(3)}));
+
+    EXPECT_FALSE(equals_for_null->can_evaluate_bloom_filter({slot, make_null_int_literal()}));
+}
+
+TEST(ExprZonemapFilterTest, EqualityBloomAcceptsStructAndListLeafAccessors) {
+    auto leaf_type = int_type();
+    auto bloom_filter = make_int_bloom_filter({1, 3});
+    auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), leaf_type);
+    FunctionComparison<EqualsOp, NameEquals> equals;
+
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"value"});
+    auto struct_accessor = std::make_shared<MetadataAccessorExpr>(
+            "element_at", leaf_type, make_slot(0, struct_type), make_string_literal("value"));
+    EXPECT_TRUE(equals.can_evaluate_bloom_filter({struct_accessor, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals.evaluate_bloom_filter(bloom_ctx, {struct_accessor, make_int_literal(2)}));
+
+    auto list_type = std::make_shared<DataTypeArray>(leaf_type);
+    auto list_accessor = std::make_shared<MetadataAccessorExpr>(
+            "element_at", leaf_type, make_slot(0, list_type), make_int_literal(1));
+    EXPECT_TRUE(equals.can_evaluate_bloom_filter({list_accessor, make_int_literal(3)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals.evaluate_bloom_filter(bloom_ctx, {list_accessor, make_int_literal(3)}));
+
+    auto nested_type = std::make_shared<DataTypeStruct>(DataTypes {list_type}, Strings {"items"});
+    auto nested_list = std::make_shared<MetadataAccessorExpr>(
+            "element_at", list_type, make_slot(0, nested_type), make_string_literal("items"));
+    auto nested_leaf = std::make_shared<MetadataAccessorExpr>(
+            "element_at", leaf_type, std::move(nested_list), make_int_literal(1));
+    auto nested_probe = expr_zonemap::extract_bloom_filter_probe(nested_leaf);
+    ASSERT_TRUE(nested_probe.has_value());
+    ASSERT_EQ(nested_probe->path.size(), 2);
+    EXPECT_EQ(nested_probe->path[0].kind, expr_zonemap::BloomFilterPathKind::STRUCT_FIELD);
+    EXPECT_EQ(nested_probe->path[1].kind, expr_zonemap::BloomFilterPathKind::LIST_ELEMENT);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals.evaluate_bloom_filter(bloom_ctx, {nested_leaf, make_int_literal(2)}));
 }
 
 TEST(ExprZonemapFilterTest, MissingSlotTypeCountsUnsupportedZonemapEvalOnce) {
