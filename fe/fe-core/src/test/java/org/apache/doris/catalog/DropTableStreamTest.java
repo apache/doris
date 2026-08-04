@@ -221,6 +221,43 @@ public class DropTableStreamTest extends TestWithFeService {
     }
 
     @Test
+    public void testBaseTableQualifiersFollowDatabaseRenameAfterDrop() throws Exception {
+        createDatabase("test_stream_db_rename");
+        createTable("create table test_stream_db_rename.tbl_db_rename (k1 int, k2 int) "
+                + "unique key(k1) distributed by hash(k1) buckets 1 "
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createTable("create stream test_stream_db_rename.s_db_rename "
+                + "on table test_stream_db_rename.tbl_db_rename "
+                + "properties('show_initial_rows' = 'true')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream_db_rename");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_db_rename");
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_db_rename");
+
+        dropTableWithSql("drop table test_stream_db_rename.tbl_db_rename");
+        executeSql("alter database test_stream_db_rename rename test_stream_db_renamed");
+
+        TRow streamRow = getStreamMetadataRow("s_db_rename");
+        Assertions.assertEquals("tbl_db_rename", streamRow.getColumnValue().get(6).getStringVal());
+        Assertions.assertEquals("test_stream_db_renamed", streamRow.getColumnValue().get(7).getStringVal());
+        Assertions.assertEquals("internal", streamRow.getColumnValue().get(8).getStringVal());
+        Assertions.assertEquals("N/A", streamRow.getColumnValue().get(9).getStringVal());
+        Assertions.assertFalse(streamRow.getColumnValue().get(10).isBoolVal());
+        Assertions.assertTrue(streamRow.getColumnValue().get(11).isBoolVal());
+        Assertions.assertTrue(getStreamDdl(stream)
+                .contains("ON TABLE internal.test_stream_db_renamed.tbl_db_rename"));
+
+        OlapTableStream deserializedStream = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(stream), OlapTableStream.class);
+        Env.getCurrentRecycleBin().eraseTableInstantly(baseTable.getId());
+
+        Assertions.assertEquals(List.of("internal", "test_stream_db_renamed", "tbl_db_rename"),
+                deserializedStream.getBaseTableFullQualifiers());
+        Assertions.assertTrue(getStreamDdl(deserializedStream)
+                .contains("ON TABLE internal.test_stream_db_renamed.tbl_db_rename"));
+    }
+
+    @Test
     public void testForceDropAndSameNameTableDoNotRestoreStream() throws Exception {
         createBaseTableAndStream("tbl_force", "s_force");
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");

@@ -228,6 +228,13 @@ public abstract class BaseTableStream extends Table {
             displayBaseTable = Env.getCurrentRecycleBin().getRecycledTableNullable(
                     baseTableInfo.getDbId(), baseTableInfo.getTableId());
         }
+        if (baseTableInfo.isInternalTable()) {
+            return ImmutableList.of(
+                    baseTableInfo.getCtlName(),
+                    Env.getCurrentInternalCatalog().getDb(baseTableInfo.getDbId())
+                            .map(db -> db.getFullName()).orElse(baseTableInfo.getDbName()),
+                    displayBaseTable == null ? baseTableInfo.getTableName() : displayBaseTable.getName());
+        }
         return displayBaseTable == null ? baseTableInfo.getFullQualifiers() : displayBaseTable.getFullQualifiers();
     }
 
