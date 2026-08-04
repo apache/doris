@@ -29,6 +29,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
@@ -113,15 +115,21 @@ public class IcebergScanNodeTest {
 
     private static class TestIcebergScanNode extends IcebergScanNode {
         private final boolean enableMappingVarbinary;
+        private final boolean batchMode;
         private TableScan tableScan;
 
         TestIcebergScanNode(SessionVariable sv) {
-            this(sv, false);
+            this(sv, false, false);
         }
 
         TestIcebergScanNode(SessionVariable sv, boolean enableMappingVarbinary) {
+            this(sv, enableMappingVarbinary, false);
+        }
+
+        TestIcebergScanNode(SessionVariable sv, boolean enableMappingVarbinary, boolean batchMode) {
             super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
             this.enableMappingVarbinary = enableMappingVarbinary;
+            this.batchMode = batchMode;
         }
 
         void setTableScan(TableScan tableScan) {
@@ -139,7 +147,7 @@ public class IcebergScanNodeTest {
 
         @Override
         public boolean isBatchMode() {
-            return false;
+            return batchMode;
         }
 
         @Override
@@ -152,10 +160,15 @@ public class IcebergScanNodeTest {
             return Collections.emptyList();
         }
 
-        void addSlot(int slotId, Column column) {
+        SlotDescriptor addSlot(int slotId, Column column) {
             SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc);
             slot.setColumn(column);
             desc.addSlot(slot);
+            return slot;
+        }
+
+        boolean projectsVariant() {
+            return IcebergScanNode.projectsVariant(desc);
         }
 
         @Override
@@ -314,6 +327,12 @@ public class IcebergScanNodeTest {
             ++snapshotCountCalls;
             return snapshotCount;
         }
+
+        void addSlot(int slotId, Column column) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc);
+            slot.setColumn(column);
+            desc.addSlot(slot);
+        }
     }
 
     @Test
@@ -341,6 +360,38 @@ public class IcebergScanNodeTest {
         countStarNode.setPushDownCountSlotIds(Collections.emptyList());
         Assert.assertFalse(countStarNode.isBatchMode());
         Assert.assertEquals(1, countStarNode.snapshotCountCalls);
+    }
+
+    @Test
+    public void testCountStarVariantCompatibilityExemptionRequiresSnapshotCount() throws Exception {
+        SessionVariable sv = Mockito.mock(SessionVariable.class);
+        Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(false);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(Mockito.mock(Snapshot.class));
+        Backend oldBackend = Mockito.mock(Backend.class);
+        Mockito.when(oldBackend.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(oldBackend.getId()).thenReturn(10004L);
+
+        CountPlanningIcebergScanNode metadataCount =
+                new CountPlanningIcebergScanNode(sv, tableScan, 12);
+        metadataCount.addSlot(1, new Column("payload", Type.VARIANT));
+        metadataCount.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        metadataCount.setPushDownCountSlotIds(Collections.emptyList());
+        metadataCount.checkVariantBackendCompatibilityForCurrentScan(
+                Collections.singletonList(oldBackend));
+
+        CountPlanningIcebergScanNode scanFallback =
+                new CountPlanningIcebergScanNode(sv, tableScan, -1);
+        scanFallback.addSlot(1, new Column("payload", Type.VARIANT));
+        scanFallback.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        scanFallback.setPushDownCountSlotIds(Collections.emptyList());
+        try {
+            scanFallback.checkVariantBackendCompatibilityForCurrentScan(
+                    Collections.singletonList(oldBackend));
+            Assert.fail("COUNT(*) data fallback must retain the Variant backend gate");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10004"));
+        }
     }
 
     @Test
@@ -1069,5 +1120,62 @@ public class IcebergScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("backend 10001 is a smooth upgrade source"));
         }
+    }
+
+    @Test
+    public void testRejectSmoothUpgradeSourceBackendForVariantProjection() throws Exception {
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10002L);
+        List<Backend> backends = ImmutableList.of(currentBackend, smoothUpgradeSource);
+
+        IcebergScanNode.checkVariantBackendCompatibility(false, backends);
+        try {
+            IcebergScanNode.checkVariantBackendCompatibility(true, backends);
+            Assert.fail("semantic Variant projection must not be assigned to an old backend");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10002 is a smooth upgrade source"));
+            Assert.assertTrue(e.getMessage().contains("Variant"));
+        }
+    }
+
+    @Test
+    public void testBatchVariantProjectionUsesSharedCompatibilityGate() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable(), false, true);
+        node.addSlot(1, new Column("payload", Type.VARIANT));
+
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10003L);
+
+        Assert.assertTrue(node.isBatchMode());
+        try {
+            node.checkVariantBackendCompatibilityForCurrentScan(
+                    ImmutableList.of(currentBackend, smoothUpgradeSource));
+            Assert.fail("batch Variant projection must use the shared backend compatibility gate");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10003 is a smooth upgrade source"));
+        }
+    }
+
+    @Test
+    public void testVariantUpgradeGateUsesEffectiveProjectedSlotType() {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        StructType fullType = new StructType(
+                new StructField("label", Type.STRING),
+                new StructField("payload", Type.VARIANT));
+        SlotDescriptor slot = node.addSlot(1, new Column("info", fullType));
+
+        // Nested-column pruning keeps the original Column for identity but replaces the slot type
+        // with the actual payload serialized to BE.
+        slot.setType(new StructType(new StructField("label", Type.STRING)));
+        Assert.assertFalse(node.projectsVariant());
+
+        slot.setType(fullType);
+        Assert.assertTrue(node.projectsVariant());
     }
 }

@@ -698,9 +698,40 @@ public class IcebergUtils {
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
             case VARIANT:
-                return Type.UNSUPPORTED;
+                // Iceberg Variant uses the Parquet Variant encoding directly. Mark it compute-only
+                // so BE scanners materialize ColumnVariantV2 without changing persisted Doris
+                // table metadata semantics.
+                return new org.apache.doris.catalog.VariantType(
+                        new ArrayList<>(), 0, false, 10000, 0, false, 0L, 64, false, true);
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
+        }
+    }
+
+    public static boolean containsVariant(Type type) {
+        if (type.isVariantType()) {
+            return true;
+        }
+        if (type.isArrayType()) {
+            return containsVariant(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            MapType map = (MapType) type;
+            return containsVariant(map.getKeyType()) || containsVariant(map.getValueType());
+        }
+        if (type.isStructType()) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getType()));
+        }
+        return false;
+    }
+
+    public static void validateWriteSchema(List<Column> columns) {
+        if (columns.stream().anyMatch(column -> containsVariant(column.getType()))) {
+            // Keep this table capability read-only until every Iceberg writer can preserve the
+            // Variant physical identity; rejecting only selected columns would allow data loss.
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Iceberg VARIANT columns are read-only and cannot be written");
         }
     }
 

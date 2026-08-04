@@ -56,6 +56,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                        parquet_profile, 1);
     filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByPage", TUnit::UNIT,
                                                       parquet_profile, 1);
+    variant_leaf_projections = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "VariantLeafProjections",
+                                                            TUnit::UNIT, parquet_profile, 1);
     pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "PagesSkippedByDataPageFilter", TUnit::UNIT, parquet_profile, 1);
     data_page_filter_skip_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DataPageFilterSkipBytes",
@@ -88,6 +90,18 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "LevelOnlySkipTime", parquet_profile, 1);
     materialization_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "MaterializationTime", parquet_profile, 1);
+    variant_reconstruction_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "VariantReconstructionTime", parquet_profile, 1);
+    variant_reconstructed_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "VariantReconstructedRows",
+                                                              TUnit::UNIT, parquet_profile, 1);
+    variant_direct_leaf_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "VariantDirectLeafRows",
+                                                            TUnit::UNIT, parquet_profile, 1);
+    variant_direct_leaf_path_misses = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "VariantDirectLeafPathMisses", TUnit::UNIT, parquet_profile, 1);
+    variant_direct_leaf_residual_fallbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "VariantDirectLeafResidualFallbacks", TUnit::UNIT, parquet_profile, 1);
+    variant_direct_leaf_unsupported_fallbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "VariantDirectLeafUnsupportedFallbacks", TUnit::UNIT, parquet_profile, 1);
     hybrid_selection_batches = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HybridSelectionBatches",
                                                             TUnit::UNIT, parquet_profile, 1);
     hybrid_selection_ranges = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HybridSelectionRanges",
@@ -298,6 +312,12 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .level_only_read_time = level_only_read_time,
             .level_only_skip_time = level_only_skip_time,
             .materialization_time = materialization_time,
+            .variant_reconstruction_time = variant_reconstruction_time,
+            .variant_reconstructed_rows = variant_reconstructed_rows,
+            .variant_direct_leaf_rows = variant_direct_leaf_rows,
+            .variant_direct_leaf_path_misses = variant_direct_leaf_path_misses,
+            .variant_direct_leaf_residual_fallbacks = variant_direct_leaf_residual_fallbacks,
+            .variant_direct_leaf_unsupported_fallbacks = variant_direct_leaf_unsupported_fallbacks,
             .hybrid_selection_batches = hybrid_selection_batches,
             .hybrid_selection_ranges = hybrid_selection_ranges,
             .hybrid_selection_null_fallback_batches = hybrid_selection_null_fallback_batches,

@@ -20,7 +20,9 @@
 #include <ctype.h>
 
 #include <algorithm>
+#include <functional>
 #include <ostream>
+#include <unordered_set>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -53,6 +55,412 @@ static bool is_map_node(const tparquet::SchemaElement& schema) {
             (schema.converted_type == tparquet::ConvertedType::MAP ||
              schema.converted_type == tparquet::ConvertedType::MAP_KEY_VALUE)) ||
            (schema.__isset.logicalType && schema.logicalType.__isset.MAP);
+}
+
+static bool is_variant_node(const tparquet::SchemaElement& schema) {
+    return schema.__isset.logicalType && schema.logicalType.__isset.VARIANT;
+}
+
+enum class VariantPrimitiveAnnotation : uint8_t {
+    NONE,
+    INT8,
+    INT16,
+    DECIMAL,
+    DATE,
+    TIME_MICROS,
+    TIMESTAMP_MICROS,
+    TIMESTAMP_NANOS,
+    STRING,
+    UUID,
+    UNSUPPORTED,
+};
+
+static VariantPrimitiveAnnotation variant_logical_annotation(
+        const tparquet::SchemaElement& schema) {
+    if (!schema.__isset.logicalType) {
+        return VariantPrimitiveAnnotation::NONE;
+    }
+    const auto& logical = schema.logicalType;
+    if (logical.__isset.INTEGER) {
+        if (!logical.INTEGER.isSigned) {
+            return VariantPrimitiveAnnotation::UNSUPPORTED;
+        }
+        if (logical.INTEGER.bitWidth == 8) {
+            return VariantPrimitiveAnnotation::INT8;
+        }
+        if (logical.INTEGER.bitWidth == 16) {
+            return VariantPrimitiveAnnotation::INT16;
+        }
+        return VariantPrimitiveAnnotation::UNSUPPORTED;
+    }
+    if (logical.__isset.DECIMAL) {
+        return VariantPrimitiveAnnotation::DECIMAL;
+    }
+    if (logical.__isset.DATE) {
+        return VariantPrimitiveAnnotation::DATE;
+    }
+    if (logical.__isset.TIME) {
+        return !logical.TIME.isAdjustedToUTC && logical.TIME.unit.__isset.MICROS
+                       ? VariantPrimitiveAnnotation::TIME_MICROS
+                       : VariantPrimitiveAnnotation::UNSUPPORTED;
+    }
+    if (logical.__isset.TIMESTAMP) {
+        if (logical.TIMESTAMP.unit.__isset.MICROS) {
+            return VariantPrimitiveAnnotation::TIMESTAMP_MICROS;
+        }
+        if (logical.TIMESTAMP.unit.__isset.NANOS) {
+            return VariantPrimitiveAnnotation::TIMESTAMP_NANOS;
+        }
+        return VariantPrimitiveAnnotation::UNSUPPORTED;
+    }
+    if (logical.__isset.STRING) {
+        return VariantPrimitiveAnnotation::STRING;
+    }
+    if (logical.__isset.UUID) {
+        return VariantPrimitiveAnnotation::UUID;
+    }
+    const bool empty = !logical.__isset.MAP && !logical.__isset.LIST && !logical.__isset.ENUM &&
+                       !logical.__isset.UNKNOWN && !logical.__isset.JSON && !logical.__isset.BSON &&
+                       !logical.__isset.FLOAT16 && !logical.__isset.GEOMETRY &&
+                       !logical.__isset.GEOGRAPHY && !logical.__isset.VARIANT;
+    return empty ? VariantPrimitiveAnnotation::NONE : VariantPrimitiveAnnotation::UNSUPPORTED;
+}
+
+static VariantPrimitiveAnnotation variant_converted_annotation(
+        const tparquet::SchemaElement& schema) {
+    if (!schema.__isset.converted_type) {
+        return VariantPrimitiveAnnotation::NONE;
+    }
+    switch (schema.converted_type) {
+    case tparquet::ConvertedType::INT_8:
+        return VariantPrimitiveAnnotation::INT8;
+    case tparquet::ConvertedType::INT_16:
+        return VariantPrimitiveAnnotation::INT16;
+    case tparquet::ConvertedType::DECIMAL:
+        return VariantPrimitiveAnnotation::DECIMAL;
+    case tparquet::ConvertedType::DATE:
+        return VariantPrimitiveAnnotation::DATE;
+    case tparquet::ConvertedType::TIME_MICROS:
+        return VariantPrimitiveAnnotation::TIME_MICROS;
+    case tparquet::ConvertedType::TIMESTAMP_MICROS:
+        return VariantPrimitiveAnnotation::TIMESTAMP_MICROS;
+    case tparquet::ConvertedType::UTF8:
+        return VariantPrimitiveAnnotation::STRING;
+    default:
+        return VariantPrimitiveAnnotation::UNSUPPORTED;
+    }
+}
+
+static Status validate_variant_decimal(const tparquet::SchemaElement& schema,
+                                       tparquet::Type::type physical_type) {
+    int32_t precision = -1;
+    int32_t scale = -1;
+    if (schema.__isset.logicalType && schema.logicalType.__isset.DECIMAL) {
+        precision = schema.logicalType.DECIMAL.precision;
+        scale = schema.logicalType.DECIMAL.scale;
+        if ((schema.__isset.precision && schema.precision != precision) ||
+            (schema.__isset.scale && schema.scale != scale)) {
+            return Status::Corruption(
+                    "Parquet Variant DECIMAL logical and converted parameters disagree");
+        }
+    } else if (schema.__isset.precision && schema.__isset.scale) {
+        precision = schema.precision;
+        scale = schema.scale;
+    }
+    if (precision <= 0 || precision > 38 || scale < 0 || scale > precision) {
+        return Status::Corruption("Parquet Variant DECIMAL({}, {}) is invalid", precision, scale);
+    }
+
+    if ((physical_type == tparquet::Type::INT32 && precision > 9) ||
+        (physical_type == tparquet::Type::INT64 && (precision < 10 || precision > 18)) ||
+        ((physical_type == tparquet::Type::BYTE_ARRAY ||
+          physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) &&
+         precision < 19)) {
+        return Status::Corruption(
+                "Parquet Variant DECIMAL precision {} does not match physical type {}", precision,
+                physical_type);
+    }
+    if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+        static constexpr int32_t MAX_PRECISION_BY_LENGTH[] = {2,  4,  6,  9,  11, 14, 16, 18,
+                                                              21, 23, 26, 28, 31, 33, 35, 38};
+        if (!schema.__isset.type_length || schema.type_length <= 0 || schema.type_length > 16 ||
+            precision > MAX_PRECISION_BY_LENGTH[schema.type_length - 1]) {
+            return Status::Corruption(
+                    "Parquet Variant DECIMAL precision {} does not fit fixed length {}", precision,
+                    schema.__isset.type_length ? schema.type_length : -1);
+        }
+    }
+    return Status::OK();
+}
+
+static Status validate_variant_primitive_type(const NativeFieldSchema& typed) {
+    const auto& schema = typed.parquet_schema;
+    auto logical = variant_logical_annotation(schema);
+    auto converted = variant_converted_annotation(schema);
+    if (logical == VariantPrimitiveAnnotation::UNSUPPORTED ||
+        converted == VariantPrimitiveAnnotation::UNSUPPORTED ||
+        (logical != VariantPrimitiveAnnotation::NONE &&
+         converted != VariantPrimitiveAnnotation::NONE && logical != converted)) {
+        return Status::Corruption(
+                "Parquet Variant typed value {} has an unsupported logical annotation", typed.name);
+    }
+    const auto annotation = logical != VariantPrimitiveAnnotation::NONE ? logical : converted;
+    const auto physical = schema.type;
+    bool valid = false;
+    switch (physical) {
+    case tparquet::Type::BOOLEAN:
+        valid = annotation == VariantPrimitiveAnnotation::NONE;
+        break;
+    case tparquet::Type::INT32:
+        valid = annotation == VariantPrimitiveAnnotation::NONE ||
+                annotation == VariantPrimitiveAnnotation::INT8 ||
+                annotation == VariantPrimitiveAnnotation::INT16 ||
+                annotation == VariantPrimitiveAnnotation::DECIMAL ||
+                annotation == VariantPrimitiveAnnotation::DATE;
+        break;
+    case tparquet::Type::INT64:
+        valid = annotation == VariantPrimitiveAnnotation::NONE ||
+                annotation == VariantPrimitiveAnnotation::DECIMAL ||
+                annotation == VariantPrimitiveAnnotation::TIME_MICROS ||
+                annotation == VariantPrimitiveAnnotation::TIMESTAMP_MICROS ||
+                annotation == VariantPrimitiveAnnotation::TIMESTAMP_NANOS;
+        break;
+    case tparquet::Type::FLOAT:
+    case tparquet::Type::DOUBLE:
+        valid = annotation == VariantPrimitiveAnnotation::NONE;
+        break;
+    case tparquet::Type::BYTE_ARRAY:
+        valid = annotation == VariantPrimitiveAnnotation::NONE ||
+                annotation == VariantPrimitiveAnnotation::STRING ||
+                annotation == VariantPrimitiveAnnotation::DECIMAL;
+        break;
+    case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+        valid = annotation == VariantPrimitiveAnnotation::DECIMAL ||
+                (annotation == VariantPrimitiveAnnotation::UUID && schema.__isset.type_length &&
+                 schema.type_length == 16);
+        break;
+    default:
+        valid = false;
+        break;
+    }
+    if (!valid) {
+        return Status::Corruption(
+                "Parquet Variant typed value {} has unsupported physical/logical type pair",
+                typed.name);
+    }
+    if (annotation == VariantPrimitiveAnnotation::DECIMAL) {
+        RETURN_IF_ERROR(validate_variant_decimal(schema, physical));
+    }
+    return Status::OK();
+}
+
+class ScopedBoolOverride {
+public:
+    ScopedBoolOverride(bool& target, bool value) : _target(target), _original(target) {
+        _target = value;
+    }
+    ~ScopedBoolOverride() { _target = _original; }
+
+private:
+    bool& _target;
+    bool _original;
+};
+
+static Status validate_variant_layout(const tparquet::SchemaElement& group_schema,
+                                      const NativeFieldSchema& group_field) {
+    const auto& annotation = group_schema.logicalType.VARIANT;
+    if (annotation.__isset.specification_version && annotation.specification_version != 1) {
+        return Status::NotSupported("Parquet Variant specification version {} is not supported",
+                                    annotation.specification_version);
+    }
+    if (group_field.children.size() < 2 || group_field.children.size() > 3) {
+        return Status::Corruption(
+                "Parquet Variant {} must contain metadata, value, and optional typed_value",
+                group_schema.name);
+    }
+
+    const NativeFieldSchema* metadata = nullptr;
+    const NativeFieldSchema* value = nullptr;
+    const NativeFieldSchema* typed_value = nullptr;
+    for (const auto& child : group_field.children) {
+        const NativeFieldSchema** target = nullptr;
+        if (child.name == "metadata") {
+            target = &metadata;
+        } else if (child.name == "value") {
+            target = &value;
+        } else if (child.name == "typed_value") {
+            target = &typed_value;
+        } else {
+            return Status::Corruption("Parquet Variant {} has unexpected child {}",
+                                      group_schema.name, child.name);
+        }
+        if (*target != nullptr) {
+            return Status::Corruption("Parquet Variant {} has duplicate child {}",
+                                      group_schema.name, child.name);
+        }
+        *target = &child;
+    }
+    if (metadata == nullptr || value == nullptr) {
+        return Status::Corruption("Parquet Variant {} requires metadata and value children",
+                                  group_schema.name);
+    }
+    if (!metadata->children.empty() || metadata->physical_type != tparquet::Type::BYTE_ARRAY ||
+        metadata->parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
+        return Status::Corruption("Parquet Variant {} metadata must be a required BYTE_ARRAY",
+                                  group_schema.name);
+    }
+    const auto expected_value_repetition = typed_value == nullptr
+                                                   ? tparquet::FieldRepetitionType::REQUIRED
+                                                   : tparquet::FieldRepetitionType::OPTIONAL;
+    // SQL nullability belongs to the outer Variant group. Only shredding makes value optional,
+    // because typed_value may carry all or part of the logical value instead.
+    if (!value->children.empty() || value->physical_type != tparquet::Type::BYTE_ARRAY ||
+        value->parquet_schema.repetition_type != expected_value_repetition) {
+        return Status::Corruption("Parquet Variant {} value must be a {} BYTE_ARRAY",
+                                  group_schema.name,
+                                  typed_value == nullptr ? "required" : "optional");
+    }
+    if (typed_value != nullptr &&
+        typed_value->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL) {
+        return Status::Corruption("Parquet Variant {} typed_value must be optional",
+                                  group_schema.name);
+    }
+
+    enum class WrapperContext : uint8_t { OBJECT_FIELD, ARRAY_ELEMENT };
+    std::function<Status(const NativeFieldSchema&)> validate_typed_value;
+    std::function<Status(const NativeFieldSchema&, WrapperContext)> validate_wrapper;
+    validate_wrapper = [&](const NativeFieldSchema& wrapper, WrapperContext context) -> Status {
+        if (!wrapper.parquet_schema.__isset.repetition_type ||
+            wrapper.parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
+            return Status::Corruption("Parquet Variant shredded wrapper {} must be required",
+                                      wrapper.name);
+        }
+        const NativeFieldSchema* fallback = nullptr;
+        const NativeFieldSchema* typed = nullptr;
+        for (const auto& child : wrapper.children) {
+            if (child.name == "value") {
+                if (fallback != nullptr) {
+                    return Status::Corruption(
+                            "Parquet Variant wrapper {} has duplicate value child", wrapper.name);
+                }
+                fallback = &child;
+            } else if (child.name == "typed_value") {
+                if (typed != nullptr) {
+                    return Status::Corruption(
+                            "Parquet Variant wrapper {} has duplicate typed_value child",
+                            wrapper.name);
+                }
+                typed = &child;
+            } else {
+                return Status::Corruption("Parquet Variant wrapper {} has unexpected child {}",
+                                          wrapper.name, child.name);
+            }
+        }
+        if (fallback == nullptr && typed == nullptr) {
+            return Status::Corruption(
+                    "Parquet Variant shredded wrapper {} requires at least one of value or "
+                    "typed_value",
+                    wrapper.name);
+        }
+        // Object fields always retain the fallback value carrier; only typed_value is optional.
+        // Array elements may omit either carrier when every element uses the remaining one.
+        if (context == WrapperContext::OBJECT_FIELD && fallback == nullptr) {
+            return Status::Corruption(
+                    "Parquet Variant object wrapper {} requires an optional value child",
+                    wrapper.name);
+        }
+        if (fallback != nullptr &&
+            (!fallback->children.empty() || fallback->physical_type != tparquet::Type::BYTE_ARRAY ||
+             !fallback->parquet_schema.__isset.repetition_type ||
+             fallback->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL)) {
+            return Status::Corruption(
+                    "Parquet Variant wrapper {} value must be an optional BYTE_ARRAY",
+                    wrapper.name);
+        }
+        if (typed != nullptr) {
+            if (!typed->parquet_schema.__isset.repetition_type ||
+                typed->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL) {
+                return Status::Corruption("Parquet Variant wrapper {} typed_value must be optional",
+                                          wrapper.name);
+            }
+            return validate_typed_value(*typed);
+        }
+        return Status::OK();
+    };
+    validate_typed_value = [&](const NativeFieldSchema& typed) -> Status {
+        if (!typed.unsupported_reason.empty()) {
+            return Status::NotSupported("Parquet Variant typed value {} is not supported: {}",
+                                        typed.name, typed.unsupported_reason);
+        }
+        if (typed.children.empty()) {
+            const auto& physical = typed.parquet_schema;
+            if (physical.__isset.logicalType && physical.logicalType.__isset.INTEGER &&
+                !physical.logicalType.INTEGER.isSigned) {
+                return Status::Corruption(
+                        "Parquet Variant unsigned integers are not valid typed values");
+            }
+            if (physical.__isset.converted_type &&
+                (physical.converted_type == tparquet::ConvertedType::UINT_8 ||
+                 physical.converted_type == tparquet::ConvertedType::UINT_16 ||
+                 physical.converted_type == tparquet::ConvertedType::UINT_32 ||
+                 physical.converted_type == tparquet::ConvertedType::UINT_64)) {
+                return Status::Corruption(
+                        "Parquet Variant unsigned integers are not valid typed values");
+            }
+            if (physical.__isset.logicalType && physical.logicalType.__isset.TIME) {
+                const auto& time = physical.logicalType.TIME;
+                // Variant v1 has one canonical TIME representation: local wall-clock MICROS.
+                // Accepting adjusted or lower-precision forms would make projection-dependent
+                // reconstruction disagree with the canonical Variant value.
+                if (time.isAdjustedToUTC) {
+                    return Status::Corruption(
+                            "Parquet Variant TIME must have isAdjustedToUTC=false");
+                }
+                if (!time.unit.__isset.MICROS) {
+                    return Status::Corruption(
+                            "Parquet Variant TIME(MILLIS) is not supported; use TIME(MICROS)");
+                }
+            }
+            if (physical.__isset.converted_type &&
+                physical.converted_type == tparquet::ConvertedType::TIME_MILLIS) {
+                return Status::Corruption(
+                        "Parquet Variant TIME(MILLIS) is not supported; use TIME(MICROS)");
+            }
+            if (physical.__isset.logicalType && physical.logicalType.__isset.TIMESTAMP &&
+                physical.logicalType.TIMESTAMP.unit.__isset.NANOS) {
+                // Reject at schema open so full reconstruction and direct typed-leaf access have
+                // the same precision contract instead of diverging after projection planning.
+                return Status::NotSupported("Parquet Variant TIMESTAMP(NANOS) is not supported");
+            }
+            // Preserve precise diagnostics above, then enforce the complete Variant matrix before
+            // generic Parquet inference can re-encode a value with another logical identity.
+            RETURN_IF_ERROR(validate_variant_primitive_type(typed));
+            return Status::OK();
+        }
+
+        const PrimitiveType primitive = remove_nullable(typed.data_type)->get_primitive_type();
+        if (primitive == TYPE_STRUCT) {
+            std::unordered_set<std::string> field_names;
+            for (const auto& child : typed.children) {
+                if (!field_names.insert(child.name).second) {
+                    // Name lookup selects one physical wrapper, so duplicates would otherwise make
+                    // full reconstruction and leaf projection observe different logical values.
+                    return Status::Corruption(
+                            "Parquet Variant object has duplicate shredded field {}", child.name);
+                }
+                RETURN_IF_ERROR(validate_wrapper(child, WrapperContext::OBJECT_FIELD));
+            }
+            return Status::OK();
+        }
+        if (primitive == TYPE_ARRAY && typed.children.size() == 1) {
+            return validate_wrapper(typed.children[0], WrapperContext::ARRAY_ELEMENT);
+        }
+        return Status::Corruption("Invalid Parquet Variant typed_value schema {}", typed.name);
+    };
+    if (typed_value != nullptr) {
+        RETURN_IF_ERROR(validate_typed_value(*typed_value));
+    }
+    return Status::OK();
 }
 
 static bool has_primitive_only_annotation(const tparquet::SchemaElement& schema) {
@@ -264,6 +672,11 @@ Status NativeFieldDescriptor::parse_node_field(
     if (is_group_node(t_schema)) {
         // nested structure or nullable list
         return parse_group_field(t_schemas, curr_pos, node_field);
+    }
+    if (is_variant_node(t_schema)) {
+        return Status::InvalidArgument(
+                "Parquet Variant logical type requires a group node, got primitive {}",
+                t_schema.name);
     }
     if (is_repeated_node(t_schema)) {
         // repeated <primitive-type> <name> (LIST)
@@ -517,6 +930,27 @@ Status NativeFieldDescriptor::parse_group_field(
         const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
         NativeFieldSchema* group_field) {
     auto& group_schema = t_schemas[curr_pos];
+    group_field->parquet_schema = group_schema;
+    if (is_variant_node(group_schema)) {
+        if (is_repeated_node(group_schema)) {
+            // A repeated annotated group needs an ARRAY carrier and Dremel-level remapping; treating
+            // it as a scalar Variant would expose the wrong row shape.
+            return Status::NotSupported("repeated Parquet Variant group {} is not supported",
+                                        group_schema.name);
+        }
+        // UTC-adjusted timestamps inside Variant carry an instant, independent of the catalog's
+        // presentation mapping. Parsing them as DATETIMEV2 would apply the session timezone and
+        // lose that instant when the shredded value is re-encoded into ColumnVariantV2.
+        {
+            ScopedBoolOverride timestamp_tz_mapping(_enable_mapping_timestamp_tz, true);
+            RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
+        }
+        RETURN_IF_ERROR(validate_variant_layout(group_schema, *group_field));
+        group_field->variant_physical_type = group_field->data_type;
+        // Native page readers dispatch groups from data_type, so preserve the physical STRUCT
+        // here. The public Parquet schema maps it to logical Variant without losing this shape.
+        return Status::OK();
+    }
     if ((group_schema.__isset.logicalType && group_schema.logicalType.__isset.ENUM) ||
         (group_schema.__isset.converted_type &&
          group_schema.converted_type == tparquet::ConvertedType::ENUM)) {

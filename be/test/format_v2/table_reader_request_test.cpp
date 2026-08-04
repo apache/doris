@@ -71,6 +71,32 @@ TEST(FileScanRequestBuilderTest, PredicateColumnRemovesDuplicateNonPredicateColu
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(2));
 }
 
+TEST(FileScanRequestBuilderTest, DeferredComplexOutputSurvivesLaterPredicateMerge) {
+    FileScanRequest request;
+    FileScanRequestBuilder builder(&request);
+
+    auto predicate = LocalColumnIndex::partial_local(5);
+    predicate.children.push_back(LocalColumnIndex::local(0));
+    ASSERT_TRUE(builder.add_predicate_column(std::move(predicate)).ok());
+
+    auto output = LocalColumnIndex::partial_local(5);
+    output.children.push_back(LocalColumnIndex::local(0));
+    output.children.push_back(LocalColumnIndex::local(1));
+    ASSERT_TRUE(builder.add_deferred_non_predicate_column(std::move(output)).ok());
+
+    auto delete_predicate = LocalColumnIndex::partial_local(5);
+    delete_predicate.children.push_back(LocalColumnIndex::local(2));
+    ASSERT_TRUE(builder.add_predicate_column(std::move(delete_predicate)).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].children.size(), 2);
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].children.size(), 2);
+    EXPECT_EQ(request.local_positions.at(LocalColumnId(5)), LocalIndex(0));
+    EXPECT_EQ(request.non_predicate_position(LocalColumnId(5)), LocalIndex(1));
+    EXPECT_TRUE(request.is_predicate_only(LocalColumnId(5)));
+}
+
 // Scenario: TableReader's format-specific customization path delegates to FileScanRequestBuilder
 // and preserves the same predicate/non-predicate de-duplication rule.
 TEST(TableReaderRequestTest, AppendPredicateColumnKeepsOtherNonPredicateColumns) {

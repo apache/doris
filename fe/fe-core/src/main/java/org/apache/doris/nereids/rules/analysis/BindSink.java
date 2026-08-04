@@ -747,6 +747,9 @@ public class BindSink implements AnalysisRuleFactory {
         // Sink columns belong to the write target's latest snapshot. A historical child scan
         // of the same table must not make target-column lookup use its older relation schema.
         List<Column> targetSchema = table.getFullSchema(targetSnapshot);
+        // Validate the same pinned generation used to bind the sink. A self-insert can pin an
+        // older source snapshot in StatementContext before the latest write target is loaded.
+        IcebergUtils.validateWriteSchema(targetSchema);
 
         // Get static partition columns if present
         Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();

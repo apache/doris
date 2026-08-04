@@ -55,13 +55,15 @@ VIcebergMergeSink::~VIcebergMergeSink() = default;
 Status VIcebergMergeSink::init_properties(ObjectPool* pool, const RowDescriptor& row_desc) {
     RETURN_IF_ERROR(_build_inner_sinks());
 
-    _table_writer = std::make_unique<VIcebergTableWriter>(_table_sink, _table_output_expr_ctxs,
-                                                          nullptr, nullptr);
-    _table_writer->defer_file_cleanup_until_outer_close();
+    if (_writes_data_files) {
+        _table_writer = std::make_unique<VIcebergTableWriter>(_table_sink, _table_output_expr_ctxs,
+                                                              nullptr, nullptr);
+        _table_writer->defer_file_cleanup_until_outer_close();
+        RETURN_IF_ERROR(_table_writer->init_properties(pool, row_desc));
+    }
     _delete_writer = std::make_unique<VIcebergDeleteSink>(_delete_sink, _delete_output_expr_ctxs,
                                                           nullptr, nullptr);
     _delete_writer->defer_file_cleanup_until_outer_close();
-    RETURN_IF_ERROR(_table_writer->init_properties(pool, row_desc));
     RETURN_IF_ERROR(_delete_writer->init_properties(pool));
     return Status::OK();
 }
@@ -88,10 +90,13 @@ Status VIcebergMergeSink::open(RuntimeState* state, RuntimeProfile* profile) {
 
     RETURN_IF_ERROR(_prepare_output_layout());
 
-    RuntimeProfile* table_profile = profile->create_child("IcebergMergeTableWriter", true, true);
     RuntimeProfile* delete_profile = profile->create_child("IcebergMergeDeleteWriter", true, true);
 
-    RETURN_IF_ERROR(_table_writer->open(state, table_profile));
+    if (_table_writer) {
+        RuntimeProfile* table_profile =
+                profile->create_child("IcebergMergeTableWriter", true, true);
+        RETURN_IF_ERROR(_table_writer->open(state, table_profile));
+    }
     RETURN_IF_ERROR(_delete_writer->open(state, delete_profile));
 
     return Status::OK();
@@ -152,6 +157,13 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     _row_count += output_block.rows();
     _delete_row_count += delete_rows;
     _insert_row_count += insert_rows;
+
+    // A delete-only plan deliberately omits the data writer so Variant target schemas never enter
+    // the unsupported Iceberg data-write path. Reject a mismatched FE plan before dereferencing it.
+    if (has_insert && !_writes_data_files) {
+        return Status::InternalError(
+                "Iceberg delete-only merge sink received a data insert operation");
+    }
 
     bool skip_io = false;
 #ifdef BE_TEST
@@ -338,6 +350,8 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     }
 
     const auto& merge_sink = _t_sink.iceberg_merge_sink;
+    // An old FE cannot produce delete-only plans, so an unset flag retains its data-writer path.
+    _writes_data_files = !merge_sink.__isset.writes_data_files || merge_sink.writes_data_files;
     // Missing means an old FE plan, which predates SQL MERGE cardinality validation.
     _require_merge_cardinality_check = merge_sink.__isset.require_merge_cardinality_check &&
                                        merge_sink.require_merge_cardinality_check;

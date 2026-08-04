@@ -41,6 +41,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
@@ -888,6 +891,22 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ),
                 "STRUCT<city:TEXT,data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>"
         );
+    }
+
+    @Test
+    public void testDataTypeAccessTreeKeepsVariantTerminalPath() {
+        StructType type = new StructType(ImmutableList.of(
+                new StructField("payload", VariantType.INSTANCE, true, "")));
+        SlotReference slot = new SlotReference("info", type);
+        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(slot, TAccessPathType.DATA);
+
+        tree.setAccessByPath(ImmutableList.of("info", "payload", "typed_col"), 0,
+                TAccessPathType.DATA);
+
+        DataType prunedType = tree.pruneDataType().get();
+        Assertions.assertInstanceOf(StructType.class, prunedType);
+        Assertions.assertEquals(VariantType.INSTANCE,
+                ((StructType) prunedType).getFields().get(0).getDataType());
     }
 
     @Test

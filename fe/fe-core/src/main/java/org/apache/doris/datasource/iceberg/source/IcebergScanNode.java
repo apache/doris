@@ -273,6 +273,22 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         super.doInitialize();
+        // This gate must run during shared initialization: batch split assignment bypasses
+        // doGetSplits(), but it must never assign a semantic Variant projection to an old BE.
+        checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
+    }
+
+    void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
+            throws UserException {
+        boolean metadataCountProven = false;
+        if (isTableLevelCountStarPushdown()) {
+            // COUNT(*) is metadata-only only after isBatchMode() has obtained a nonnegative snapshot
+            // count. Missing summaries or delete semantics fall back to real Variant file reads.
+            isBatchMode();
+            metadataCountProven = tableLevelPushDownCount;
+        }
+        boolean projectsVariant = !metadataCountProven && projectsVariant(desc);
+        checkVariantBackendCompatibility(projectsVariant, backends);
     }
 
     private Optional<Map<Integer, List<String>>> extractNameMapping() {
@@ -1368,6 +1384,30 @@ public class IcebergScanNode extends FileQueryScanNode {
         for (Backend backend : backends) {
             if (backend.isSmoothUpgradeSrc()) {
                 throw new UserException("Iceberg position_deletes system table is unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
+            }
+        }
+    }
+
+    @VisibleForTesting
+    static boolean projectsVariant(TupleDescriptor tuple) {
+        // SlotTypeReplacer updates the effective pruned slot type but intentionally retains the
+        // original Column metadata; compatibility must follow what this scan actually projects.
+        return tuple.getSlots().stream()
+                .anyMatch(slot -> IcebergUtils.containsVariant(slot.getType()));
+    }
+
+    @VisibleForTesting
+    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends)
+            throws UserException {
+        if (!projectsVariant) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                // Old backends cannot distinguish the logical Variant from its physical carrier,
+                // so scheduling a semantic projection there could corrupt the result shape.
+                throw new UserException("Iceberg Variant is unavailable while backend "
                         + backend.getId() + " is a smooth upgrade source");
             }
         }

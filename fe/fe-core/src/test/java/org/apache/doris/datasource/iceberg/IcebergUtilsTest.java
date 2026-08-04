@@ -20,11 +20,14 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.GenericPartitionFieldSummary;
@@ -344,6 +347,32 @@ public class IcebergUtilsTest {
 
         Assert.assertEquals("top-level-comment", columns.get(0).getComment());
         Assert.assertTrue(columns.get(0).getType().toSql().contains("comment 'nested-comment'"));
+    }
+
+    @Test
+    public void testIcebergVariantUsesComputeV2Representation() {
+        Type type = IcebergUtils.icebergTypeToDorisType(
+                Types.VariantType.get(), false, false);
+
+        Assert.assertTrue(type instanceof org.apache.doris.catalog.VariantType);
+        Assert.assertTrue(((org.apache.doris.catalog.VariantType) type).isComputeV2());
+    }
+
+    @Test
+    public void testIcebergWriteRejectsRootAndNestedVariant() {
+        Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
+        for (Column column : ImmutableList.of(
+                new Column("payload", variant),
+                new Column("nested", new org.apache.doris.catalog.StructType(
+                        new ArrayList<>(ImmutableList.of(new StructField("payload", variant))))))) {
+            try {
+                IcebergUtils.validateWriteSchema(ImmutableList.of(column));
+                Assert.fail("Iceberg writes must be rejected until the writer supports Variant");
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("VARIANT"));
+                Assert.assertTrue(e.getMessage().contains("read-only"));
+            }
+        }
     }
 
     @Test
