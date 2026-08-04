@@ -218,11 +218,10 @@ public class PartitionCompensator {
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
     }
 
-    public static boolean needUnionRewrite(
-            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions,
-            CascadesContext cascadesContext) {
+    public static boolean hasPartitionCompensation(
+            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions) {
         return invalidPartitions != null
-                && (!invalidPartitions.key().values().isEmpty() || !invalidPartitions.value().values().isEmpty());
+                && (!invalidPartitions.key().isEmpty() || !invalidPartitions.value().isEmpty());
     }
 
     /**

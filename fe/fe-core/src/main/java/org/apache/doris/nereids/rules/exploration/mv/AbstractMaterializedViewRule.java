@@ -375,17 +375,18 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     // if mv can not offer any partition for query, query rewrite bail out to avoid cycle run
                     return rewriteResults;
                 }
-                boolean partitionNeedUnion = PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext);
-                boolean canUnionRewrite = canUnionRewrite(queryPlan,
-                        (AsyncMaterializationContext) materializationContext, cascadesContext);
-                if (partitionNeedUnion && !canUnionRewrite) {
+                boolean hasPartitionCompensation =
+                        PartitionCompensator.hasPartitionCompensation(invalidPartitions);
+                boolean needBaseTableUnion = !invalidPartitions.value().isEmpty();
+                if (needBaseTableUnion && !canUnionRewrite(queryPlan,
+                        (AsyncMaterializationContext) materializationContext, cascadesContext)) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "need compensate union all, but can not, because the query structInfo",
                             () -> String.format("mv partition info is %s, and the query plan is %s",
                                     mtmv.getMvPartitionInfo(), queryPlan.treeString()));
                     return rewriteResults;
                 }
-                if (partitionNeedUnion) {
+                if (hasPartitionCompensation) {
                     Pair<Plan, Boolean> planAndNeedAddFilterPair =
                             StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(), cascadesContext);
                     if (planAndNeedAddFilterPair == null) {
