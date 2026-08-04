@@ -18,14 +18,14 @@
 #pragma once
 
 #include <aws/core/Aws.h>
-#include <bvar/latency_recorder.h>
 
 #include <array>
 #include <cstdint>
 #include <memory>
 
 #include "cpp/aws_common.h"
-#include "recycler/obj_storage_client.h"
+#include "cpp/client/auth/aws_credential_factory.h"
+#include "cpp/client/obj_storage_client.h"
 #include "recycler/storage_vault_accessor.h"
 
 namespace Aws::S3 {
@@ -40,19 +40,6 @@ enum class S3RateLimitType;
 namespace cloud {
 class ObjectStoreInfoPB;
 class SimpleThreadPool;
-
-namespace s3_bvar {
-extern bvar::LatencyRecorder s3_get_latency;
-extern bvar::LatencyRecorder s3_put_latency;
-extern bvar::LatencyRecorder s3_delete_object_latency;
-extern bvar::LatencyRecorder s3_delete_objects_latency;
-extern bvar::LatencyRecorder s3_head_latency;
-extern bvar::LatencyRecorder s3_multi_part_upload_latency;
-extern bvar::LatencyRecorder s3_list_latency;
-extern bvar::LatencyRecorder s3_list_object_versions_latency;
-extern bvar::LatencyRecorder s3_get_bucket_version_latency;
-extern bvar::LatencyRecorder s3_copy_object_latency;
-}; // namespace s3_bvar
 
 class S3Environment {
 public:
@@ -153,21 +140,14 @@ public:
     int check_versioning();
 
 protected:
+    static RecursiveDeleteOptions make_recursive_delete_options(
+            int64_t expiration_time, std::shared_ptr<SimpleThreadPool> pool);
+
     int list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res);
 
     virtual int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0);
 
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v1(
-            const S3Conf& s3_conf);
-
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v2(
-            const S3Conf& s3_conf);
-
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider(
-            CredProviderType type);
-
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
-            const S3Conf& s3_conf);
+    AwsCredentialResult create_aws_credentials_provider(const S3Conf& s3_conf);
 
     std::string get_key(const std::string& relative_path) const;
     std::string to_uri(const std::string& relative_path) const;

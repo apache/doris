@@ -202,9 +202,9 @@ void reset_mock_s3_store() {
     store.objects.clear();
 }
 
-class MockObjStorageClient : public ObjStorageClient {
+class MockObjStorageBackend : public ObjStorageBackend {
 public:
-    explicit MockObjStorageClient(MockS3Store* store) : _store(store) {}
+    explicit MockObjStorageBackend(MockS3Store* store) : _store(store) {}
 
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override {
@@ -302,20 +302,21 @@ public:
         return ObjectStorageResponse::OK();
     }
 
-    ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
-                                       std::vector<FileInfo>* files) override {
+    ObjectStorageListPage list_objects(const ObjectStoragePathOptions& opts,
+                                       std::string_view /*continuation_token*/) override {
         std::lock_guard lock(_store->mutex);
-        std::string prefix = _store->make_key(opts.bucket, opts.prefix);
+        const auto& object_prefix = opts.prefix.empty() ? opts.key : opts.prefix;
+        std::string prefix = _store->make_key(opts.bucket, object_prefix);
+        ObjectStorageListPage page {.resp = ObjectStorageResponse::OK()};
         for (const auto& [key, data] : _store->objects) {
             if (key.rfind(prefix, 0) == 0) {
-                FileInfo info;
-                info.file_name = key.substr(prefix.size());
-                info.file_size = data.size();
-                info.is_file = true;
-                files->push_back(std::move(info));
+                page.objects.emplace_back(ObjectMeta {
+                        .file_path = key.substr(opts.bucket.size() + 1),
+                        .size = static_cast<int64_t>(data.size()),
+                });
             }
         }
-        return ObjectStorageResponse::OK();
+        return page;
     }
 
     ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
@@ -333,30 +334,17 @@ public:
         return ObjectStorageResponse::OK();
     }
 
-    ObjectStorageResponse delete_objects_recursively(
-            const ObjectStoragePathOptions& opts) override {
-        std::lock_guard lock(_store->mutex);
-        std::string prefix = _store->make_key(opts.bucket, opts.prefix);
-        for (auto it = _store->objects.begin(); it != _store->objects.end();) {
-            if (it->first.rfind(prefix, 0) == 0) {
-                it = _store->objects.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        return ObjectStorageResponse::OK();
-    }
-
     std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                       int64_t /*expiration_secs*/,
-                                       const S3ClientConf& /*conf*/) override {
+                                       int64_t /*expiration_secs*/) override {
         return fmt::format("mock://{}/{}", opts.bucket, opts.key);
     }
 
 private:
     static ObjectStorageResponse make_error(std::string msg, int http_code = 500) {
         ObjectStorageResponse resp;
-        resp.status.code = static_cast<int>(ErrorCode::INTERNAL_ERROR);
+        resp.status.code = http_code == static_cast<int>(Aws::Http::HttpResponseCode::NOT_FOUND)
+                                   ? ObjectStorageStatus::NOT_FOUND
+                                   : static_cast<int>(ErrorCode::INTERNAL_ERROR);
         resp.status.msg = std::move(msg);
         resp.http_code = http_code;
         return resp;
@@ -365,11 +353,11 @@ private:
     MockS3Store* _store;
 };
 
-std::shared_ptr<MockObjStorageClient> g_mock_obj_client;
+std::shared_ptr<MockObjStorageBackend> g_mock_obj_backend;
 
 void install_mock_environment() {
-    g_mock_obj_client = std::make_shared<MockObjStorageClient>(&mock_s3_store());
-    auto client = g_mock_obj_client;
+    g_mock_obj_backend = std::make_shared<MockObjStorageBackend>(&mock_s3_store());
+    auto client = std::make_shared<ObjStorageClient>(g_mock_obj_backend);
     S3ClientFactory::instance().set_client_creator_for_test(
             [client](const S3ClientConf&) { return client; });
 
@@ -384,7 +372,7 @@ void install_mock_environment() {
 
 void remove_mock_environment() {
     S3ClientFactory::instance().clear_client_creator_for_test();
-    g_mock_obj_client.reset();
+    g_mock_obj_backend.reset();
 
     auto* sp = SyncPoint::get_instance();
     sp->clear_call_back("PackedFileManager::update_meta_service");

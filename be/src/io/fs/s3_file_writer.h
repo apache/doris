@@ -26,9 +26,9 @@
 #include <string>
 
 #include "common/status.h"
+#include "cpp/client/obj_storage_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/obj_storage_client.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 

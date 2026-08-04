@@ -29,8 +29,8 @@
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_number.h"
 #include "core/value/jsonb_value.h"
+#include "cpp/client/obj_storage_client.h"
 #include "exprs/function/ai/ai_adapter.h"
-#include "io/fs/obj_storage_client.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -45,7 +45,7 @@ private:
     std::string _content_type;
 };
 
-class MockEmbedObjStorageClient : public io::ObjStorageClient {
+class MockEmbedObjStorageBackend : public io::ObjStorageBackend {
 public:
     io::ObjectStorageUploadResponse create_multipart_upload(
             const io::ObjectStoragePathOptions& /*opts*/) override {
@@ -80,9 +80,9 @@ public:
         return io::ObjectStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse list_objects(const io::ObjectStoragePathOptions& /*opts*/,
-                                           std::vector<io::FileInfo>* /*files*/) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjectStorageListPage list_objects(const io::ObjectStoragePathOptions& /*opts*/,
+                                           std::string_view /*continuation_token*/) override {
+        return {.resp = io::ObjectStorageResponse::OK()};
     }
 
     io::ObjectStorageResponse delete_objects(const io::ObjectStoragePathOptions& /*opts*/,
@@ -94,16 +94,10 @@ public:
         return io::ObjectStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse delete_objects_recursively(
-            const io::ObjectStoragePathOptions& /*opts*/) override {
-        return io::ObjectStorageResponse::OK();
-    }
-
     std::string generate_presigned_url(const io::ObjectStoragePathOptions& opts,
-                                       int64_t expiration_secs, const S3ClientConf& conf) override {
+                                       int64_t expiration_secs) override {
         last_opts = opts;
         last_expiration_secs = expiration_secs;
-        last_conf = conf;
         return fmt::format("mock-s3://{}/{}?ttl={}", opts.bucket, opts.key, expiration_secs);
     }
 
@@ -437,9 +431,12 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
                                query_ctx.get());
     auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
 
-    auto mock_client = std::make_shared<MockEmbedObjStorageClient>();
+    auto mock_client = std::make_shared<MockEmbedObjStorageBackend>();
     S3ClientFactory::instance().set_client_creator_for_test(
-            [mock_client](const S3ClientConf&) { return mock_client; });
+            [mock_client](const S3ClientConf& conf) {
+                mock_client->last_conf = conf;
+                return std::make_shared<io::ObjStorageClient>(mock_client);
+            });
 
     std::vector<std::string> resources = {"mock_resource"};
     std::vector<std::string> file_json_rows = {R"({

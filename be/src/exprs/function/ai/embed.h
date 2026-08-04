@@ -374,18 +374,15 @@ private:
 
         S3ClientConf s3_client_conf;
         RETURN_IF_ERROR(init_s3_client_conf_from_json(file_input, s3_client_conf));
-        auto s3_client = S3ClientFactory::instance().create(s3_client_conf);
-        if (s3_client == nullptr) {
-            return Status::InternalError("Failed to create S3 client for EMBED file input");
-        }
+        auto s3_client = DORIS_TRY(S3ClientFactory::instance().create(s3_client_conf));
 
         S3URI s3_uri(uri);
         RETURN_IF_ERROR(s3_uri.parse());
         std::string bucket = s3_uri.get_bucket();
         std::string key = s3_uri.get_key();
         DORIS_CHECK(!bucket.empty() && !key.empty());
-        media_url = s3_client->generate_presigned_url({.bucket = bucket, .key = key}, ttl_seconds,
-                                                      s3_client_conf);
+        media_url = s3_client->generate_presigned_url({.bucket = bucket, .key = key, .prefix = ""},
+                                                      ttl_seconds);
         return Status::OK();
     }
 };

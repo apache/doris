@@ -219,7 +219,7 @@ TEST_F(S3AccessorTest, s3) {
     auto* sp = SyncPoint::get_instance();
     std::vector<SyncPoint::CallbackGuard> guards;
     sp->set_call_back(
-            "S3ObjListIterator",
+            "S3ObjStorageBackend::list_objects",
             [](auto&& args) {
                 auto* req = try_any_cast<Aws::S3::Model::ListObjectsV2Request*>(args[0]);
                 req->SetMaxKeys(7);
@@ -261,7 +261,7 @@ TEST_F(S3AccessorTest, azure) {
     auto* sp = SyncPoint::get_instance();
     std::vector<SyncPoint::CallbackGuard> guards;
     sp->set_call_back(
-            "AzureListIterator",
+            "AzureObjStorageBackend::list_objects",
             [](auto&& args) {
                 auto* req = try_any_cast<Azure::Storage::Blobs::ListBlobsOptions*>(args[0]);
                 req->PageSizeHint = 7;
@@ -303,7 +303,7 @@ TEST_F(S3AccessorTest, gcs) {
     auto* sp = SyncPoint::get_instance();
     std::vector<SyncPoint::CallbackGuard> guards;
     sp->set_call_back(
-            "S3ObjListIterator",
+            "S3ObjStorageBackend::list_objects",
             [](auto&& args) {
                 auto* req = try_any_cast<Aws::S3::Model::ListObjectsV2Request*>(args[0]);
                 req->SetMaxKeys(7);
@@ -449,7 +449,7 @@ TEST_F(S3AccessorRoleTest, s3) {
     auto* sp = SyncPoint::get_instance();
     std::vector<SyncPoint::CallbackGuard> guards;
     sp->set_call_back(
-            "S3ObjListIterator",
+            "S3ObjStorageBackend::list_objects",
             [](auto&& args) {
                 auto* req = try_any_cast<Aws::S3::Model::ListObjectsV2Request*>(args[0]);
                 req->SetMaxKeys(7);

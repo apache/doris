@@ -15,12 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/azure_obj_storage_client.h"
+#ifdef USE_AZURE
+#include "cpp/client/azure_obj_storage_backend.h"
+#endif
 
 #include <gtest/gtest.h>
 
+#include "cpp/client/obj_storage_client.h"
 #include "io/fs/file_system.h"
-#include "io/fs/obj_storage_client.h"
 #include "util/s3_util.h"
 
 #ifdef USE_AZURE
@@ -59,7 +61,7 @@ TEST(AzureObjStorageClientTlsHelperTest, appends_debug_suffix_only_for_tls_ca_er
 
 class AzureObjStorageClientTest : public testing::Test {
 protected:
-    static std::shared_ptr<io::ObjStorageClient> obj_storage_client;
+    static std::shared_ptr<ObjStorageClient> obj_storage_client;
 
     static void SetUpTestSuite() {
         if (!std::getenv("AZURE_ACCOUNT_NAME") || !std::getenv("AZURE_ACCOUNT_KEY") ||
@@ -74,16 +76,18 @@ protected:
         // Initialize Azure SDK
         [[maybe_unused]] auto& s3ClientFactory = S3ClientFactory::instance();
 
-        AzureObjStorageClientTest::obj_storage_client = S3ClientFactory::instance().create(
+        auto client_result = S3ClientFactory::instance().create(
                 {.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName),
                  .region = "dummy-region",
                  .ak = accountName,
                  .sk = accountKey,
                  .token = "",
                  .bucket = containerName,
-                 .provider = io::ObjStorageType::AZURE,
+                 .provider = ObjStorageType::AZURE,
                  .role_arn = "",
                  .external_id = ""});
+        ASSERT_TRUE(client_result.has_value()) << client_result.error();
+        AzureObjStorageClientTest::obj_storage_client = std::move(client_result).value();
     }
 
     void SetUp() override {
@@ -93,7 +97,7 @@ protected:
     }
 };
 
-std::shared_ptr<io::ObjStorageClient> AzureObjStorageClientTest::obj_storage_client = nullptr;
+std::shared_ptr<ObjStorageClient> AzureObjStorageClientTest::obj_storage_client = nullptr;
 
 TEST_F(AzureObjStorageClientTest, put_list_delete_object) {
     LOG(INFO) << "AzureObjStorageClientTest::put_list_delete_object";
@@ -104,10 +108,16 @@ TEST_F(AzureObjStorageClientTest, put_list_delete_object) {
 
     std::vector<io::FileInfo> files;
     // clang-format off
-    response = AzureObjStorageClientTest::obj_storage_client->list_objects({.bucket = "dummy",
-            .prefix = "AzureObjStorageClientTest/put_list_delete_object",}, &files);
+    ObjectListIterator iter(AzureObjStorageClientTest::obj_storage_client, {.bucket = "dummy",
+            .prefix = "AzureObjStorageClientTest/put_list_delete_object"});
     // clang-format on
-    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
+        EXPECT_TRUE(obj.resp.ok());
+        files.push_back({.file_name = obj.results_->file_path,
+                         .file_size = obj.results_->size,
+                         .is_file = true});
+    }
+    EXPECT_TRUE(iter.is_valid());
     EXPECT_EQ(files.size(), 1);
     files.clear();
 
@@ -116,10 +126,16 @@ TEST_F(AzureObjStorageClientTest, put_list_delete_object) {
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     // clang-format off
-    response = AzureObjStorageClientTest::obj_storage_client->list_objects({.bucket = "dummy",
-            .prefix = "AzureObjStorageClientTest/put_list_delete_object",}, &files);
+    iter = ObjectListIterator(AzureObjStorageClientTest::obj_storage_client, {.bucket = "dummy",
+            .prefix = "AzureObjStorageClientTest/put_list_delete_object"});
     // clang-format on
-    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
+        EXPECT_TRUE(obj.resp.ok());
+        files.push_back({.file_name = obj.results_->file_path,
+                         .file_size = obj.results_->size,
+                         .is_file = true});
+    }
+    EXPECT_TRUE(iter.is_valid());
     EXPECT_EQ(files.size(), 0);
 }
 
@@ -138,22 +154,34 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
 
     std::vector<io::FileInfo> files;
     // clang-format off
-    auto response = AzureObjStorageClientTest::obj_storage_client->list_objects({.bucket = "dummy",
-            .prefix = "AzureObjStorageClientTest/delete_objects_recursively",}, &files);
+    ObjectListIterator iter(AzureObjStorageClientTest::obj_storage_client, {.bucket = "dummy",
+            .prefix = "AzureObjStorageClientTest/delete_objects_recursively"});
     // clang-format on
-    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
+        EXPECT_TRUE(obj.resp.ok());
+        files.push_back({.file_name = obj.results_->file_path,
+                         .file_size = obj.results_->size,
+                         .is_file = true});
+    }
+    EXPECT_TRUE(iter.is_valid());
     EXPECT_EQ(files.size(), 22);
     files.clear();
 
-    response = AzureObjStorageClientTest::obj_storage_client->delete_objects_recursively(
+    auto response = AzureObjStorageClientTest::obj_storage_client->delete_objects_recursively(
             {.prefix = "AzureObjStorageClientTest/delete_objects_recursively"});
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     // clang-format off
-    response = AzureObjStorageClientTest::obj_storage_client->list_objects({.bucket = "dummy",
-            .prefix = "AzureObjStorageClientTest/delete_objects_recursively",}, &files);
+    iter = ObjectListIterator(AzureObjStorageClientTest::obj_storage_client, {.bucket = "dummy",
+            .prefix = "AzureObjStorageClientTest/delete_objects_recursively"});
     // clang-format on
-    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
+        EXPECT_TRUE(obj.resp.ok());
+        files.push_back({.file_name = obj.results_->file_path,
+                         .file_size = obj.results_->size,
+                         .is_file = true});
+    }
+    EXPECT_TRUE(iter.is_valid());
     EXPECT_EQ(files.size(), 0);
 }
 #else

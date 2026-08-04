@@ -30,6 +30,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/client/s3_obj_storage_backend.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -39,7 +40,6 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
 #include "util/s3_util.h"

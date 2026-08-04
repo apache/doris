@@ -29,13 +29,13 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "core/block/block.h"
+#include "cpp/client/s3_obj_storage_backend.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/inverted_index_writer.h"
@@ -337,7 +337,7 @@ protected:
         sp->set_call_back(
                 "s3_client_factory::create",
                 [](auto&& args) {
-                    auto* ret = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(args);
+                    auto* ret = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageBackend>>(args);
                     ret->second = true;
                 },
                 s3_client_guard);

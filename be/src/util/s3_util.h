@@ -35,8 +35,8 @@
 #include "common/status.h"
 #include "core/string_ref.h"
 #include "cpp/aws_common.h"
-#include "cpp/token_bucket_rate_limiter.h"
-#include "io/fs/obj_storage_client.h"
+#include "cpp/client/auth/aws_credential_factory.h"
+#include "cpp/client/obj_storage_client.h"
 
 namespace Aws::S3 {
 class S3Client;
@@ -48,19 +48,6 @@ class Adder;
 }
 
 namespace doris {
-
-namespace s3_bvar {
-extern bvar::LatencyRecorder s3_get_latency;
-extern bvar::LatencyRecorder s3_put_latency;
-extern bvar::LatencyRecorder s3_delete_object_latency;
-extern bvar::LatencyRecorder s3_delete_objects_latency;
-extern bvar::LatencyRecorder s3_head_latency;
-extern bvar::LatencyRecorder s3_multi_part_upload_latency;
-extern bvar::LatencyRecorder s3_list_latency;
-extern bvar::LatencyRecorder s3_list_object_versions_latency;
-extern bvar::LatencyRecorder s3_get_bucket_version_latency;
-extern bvar::LatencyRecorder s3_copy_object_latency;
-}; // namespace s3_bvar
 
 std::string hide_access_key(const std::string& ak);
 
@@ -121,9 +108,9 @@ struct S3ClientConf {
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
                 "cred_provider_type={},role_arn={}, external_id={}, is_internal_bucket={}",
-                hide_access_key(ak), token, endpoint, region, bucket, max_connections,
-                request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
-                role_arn, external_id, is_internal_bucket);
+                hide_access_key(ak), token.empty() ? "" : "******", endpoint, region, bucket,
+                max_connections, request_timeout_ms, connect_timeout_ms, use_virtual_addressing,
+                cred_provider_type, role_arn, external_id, is_internal_bucket);
     }
 };
 
@@ -154,7 +141,7 @@ public:
 
     static S3ClientFactory& instance();
 
-    std::shared_ptr<io::ObjStorageClient> create(const S3ClientConf& s3_conf);
+    Result<std::shared_ptr<io::ObjStorageClient>> create(const S3ClientConf& s3_conf);
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
                                                 const S3URI& s3_uri, S3Conf* s3_conf);
@@ -170,8 +157,7 @@ public:
         return instance;
     }
 
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
-            const S3ClientConf& s3_conf);
+    AwsCredentialResult create_aws_credentials_provider(const S3ClientConf& s3_conf);
 
 #ifdef BE_TEST
     void set_client_creator_for_test(
@@ -181,15 +167,9 @@ public:
 #endif
 
 private:
-    std::shared_ptr<io::ObjStorageClient> _create_s3_client(const S3ClientConf& s3_conf);
-    std::shared_ptr<io::ObjStorageClient> _create_azure_client(const S3ClientConf& s3_conf);
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v1(
+    Result<std::shared_ptr<io::ObjStorageBackend>> _create_s3_backend(const S3ClientConf& s3_conf);
+    Result<std::shared_ptr<io::ObjStorageBackend>> _create_azure_backend(
             const S3ClientConf& s3_conf);
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v2(
-            const S3ClientConf& s3_conf);
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider(
-            CredProviderType type);
-
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;

@@ -29,10 +29,10 @@
 #include <string>
 
 #include "common/config.h"
+#include "cpp/client/obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "util/defer_op.h"
 #include "util/s3_rate_limiter_manager.h"

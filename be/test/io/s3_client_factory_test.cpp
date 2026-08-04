@@ -25,10 +25,9 @@
 #include <utility>
 #include <vector>
 
-#include "cloud/config.h"
+#include "common/config.h"
+#include "cpp/client/s3_obj_storage_backend.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
-#include "io/fs/rate_limited_obj_storage_client.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -42,24 +41,6 @@ protected:
 };
 
 namespace {
-
-class CloudModeConfigGuard {
-public:
-    explicit CloudModeConfigGuard(bool cloud_mode)
-            : _deploy_mode(config::deploy_mode), _cloud_unique_id(config::cloud_unique_id) {
-        config::deploy_mode = cloud_mode ? "cloud" : "";
-        config::cloud_unique_id.clear();
-    }
-
-    ~CloudModeConfigGuard() {
-        config::deploy_mode = _deploy_mode;
-        config::cloud_unique_id = _cloud_unique_id;
-    }
-
-private:
-    std::string _deploy_mode;
-    std::string _cloud_unique_id;
-};
 
 S3ClientConf make_factory_conf(std::string endpoint, bool is_internal_bucket) {
     S3ClientConf conf;
@@ -78,23 +59,7 @@ S3ClientConf make_hash_collision_conf(std::string endpoint, bool is_internal_buc
 
 } // namespace
 
-TEST_F(S3ClientFactoryTest, WrapsAllClientsInNonCloudMode) {
-    CloudModeConfigGuard guard(false);
-    auto& factory = S3ClientFactory::instance();
-
-    auto external_client =
-            factory.create(make_factory_conf("non-cloud-external-rate-limit.example.com", false));
-    auto internal_client =
-            factory.create(make_factory_conf("non-cloud-internal-rate-limit.example.com", true));
-
-    ASSERT_NE(external_client, nullptr);
-    ASSERT_NE(internal_client, nullptr);
-    EXPECT_NE(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(external_client), nullptr);
-    EXPECT_NE(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(internal_client), nullptr);
-}
-
-TEST_F(S3ClientFactoryTest, WrapsOnlyInternalClientsInCloudModeAndDistinguishesHashCollisions) {
-    CloudModeConfigGuard guard(true);
+TEST_F(S3ClientFactoryTest, DistinguishesHashCollisions) {
     auto external_conf =
             make_hash_collision_conf("cloud-rate-limit-hash-collision.example.com", false);
     auto internal_conf =
@@ -103,16 +68,20 @@ TEST_F(S3ClientFactoryTest, WrapsOnlyInternalClientsInCloudModeAndDistinguishesH
     ASSERT_NE(external_conf, internal_conf);
 
     auto& factory = S3ClientFactory::instance();
-    auto external_client = factory.create(external_conf);
-    auto internal_client = factory.create(internal_conf);
+    auto external_result = factory.create(external_conf);
+    auto internal_result = factory.create(internal_conf);
+    ASSERT_TRUE(external_result.has_value()) << external_result.error();
+    ASSERT_TRUE(internal_result.has_value()) << internal_result.error();
+    auto external_client = std::move(external_result).value();
+    auto internal_client = std::move(internal_result).value();
 
-    ASSERT_NE(external_client, nullptr);
-    ASSERT_NE(internal_client, nullptr);
-    EXPECT_EQ(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(external_client), nullptr);
-    EXPECT_NE(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(internal_client), nullptr);
     EXPECT_NE(external_client, internal_client);
-    EXPECT_EQ(factory.create(external_conf), external_client);
-    EXPECT_EQ(factory.create(internal_conf), internal_client);
+    auto cached_external = factory.create(external_conf);
+    auto cached_internal = factory.create(internal_conf);
+    ASSERT_TRUE(cached_external.has_value()) << cached_external.error();
+    ASSERT_TRUE(cached_internal.has_value()) << cached_internal.error();
+    EXPECT_EQ(cached_external.value(), external_client);
+    EXPECT_EQ(cached_internal.value(), internal_client);
 }
 
 TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesHashCollisions) {
@@ -122,10 +91,12 @@ TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesHashCollisions) {
             make_hash_collision_conf("s3-client-holder-hash-collision.example.com", true);
     ASSERT_EQ(external_conf.get_hash(), internal_conf.get_hash());
 
-    auto external_client =
-            std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
-    auto internal_client =
-            std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    auto external_backend =
+            std::make_shared<io::S3ObjStorageBackend>(std::shared_ptr<Aws::S3::S3Client> {});
+    auto internal_backend =
+            std::make_shared<io::S3ObjStorageBackend>(std::shared_ptr<Aws::S3::S3Client> {});
+    auto external_client = std::make_shared<io::ObjStorageClient>(external_backend);
+    auto internal_client = std::make_shared<io::ObjStorageClient>(internal_backend);
     int create_count = 0;
     S3ClientFactory::instance().set_client_creator_for_test(
             [&](const S3ClientConf& conf) -> std::shared_ptr<io::ObjStorageClient> {
@@ -164,20 +135,20 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 
     config::aws_credentials_provider_version = "v2";
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(anonymous_conf);
+        auto provider_v2 = factory.create_aws_credentials_provider(anonymous_conf).provider;
         auto custom_chain_v2 =
                 std::dynamic_pointer_cast<CustomAwsCredentialsProviderChain>(provider_v2);
         ASSERT_NE(custom_chain_v2, nullptr);
     }
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(ak_sk_conf);
+        auto provider_v2 = factory.create_aws_credentials_provider(ak_sk_conf).provider;
         auto custom_chain_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::SimpleAWSCredentialsProvider>(provider_v2);
         ASSERT_NE(custom_chain_v2, nullptr);
     }
 
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(role_conf1);
+        auto provider_v2 = factory.create_aws_credentials_provider(role_conf1).provider;
         auto instance_profile_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::InstanceProfileCredentialsProvider>(
                         provider_v2);
@@ -185,14 +156,14 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     }
 
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(role_conf2);
+        auto provider_v2 = factory.create_aws_credentials_provider(role_conf2).provider;
         auto custom_chain_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleCredentialsProvider>(provider_v2);
         ASSERT_NE(custom_chain_v2, nullptr);
     }
 
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(web_identity_conf);
+        auto provider_v2 = factory.create_aws_credentials_provider(web_identity_conf).provider;
         auto web_identity_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>(
                         provider_v2);
@@ -201,21 +172,21 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 
     config::aws_credentials_provider_version = "v1";
     {
-        auto provider_v1 = factory.get_aws_credentials_provider(anonymous_conf);
+        auto provider_v1 = factory.create_aws_credentials_provider(anonymous_conf).provider;
         auto default_chain_v1 =
                 std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider_v1);
         ASSERT_NE(default_chain_v1, nullptr);
     }
 
     {
-        auto provider_v1 = factory.get_aws_credentials_provider(ak_sk_conf);
+        auto provider_v1 = factory.create_aws_credentials_provider(ak_sk_conf).provider;
         auto default_chain_v1 =
                 std::dynamic_pointer_cast<Aws::Auth::SimpleAWSCredentialsProvider>(provider_v1);
         ASSERT_NE(default_chain_v1, nullptr);
     }
 
     {
-        auto provider_v1 = factory.get_aws_credentials_provider(role_conf1);
+        auto provider_v1 = factory.create_aws_credentials_provider(role_conf1).provider;
         auto default_chain_v1 =
                 std::dynamic_pointer_cast<Aws::Auth::InstanceProfileCredentialsProvider>(
                         provider_v1);
@@ -223,7 +194,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     }
 
     {
-        auto provider_v1 = factory.get_aws_credentials_provider(role_conf2);
+        auto provider_v1 = factory.create_aws_credentials_provider(role_conf2).provider;
         auto default_chain_v1 =
                 std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleCredentialsProvider>(provider_v1);
         ASSERT_NE(default_chain_v1, nullptr);
@@ -351,25 +322,25 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) 
 
     S3ClientConf default_conf;
     default_conf.cred_provider_type = CredProviderType::Default;
-    auto provider = factory.get_aws_credentials_provider(default_conf);
+    auto provider = factory.create_aws_credentials_provider(default_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<CustomAwsCredentialsProviderChain>(provider), nullptr);
 
     S3ClientConf env_conf;
     env_conf.cred_provider_type = CredProviderType::Env;
-    provider = factory.get_aws_credentials_provider(env_conf);
+    provider = factory.create_aws_credentials_provider(env_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::EnvironmentAWSCredentialsProvider>(provider),
               nullptr);
 
     S3ClientConf sys_conf;
     sys_conf.cred_provider_type = CredProviderType::SystemProperties;
-    provider = factory.get_aws_credentials_provider(sys_conf);
+    provider = factory.create_aws_credentials_provider(sys_conf).provider;
     ASSERT_NE(
             std::dynamic_pointer_cast<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>(provider),
             nullptr);
 
     S3ClientConf web_identity_conf;
     web_identity_conf.cred_provider_type = CredProviderType::WebIdentity;
-    provider = factory.get_aws_credentials_provider(web_identity_conf);
+    provider = factory.create_aws_credentials_provider(web_identity_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>(
                       provider),
               nullptr);
@@ -380,7 +351,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) 
     }
     S3ClientConf container_conf;
     container_conf.cred_provider_type = CredProviderType::Container;
-    provider = factory.get_aws_credentials_provider(container_conf);
+    provider = factory.create_aws_credentials_provider(container_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::TaskRoleCredentialsProvider>(provider), nullptr);
     if (old_container_uri == nullptr) {
         unsetenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
@@ -388,13 +359,13 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) 
 
     S3ClientConf instance_profile_conf;
     instance_profile_conf.cred_provider_type = CredProviderType::InstanceProfile;
-    provider = factory.get_aws_credentials_provider(instance_profile_conf);
+    provider = factory.create_aws_credentials_provider(instance_profile_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::InstanceProfileCredentialsProvider>(provider),
               nullptr);
 
     S3ClientConf anonymous_conf;
     anonymous_conf.cred_provider_type = CredProviderType::Anonymous;
-    provider = factory.get_aws_credentials_provider(anonymous_conf);
+    provider = factory.create_aws_credentials_provider(anonymous_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider),
               nullptr);
 }
@@ -407,7 +378,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2WithRoleArnAlwaysAssumeRole)
             CredProviderType::Default,          CredProviderType::Env,
             CredProviderType::SystemProperties, CredProviderType::WebIdentity,
             CredProviderType::Container,        CredProviderType::InstanceProfile,
-            CredProviderType::Anonymous,
+            CredProviderType::Anonymous,        CredProviderType::Simple,
     };
 
     for (auto provider_type : provider_types) {
@@ -415,10 +386,23 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2WithRoleArnAlwaysAssumeRole)
         conf.cred_provider_type = provider_type;
         conf.role_arn = "arn:aws:iam::123456789012:role/test-role";
         conf.external_id = "external-id";
-        auto provider = factory.get_aws_credentials_provider(conf);
+        auto provider = factory.create_aws_credentials_provider(conf).provider;
         ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleCredentialsProvider>(provider),
                   nullptr);
     }
+}
+
+TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2SimpleWithoutAkSkUsesDefaultChain) {
+    S3ClientFactory& factory = S3ClientFactory::instance();
+    config::aws_credentials_provider_version = "v2";
+
+    S3ClientConf conf;
+    conf.cred_provider_type = CredProviderType::Simple;
+    auto result = factory.create_aws_credentials_provider(conf);
+
+    ASSERT_TRUE(result);
+    EXPECT_NE(std::dynamic_pointer_cast<CustomAwsCredentialsProviderChain>(result.provider),
+              nullptr);
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderAkSkTakePrecedenceOverRoleArn) {
@@ -431,12 +415,12 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderAkSkTakePrecedenceOverRoleArn)
     conf.cred_provider_type = CredProviderType::InstanceProfile;
 
     config::aws_credentials_provider_version = "v2";
-    auto provider_v2 = factory.get_aws_credentials_provider(conf);
+    auto provider_v2 = factory.create_aws_credentials_provider(conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::SimpleAWSCredentialsProvider>(provider_v2),
               nullptr);
 
     config::aws_credentials_provider_version = "v1";
-    auto provider_v1 = factory.get_aws_credentials_provider(conf);
+    auto provider_v1 = factory.create_aws_credentials_provider(conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::SimpleAWSCredentialsProvider>(provider_v1),
               nullptr);
 
@@ -450,7 +434,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1RoleArnDefaultFallback) {
     S3ClientConf conf;
     conf.cred_provider_type = CredProviderType::Default;
     conf.role_arn = "arn:aws:iam::123456789012:role/test-role";
-    auto provider = factory.get_aws_credentials_provider(conf);
+    auto provider = factory.create_aws_credentials_provider(conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider),
               nullptr);
 
