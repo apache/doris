@@ -24,7 +24,7 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.metacache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -131,8 +131,7 @@ public class PaimonConnector implements Connector {
     private final PaimonSchemaAtMemo schemaAtMemo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
 
     // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache from
-    // fe-connector-metacache), layered ABOVE the raw remote catalog.listPartitions call
-    // (PaimonCatalogOps#listPartitions):
+    // fe-connector-cache), layered ABOVE the raw remote catalog.listPartitions call (PaimonCatalogOps#listPartitions):
     // it memoizes the BUILT List<ConnectorPartitionInfo> (display-name rendering + null-sentinel normalization,
     // see PaimonConnectorMetadata#collectPartitions) keyed by (db, table, snapshotId, schemaId), so a repeated
     // query on a partitioned table skips the derived rebuild AND the remote catalog round-trip. ONE typed field

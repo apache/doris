@@ -39,7 +39,7 @@ import java.util.Optional;
 
 /**
  * Tests {@link MaxComputePartitionCache}: the connector-owned partition-listing cache (a structural copy of the
- * hive connector's {@code HiveFileListingCache}), backed by the shared {@code fe-connector-metacache} framework.
+ * hive connector's {@code HiveFileListingCache}), backed by the shared {@code fe-connector-cache} framework.
  *
  * <p>WHY (Rule 9): after the max_compute cutover the fe-core engine-side external meta cache stops routing to a
  * MaxCompute catalog, so without this connector-owned cache every {@code SHOW PARTITIONS} / partition-pruning /

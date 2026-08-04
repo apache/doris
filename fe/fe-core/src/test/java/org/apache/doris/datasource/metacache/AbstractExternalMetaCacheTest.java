@@ -19,10 +19,6 @@ package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.connector.metacache.MetaCacheEntry;
-import org.apache.doris.connector.metacache.spi.CacheSpec;
-import org.apache.doris.connector.metacache.spi.MetaCacheEntryDef;
-import org.apache.doris.connector.metacache.spi.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -54,7 +50,7 @@ public class AbstractExternalMetaCacheTest {
     }
 
     @Test
-    public void testEngineEntriesApplyEffectiveCachePolicy() {
+    public void testEngineEntriesDoNotInitializeMultiKeyStripeStatesEagerly() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         try {
             TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
@@ -62,6 +58,7 @@ public class AbstractExternalMetaCacheTest {
             MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> enabledEntry = cache.entry(
                     1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
             Assert.assertTrue(enabledEntry.stats().isEffectiveEnabled());
+            Assert.assertEquals(0, enabledEntry.initializedStripeCountForTest());
 
             Map<String, String> disabledProperties = Maps.newHashMap();
             disabledProperties.put("meta.cache.test_engine.schema.ttl-second", "0");
@@ -69,6 +66,7 @@ public class AbstractExternalMetaCacheTest {
             MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> disabledEntry = cache.entry(
                     2L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
             Assert.assertFalse(disabledEntry.stats().isEffectiveEnabled());
+            Assert.assertEquals(0, disabledEntry.initializedStripeCountForTest());
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -158,9 +156,7 @@ public class AbstractExternalMetaCacheTest {
                             new Column("id", PrimitiveType.INT),
                             new Column("ID", PrimitiveType.INT))),
                     CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
-                    MetaCacheEntryInvalidation.forTableIdentity(
-                            key -> key.getNameMapping().getLocalDbName(),
-                            key -> key.getNameMapping().getLocalTblName())));
+                    MetaCacheEntryInvalidation.forNameMapping(SchemaCacheKey::getNameMapping)));
         }
     }
 }

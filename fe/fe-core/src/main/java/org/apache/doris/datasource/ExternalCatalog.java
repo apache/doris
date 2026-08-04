@@ -38,13 +38,13 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.connector.metacache.IdNameIndex;
-import org.apache.doris.connector.metacache.MetaCacheEntry;
-import org.apache.doris.connector.metacache.spi.CacheSpec;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.IdNameIndex;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -401,10 +401,7 @@ public abstract class ExternalCatalog
                 namesSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 true,
-                false,
-                MetaCacheEntry.singleKeyStripeCount(),
-                Config.external_cache_refresh_time_minutes * 60,
-                true);
+                MetaCacheEntry.singleKeyStripeCount());
 
         CacheSpec objectSpec = CacheSpec.of(
                 true,
@@ -416,8 +413,8 @@ public abstract class ExternalCatalog
                 localDbName -> buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType, true),
                 objectSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
-                Config.external_meta_cache_object_entry_lock_stripes,
-                (key, value) -> value.resetMetaToUninitialized());
+                MetaCacheEntry.defaultObjectStripeCount(),
+                (key, value, cause) -> value.resetMetaToUninitialized());
     }
 
     /**

@@ -30,7 +30,7 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
-import org.apache.doris.connector.metacache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -191,7 +191,7 @@ public class IcebergConnector implements Connector {
     // authorization a shared cache would bypass. null for every other flavor.
     private final IcebergCommentCache commentCache; // null under session=user
     // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache from
-    // fe-connector-metacache), layered ABOVE the raw partitionCache (PERF-02): it memoizes the BUILT derived view
+    // fe-connector-cache), layered ABOVE the raw partitionCache (PERF-02): it memoizes the BUILT derived view
     // (transform-to-range math + overlap merge for the MTMV view; the value-map construction for listPartitions)
     // keyed by (db, table, snapshotId, schemaId), so a repeated query on a partitioned table skips the derived
     // rebuild, not just the remote scan. Two typed fields because the two SPI hooks return structurally different
