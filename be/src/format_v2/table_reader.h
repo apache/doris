@@ -116,6 +116,7 @@ struct ReadProfile {
     RuntimeProfile::Counter* create_reader_timer = nullptr;
     RuntimeProfile::Counter* pushdown_agg_timer = nullptr;
     RuntimeProfile::Counter* open_reader_timer = nullptr;
+    RuntimeProfile::Counter* refresh_conjuncts_timer = nullptr;
     RuntimeProfile::Counter* runtime_filter_partition_prune_timer = nullptr;
     RuntimeProfile::Counter* runtime_filter_partition_pruned_range_counter = nullptr;
     RuntimeProfile::Counter* close_timer = nullptr;
@@ -124,6 +125,7 @@ struct ReadProfile {
     RuntimeProfile::Counter* file_reader_schema_timer = nullptr;
     RuntimeProfile::Counter* file_reader_mapper_timer = nullptr;
     RuntimeProfile::Counter* file_reader_open_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_refresh_timer = nullptr;
     RuntimeProfile::Counter* file_reader_get_block_timer = nullptr;
     RuntimeProfile::Counter* file_reader_aggregate_timer = nullptr;
     RuntimeProfile::Counter* file_reader_close_timer = nullptr;
@@ -222,6 +224,10 @@ public:
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
+
+    // Refresh row-level predicates for an already prepared split. Physical readers that support
+    // this operation decide the safe boundary at which the new immutable request becomes active.
+    virtual Status refresh_conjuncts(VExprContextSPtrs conjuncts);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
     virtual bool current_split_uses_metadata_count() const {
@@ -453,8 +459,11 @@ protected:
         // marker is independent of aggregate eligibility: with position deletes, for example,
         // metadata COUNT must fall back to reading rows, but an arbitrary unsupported TIME_MILLIS
         // placeholder still must not be validated or decoded merely to carry the surviving count.
+        // Pending runtime filters may later target this retained slot, so placeholder values are
+        // safe only after every filter for the split has arrived.
         if (_push_down_agg_type == TPushAggOp::type::COUNT &&
-            _push_down_count_columns.has_value() && _push_down_count_columns->empty()) {
+            _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
+            _all_runtime_filters_applied_for_split) {
             file_request->count_star_placeholder_columns.reserve(
                     file_request->non_predicate_columns.size());
             for (const auto& column : file_request->non_predicate_columns) {
@@ -465,6 +474,7 @@ protected:
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
+        _file_scan_request.reset();
         _data_reader.file_block_layout.resize(file_request->local_positions.size());
 
         // 4. Build file block layout from file schema and column mapping. The layout describes
@@ -517,7 +527,8 @@ protected:
             SCOPED_TIMER(_profile.file_reader_open_timer);
             RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         }
-        RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));
+        _file_scan_request = std::move(file_request);
+        RETURN_IF_ERROR(_init_reader_condition_cache(*_file_scan_request));
         return Status::OK();
     }
 
@@ -763,6 +774,7 @@ protected:
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
+        _file_scan_request.reset();
         _current_task.reset();
         _current_file_description.reset();
         _current_reader_reached_eof = false;
@@ -1903,6 +1915,9 @@ protected:
         Block block_template;
     };
     DataReader _data_reader;
+    // Latest immutable request queued to the physical reader. The file-block layout remains fixed
+    // for the split even while predicates are refreshed at a reader-defined granule boundary.
+    std::shared_ptr<FileScanRequest> _file_scan_request;
     std::vector<ColumnDefinition> _projected_columns;
     std::unique_ptr<ScanTask> _current_task;
     std::optional<io::FileDescription> _current_file_description;

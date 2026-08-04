@@ -193,10 +193,11 @@ public:
     // Convert a table-level scan request into a file-local scan request. table_filters preserve
     // row-level filtering semantics and are rewritten as file-local conjuncts. File-layer pruning
     // such as ZoneMap, dictionary, and bloom filter derives from those localized VExpr conjuncts.
-    virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
-                                       const std::vector<ColumnDefinition>& projected_columns,
-                                       FileScanRequest* file_request,
-                                       RuntimeState* runtime_state = nullptr);
+    virtual Status create_scan_request(
+            const std::vector<TableFilter>& table_filters,
+            const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
+            RuntimeState* runtime_state = nullptr,
+            const std::map<LocalColumnId, LocalIndex>* fixed_local_positions = nullptr);
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with
