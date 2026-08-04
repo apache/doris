@@ -136,8 +136,39 @@ kdestroy
 
 report_stage "initialize-hive-metastore"
 schematool -dbType derby -initSchema
+# The Paimon tables declare no columns, so the metastore itself resolves their
+# schema through the storage handler, and registering ali_db at an oss:// location
+# makes it resolve that scheme too. Both classes must therefore be on the
+# metastore service's own classpath, not merely on the DDL client's.
+if [[ -d /opt/doris/auxlib ]]; then
+    export HIVE_AUX_JARS_PATH=/opt/doris/auxlib
+fi
 start_service hive --service metastore -p "${HMS_PORT}"
 wait_for_port "${HOST}" "${HMS_PORT}" "Hive Metastore"
+
+# Register the Paimon fixture consumed by test_paimon_hms_catalog. This runs
+# before the readiness marker below on purpose: run-thirdparties-docker.sh
+# releases the pipeline on DORIS_KERBEROS_READY, so anything published later
+# would race the suites. A failure here aborts the container (set -e) instead of
+# handing out an environment that is silently missing hdfs_db / ali_db.
+#
+# Both kerberos containers run this entrypoint with the same rendered env
+# switch, but the fixture and its mounts (sql/, paimon_data/, auxlib/) belong to
+# kerberos1 only - its metastore (9583) is the one the suite talks to. Gate on
+# the container role, not on the mounts, so a broken mount on kerberos1 still
+# fails loudly while kerberos2 skips deterministically.
+if [[ "${enablePaimonHms:-false}" == "true" && "${HOST:-}" == "hadoop-master" ]]; then
+    report_stage "load-paimon-hms"
+    export KRB5CCNAME=FILE:/tmp/hive-admin.ccache
+    kinit -kt /data/keytabs/hive.keytab "${HIVE_PRINCIPAL}"
+    hdfs dfs -mkdir -p /user/hive/warehouse
+    hdfs dfs -put -f /opt/doris/paimon_data/* /user/hive/warehouse/
+    paimon_hql="$(mktemp /tmp/create_paimon_hive_table.XXXXXX.hql)"
+    sed "s|__OSS_BUCKET__|${OSSBucket}|g" /opt/doris/sql/create_paimon_hive_table.hql >"${paimon_hql}"
+    hive -f "${paimon_hql}"
+    rm -f "${paimon_hql}"
+    kdestroy
+fi
 
 touch /tmp/SUCCESS
 echo "Minimal Kerberos HDFS and Hive Metastore environment is ready"

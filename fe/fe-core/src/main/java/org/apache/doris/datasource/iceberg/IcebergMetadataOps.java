@@ -310,9 +310,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try {
             return executionAuthenticator.execute(() -> performCreateTable(createTableInfo));
         } catch (Exception e) {
-            throw new DdlException(
-                "Failed to create table: " + createTableInfo.getTableName() + ", error message is:" + e.getMessage(),
-                    e);
+            throw new DdlException("Failed to create table: " + createTableInfo.getTableName()
+                    + ", error message is:" + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -514,7 +513,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace branch: " + branchName + " in table: " + icebergTable.name()
-                            + ", error message is: " + e.getMessage(), e);
+                            + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -578,7 +577,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace tag: " + tagName + " in table: " + icebergTable.name()
-                            + ", error message is: " + e.getMessage(), e);
+                            + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -598,7 +597,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop tag: " + tagName + " in table: " + icebergTable.name()
-                                + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
             }
         }
     }
@@ -619,7 +618,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop branch: " + branchName + " in table: " + icebergTable.name()
-                                + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
             }
         }
     }
@@ -666,7 +665,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
             throw new UserException("Failed to add column: " + column.getName() + " to table: "
-                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+                    + icebergTable.name() + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
     }
@@ -683,7 +682,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
             throw new UserException("Failed to add columns to table: " + icebergTable.name()
-                    + ", error message is: " + e.getMessage(), e);
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
     }
@@ -697,7 +696,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
             throw new UserException("Failed to drop column: " + columnName + " from table: "
-                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+                    + icebergTable.name() + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
     }
@@ -712,7 +711,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
             throw new UserException("Failed to rename column: " + oldName + " to " + newName
-                    + " in table: " + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+                    + " in table: " + icebergTable.name()
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
     }
@@ -758,7 +758,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
             throw new UserException("Failed to modify column: " + column.getName() + " in table: "
-                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+                    + icebergTable.name() + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
     }
@@ -967,7 +967,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
             throw new UserException("Failed to reorder columns in table: " + icebergTable.name()
-                    + ", error message is: " + e.getMessage(), e);
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
     }

@@ -1575,6 +1575,64 @@ validate_kerberos_container() {
     fi
 }
 
+# Aux jars for the Paimon fixture in the kerberized metastore: the Paimon storage
+# handler, plus the jindo OSS filesystem that ali_db's oss:// location has to
+# resolve at DDL time. Same source and same skip-if-present caching the Hive3
+# stack uses in prepare-hive-data.sh.
+download_kerberos_paimon_jars() {
+    local auxlib_dir="$1"
+    local url_prefix="https://${s3BucketName}.${s3Endpoint}/regression/docker/hive3"
+    local jars=(
+        paimon-hive-connector-3.1-1.3-SNAPSHOT.jar
+        jdom-1.1.jar
+        aliyun-java-sdk-core-3.4.0.jar
+        aliyun-java-sdk-ecs-4.2.0.jar
+        aliyun-java-sdk-ram-3.0.0.jar
+        aliyun-java-sdk-sts-3.0.0.jar
+        jindo-core-6.3.4.jar
+        jindo-core-linux-el7-aarch64-6.3.4.jar
+        jindo-sdk-6.3.4.jar
+    )
+    local jar
+
+    for jar in "${jars[@]}"; do
+        if [[ -f "${auxlib_dir}/${jar}" ]]; then
+            echo "Reuse cached kerberos aux jar ${jar}"
+            continue
+        fi
+        echo "Download kerberos aux jar ${jar}"
+        curl -sSfL -o "${auxlib_dir}/${jar}" "${url_prefix}/${jar}"
+    done
+}
+
+# enablePaimonHms and the OSS credentials live in hive-3x_settings.env, which the
+# pipeline already patches with the real values. Read them from there instead of
+# duplicating the switch into kerberos*_settings.env, where the two copies would
+# drift and one stack would silently lose the fixture. Sourced in a subshell so
+# that hive3's FS_PORT / HMS_PORT cannot leak into the kerberos settings sourced
+# a few lines below.
+resolve_kerberos_paimon_env() {
+    local hive3_settings="${ROOT}/docker-compose/hive/hive-3x_settings.env"
+
+    enablePaimonHms="false"
+    OSSAk=""
+    OSSSk=""
+    OSSEndpoint=""
+    if [[ -f "${hive3_settings}" ]]; then
+        {
+            read -r enablePaimonHms
+            read -r OSSAk
+            read -r OSSSk
+            read -r OSSEndpoint
+        } < <(
+            . "${hive3_settings}" >/dev/null 2>&1
+            printf '%s\n%s\n%s\n%s\n' \
+                "${enablePaimonHms:-false}" "${OSSAk:-}" "${OSSSk:-}" "${OSSEndpoint:-}"
+        )
+    fi
+    export enablePaimonHms OSSAk OSSSk OSSEndpoint
+}
+
 start_kerberos() {
     echo "RUN_KERBEROS"
     local KERBEROS_DIR="${ROOT}/docker-compose/kerberos"
@@ -1589,8 +1647,13 @@ start_kerberos() {
 
     export CONTAINER_UID=${CONTAINER_UID}
     envsubst <"${KERBEROS_DIR}/kerberos.yaml.tpl" >"${KERBEROS_DIR}/kerberos.yaml"
+    # auxlib must exist even when the fixture is off: kerberos1 mounts it read-only.
     mkdir -p "${KERBEROS_DIR}/conf/kerberos1" "${KERBEROS_DIR}/conf/kerberos2" \
-        "${KERBEROS_DIR}/two-kerberos-hives"
+        "${KERBEROS_DIR}/two-kerberos-hives" "${KERBEROS_DIR}/auxlib"
+    resolve_kerberos_paimon_env
+    if [[ "${enablePaimonHms}" == "true" && "${STOP}" -ne 1 ]]; then
+        download_kerberos_paimon_jars "${KERBEROS_DIR}/auxlib"
+    fi
     for i in {1..2}; do
         . "${KERBEROS_DIR}/kerberos${i}_settings.env"
         envsubst <"${KERBEROS_DIR}/hadoop-hive.env.tpl" >"${KERBEROS_DIR}/hadoop-hive-${i}.env"

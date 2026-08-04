@@ -420,6 +420,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                 "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
                 "dfs.client.use.datanode.hostname" = "true",
+                "dfs.data.transfer.protection" = "authentication",
                 "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.security.authentication" = "kerberos",
              
@@ -430,6 +431,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                 "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
                 "dfs.client.use.datanode.hostname" = "true",
+                "dfs.data.transfer.protection" = "authentication",
                 "hadoop.security.token.service.use_ip" = "false",
                 "hdfs.authentication.type" = "kerberos",
                 "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",

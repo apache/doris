@@ -62,4 +62,31 @@ under the License.
         <name>metastore.storage.schema.reader.impl</name>
         <value>org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader</value>
     </property>
+    <!--
+      Needed by the ali_db Paimon fixture: HiveMetaStore.create_table_core resolves
+      any explicit LOCATION through Warehouse.getDnsPath -> Path.getFileSystem, so
+      registering a table at oss:// requires the scheme to be resolvable at DDL time.
+      Matches the Hive3 stack (HIVE_SITE_CONF_fs_oss_impl in hadoop-hive-3x.env.tpl);
+      the jindo jars come from the auxlib mount. Inert when nothing touches oss://.
+    -->
+    <property>
+        <name>fs.oss.impl</name>
+        <value>com.aliyun.jindodata.oss.JindoOssFileSystem</value>
+    </property>
+    <property>
+        <name>fs.AbstractFileSystem.oss.impl</name>
+        <value>com.aliyun.jindodata.oss.JindoOSS</value>
+    </property>
+    <property>
+        <name>fs.oss.accessKeyId</name>
+        <value>${OSSAk}</value>
+    </property>
+    <property>
+        <name>fs.oss.accessKeySecret</name>
+        <value>${OSSSk}</value>
+    </property>
+    <property>
+        <name>fs.oss.endpoint</name>
+        <value>${OSSEndpoint}</value>
+    </property>
 </configuration>

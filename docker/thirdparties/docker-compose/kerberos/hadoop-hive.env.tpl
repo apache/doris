@@ -29,3 +29,11 @@ PRESTO_CLIENT_KEYTAB=${PRESTO_CLIENT_KEYTAB}
 HADOOP_CONF_DIR=/opt/doris/conf
 HIVE_CONF_DIR=/opt/doris/conf
 KRB5_CONFIG=/etc/krb5.conf
+# Paimon-on-kerberized-HMS fixture. These four are read from hive-3x_settings.env
+# by start_kerberos() rather than duplicated into kerberos*_settings.env, so that
+# the pipeline keeps patching exactly one file and the two stacks cannot drift.
+enablePaimonHms=${enablePaimonHms}
+OSSBucket=${OSSBucket}
+OSSAk=${OSSAk}
+OSSSk=${OSSSk}
+OSSEndpoint=${OSSEndpoint}

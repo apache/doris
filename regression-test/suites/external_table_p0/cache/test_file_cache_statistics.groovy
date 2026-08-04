@@ -97,12 +97,17 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
     // interval after the query races the refresh. Awaitility polling waits only as long as needed
     // and avoids reading too soon. On timeout we swallow the exception so the caller's own
     // metric-specific assert below can surface the precise failure message.
-    def pollMetric = { String metricName, Closure predicate, long timeoutSeconds ->
+    // `warmUp`, when given, re-runs the caching query on every poll: a metric that only a fresh
+    // read can move must not be polled passively (see the normal-queue section below).
+    def pollMetric = { String metricName, Closure predicate, long timeoutSeconds, Closure warmUp = null ->
         try {
             Awaitility.await()
                     .atMost(timeoutSeconds, TimeUnit.SECONDS)
                     .pollInterval(1, TimeUnit.SECONDS)
                     .until {
+                        if (warmUp != null) {
+                            warmUp()
+                        }
                         def v = cacheMetricSum(metricName)
                         return v != null && predicate(v)
                     }
@@ -188,8 +193,23 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
     // The hard bound the BE actually enforces is the per-cache _capacity, and by construction in
     // get_file_cache_settings() capacity == normal + index + ttl + disposable max sizes (the
     // normal/query queue is defined as the remainder). Sum across paths and assert against that.
-    pollMetric('normal_queue_curr_size', { it > 0 }, metricPollTimeoutSeconds)
-    pollMetric('normal_queue_curr_elements', { it > 0 }, metricPollTimeoutSeconds)
+    //
+    // The warm-up queries above are NOT enough on their own to guarantee the queue is populated.
+    // This suite shares one file cache with every other case on the cluster, and the case that runs
+    // right before it (test_file_cache_features) deliberately forces the backends into
+    // disk_resource_limit_mode / need_evict_cache_in_advance. Those modes drain the cache, and while
+    // disk_resource_limit_mode is on try_reserve admits nothing (it must evict 5x the block size
+    // first and a drained cache has nothing to evict). The flags only clear on the next background
+    // monitor tick, so a warm-up that lands inside that window caches zero blocks -- and polling a
+    // passive metric afterwards can never recover, which is exactly how this case failed with
+    // normal_queue_curr_size == 0. Re-run the read on every poll so the first tick after the modes
+    // clear repopulates the queue, the same self-healing shape the hit/read-count section uses.
+    def warmUpFileCache = {
+        sql """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
+            where l_orderkey=1 and l_partkey=1534 limit 1;"""
+    }
+    pollMetric('normal_queue_curr_size', { it > 0 }, metricPollTimeoutSeconds, warmUpFileCache)
+    pollMetric('normal_queue_curr_elements', { it > 0 }, metricPollTimeoutSeconds, warmUpFileCache)
 
     def normalQueueCurrSizeSum = cacheMetricSum('normal_queue_curr_size')
     logger.info("normal_queue_curr_size sum: " + normalQueueCurrSizeSum)
