@@ -126,10 +126,12 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
         """
         def dynamicRows = spark_paimon """
             SELECT COUNT(*),
-                   SUM(variant_get(payload, '${root}.id', 'int'))
+                   SUM(variant_get(payload, '${root}.id', 'int')),
+                   SUM(CASE WHEN id <> variant_get(payload, '${root}.id', 'int')
+                            THEN 1 ELSE 0 END)
             FROM paimon.${dbName}.t_variant_dynamic_bucket
         """
-        assertEquals(["32", "496"],
+        assertEquals(["32", "496", "0"],
                 dynamicRows[0].collect { value -> value.toString() })
 
         // Schema evolution: add Variant, write it, then add a normal column and continue writing.
