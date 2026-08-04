@@ -93,10 +93,12 @@ Status HudiJniReader::build_scanner_params(std::map<std::string, std::string>* p
     (*params)["instant_time"] = hudi_params.instant_time;
     (*params)["serde"] = hudi_params.serde;
     (*params)["input_format"] = hudi_params.input_format;
-    (*params)["time_zone"] = _scan_params->__isset.hive_parquet_time_zone &&
-                                             !_scan_params->hive_parquet_time_zone.empty()
-                                     ? _scan_params->hive_parquet_time_zone
-                                     : "UTC";
+    // Keep the INT96 compatibility zone separate because Hudi JNI also uses the session zone to
+    // materialize logical INT64 timestamps, which must match native Parquet splits.
+    (*params)["int96_time_zone"] = _scan_params->__isset.hive_parquet_time_zone &&
+                                                   !_scan_params->hive_parquet_time_zone.empty()
+                                           ? _scan_params->hive_parquet_time_zone
+                                           : "UTC";
     if (_runtime_state != nullptr) {
         (*params)["query_id"] = print_id(_runtime_state->query_id());
     }
