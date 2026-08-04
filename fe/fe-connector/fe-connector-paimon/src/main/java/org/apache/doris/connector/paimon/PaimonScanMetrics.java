@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 
 import org.apache.paimon.metrics.Counter;
 import org.apache.paimon.metrics.Gauge;

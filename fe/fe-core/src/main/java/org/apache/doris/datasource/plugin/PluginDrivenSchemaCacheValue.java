@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.connector.api.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import java.util.Collections;

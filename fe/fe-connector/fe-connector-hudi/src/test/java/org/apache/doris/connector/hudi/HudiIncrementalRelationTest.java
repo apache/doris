@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.junit.jupiter.api.Assertions;

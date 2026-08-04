@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.WriteBlockAllocatingConnectorTransaction;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.WriteBlockAllocatingConnectorTransaction;
 import org.apache.doris.thrift.TMCCommitData;
 
 import com.aliyun.odps.table.TableIdentifier;
@@ -69,7 +69,7 @@ public class MaxComputeConnectorTransaction
      * Legacy default of {@code Config.max_compute_write_max_block_count} (20000); used as the
      * fallback when the session does not carry the (tunable) value. The connector cannot import
      * fe-core {@code Config}, so the live value is threaded in through the constructor — resolved
-     * from {@link org.apache.doris.connector.api.ConnectorSession#getSessionProperties()} by
+     * from {@link org.apache.doris.connector.spi.ConnectorSession#getSessionProperties()} by
      * {@code MaxComputeConnectorMetadata.resolveMaxBlockCount} (GC1 / FIX-BLOCKID-CAP-CONFIG,
      * restoring legacy fe.conf tunability and superseding the hardcoded cap in DV-011).
      */

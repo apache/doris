@@ -18,10 +18,10 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.connector.api.ConnectorDelegatedCredential;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 
 import java.util.Collections;
 import java.util.Map;

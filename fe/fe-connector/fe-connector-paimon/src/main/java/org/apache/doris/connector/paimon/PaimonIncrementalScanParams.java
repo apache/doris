@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
@@ -51,7 +51,7 @@ import java.util.Map;
  * ({@code "[incremental-between] must be null when you set [scan.snapshot-id,scan.tag-name]"}) or
  * silently resolves to {@code FROM_SNAPSHOT} at the stale id (wrong @incr rows). However, the null
  * values must NOT enter the SHARED, source-agnostic {@link
- * org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot} SPI type (its {@code Builder.property}
+ * org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot} SPI type (its {@code Builder.property}
  * rejects null and its {@code getProperties()} is documented "never null"). So {@link #validate}
  * emits ONLY the non-null {@code incremental-between*} keys (snapshot/handle stay null-free), and the
  * two legacy null resets are reintroduced LOCALLY at the {@code Table.copy} chokepoint via {@link
@@ -291,7 +291,7 @@ public final class PaimonIncrementalScanParams {
      * the stale id (wrong @incr rows).
      *
      * <p>The reset is applied here, not in {@link #validate}, so the shared {@link
-     * org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot} SPI type and {@code
+     * org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot} SPI type and {@code
      * PaimonTableHandle.scanOptions} stay null-free; the null-valued map is created locally and handed
      * straight to paimon {@code copyInternal} ({@code v == null ? options.remove(k) : options.put(k,
      * v)}), which consumes the nulls to remove the stale options.

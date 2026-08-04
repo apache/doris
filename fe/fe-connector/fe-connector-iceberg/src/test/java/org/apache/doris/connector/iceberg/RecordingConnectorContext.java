@@ -17,10 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;

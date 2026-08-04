@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.THiveSerDeProperties;

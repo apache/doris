@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.plugin;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorWriteOps;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorWriteOps;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
 import org.apache.logging.log4j.LogManager;
@@ -28,7 +28,7 @@ import org.apache.logging.log4j.Logger;
 
 /**
  * The per-statement owner of a plugin-driven write transaction, co-held on the statement scope next to the one
- * memoized {@link org.apache.doris.connector.api.ConnectorMetadata} the read and write arms share — mirroring
+ * memoized {@link org.apache.doris.connector.spi.ConnectorMetadata} the read and write arms share — mirroring
  * Trino's {@code CatalogTransaction}: one metadata instance and one transaction per (statement, catalog). The
  * insert executor opens the transaction through {@link #begin}, minting it from that shared write-ops facet so
  * the write inherits exactly the read arm's client/ops, and commits / rolls back through the
@@ -43,7 +43,7 @@ import org.apache.logging.log4j.Logger;
  *
  * <p>fe-core-internal and connector-agnostic: it traffics only in the neutral {@link ConnectorWriteOps} /
  * {@link ConnectorSession} / {@link ConnectorTransaction} SPI types (never a concrete connector type) and is
- * stored on the connector-agnostic {@link org.apache.doris.connector.api.ConnectorStatementScope} as an opaque
+ * stored on the connector-agnostic {@link org.apache.doris.connector.spi.ConnectorStatementScope} as an opaque
  * value, recognized by {@link org.apache.doris.connector.ConnectorStatementScopeImpl} only to order its
  * teardown before metadata close.</p>
  */

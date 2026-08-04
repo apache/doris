@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorTableStatistics;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;

@@ -27,7 +27,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPushAggOp;

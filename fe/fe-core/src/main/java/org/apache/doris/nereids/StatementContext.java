@@ -31,8 +31,8 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -659,7 +659,7 @@ public class StatementContext implements Closeable {
     /**
      * Returns this statement's connector scope, lazily creating it on first use (mirrors
      * {@link #getOrCacheDisableRules}). A connector reaches it through
-     * {@link org.apache.doris.connector.api.ConnectorSession#getStatementScope()} to load a table once and
+     * {@link org.apache.doris.connector.spi.ConnectorSession#getStatementScope()} to load a table once and
      * share it across the statement's read + write resolvers.
      */
     public synchronized ConnectorStatementScope getOrCreateConnectorStatementScope() {

@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

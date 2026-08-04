@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.hms.event;
 
-import org.apache.doris.connector.api.event.ConnectorEventSource;
-import org.apache.doris.connector.api.event.EventPollRequest;
-import org.apache.doris.connector.api.event.EventPollResult;
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsNotificationEvent;
+import org.apache.doris.connector.spi.event.ConnectorEventSource;
+import org.apache.doris.connector.spi.event.EventPollRequest;
+import org.apache.doris.connector.spi.event.EventPollResult;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.logging.log4j.LogManager;

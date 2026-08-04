@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;

@@ -17,15 +17,15 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -141,8 +141,8 @@ public class HiveConnectorMetadataPartitionListTest {
     public void testFilterIsIgnored() {
         FakeHmsClient client = new FakeHmsClient(PARTITIONS);
         ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
-                new ConnectorColumnRef("year", org.apache.doris.connector.api.ConnectorType.of("STRING")),
-                new ConnectorLiteral(org.apache.doris.connector.api.ConnectorType.of("STRING"), "2024"));
+                new ConnectorColumnRef("year", org.apache.doris.connector.spi.ConnectorType.of("STRING")),
+                new ConnectorLiteral(org.apache.doris.connector.spi.ConnectorType.of("STRING"), "2024"));
         List<ConnectorPartitionInfo> parts =
                 metadata(client).listPartitions(null, partitionedHandle(), Optional.of(filter));
         // Full set returned despite the predicate: pruning is a separate applyFilter concern.

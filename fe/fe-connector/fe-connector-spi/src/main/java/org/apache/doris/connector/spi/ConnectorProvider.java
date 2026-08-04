@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.api.Connector;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 
@@ -54,8 +53,8 @@ public interface ConnectorProvider extends PluginFactory {
      * directory it is logged and skipped so that one bad plugin cannot stop FE from starting.
      *
      * <p>Uniqueness is not cosmetic. It is what {@code CREATE CATALOG} routes on, and it is what makes
-     * source-prefixed namespaces distinct <em>by construction</em> (see {@code ConnectorStatementScopes} in
-     * fe-connector-api, which relies on this method being a connector's unique identity).
+     * source-prefixed namespaces distinct <em>by construction</em> (see {@code ConnectorStatementScopes},
+     * which relies on this method being a connector's unique identity).
      */
     String getType();
 

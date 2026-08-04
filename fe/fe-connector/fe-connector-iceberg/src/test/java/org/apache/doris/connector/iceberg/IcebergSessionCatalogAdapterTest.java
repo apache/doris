@@ -17,10 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorDelegatedCredential;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.iceberg.IcebergSessionCatalogAdapter.DelegatedTokenMode;
+import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.catalog.SessionCatalog;

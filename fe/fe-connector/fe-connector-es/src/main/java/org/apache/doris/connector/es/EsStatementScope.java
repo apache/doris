@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScopes;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScopes;
 
 import java.util.function.Supplier;
 
@@ -33,7 +33,7 @@ import java.util.function.Supplier;
  * <p>Only the raw mapping — stable within a statement — is shared this way. Shard routing and node
  * topology are freshness-sensitive (ES rebalances) and must stay per-scan; they are NOT shared here.
  *
- * <p>Under a {@code null} session or {@link org.apache.doris.connector.api.ConnectorStatementScope#NONE}
+ * <p>Under a {@code null} session or {@link org.apache.doris.connector.spi.ConnectorStatementScope#NONE}
  * (offline / no live statement) the loader runs on every call — byte-identical to fetching every time.
  */
 final class EsStatementScope {

@@ -17,28 +17,28 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -645,8 +645,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
         ConnectorType stringType = ConnectorType.of("STRING");
-        org.apache.doris.connector.api.pushdown.ConnectorColumnRef commitTime =
-                new org.apache.doris.connector.api.pushdown.ConnectorColumnRef(HUDI_COMMIT_TIME_COLUMN, stringType);
+        org.apache.doris.connector.spi.pushdown.ConnectorColumnRef commitTime =
+                new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef(HUDI_COMMIT_TIME_COLUMN, stringType);
         ConnectorExpression lower = new ConnectorComparison(
                 ConnectorComparison.Operator.GT, commitTime, ConnectorLiteral.ofString(begin));
         ConnectorExpression upper = new ConnectorComparison(
@@ -1090,8 +1090,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     private String extractColumnName(ConnectorExpression expr) {
-        if (expr instanceof org.apache.doris.connector.api.pushdown.ConnectorColumnRef) {
-            return ((org.apache.doris.connector.api.pushdown.ConnectorColumnRef) expr).getColumnName();
+        if (expr instanceof org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) {
+            return ((org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) expr).getColumnName();
         }
         return null;
     }

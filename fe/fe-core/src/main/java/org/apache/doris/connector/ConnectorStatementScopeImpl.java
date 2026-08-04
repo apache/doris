@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.connector.api.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.datasource.plugin.CatalogStatementTransaction;
 
 import org.apache.logging.log4j.LogManager;
@@ -31,7 +31,7 @@ import java.util.function.Supplier;
  * {@link org.apache.doris.nereids.StatementContext}.
  *
  * <p>Thread-safe by a backing {@link ConcurrentHashMap}: a scan's off-thread pumps (streaming /
- * partition-batch) reuse the single {@link org.apache.doris.connector.api.ConnectorSession} built on the
+ * partition-batch) reuse the single {@link org.apache.doris.connector.spi.ConnectorSession} built on the
  * request thread and so reach this same scope concurrently. {@code computeIfAbsent} gives every caller of
  * a key the same instance — required for the shared table object and for the delete supply map that scan
  * and write both mutate. The loaders used by connectors do not re-enter this scope, so the map's

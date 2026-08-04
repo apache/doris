@@ -17,21 +17,21 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
-import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
-import org.apache.doris.connector.api.procedure.ConnectorRewriteStatistics;
-import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.action.BaseIcebergAction;
 import org.apache.doris.connector.iceberg.action.IcebergExecuteActionFactory;
 import org.apache.doris.connector.iceberg.action.IcebergRewriteDataFilesAction;
 import org.apache.doris.connector.iceberg.rewrite.RewriteDataFilePlanner;
 import org.apache.doris.connector.iceberg.rewrite.RewriteDataGroup;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
+import org.apache.doris.connector.spi.procedure.ConnectorRewriteStatistics;
+import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 
 import java.time.ZoneId;
 import java.util.Arrays;

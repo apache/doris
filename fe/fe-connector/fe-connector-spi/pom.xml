@@ -33,18 +33,33 @@ under the License.
     <packaging>jar</packaging>
     <name>Doris FE Connector SPI</name>
     <description>
-        Service Provider Interface (SPI) for Doris FE connector abstraction.
-        Contains ConnectorProvider (the ServiceLoader entry point a connector implements)
-        plus the engine services a connector consumes: ConnectorContext,
-        ConnectorMetaInvalidator and ConnectorBrokerAddress.
-        Zero third-party external dependencies — only JDK and Doris internal SPI interfaces.
+        The whole Doris FE connector plugin contract, in both directions.
+
+        What a connector implements and the engine consumes: ConnectorProvider (the
+        ServiceLoader entry point), Connector, the ConnectorMetadata sub-interfaces,
+        the scan / write / procedure providers, opaque handle types, pushdown and ddl
+        value objects, and the capability enums.
+
+        What the engine implements and a connector consumes: ConnectorContext,
+        ConnectorStorageContext, ConnectorSession, ConnectorConf, ConnectorBrokerAddress.
+
+        The two directions live in one module on purpose — the boundary is bidirectional
+        (ConnectorProvider.create takes a ConnectorContext; ConnectorContext hands back a
+        Connector), so splitting by "who implements" would be circular. Trino does the
+        same with trino-spi. Design rules for the whole surface are documented in this
+        module's org.apache.doris.connector.spi package-info.
+
+        The fe-thrift dependency (provided scope) allows connectors to construct typed
+        thrift payloads for the FE-BE protocol. At runtime the Thrift classes are supplied
+        by the parent classloader (fe-core).
     </description>
 
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
+            <artifactId>fe-thrift</artifactId>
             <version>${project.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>

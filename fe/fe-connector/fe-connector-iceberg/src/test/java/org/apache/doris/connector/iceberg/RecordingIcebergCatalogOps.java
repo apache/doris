@@ -17,11 +17,11 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ddl.BranchChange;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
-import org.apache.doris.connector.api.ddl.DropRefChange;
-import org.apache.doris.connector.api.ddl.PartitionFieldChange;
-import org.apache.doris.connector.api.ddl.TagChange;
+import org.apache.doris.connector.spi.ddl.BranchChange;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.spi.ddl.DropRefChange;
+import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
+import org.apache.doris.connector.spi.ddl.TagChange;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;

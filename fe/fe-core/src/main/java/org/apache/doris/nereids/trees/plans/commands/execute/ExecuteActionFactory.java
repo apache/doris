@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.execute;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;

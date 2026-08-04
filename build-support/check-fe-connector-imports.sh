@@ -25,7 +25,7 @@
 # datasource / qe / analysis / nereids / planner / persist / transaction / fs /
 # statistics / mysql / service). Anything they need from fe-core has to be
 # exposed through the SPI in
-#   org.apache.doris.connector.{api,spi,extension,...}
+#   org.apache.doris.connector.{spi,metastore,...}
 # or shared types in org.apache.doris.thrift / org.apache.doris.filesystem.
 #
 # The gate matches both plain and `import static` imports, scans src/main/java

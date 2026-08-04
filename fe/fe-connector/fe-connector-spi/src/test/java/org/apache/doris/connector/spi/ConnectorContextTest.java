@@ -17,8 +17,6 @@
 
 package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.api.Connector;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

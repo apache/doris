@@ -17,11 +17,11 @@
 
 package org.apache.doris.connector.iceberg.rewrite;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.IcebergPredicateConverter;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;

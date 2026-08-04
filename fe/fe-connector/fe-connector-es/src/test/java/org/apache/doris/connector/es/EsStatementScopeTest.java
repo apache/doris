@@ -28,7 +28,7 @@ import java.lang.reflect.Modifier;
  * prefixed with this connector's {@code ConnectorProvider.getType()} ("es"). Source-prefixing is what keeps the
  * namespaces distinct from every other connector's on a heterogeneous gateway (no {@code ClassCastException} on the
  * shared {@code (catalogId, db, table, queryId)} coordinate); the value-type home is
- * {@link org.apache.doris.connector.api.ConnectorStatementScopes}.
+ * {@link org.apache.doris.connector.spi.ConnectorStatementScopes}.
  */
 public class EsStatementScopeTest {
 

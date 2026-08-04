@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg.action;
 
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorSession;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;

@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.IntType;

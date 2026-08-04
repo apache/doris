@@ -19,7 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 
 import com.google.common.collect.Lists;

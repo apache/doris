@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 
 import org.apache.iceberg.metrics.CounterResult;
 import org.apache.iceberg.metrics.MetricsContext;

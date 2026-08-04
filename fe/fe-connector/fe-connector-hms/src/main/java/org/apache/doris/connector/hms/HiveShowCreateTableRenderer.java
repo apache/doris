@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorColumn;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
  * exact substring the meta-cache suite asserts), and the single {@code comment} table param is lifted out to the
  * top-level {@code COMMENT} clause rather than left in {@code TBLPROPERTIES}.
  *
- * <p>Column/partition types are reconstructed from the mapped {@link org.apache.doris.connector.api.ConnectorType}
+ * <p>Column/partition types are reconstructed from the mapped {@link org.apache.doris.connector.spi.ConnectorType}
  * via {@link HmsTypeMapping#toHiveTypeString} (the SPI carries the mapped type, not the raw thrift string). That
  * round-trip is exact for scalars/decimal/date/timestamp/nested; a raw HMS {@code varchar(n)} would render as
  * {@code string} (length dropped), harmless here because such columns are stored as {@code string} in HMS. An

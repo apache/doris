@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 
 import com.google.common.collect.Lists;
 

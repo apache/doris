@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 
 /**
  * The embedded sibling connector that owns a foreign (iceberg/hudi-on-HMS) table, paired with its stable owner

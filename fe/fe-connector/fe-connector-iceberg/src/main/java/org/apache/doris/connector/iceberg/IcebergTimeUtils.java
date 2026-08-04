@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorSession;
 
 import java.time.DateTimeException;
 import java.time.LocalDateTime;

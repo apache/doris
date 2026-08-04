@@ -19,7 +19,7 @@ package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
+import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
 import org.apache.doris.thrift.TColumnCategory;
 
 import org.junit.jupiter.api.Assertions;

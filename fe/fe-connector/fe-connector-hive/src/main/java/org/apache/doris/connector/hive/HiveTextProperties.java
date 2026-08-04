@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 
 import java.util.HashMap;
 import java.util.Map;

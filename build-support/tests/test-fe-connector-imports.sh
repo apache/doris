@@ -58,7 +58,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFoo;
 import org.apache.doris.filesystem.Bar;
-import org.apache.doris.connector.api.Baz;
+import org.apache.doris.connector.spi.Baz;
 import org.apache.doris.datasource.hive.HiveVersionUtil;
 import static org.apache.doris.datasource.hive.HiveVersionUtil.SOME_CONST;
 public class FakeConn {}
@@ -117,7 +117,7 @@ must_not_report() {
 }
 must_not_report 'org.apache.doris.thrift.TFoo'          # SPI-shared
 must_not_report 'org.apache.doris.filesystem.Bar'       # SPI-shared
-must_not_report 'org.apache.doris.connector.api.Baz'    # SPI
+must_not_report 'org.apache.doris.connector.spi.Baz'    # SPI
 must_not_report 'HiveVersionUtil;'                      # vendored (non-static)
 must_not_report 'HiveVersionUtil.SOME_CONST;'           # vendored (static) — E3
 

@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;

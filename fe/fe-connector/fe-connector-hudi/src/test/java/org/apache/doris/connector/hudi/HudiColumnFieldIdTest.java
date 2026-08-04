@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorColumn;
 
 import org.apache.avro.Schema;
 import org.apache.hudi.internal.schema.InternalSchema;
