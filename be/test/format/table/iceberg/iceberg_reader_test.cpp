@@ -469,11 +469,15 @@ void write_iceberg_idless_nested_struct_orc_file(const std::string& file_path,
                                                  const std::vector<int64_t>& values,
                                                  const std::vector<bool>& parent_nulls,
                                                  const std::string& parent_name,
-                                                 const std::string& child_name) {
+                                                 const std::string& child_name,
+                                                 std::optional<int32_t> child_id = std::nullopt) {
     DORIS_CHECK(ids.size() == values.size());
     DORIS_CHECK(values.size() == parent_nulls.size());
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             "struct<id:int," + parent_name + ":struct<" + child_name + ":int>>"));
+    if (child_id.has_value()) {
+        type->getSubtype(1)->getSubtype(0)->setAttribute("iceberg.id", std::to_string(*child_id));
+    }
 
     MemoryOutputStream memory_stream(1024 * 1024);
     ::orc::WriterOptions options;
@@ -3129,9 +3133,10 @@ TEST_F(IcebergReaderTest, idless_nested_equality_key_uses_alias_path_and_delete_
     }
 }
 
-// Keep the shared Parquet/ORC reader setup together so both V1 paths assert identical semantics.
+// Keep the shared Parquet/ORC reader setup together so both readers preserve the ID-less nullable
+// wrapper while synthesizing its missing child.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
-TEST_F(IcebergReaderTest, missing_nested_equality_key_preserves_nullable_parent) {
+TEST_F(IcebergReaderTest, missing_nested_equality_key_under_idless_wrapper_preserves_parent) {
     const auto run_case = [&](TFileFormatType::type file_format) {
         const bool is_parquet = file_format == TFileFormatType::FORMAT_PARQUET;
         const std::string format_name = is_parquet ? "parquet" : "orc";
@@ -3142,12 +3147,14 @@ TEST_F(IcebergReaderTest, missing_nested_equality_key_preserves_nullable_parent)
         const auto data_file = (test_dir / ("data." + format_name)).string();
         const auto delete_file = (test_dir / ("equality-delete." + format_name)).string();
         if (is_parquet) {
-            write_iceberg_id_and_nested_struct_parquet_file(data_file, {1, 2, 3}, {10, 20, 30},
-                                                            {false, true, false});
+            write_iceberg_idless_nested_struct_parquet_file(data_file, {1, 2, 3}, {10, 20, 30},
+                                                            {false, true, false}, "payload",
+                                                            "existing", 2);
             write_iceberg_nested_struct_parquet_file(delete_file, {7}, {false}, "k", 3);
         } else {
-            write_iceberg_id_and_nested_struct_orc_file(data_file, {1, 2, 3}, {10, 20, 30},
-                                                        {false, true, false});
+            write_iceberg_idless_nested_struct_orc_file(data_file, {1, 2, 3}, {10, 20, 30},
+                                                        {false, true, false}, "payload", "existing",
+                                                        2);
             write_iceberg_nested_struct_orc_file(delete_file, {7}, {false}, "k", 3);
         }
 

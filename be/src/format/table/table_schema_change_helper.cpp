@@ -292,6 +292,20 @@ bool parquet_fields_all_have_field_ids(const std::vector<FieldSchema>& fields) {
 
 } // namespace
 
+std::optional<size_t>
+TableSchemaChangeHelper::BuildTableInfoUtil::find_unique_idless_parquet_wrapper_index(
+        const schema::external::TField& table_field,
+        const std::vector<FieldSchema>& parquet_fields_schema) {
+    return find_unique_idless_wrapper(table_field, parquet_fields_schema);
+}
+
+std::optional<size_t>
+TableSchemaChangeHelper::BuildTableInfoUtil::find_unique_idless_orc_wrapper_index(
+        const schema::external::TField& table_field, const orc::Type* orc_root,
+        const std::string& field_id_attribute_key) {
+    return find_unique_idless_orc_wrapper(table_field, orc_root, field_id_attribute_key);
+}
+
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         const TupleDescriptor* table_tuple_descriptor, const FieldDescriptor& parquet_field_desc,
         std::shared_ptr<TableSchemaChangeHelper::Node>& node,

@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -317,6 +318,17 @@ public:
     */
     struct BuildTableInfoUtil {
         static const Status SCHEMA_ERROR;
+
+        // Match the unique physical wrapper whose own Iceberg field ID is absent but whose
+        // descendants prove its table-side identity. Equality-delete path discovery shares these
+        // helpers with the ordinary Iceberg column mapper.
+        static std::optional<size_t> find_unique_idless_parquet_wrapper_index(
+                const schema::external::TField& table_field,
+                const std::vector<FieldSchema>& parquet_fields_schema);
+
+        static std::optional<size_t> find_unique_idless_orc_wrapper_index(
+                const schema::external::TField& table_field, const orc::Type* orc_root,
+                const std::string& field_id_attribute_key);
 
         // todo : Maybe I can use templates to implement this functionality.
 

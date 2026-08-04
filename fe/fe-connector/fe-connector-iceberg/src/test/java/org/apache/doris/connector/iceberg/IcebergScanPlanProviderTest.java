@@ -939,6 +939,37 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void schemaHistoryPlanningSkipsSnapshotChainWhenOneSchemaResolvesEverything() {
+        Table table = createTable("one_schema_history", SCHEMA, PartitionSpec.unpartitioned());
+        int snapshotCount = 64;
+        for (int index = 0; index < snapshotCount; index++) {
+            table.newAppend()
+                    .appendFile(dataFile(table.spec(),
+                            "s3://b/db/one_schema_history/f" + index + ".parquet",
+                            128, null, null))
+                    .commit();
+        }
+        Assertions.assertEquals(snapshotCount, table.history().size());
+
+        FakeIcebergTable countingTable = new FakeIcebergTable(
+                table.name(), table.schema(), table.spec(), table.location(), table.properties());
+        countingTable.setScanTable(table);
+        Assertions.assertFalse(
+                IcebergScanPlanProvider.selectedHistoryRequiresMissingRequiredFieldRejection(
+                        countingTable, table.schema(), Collections.singleton(1),
+                        table.currentSnapshot()));
+        Assertions.assertEquals(0, countingTable.getSnapshotLookupCount(),
+                "ordinary scans must stop at the schema set instead of walking same-schema snapshots");
+
+        countingTable.resetSnapshotLookupCount();
+        Assertions.assertEquals(table.schema().columns(),
+                IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                        countingTable, table.newScan(), table.schema()));
+        Assertions.assertEquals(0, countingTable.getSnapshotLookupCount(),
+                "the equality carrier must not walk snapshots when no historical field is missing");
+    }
+
+    @Test
     public void getScanNodePropertiesEmitsSchemaEvolutionDictForPartitionedTableToo() {
         // The dict is emitted alongside path_partition_keys (it is unconditional, like legacy
         // createScanRangeLocations). MUTATION: gating the dict on unpartitioned -> absent here -> red.

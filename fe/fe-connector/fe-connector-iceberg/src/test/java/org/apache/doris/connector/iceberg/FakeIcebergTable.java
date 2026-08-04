@@ -82,6 +82,7 @@ final class FakeIcebergTable implements Table {
     // Optional real table for scan-node property tests. Those tests need genuine SDK scan semantics while
     // retaining this double's injectable FileIO for credential extraction.
     private Table scanTable;
+    private int snapshotLookupCount;
 
     FakeIcebergTable(String name, Schema schema, PartitionSpec spec,
             String location, Map<String, String> properties) {
@@ -112,6 +113,14 @@ final class FakeIcebergTable implements Table {
         this.scanTable = scanTable;
     }
 
+    int getSnapshotLookupCount() {
+        return snapshotLookupCount;
+    }
+
+    void resetSnapshotLookupCount() {
+        snapshotLookupCount = 0;
+    }
+
     @Override
     public String name() {
         return name;
@@ -137,7 +146,7 @@ final class FakeIcebergTable implements Table {
         return properties;
     }
 
-    // ---- everything below is outside the metadata read path: fail loud if ever called ----
+    // ---- everything below is outside the basic metadata read path: fail loud unless a scan table is set ----
 
     @Override
     public void refresh() {
@@ -154,6 +163,9 @@ final class FakeIcebergTable implements Table {
 
     @Override
     public Map<Integer, Schema> schemas() {
+        if (scanTable != null) {
+            return scanTable.schemas();
+        }
         throw new UnsupportedOperationException();
     }
 
@@ -181,6 +193,10 @@ final class FakeIcebergTable implements Table {
 
     @Override
     public Snapshot snapshot(long snapshotId) {
+        if (scanTable != null) {
+            snapshotLookupCount++;
+            return scanTable.snapshot(snapshotId);
+        }
         throw new UnsupportedOperationException();
     }
 

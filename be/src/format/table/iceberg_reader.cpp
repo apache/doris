@@ -160,6 +160,21 @@ bool find_parquet_equality_field_prefix_by_id_path(
             }
         }
         if (match == nullptr) {
+            const auto wrapper =
+                    candidates == nullptr
+                            ? TableSchemaChangeHelper::BuildTableInfoUtil::
+                                      find_unique_idless_parquet_wrapper_index(
+                                              *table_field, descriptor->get_fields_schema())
+                            : TableSchemaChangeHelper::BuildTableInfoUtil::
+                                      find_unique_idless_parquet_wrapper_index(*table_field,
+                                                                               *candidates);
+            if (wrapper.has_value()) {
+                match_index = *wrapper;
+                match = candidates == nullptr ? descriptor->get_column(cast_set<int>(match_index))
+                                              : &(*candidates)[match_index];
+            }
+        }
+        if (match == nullptr) {
             return false;
         }
         if (!result->fields.empty()) {
@@ -294,6 +309,15 @@ bool find_orc_equality_field_prefix_by_id_path(
                 match = candidate;
                 match_index = candidate_index;
                 break;
+            }
+        }
+        if (match == nullptr) {
+            const auto wrapper = TableSchemaChangeHelper::BuildTableInfoUtil::
+                    find_unique_idless_orc_wrapper_index(*table_field, parent,
+                                                         kIcebergOrcAttribute);
+            if (wrapper.has_value()) {
+                match_index = *wrapper;
+                match = parent->getSubtype(match_index);
             }
         }
         if (match == nullptr) {

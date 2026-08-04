@@ -1784,11 +1784,21 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * changes and expired ancestors. Current fields remain first, so a dropped/re-added name still resolves the
      * projected current field by name while a historical equality key resolves by its stable field ID.</p>
      */
-    private static List<NestedField> schemaForPotentialEqualityDeletes(
+    @VisibleForTesting
+    static List<NestedField> schemaForPotentialEqualityDeletes(
             Table table, TableScan scan, Schema scanSchema) {
-        List<Schema> history = potentialEqualityDeleteSchemaHistory(table, scan, scanSchema);
+        List<Schema> metadataSchemas = metadataSchemaHistory(table);
+        int selectedSchemaIndex = -1;
+        for (int index = 0; index < metadataSchemas.size(); index++) {
+            if (metadataSchemas.get(index).schemaId() == scanSchema.schemaId()) {
+                selectedSchemaIndex = index;
+            }
+        }
+        int lastRelevantIndex = selectedSchemaIndex >= 0
+                ? selectedSchemaIndex : metadataSchemas.size() - 1;
         Set<Integer> missing = new HashSet<>();
-        for (Schema schema : history) {
+        for (int index = 0; index <= lastRelevantIndex; index++) {
+            Schema schema = metadataSchemas.get(index);
             for (NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
                 if (field.type().isPrimitiveType()) {
                     missing.add(field.fieldId());
@@ -1801,57 +1811,32 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         List<NestedField> fields = new ArrayList<>(scanSchema.columns());
-        for (Schema historicalSchema : history) {
-            addHistoricalEqualityFields(fields, missing, historicalSchema);
+        Map<Integer, Schema> schemasById = table.schemas();
+        Snapshot snapshot = scan.snapshot();
+        while (snapshot != null && !missing.isEmpty()) {
+            Integer schemaId = snapshot.schemaId();
+            if (schemaId != null) {
+                Schema historicalSchema = schemasById.get(schemaId);
+                if (historicalSchema == null) {
+                    throw new IllegalStateException(
+                            "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
+                }
+                addHistoricalEqualityFields(fields, missing, historicalSchema);
+            }
+            if (missing.isEmpty()) {
+                break;
+            }
+            Long parentId = snapshot.parentId();
+            snapshot = parentId == null ? null : table.snapshot(parentId);
+        }
+        for (int index = lastRelevantIndex; index >= 0 && !missing.isEmpty(); index--) {
+            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index));
         }
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
                     "Iceberg historical primitive fields are absent from schema history: " + missing);
         }
         return fields;
-    }
-
-    private static List<Schema> potentialEqualityDeleteSchemaHistory(
-            Table table, TableScan scan, Schema scanSchema) {
-        List<Schema> history = new ArrayList<>();
-        Set<Integer> seenSchemaIds = new HashSet<>();
-        addSchemaIfAbsent(history, seenSchemaIds, scanSchema);
-
-        Snapshot snapshot = scan.snapshot();
-        while (snapshot != null) {
-            Integer schemaId = snapshot.schemaId();
-            if (schemaId != null) {
-                Schema historicalSchema = table.schemas().get(schemaId);
-                if (historicalSchema == null) {
-                    throw new IllegalStateException(
-                            "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
-                }
-                addSchemaIfAbsent(history, seenSchemaIds, historicalSchema);
-            }
-            Long parentId = snapshot.parentId();
-            snapshot = parentId == null ? null : table.snapshot(parentId);
-        }
-
-        List<Schema> metadataSchemas = metadataSchemaHistory(table);
-        int selectedSchemaIndex = -1;
-        for (int index = 0; index < metadataSchemas.size(); index++) {
-            if (metadataSchemas.get(index).schemaId() == scanSchema.schemaId()) {
-                selectedSchemaIndex = index;
-            }
-        }
-        int lastRelevantIndex = selectedSchemaIndex >= 0
-                ? selectedSchemaIndex : metadataSchemas.size() - 1;
-        for (int index = lastRelevantIndex; index >= 0; index--) {
-            addSchemaIfAbsent(history, seenSchemaIds, metadataSchemas.get(index));
-        }
-        return history;
-    }
-
-    private static void addSchemaIfAbsent(
-            List<Schema> schemas, Set<Integer> seenSchemaIds, Schema schema) {
-        if (seenSchemaIds.add(schema.schemaId())) {
-            schemas.add(schema);
-        }
     }
 
     private static List<Schema> metadataSchemaHistory(Table table) {
@@ -1985,9 +1970,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (hasProjectedNameAliasCollision(scanSchema, projectedFieldIds, nameMapping)) {
             return true;
         }
-        Optional<List<Schema>> history = requiredFieldSchemaHistory(table, scanSchema, scan.snapshot());
-        return !history.isPresent()
-                || requiresMissingRequiredFieldRejection(scanSchema, projectedFieldIds, history.get());
+        return selectedHistoryRequiresMissingRequiredFieldRejection(
+                table, scanSchema, projectedFieldIds, scan.snapshot());
     }
 
     @VisibleForTesting
@@ -2041,12 +2025,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return projected;
     }
 
-    private static Optional<List<Schema>> requiredFieldSchemaHistory(
-            Table table, Schema scanSchema, Snapshot selectedSnapshot) {
-        List<Schema> schemas = new ArrayList<>();
-        Set<Integer> schemaIds = new HashSet<>();
-        schemas.add(scanSchema);
-        schemaIds.add(scanSchema.schemaId());
+    @VisibleForTesting
+    static boolean selectedHistoryRequiresMissingRequiredFieldRejection(
+            Table table, Schema scanSchema, Set<Integer> projectedFieldIds,
+            Snapshot selectedSnapshot) {
+        Map<Integer, Schema> schemasById = table.schemas();
+        Set<Integer> relevantSchemaIds = schemaIdsRequiringMissingRequiredFieldRejection(
+                scanSchema, projectedFieldIds, schemasById.values());
+        if (relevantSchemaIds.isEmpty()) {
+            return false;
+        }
         Deque<Snapshot> snapshots = new ArrayDeque<>();
         if (selectedSnapshot != null) {
             snapshots.add(selectedSnapshot);
@@ -2058,19 +2046,21 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 continue;
             }
             Integer schemaId = snapshot.schemaId();
-            if (schemaId != null && schemaIds.add(schemaId)) {
-                Schema historical = table.schemas().get(schemaId);
+            if (schemaId != null) {
+                Schema historical = schemasById.get(schemaId);
                 if (historical == null) {
                     throw new IllegalStateException(
                             "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
                 }
-                schemas.add(historical);
+                if (relevantSchemaIds.contains(schemaId)) {
+                    return true;
+                }
             }
             Long parentId = snapshot.parentId();
             if (parentId != null) {
                 Snapshot parent = table.snapshot(parentId);
                 if (parent == null) {
-                    return Optional.empty();
+                    return true;
                 }
                 snapshots.addLast(parent);
             }
@@ -2079,20 +2069,22 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (sourceSnapshotId != null) {
                 Snapshot source = table.snapshot(Long.parseLong(sourceSnapshotId));
                 if (source == null) {
-                    return Optional.empty();
+                    return true;
                 }
                 snapshots.addLast(source);
             }
         }
-        return Optional.of(schemas);
+        return false;
     }
 
-    private static boolean requiresMissingRequiredFieldRejection(
-            Schema scanSchema, Set<Integer> projectedFieldIds, List<Schema> historicalSchemas) {
+    private static Set<Integer> schemaIdsRequiringMissingRequiredFieldRejection(
+            Schema scanSchema, Set<Integer> projectedFieldIds,
+            Iterable<Schema> historicalSchemas) {
         Map<Integer, NestedField> currentFields = TypeUtil.indexById(scanSchema.asStruct());
         Map<Integer, Integer> parentById = TypeUtil.indexParents(scanSchema.asStruct());
         Set<Integer> collectionWrapperIds = new HashSet<>();
         collectCollectionWrapperFieldIds(scanSchema.asStruct(), collectionWrapperIds);
+        Set<Integer> schemaIds = new HashSet<>();
         for (Schema historicalSchema : historicalSchemas) {
             Map<Integer, NestedField> historicalFields =
                     TypeUtil.indexById(historicalSchema.asStruct());
@@ -2105,7 +2097,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 NestedField historicalField = historicalFields.get(fieldId);
                 if (historicalField != null) {
                     if (historicalField.isOptional()) {
-                        return true;
+                        schemaIds.add(historicalSchema.schemaId());
+                        break;
                     }
                     continue;
                 }
@@ -2119,11 +2112,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 if (!collectionWrapperIds.contains(highestMissing.fieldId())
                         && highestMissing.isRequired()
                         && highestMissing.initialDefault() == null) {
-                    return true;
+                    schemaIds.add(historicalSchema.schemaId());
+                    break;
                 }
             }
         }
-        return false;
+        return schemaIds;
     }
 
     private static void collectCollectionWrapperFieldIds(Type type, Set<Integer> result) {
