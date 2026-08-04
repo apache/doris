@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TStatusCode;
@@ -52,8 +53,11 @@ public class FrontendServiceImplCloudTest {
         // Simulate job already removed from cloudWarmUpJobs.
         Mockito.when(cacheHotspotManager.getCloudWarmUpJob(123456L)).thenReturn(null);
 
-        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<ThriftServerEventProcessor> eventProcessorMock =
+                        Mockito.mockStatic(ThriftServerEventProcessor.class)) {
             envMock.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+            eventProcessorMock.when(ThriftServerEventProcessor::getConnectionContext).thenReturn(null);
 
             FrontendServiceImpl frontendService = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
             TGetTabletReplicaInfosRequest request = new TGetTabletReplicaInfosRequest();
