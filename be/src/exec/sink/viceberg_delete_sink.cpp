@@ -34,6 +34,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
+#include "exec/sink/writer/iceberg/iceberg_writer_compatibility.h"
 #include "exprs/vexpr.h"
 #include "format/table/deletion_vector.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
@@ -202,6 +203,8 @@ Status VIcebergDeleteSink::init_properties(ObjectPool* pool) {
 
 Status VIcebergDeleteSink::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
+
+    RETURN_IF_ERROR(validate_iceberg_external_file_report_ack(state->query_options()));
 
     // Initialize counters
     _written_rows_counter = ADD_COUNTER(profile, "RowsWritten", TUnit::UNIT);
