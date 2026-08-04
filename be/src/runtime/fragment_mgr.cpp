@@ -63,6 +63,7 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "core/data_type/primitive_type.h"
+#include "cpp/sync_point.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
@@ -567,50 +568,52 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 }
 
 std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
+    std::vector<std::shared_ptr<PipelineFragmentContext>> contexts;
+    _pipeline_map.apply(
+            [&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
+                                     std::shared_ptr<PipelineFragmentContext>>& map) -> Status {
+                contexts.reserve(contexts.size() + map.size());
+                for (const auto& entry : map) {
+                    contexts.push_back(entry.second);
+                }
+                return Status::OK();
+            });
     fmt::memory_buffer debug_string_buffer;
     size_t i = 0;
-    {
-        fmt::format_to(debug_string_buffer,
-                       "{} pipeline fragment contexts are still running! duration_limit={}\n",
-                       _pipeline_map.num_items(), duration);
-        timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
+    fmt::format_to(debug_string_buffer,
+                   "{} pipeline fragment contexts are still running! duration_limit={}\n",
+                   contexts.size(), duration);
+    timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
 
-        _pipeline_map.apply([&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
-                                                     std::shared_ptr<PipelineFragmentContext>>& map)
-                                    -> Status {
-            std::set<TUniqueId> query_id_set;
-            for (auto& it : map) {
-                auto elapsed = it.second->elapsed_time() / 1000000000;
-                if (elapsed < duration) {
-                    // Only display tasks which has been running for more than {duration} seconds.
-                    continue;
-                }
-                if (!query_id_set.contains(it.first.first)) {
-                    query_id_set.insert(it.first.first);
-                    fmt::format_to(
-                            debug_string_buffer, "QueryId: {}, global_runtime_filter_mgr: {}\n",
-                            print_id(it.first.first),
-                            it.second->get_query_ctx()->runtime_filter_mgr()->debug_string());
+    std::set<TUniqueId> query_id_set;
+    for (const auto& context : contexts) {
+        auto elapsed = context->elapsed_time() / 1000000000;
+        if (elapsed < duration) {
+            // Only display tasks which has been running for more than {duration} seconds.
+            continue;
+        }
+        const auto query_id = context->get_query_id();
+        if (!query_id_set.contains(query_id)) {
+            query_id_set.insert(query_id);
+            TEST_SYNC_POINT("FragmentMgr::dump_pipeline_tasks.before_format_context");
+            fmt::format_to(debug_string_buffer, "QueryId: {}, global_runtime_filter_mgr: {}\n",
+                           print_id(query_id),
+                           context->get_query_ctx()->runtime_filter_mgr()->debug_string());
 
-                    if (it.second->get_query_ctx()->get_merge_controller_handler()) {
-                        fmt::format_to(debug_string_buffer, "{}\n",
-                                       it.second->get_query_ctx()
-                                               ->get_merge_controller_handler()
-                                               ->debug_string());
-                    }
-                }
-
-                auto timeout_second = it.second->timeout_second();
+            if (context->get_query_ctx()->get_merge_controller_handler()) {
                 fmt::format_to(
-                        debug_string_buffer,
-                        "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}): {}\n",
-                        i, elapsed, timeout_second, it.second->is_timeout(now),
-                        it.second->debug_string());
-                i++;
+                        debug_string_buffer, "{}\n",
+                        context->get_query_ctx()->get_merge_controller_handler()->debug_string());
             }
-            return Status::OK();
-        });
+        }
+
+        auto timeout_second = context->timeout_second();
+        fmt::format_to(debug_string_buffer,
+                       "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}): {}\n",
+                       i, elapsed, timeout_second, context->is_timeout(now),
+                       context->debug_string());
+        i++;
     }
     return fmt::to_string(debug_string_buffer);
 }
