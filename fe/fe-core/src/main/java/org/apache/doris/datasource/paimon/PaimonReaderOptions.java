@@ -27,6 +27,8 @@ import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.utils.ChainTableUtils;
+import org.apache.paimon.utils.StringUtils;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -187,7 +189,7 @@ public final class PaimonReaderOptions {
                     pair.other(), safeBound, materializeAbsent);
             return main == pair.wrapped() && other == pair.other()
                     ? table : new FallbackReadFileStoreTable(
-                            main, other, wrappedBranchHasReadPriority(pair));
+                            main, other, isWrappedFirst(pair));
         }
 
         if (table instanceof DelegatedFileStoreTable) {
@@ -230,15 +232,26 @@ public final class PaimonReaderOptions {
         return ((FileStoreTable) table).copyWithoutTimeTravel(cap);
     }
 
+    static boolean isWrappedFirst(FallbackReadFileStoreTable table) {
+        Map<String, String> options = table.options();
+        // Keep this in the exact order used by Paimon 1.4.2 FileStoreTableFactory. The same
+        // wrapper represents chain, fallback and primary reads, but the SDK exposes no accessor
+        // for its private wrappedFirst flag. Remove this inference when Paimon exposes one.
+        if (ChainTableUtils.isChainTable(options)) {
+            return true;
+        }
+        if (!StringUtils.isNullOrWhitespaceOnly(
+                options.get(CoreOptions.SCAN_FALLBACK_BRANCH.key()))) {
+            return true;
+        }
+        return StringUtils.isNullOrWhitespaceOnly(
+                options.get(CoreOptions.SCAN_PRIMARY_BRANCH.key()));
+    }
+
     private static FileStoreTable normalizeManifestParallelism(
             FileStoreTable table, int safeBound, boolean materializeAbsent) {
         return (FileStoreTable) normalizeManifestParallelism(
                 (Table) table, safeBound, materializeAbsent);
-    }
-
-    private static boolean wrappedBranchHasReadPriority(FallbackReadFileStoreTable table) {
-        // Paimon's factory sets wrappedFirst=false only for scan.primary-branch tables.
-        return !table.wrapped().options().containsKey(CoreOptions.SCAN_PRIMARY_BRANCH.key());
     }
 
     public static void validateEffectiveTable(Table table) {

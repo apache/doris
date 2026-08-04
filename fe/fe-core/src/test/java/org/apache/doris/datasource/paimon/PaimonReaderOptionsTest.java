@@ -165,6 +165,23 @@ public class PaimonReaderOptionsTest {
     }
 
     @Test
+    void testFallbackWrapperOrderMatchesPaimonFactoryPrecedence() {
+        Assertions.assertTrue(PaimonReaderOptions.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_FALLBACK_BRANCH.key(), "fallback",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assertions.assertFalse(PaimonReaderOptions.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assertions.assertTrue(PaimonReaderOptions.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "  "))));
+        Assertions.assertTrue(PaimonReaderOptions.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.CHAIN_TABLE_ENABLED.key(), "true",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        // Old FE payloads only represented fallback reads and may not carry either selector.
+        Assertions.assertTrue(PaimonReaderOptions.isWrappedFirst(
+                fallbackTable(Collections.emptyMap())));
+    }
+
+    @Test
     void testSystemSourceKeepsFallbackAsOutermostPlanningDecorator() {
         FileStoreTable main = newFileStoreTable("main", Collections.emptyMap());
         FileStoreTable fallback = newFileStoreTable("fallback", Collections.emptyMap());
@@ -290,5 +307,11 @@ public class PaimonReaderOptionsTest {
                 null);
         return new AppendOnlyFileStoreTable(
                 Mockito.mock(FileIO.class), new Path("memory://" + name), schema, CatalogEnvironment.empty());
+    }
+
+    private FallbackReadFileStoreTable fallbackTable(Map<String, String> options) {
+        return new FallbackReadFileStoreTable(
+                newFileStoreTable("order_main", options),
+                newFileStoreTable("order_other", Collections.emptyMap()), true);
     }
 }

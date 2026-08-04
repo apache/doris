@@ -274,9 +274,8 @@ final class PaimonArrowConverter {
             throw new IllegalArgumentException(
                     "A non-null Paimon VARIANT struct requires non-null value and metadata");
         }
-        // Keep this boundary transport-only. FE analysis limits Doris-produced Variant leaves to
-        // the Paimon-supported set, while Paimon's writer owns format validation and shredding.
-        // Walking the full tree here would duplicate the writer traversal for every row.
+        // BE validates the complete Variant value for Paimon before Arrow transport.
+        // Keep this JNI boundary allocation-only instead of traversing the same tree again.
         return new GenericVariant(valueVector.get(index), metadataVector.get(index));
     }
 

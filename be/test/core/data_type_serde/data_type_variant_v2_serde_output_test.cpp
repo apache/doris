@@ -438,7 +438,7 @@ TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructPreservesEncodedAndTypedBytes
     EXPECT_TRUE(typed->is_typed());
 }
 
-TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructLeavesPrimitiveCompatibilityToConsumer) {
+TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructRejectsUnsupportedPaimonPrimitive) {
     DataTypeVariantV2SerDe serde;
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
     auto row = builder.begin_row();
@@ -446,8 +446,13 @@ TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructLeavesPrimitiveCompatibilityT
     row.finish();
     auto encoded = ColumnVariantV2::create();
     encoded->insert_encoded_batch(builder.finish_batch());
-    // The Arrow layer is transport-only. Paimon compatibility is checked by its SDK after IPC.
-    expect_binary_variant_bytes(serde, *encoded, *encoded);
+    auto arrow_builder = binary_variant_arrow_builder();
+    const Status status = serde.write_column_to_arrow(*encoded, nullptr, arrow_builder.get(), 0,
+                                                      encoded->size(), cctz::utc_time_zone());
+    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    EXPECT_NE(status.to_string().find("Paimon does not support Variant primitive id 17"),
+              std::string::npos);
+    EXPECT_EQ(arrow_builder->length(), 0);
 }
 
 } // namespace doris

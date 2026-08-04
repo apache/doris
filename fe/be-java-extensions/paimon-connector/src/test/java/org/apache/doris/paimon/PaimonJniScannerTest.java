@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.vec.ColumnType;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
@@ -325,6 +326,21 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testFallbackWrapperOrderMatchesPaimonFactoryPrecedence() {
+        Assert.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_FALLBACK_BRANCH.key(), "fallback",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assert.assertFalse(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assert.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "  "))));
+        Assert.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.CHAIN_TABLE_ENABLED.key(), "true",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assert.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(Collections.emptyMap())));
+    }
+
+    @Test
     public void testBackendCapTraversesPrivilegeDelegate() {
         FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
@@ -440,6 +456,12 @@ public class PaimonJniScannerTest {
     private static FileStoreTable serializableFileStoreTable(Map<String, String> options) {
         return (FileStoreTable) Proxy.newProxyInstance(FileStoreTable.class.getClassLoader(),
                 new Class[] {FileStoreTable.class}, new SerializableTableHandler(options));
+    }
+
+    private static FallbackReadFileStoreTable fallbackTable(Map<String, String> options) {
+        return new FallbackReadFileStoreTable(
+                serializableFileStoreTable(options),
+                serializableFileStoreTable(Collections.emptyMap()), true);
     }
 
     @Test

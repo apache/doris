@@ -44,6 +44,8 @@ import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VariantType;
+import org.apache.paimon.utils.ChainTableUtils;
+import org.apache.paimon.utils.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -775,7 +777,7 @@ public class PaimonJniScanner extends JniScanner {
             // Each branch owns an independent planner setting; a smaller sibling is not an
             // execution ceiling and must never throttle the other branch.
             return new FallbackReadFileStoreTable(
-                    main, other, wrappedBranchHasReadPriority(pair));
+                    main, other, isWrappedFirst(pair));
         }
 
         if (table instanceof DelegatedFileStoreTable) {
@@ -817,6 +819,22 @@ public class PaimonJniScanner extends JniScanner {
         return ((FileStoreTable) table).copyWithoutTimeTravel(cap);
     }
 
+    static boolean isWrappedFirst(FallbackReadFileStoreTable table) {
+        Map<String, String> options = table.options();
+        // Mirror Paimon 1.4.2 FileStoreTableFactory. There is no public accessor for the wrapper's
+        // private ordering flag, so reconstruction must recover the factory decision from options.
+        // Remove this inference after upgrading to an SDK which exposes the original ordering.
+        if (ChainTableUtils.isChainTable(options)) {
+            return true;
+        }
+        if (!StringUtils.isNullOrWhitespaceOnly(
+                options.get(CoreOptions.SCAN_FALLBACK_BRANCH.key()))) {
+            return true;
+        }
+        return StringUtils.isNullOrWhitespaceOnly(
+                options.get(CoreOptions.SCAN_PRIMARY_BRANCH.key()));
+    }
+
     private static Table rebuildHiddenSystemTable(Table wrapper, FileStoreTable normalizedSource) {
         try {
             // Old FE payloads have no type/source side channel. Every Paimon 1.3 system wrapper
@@ -836,11 +854,6 @@ public class PaimonJniScanner extends JniScanner {
             FileStoreTable table, int safeBound, boolean materializeAbsent) {
         return (FileStoreTable) applyManifestParallelismBound(
                 (Table) table, safeBound, materializeAbsent);
-    }
-
-    private static boolean wrappedBranchHasReadPriority(FallbackReadFileStoreTable table) {
-        // Paimon's factory sets wrappedFirst=false only for scan.primary-branch tables.
-        return !table.wrapped().options().containsKey(CoreOptions.SCAN_PRIMARY_BRANCH.key());
     }
 
     private static FileStoreTable unwrapSystemPlanningSource(FileStoreTable table) {

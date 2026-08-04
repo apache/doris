@@ -150,12 +150,13 @@ public class PaimonArrowConverterTest {
     }
 
     @Test
-    public void testVariantBinaryTransportDoesNotTraverseNestedValues() {
+    public void testVariantBinaryTransportReliesOnBeValidation() {
         GenericVariant array = GenericVariant.fromJson("[0]");
         byte[] unsupportedValue = array.value().clone();
         int primitiveHeaderOffset = unsupportedValue.length - 2;
-        // The final array element is INT1 (id 3). Replace it with TIME_NTZ_MICROS (id 17),
-        // which Doris V2 can encode but Paimon 1.4.2 does not recognize.
+        // This unit test constructs Arrow directly and therefore bypasses the BE compatibility
+        // check. The Java boundary intentionally remains allocation-only instead of repeating it.
+        // Replace INT1 (id 3) with TIME_NTZ_MICROS (id 17) to prove no second traversal occurs.
         Assertions.assertEquals(3 << 2, unsupportedValue[primitiveHeaderOffset] & 0xff);
         unsupportedValue[primitiveHeaderOffset] = (byte) (17 << 2);
 
