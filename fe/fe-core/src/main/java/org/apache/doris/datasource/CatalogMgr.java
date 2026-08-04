@@ -410,6 +410,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Modify the catalog property and write the meta log.
      */
     public void alterCatalogProps(String catalogName, Map<String, String> newProperties) throws UserException {
+        Runnable accessControllerCleanup = () -> { };
         writeLock();
         try {
             CatalogIf catalog = nameToCatalog.get(catalogName);
@@ -424,10 +425,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogLog log = new CatalogLog();
             log.setCatalogId(catalog.getId());
             log.setNewProps(newProperties);
-            replayAlterCatalogProps(log, oldProperties, false);
+            accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, false, true);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
+            accessControllerCleanup.run();
         }
     }
 
@@ -642,48 +644,60 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      */
     public void replayAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties, boolean isReplay)
             throws DdlException {
+        Runnable accessControllerCleanup = () -> { };
         writeLock();
         try {
-            CatalogIf catalog = idToCatalog.get(log.getCatalogId());
-            if (catalog instanceof ExternalCatalog) {
-                Map<String, String> newProps = log.getNewProps();
-                if (!isReplay) {
-                    boolean tentativelyMutated = false;
-                    try {
-                        ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
-                        boolean validatedWithoutMutation = externalCatalog.validatePropertiesBeforeUpdate(
-                                oldProperties, newProps);
-                        if (!validatedWithoutMutation) {
-                            externalCatalog.tryModifyCatalogProps(newProps);
-                            tentativelyMutated = true;
-                            externalCatalog.checkProperties();
-                        }
-                    } catch (Exception validationException) {
-                        // Only legacy validators publish a tentative candidate. Detached validators
-                        // leave the live CatalogProperty untouched while concurrent initialization runs.
-                        if (oldProperties != null && tentativelyMutated) {
-                            ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
-                        }
-                        if (validationException instanceof DdlException) {
-                            throw (DdlException) validationException;
-                        }
-                        throw new DdlException("Invalid catalog properties: "
-                                + validationException.getMessage(), validationException);
-                    }
-                } else {
-                    ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
-                }
-                if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
-                    long catalogId = catalog.getId();
-                    Integer metadataRefreshIntervalSec = Integer.valueOf(newProps.get(METADATA_REFRESH_INTERVAL_SEC));
-                    Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
-                    Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
-                }
-            }
-            catalog.modifyCatalogProps(log.getNewProps());
+            accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, isReplay, true);
         } finally {
             writeUnlock();
+            accessControllerCleanup.run();
         }
+    }
+
+    private Runnable applyAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties,
+            boolean isReplay, boolean deferAccessControllerCleanup) throws DdlException {
+        CatalogIf catalog = idToCatalog.get(log.getCatalogId());
+        if (catalog instanceof ExternalCatalog) {
+            Map<String, String> newProps = log.getNewProps();
+            if (!isReplay) {
+                boolean tentativelyMutated = false;
+                try {
+                    ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+                    boolean validatedWithoutMutation = externalCatalog.validatePropertiesBeforeUpdate(
+                            oldProperties, newProps);
+                    if (!validatedWithoutMutation) {
+                        externalCatalog.tryModifyCatalogProps(newProps);
+                        tentativelyMutated = true;
+                        externalCatalog.checkProperties();
+                    }
+                } catch (Exception validationException) {
+                    // Only legacy validators publish a tentative candidate. Detached validators
+                    // leave the live CatalogProperty untouched while concurrent initialization runs.
+                    if (oldProperties != null && tentativelyMutated) {
+                        ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
+                    }
+                    if (validationException instanceof DdlException) {
+                        throw (DdlException) validationException;
+                    }
+                    throw new DdlException("Invalid catalog properties: "
+                            + validationException.getMessage(), validationException);
+                }
+            } else {
+                ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
+            }
+            if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                long catalogId = catalog.getId();
+                Integer metadataRefreshIntervalSec = Integer.valueOf(newProps.get(METADATA_REFRESH_INTERVAL_SEC));
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
+            }
+            if (deferAccessControllerCleanup) {
+                return ((ExternalCatalog) catalog)
+                        .modifyCatalogPropsWithDeferredAccessControllerCleanup(log.getNewProps());
+            }
+        }
+        catalog.modifyCatalogProps(log.getNewProps());
+        return () -> { };
     }
 
     public void unregisterExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)

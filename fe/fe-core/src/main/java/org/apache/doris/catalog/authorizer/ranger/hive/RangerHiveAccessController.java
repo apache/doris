@@ -94,12 +94,17 @@ public class RangerHiveAccessController extends RangerAccessController {
             // racing the periodic flusher or re-emitting events it has already sent.
             try {
                 auditHandler.flushAudit();
-            } catch (RuntimeException e) {
+            } catch (Throwable e) {
                 LOG.warn("Failed to flush Ranger Hive audit events while closing the access controller", e);
             }
             if (hivePlugin != null) {
-                hivePlugin.cleanup();
-                hivePlugin = null;
+                try {
+                    hivePlugin.cleanup();
+                } catch (Throwable e) {
+                    LOG.warn("Failed to clean up Ranger Hive plugin", e);
+                } finally {
+                    hivePlugin = null;
+                }
             }
         } finally {
             lifecycleLock.writeLock().unlock();

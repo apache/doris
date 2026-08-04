@@ -18,6 +18,8 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
@@ -25,7 +27,6 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
-import java.io.IOException;
 import java.util.HashMap;
 
 public class CatalogFactoryTest {
@@ -47,7 +48,7 @@ public class CatalogFactoryTest {
     @Test
     public void testPreserveValidationFailureWhenCleanupFails() throws Exception {
         Connector connector = Mockito.mock(Connector.class);
-        Mockito.doThrow(new IOException("cleanup failed")).when(connector).close();
+        Mockito.doThrow(new RuntimeException("cleanup failed")).when(connector).close();
         PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
                 2L, "failed_catalog", null, new HashMap<>(), "", connector) {
             @Override
@@ -60,5 +61,30 @@ public class CatalogFactoryTest {
                 DdlException.class, () -> CatalogFactory.finishCatalogCreation(catalog, false));
 
         Assert.assertTrue(exception.getMessage().endsWith("primary validation failure"));
+    }
+
+    @Test
+    public void testRuntimeConnectorFailureDoesNotSkipContextCleanupOrRetryConnector() throws Exception {
+        Connector connector = Mockito.mock(Connector.class);
+        DefaultConnectorContext connectorContext = Mockito.mock(DefaultConnectorContext.class);
+        Mockito.doThrow(new RuntimeException("connector cleanup failed")).when(connector).close();
+        TestablePluginCatalog catalog = new TestablePluginCatalog(connector);
+        Deencapsulation.setField(catalog, "connectorContext", connectorContext);
+
+        catalog.closeResourcesForTest();
+        catalog.closeResourcesForTest();
+
+        Mockito.verify(connector).close();
+        Mockito.verify(connectorContext).close();
+    }
+
+    private static class TestablePluginCatalog extends PluginDrivenExternalCatalog {
+        TestablePluginCatalog(Connector connector) {
+            super(3L, "registered_catalog", null, new HashMap<>(), "", connector);
+        }
+
+        void closeResourcesForTest() {
+            closeResources();
+        }
     }
 }
