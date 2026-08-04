@@ -364,9 +364,6 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
         _first_error_msg = error_msg() + ". Src line: " + line();
         LOG(INFO) << "The first error message: " << _first_error_msg;
     }
-    DBUG_EXECUTE_IF("RuntimeState::append_error_msg_to_file.sleep_before_write", {
-        std::this_thread::sleep_for(std::chrono::milliseconds(dp->param<int64_t>("sleep_ms", 0)));
-    });
     // If num of printed error row exceeds the limit, don't add error messages to error log file any more
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM) {
         // if _load_zero_tolerance, return Error to stop the load process immediately.
