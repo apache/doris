@@ -72,6 +72,26 @@ static Status normalize_iceberg_binary_column(const ColumnPtr& column, const Dat
                                               ColumnPtr* normalized_column,
                                               const NullMap* skipped_rows = nullptr);
 
+bool iceberg_type_requires_binary_normalization(iceberg::Type& type) {
+    switch (type.type_id()) {
+    case iceberg::TypeID::UUID:
+    case iceberg::TypeID::FIXED:
+        return true;
+    case iceberg::TypeID::STRUCT:
+        return std::ranges::any_of(type.as_struct_type()->fields(), [](const auto& field) {
+            return iceberg_type_requires_binary_normalization(*field.field_type());
+        });
+    case iceberg::TypeID::LIST:
+        return iceberg_type_requires_binary_normalization(
+                *type.as_list_type()->element_field().field_type());
+    case iceberg::TypeID::MAP:
+        return iceberg_type_requires_binary_normalization(*type.as_map_type()->key_type()) ||
+               iceberg_type_requires_binary_normalization(*type.as_map_type()->value_type());
+    default:
+        return false;
+    }
+}
+
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 
@@ -136,6 +156,13 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
     set_compression_type(compress_type);
+    if (_iceberg_schema != nullptr) {
+        _iceberg_binary_normalization_required.reserve(_iceberg_schema->columns().size());
+        for (const auto& field : _iceberg_schema->columns()) {
+            _iceberg_binary_normalization_required.push_back(
+                    iceberg_type_requires_binary_normalization(*field.field_type()));
+        }
+    }
 }
 
 Status VOrcTransformer::open() {
@@ -617,11 +644,14 @@ Status VOrcTransformer::write(const Block& block) {
             const auto& col = block.get_by_position(i);
             ColumnPtr raw_column = col.column;
             if (_iceberg_schema != nullptr) {
-                DORIS_CHECK(i < _iceberg_schema->root_struct().fields().size());
-                raw_column = raw_column->convert_to_full_column_if_const();
-                RETURN_IF_ERROR(normalize_iceberg_binary_column(
-                        raw_column, col.type, _iceberg_schema->root_struct().fields()[i],
-                        &raw_column));
+                DCHECK(i < _iceberg_schema->root_struct().fields().size());
+                DCHECK(i < _iceberg_binary_normalization_required.size());
+                if (_iceberg_binary_normalization_required[i] != 0) {
+                    raw_column = raw_column->convert_to_full_column_if_const();
+                    RETURN_IF_ERROR(normalize_iceberg_binary_column(
+                            raw_column, col.type, _iceberg_schema->root_struct().fields()[i],
+                            &raw_column));
+                }
             }
             normalized_columns.push_back(std::move(raw_column));
             const auto& write_column = normalized_columns.back();

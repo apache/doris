@@ -44,9 +44,12 @@ struct ColumnVectorBatch;
 } // namespace orc
 namespace iceberg {
 class NestedField;
+class Type;
 } // namespace iceberg
 
 namespace doris {
+
+bool iceberg_type_requires_binary_normalization(iceberg::Type& type);
 
 class VOrcOutputStream : public orc::OutputStream {
 public:
@@ -122,6 +125,7 @@ private:
     std::unique_ptr<orc::Writer> _writer;
 
     const iceberg::Schema* _iceberg_schema;
+    std::vector<uint8_t> _iceberg_binary_normalization_required;
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer

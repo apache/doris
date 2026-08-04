@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -2108,7 +2109,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 String name = slot.getColumn().getName();
                 ConnectorColumnHandle ch = allHandles.get(name);
                 if (ch != null) {
-                    selected.add(ch);
+                    selected.add(withProjectedFieldIds(ch, slot));
                 } else if (pinnedNames.contains(name)) {
                     throw new UserException("Column '" + name + "' of table "
                             + getTargetTable().getName() + " resolves in the pinned time-travel schema"
@@ -2118,6 +2119,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         }
         return selected;
+    }
+
+    static ConnectorColumnHandle withProjectedFieldIds(
+            ConnectorColumnHandle handle, SlotDescriptor slot) {
+        Set<Integer> projectedFieldIds = new HashSet<>();
+        for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
+            for (String component : accessPath.getPath()) {
+                if (component.chars().allMatch(Character::isDigit)) {
+                    projectedFieldIds.add(Integer.parseInt(component));
+                }
+            }
+        }
+        return projectedFieldIds.isEmpty()
+                ? handle : handle.withProjectedFieldIds(projectedFieldIds);
     }
 
     /**

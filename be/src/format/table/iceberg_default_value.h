@@ -397,11 +397,6 @@ inline Status build_initial_default_field(const schema::external::TField& field,
             return Status::InvalidArgument("Invalid Iceberg JSON initial default for field '{}'",
                                            field.name);
         }
-        if (primitive_type == TYPE_STRUCT &&
-            (!document.IsObject() || document.MemberCount() != 0)) {
-            return Status::InvalidArgument(
-                    "Iceberg struct field '{}' has a non-empty initial default", field.name);
-        }
         return build_json_default_field(field, data_type, document, binary_storage, result);
     }
 

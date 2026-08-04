@@ -1890,6 +1890,19 @@ TEST_F(IcebergReaderTest, v1_materializes_complex_initial_defaults) {
     EXPECT_EQ(struct_fields[0].get<TYPE_INT>(), 7);
     EXPECT_TRUE(struct_fields[1].is_null());
 
+    struct_field.field_ptr->__set_initial_default_value(R"({"2":11,"3":"explicit"})");
+    ColumnPtr explicit_struct_column;
+    ASSERT_TRUE(iceberg::create_initial_default_column(*struct_field.field_ptr, struct_type,
+                                                       &explicit_struct_column)
+                        .ok());
+    Field explicit_struct_value;
+    explicit_struct_column->get(0, explicit_struct_value);
+    const auto& explicit_struct_fields = explicit_struct_value.get<TYPE_STRUCT>();
+    ASSERT_EQ(explicit_struct_fields.size(), 2);
+    EXPECT_EQ(explicit_struct_fields[0].get<TYPE_INT>(), 11);
+    EXPECT_EQ(explicit_struct_fields[1].get<TYPE_STRING>(), "explicit");
+    struct_field.field_ptr->__set_initial_default_value("{}");
+
     const auto pruned_struct_type = make_nullable(std::make_shared<DataTypeStruct>(
             DataTypes {required_int_type}, Strings {"legacy_required_added"}));
     ColumnPtr pruned_struct_column;

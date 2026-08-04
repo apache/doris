@@ -29,6 +29,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMappingParser;
@@ -318,6 +319,82 @@ public class IcebergSchemaUtilsTest {
         // The mapped primitive type is part of the carrier: BE uses it to create the typed default literal.
         Assertions.assertEquals("false", fields.get("added_bool").getInitialDefaultValue());
         Assertions.assertEquals(TPrimitiveType.BOOLEAN, fields.get("added_bool").getType().getType());
+    }
+
+    @Test
+    public void complexInitialDefaultsUseIcebergJsonAndMarkBinaryLeaves() {
+        Types.StructType structType = Types.StructType.of(
+                Types.NestedField.optional(11, "bytes", Types.BinaryType.get()),
+                Types.NestedField.optional(12, "uuid", Types.UUIDType.get()));
+        GenericRecord structDefault = GenericRecord.create(structType);
+        structDefault.set(0, ByteBuffer.wrap(new byte[] {0, 1, (byte) 0xff}));
+        structDefault.set(1, UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"));
+
+        Types.ListType listType = Types.ListType.ofOptional(21, Types.FixedType.ofLength(2));
+        Types.MapType mapType = Types.MapType.ofOptional(
+                31, 32, Types.UUIDType.get(), Types.BinaryType.get());
+        Map<UUID, ByteBuffer> mapDefault = new LinkedHashMap<>();
+        mapDefault.put(UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"),
+                ByteBuffer.wrap(new byte[] {0, (byte) 0xff}));
+
+        Assertions.assertEquals(
+                "{\"11\":\"0001FF\",\"12\":\"00112233-4455-6677-8899-aabbccddeeff\"}",
+                IcebergSchemaUtils.serializeInitialDefault(structType, structDefault, false));
+        Assertions.assertEquals("[\"ABCD\"]", IcebergSchemaUtils.serializeInitialDefault(
+                listType, Collections.singletonList(
+                        ByteBuffer.wrap(new byte[] {(byte) 0xab, (byte) 0xcd})), false));
+        Assertions.assertEquals(
+                "{\"keys\":[\"00112233-4455-6677-8899-aabbccddeeff\"],\"values\":[\"00FF\"]}",
+                IcebergSchemaUtils.serializeInitialDefault(mapType, mapDefault, false));
+
+        // Iceberg 1.10 rejects non-null defaults on nested fields when constructing NestedField. Build the
+        // schema without parent defaults to independently verify that every binary-like leaf is tagged for
+        // decoding when a complex default arrives through a compatible metadata implementation.
+        Schema schema = new Schema(
+                Types.NestedField.optional(10, "struct_default", structType),
+                Types.NestedField.optional(20, "list_default", listType),
+                Types.NestedField.optional(30, "map_default", mapType));
+        Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(
+                schema, Collections.emptyList(), Collections.emptyMap()));
+        TField structField = fields.get("struct_default");
+        Assertions.assertTrue(childByName(structField, "bytes").isInitialDefaultValueIsBase64());
+        Assertions.assertTrue(childByName(structField, "uuid").isInitialDefaultValueIsBase64());
+
+        TField listField = fields.get("list_default");
+        Assertions.assertTrue(listField.getNestedField().getArrayField().getItemField()
+                .getFieldPtr().isInitialDefaultValueIsBase64());
+
+        TField mapField = fields.get("map_default");
+        Assertions.assertTrue(mapField.getNestedField().getMapField().getKeyField()
+                .getFieldPtr().isInitialDefaultValueIsBase64());
+        Assertions.assertTrue(mapField.getNestedField().getMapField().getValueField()
+                .getFieldPtr().isInitialDefaultValueIsBase64());
+    }
+
+    @Test
+    public void equalityCarrierAllowsDropAndReaddNamesAtEveryLevel() throws Exception {
+        Types.StructType nestedDuplicateNames = Types.StructType.of(
+                Types.NestedField.optional(31, "key", Types.IntegerType.get()),
+                Types.NestedField.optional(32, "key", Types.IntegerType.get()));
+        List<Types.NestedField> fields = Arrays.asList(
+                Types.NestedField.optional(10, "same_name", Types.IntegerType.get()),
+                Types.NestedField.optional(20, "same_name", Types.IntegerType.get()),
+                Types.NestedField.optional(30, "payload", nestedDuplicateNames));
+        Table table = createTable("carrier", SCHEMA);
+
+        TStructField root = decode(IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
+                table, fields, false, false, false)).getHistorySchemaInfo().get(0).getRootField();
+
+        Assertions.assertEquals(Arrays.asList(10, 20, 30), root.getFields().stream()
+                .map(field -> field.getFieldPtr().getId()).collect(java.util.stream.Collectors.toList()));
+        Assertions.assertEquals("same_name", root.getFields().get(0).getFieldPtr().getName());
+        Assertions.assertEquals("same_name", root.getFields().get(1).getFieldPtr().getName());
+        List<TFieldPtr> nested = root.getFields().get(2).getFieldPtr()
+                .getNestedField().getStructField().getFields();
+        Assertions.assertEquals(31, nested.get(0).getFieldPtr().getId());
+        Assertions.assertEquals(32, nested.get(1).getFieldPtr().getId());
+        Assertions.assertEquals("key", nested.get(0).getFieldPtr().getName());
+        Assertions.assertEquals("key", nested.get(1).getFieldPtr().getName());
     }
 
     @Test

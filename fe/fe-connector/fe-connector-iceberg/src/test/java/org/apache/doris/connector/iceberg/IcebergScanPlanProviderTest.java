@@ -812,6 +812,73 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void equalityCarrierAllowsUnrelatedDropAndReaddNames() throws Exception {
+        Schema schema = new Schema(
+                Arrays.asList(
+                        Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                        Types.NestedField.optional(2, "same_name", Types.IntegerType.get()),
+                        Types.NestedField.optional(3, "payload", Types.StructType.of(
+                                Types.NestedField.optional(4, "same_name", Types.IntegerType.get())))),
+                Collections.singleton(1));
+        Table table = createTable("drop_readd", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "2"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/drop_readd/f1.parquet", 1024, null, null))
+                .commit();
+        table.newRowDelta()
+                .addDeletes(equalityDeleteFile(
+                        "s3://b/db/drop_readd/eq.parquet", FileFormat.PARQUET, 1))
+                .commit();
+
+        int oldTopLevelId = table.schema().findField("same_name").fieldId();
+        int oldNestedId = table.schema().findField("payload.same_name").fieldId();
+        table.updateSchema().deleteColumn("same_name").deleteColumn("payload.same_name").commit();
+        table.updateSchema()
+                .addColumn("same_name", Types.IntegerType.get())
+                .addColumn("payload", "same_name", Types.IntegerType.get())
+                .commit();
+        int currentTopLevelId = table.schema().findField("same_name").fieldId();
+        int currentNestedId = table.schema().findField("payload.same_name").fieldId();
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "drop_readd"),
+                Arrays.asList(
+                        new IcebergColumnHandle("same_name", currentTopLevelId),
+                        new IcebergColumnHandle("payload", table.schema().findField("payload").fieldId())),
+                Optional.empty());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+
+        List<TFieldPtr> topLevelFields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
+        List<Integer> sameNameIds = new ArrayList<>();
+        TFieldPtr payload = null;
+        for (TFieldPtr field : topLevelFields) {
+            if (field.getFieldPtr().getName().equals("same_name")) {
+                sameNameIds.add(field.getFieldPtr().getId());
+            } else if (field.getFieldPtr().getName().equals("payload")) {
+                payload = field;
+            }
+        }
+        Assertions.assertEquals(Arrays.asList(currentTopLevelId, oldTopLevelId), sameNameIds);
+        Assertions.assertNotNull(payload);
+        List<Integer> nestedSameNameIds = new ArrayList<>();
+        for (TFieldPtr field : payload.getFieldPtr().getNestedField().getStructField().getFields()) {
+            if (field.getFieldPtr().getName().equals("same_name")) {
+                nestedSameNameIds.add(field.getFieldPtr().getId());
+            }
+        }
+        Assertions.assertEquals(Arrays.asList(currentNestedId, oldNestedId), nestedSameNameIds);
+    }
+
+    @Test
+    public void missingEqualityDeleteSummaryKeepsCarrierEnabled() {
+        Assertions.assertTrue(IcebergScanPlanProvider.mayHaveEqualityDeletes(Collections.emptyMap()));
+        Assertions.assertFalse(IcebergScanPlanProvider.mayHaveEqualityDeletes(
+                Collections.singletonMap("total-equality-deletes", "0")));
+    }
+
+    @Test
     public void equalityDeleteCarrierKeepsLargeByteSplitScanLazyAndBatchEligible() throws Exception {
         // A single large file with many row-group offsets represents 20,000 byte-split tasks. Building scan
         // properties must retain only schema metadata: it must not drain and cache those tasks before dispatch.
@@ -3258,6 +3325,54 @@ public class IcebergScanPlanProviderTest {
                 nestedSchema, Collections.singletonList(new IcebergColumnHandle("payload", 10)));
 
         Assertions.assertEquals(ImmutableSet.of(10, 11, 12), projected);
+    }
+
+    @Test
+    public void projectedFieldIdsExcludeUnselectedNestedSiblings() {
+        Schema nestedSchema = new Schema(Types.NestedField.optional(10, "payload",
+                Types.StructType.of(
+                        Types.NestedField.optional(11, "name", Types.StringType.get()),
+                        Types.NestedField.optional(12, "score", Types.IntegerType.get()))));
+        ConnectorColumnHandle handle = new IcebergColumnHandle("payload", 10)
+                .withProjectedFieldIds(ImmutableSet.of(10, 11));
+
+        Set<Integer> projected = IcebergScanPlanProvider.projectedFieldIds(
+                nestedSchema, Collections.singletonList(handle));
+
+        Assertions.assertEquals(ImmutableSet.of(10, 11), projected);
+        Assertions.assertFalse(projected.contains(12));
+    }
+
+    @Test
+    public void projectedFieldIdsIncludeDescendantsWhenAccessEndsAtNestedField() {
+        Schema nestedSchema = new Schema(Types.NestedField.optional(10, "payload",
+                Types.StructType.of(
+                        Types.NestedField.optional(11, "details", Types.StructType.of(
+                                Types.NestedField.optional(12, "name", Types.StringType.get()),
+                                Types.NestedField.optional(13, "score", Types.IntegerType.get()))),
+                        Types.NestedField.optional(14, "unselected", Types.LongType.get()))));
+        ConnectorColumnHandle handle = new IcebergColumnHandle("payload", 10)
+                .withProjectedFieldIds(ImmutableSet.of(10, 11));
+
+        Set<Integer> projected = IcebergScanPlanProvider.projectedFieldIds(
+                nestedSchema, Collections.singletonList(handle));
+
+        Assertions.assertEquals(ImmutableSet.of(10, 11, 12, 13), projected);
+        Assertions.assertFalse(projected.contains(14));
+    }
+
+    @Test
+    public void projectedFieldIdsRejectIdsOutsideTheSelectedRoot() {
+        Schema nestedSchema = new Schema(
+                Types.NestedField.optional(10, "payload", Types.StructType.of(
+                        Types.NestedField.optional(11, "name", Types.StringType.get()))),
+                Types.NestedField.optional(20, "other", Types.IntegerType.get()));
+        ConnectorColumnHandle handle = new IcebergColumnHandle("payload", 10)
+                .withProjectedFieldIds(ImmutableSet.of(10, 20));
+
+        Assertions.assertThrows(IllegalStateException.class, () ->
+                IcebergScanPlanProvider.projectedFieldIds(
+                        nestedSchema, Collections.singletonList(handle)));
     }
 
     private static long countSerializedSplitRows(List<ConnectorScanRange> ranges) throws Exception {

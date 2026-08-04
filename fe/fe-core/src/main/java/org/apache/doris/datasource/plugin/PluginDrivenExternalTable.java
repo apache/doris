@@ -799,8 +799,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (provider == null) {
             return Optional.empty();
         }
-        return provider.getWriteColumns(session, handle.get(), branchName)
-                .map(ConnectorColumnConverter::convertColumns);
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
+            return provider.getWriteColumns(session, handle.get(), branchName)
+                    .map(ConnectorColumnConverter::convertColumns);
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
     }
 
     /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */

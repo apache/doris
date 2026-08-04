@@ -180,11 +180,109 @@ std::optional<size_t> find_unique_idless_wrapper(
     return match;
 }
 
+bool has_shared_orc_descendant_field_id(const schema::external::TField& table_field,
+                                        const orc::Type* file_field, const std::string& attribute) {
+    for (uint64_t index = 0; index < file_field->getSubtypeCount(); ++index) {
+        const auto* child = file_field->getSubtype(index);
+        if ((child->hasAttributeKey(attribute) &&
+             table_subtree_contains_field_id(table_field,
+                                             std::stoi(child->getAttributeValue(attribute)))) ||
+            has_shared_orc_descendant_field_id(table_field, child, attribute)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::optional<size_t> find_unique_idless_orc_wrapper(const schema::external::TField& table_field,
+                                                     const orc::Type* orc_root,
+                                                     const std::string& attribute) {
+    std::optional<size_t> match;
+    for (uint64_t index = 0; index < orc_root->getSubtypeCount(); ++index) {
+        const auto* candidate = orc_root->getSubtype(index);
+        if (candidate->hasAttributeKey(attribute) || candidate->getSubtypeCount() == 0 ||
+            !has_shared_orc_descendant_field_id(table_field, candidate, attribute)) {
+            continue;
+        }
+        if (match.has_value()) {
+            return std::nullopt;
+        }
+        match = index;
+    }
+    return match;
+}
+
 bool parquet_subtree_has_field_id(const FieldSchema& field) {
     if (field.field_id != -1) {
         return true;
     }
     return std::ranges::any_of(field.children, parquet_subtree_has_field_id);
+}
+
+bool find_iceberg_parquet_field_idx(const schema::external::TField& table_field,
+                                    const std::vector<FieldSchema>& parquet_fields_schema,
+                                    const std::map<int32_t, size_t>& file_column_id_idx_map,
+                                    const std::map<std::string, size_t>& file_column_name_idx_map,
+                                    bool use_field_id, bool use_current_iceberg_semantics,
+                                    size_t* file_column_idx) {
+    if (!use_field_id) {
+        return find_file_field_idx_by_name_mapping(table_field, file_column_name_idx_map,
+                                                   file_column_idx);
+    }
+
+    auto id_it = file_column_id_idx_map.find(table_field.id);
+    if (id_it != file_column_id_idx_map.end()) {
+        *file_column_idx = id_it->second;
+        return true;
+    }
+    if (!use_current_iceberg_semantics) {
+        return false;
+    }
+
+    // Parquet may retain a selected struct without its own ID. A unique descendant-ID match is
+    // authoritative even when Iceberg name mapping intentionally has no alias.
+    auto wrapper = find_unique_idless_wrapper(table_field, parquet_fields_schema);
+    if (wrapper.has_value()) {
+        *file_column_idx = *wrapper;
+        return true;
+    }
+
+    // A partially-ID'd file may still contain an independent legacy scalar/subtree with no IDs.
+    // Its authoritative name mapping cannot interfere with descendant-ID matching elsewhere.
+    return find_file_field_idx_by_name_mapping(table_field, file_column_name_idx_map,
+                                               file_column_idx) &&
+           !parquet_subtree_has_field_id(parquet_fields_schema[*file_column_idx]);
+}
+
+bool find_iceberg_orc_field_idx(const schema::external::TField& table_field,
+                                const orc::Type* orc_root,
+                                const std::string& field_id_attribute_key,
+                                const std::map<int32_t, size_t>& file_column_id_idx_map,
+                                const std::map<std::string, size_t>& file_column_name_idx_map,
+                                bool use_field_id, bool use_current_iceberg_semantics,
+                                size_t* file_field_idx) {
+    if (!use_field_id) {
+        return find_file_field_idx_by_name_mapping(table_field, file_column_name_idx_map,
+                                                   file_field_idx);
+    }
+
+    auto id_it = file_column_id_idx_map.find(table_field.id);
+    if (id_it != file_column_id_idx_map.end()) {
+        *file_field_idx = id_it->second;
+        return true;
+    }
+    if (!use_current_iceberg_semantics) {
+        return false;
+    }
+
+    auto wrapper = find_unique_idless_orc_wrapper(table_field, orc_root, field_id_attribute_key);
+    if (wrapper.has_value()) {
+        *file_field_idx = *wrapper;
+        return true;
+    }
+    return find_file_field_idx_by_name_mapping(table_field, file_column_name_idx_map,
+                                               file_field_idx) &&
+           !orc_subtree_has_field_id(orc_root->getSubtype(*file_field_idx), field_id_attribute_key);
 }
 
 bool parquet_fields_all_have_field_ids(const std::vector<FieldSchema>& fields) {
@@ -688,34 +786,17 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
     }
 
     std::map<std::string, size_t> file_column_name_idx_map;
-    if (!use_field_id) {
+    if (!use_field_id || use_current_iceberg_semantics) {
         file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_fields_schema);
     }
 
     for (const auto& table_field : table_schema.fields) {
         const auto& table_column_name = table_field.field_ptr->name;
         size_t file_column_idx = 0;
-        bool matched = false;
-        if (use_field_id) {
-            auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
-            if (id_it != file_column_id_idx_map.end()) {
-                file_column_idx = id_it->second;
-                matched = true;
-            } else if (use_current_iceberg_semantics) {
-                auto wrapper =
-                        find_unique_idless_wrapper(*table_field.field_ptr, parquet_fields_schema);
-                if (wrapper.has_value()) {
-                    // Parquet may retain a selected struct without its own ID; a unique
-                    // descendant-ID match is authoritative even when Iceberg name mapping
-                    // intentionally has no alias.
-                    file_column_idx = *wrapper;
-                    matched = true;
-                }
-            }
-        } else {
-            matched = find_file_field_idx_by_name_mapping(
-                    *table_field.field_ptr, file_column_name_idx_map, &file_column_idx);
-        }
+        bool matched = find_iceberg_parquet_field_idx(
+                *table_field.field_ptr, parquet_fields_schema, file_column_id_idx_map,
+                file_column_name_idx_map, use_field_id, use_current_iceberg_semantics,
+                &file_column_idx);
 
         if (!matched) {
             struct_node->add_not_exist_children(table_column_name, use_current_iceberg_semantics
@@ -814,32 +895,17 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         }
 
         std::map<std::string, size_t> file_column_name_idx_map;
-        if (!use_field_id) {
+        if (!use_field_id || use_current_iceberg_semantics) {
             file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_field.children);
         }
 
         for (const auto& table_field : table_schema.nestedField.struct_field.fields) {
             const auto& table_column_name = table_field.field_ptr->name;
             size_t file_column_idx = 0;
-            bool matched = false;
-            if (use_field_id) {
-                auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
-                if (id_it != file_column_id_idx_map.end()) {
-                    file_column_idx = id_it->second;
-                    matched = true;
-                } else if (use_current_iceberg_semantics) {
-                    auto wrapper = find_unique_idless_wrapper(*table_field.field_ptr,
-                                                              parquet_field.children);
-                    if (wrapper.has_value()) {
-                        // Apply the same Parquet wrapper invariant at every struct recursion depth.
-                        file_column_idx = *wrapper;
-                        matched = true;
-                    }
-                }
-            } else {
-                matched = find_file_field_idx_by_name_mapping(
-                        *table_field.field_ptr, file_column_name_idx_map, &file_column_idx);
-            }
+            bool matched = find_iceberg_parquet_field_idx(
+                    *table_field.field_ptr, parquet_field.children, file_column_id_idx_map,
+                    file_column_name_idx_map, use_field_id, use_current_iceberg_semantics,
+                    &file_column_idx);
 
             if (!matched) {
                 struct_node->add_not_exist_children(
@@ -1010,24 +1076,17 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
     }
 
     std::map<std::string, size_t> file_column_name_idx_map;
-    if (!use_field_id) {
+    if (!use_field_id || use_current_iceberg_semantics) {
         file_column_name_idx_map = build_lowercase_orc_field_name_idx_map(orc_root);
     }
 
     for (const auto& table_field : table_schema.fields) {
         const auto& table_column_name = table_field.field_ptr->name;
         size_t file_field_idx = 0;
-        bool matched = false;
-        if (use_field_id) {
-            auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
-            if (id_it != file_column_id_idx_map.end()) {
-                file_field_idx = id_it->second;
-                matched = true;
-            }
-        } else {
-            matched = find_file_field_idx_by_name_mapping(
-                    *table_field.field_ptr, file_column_name_idx_map, &file_field_idx);
-        }
+        bool matched = find_iceberg_orc_field_idx(*table_field.field_ptr, orc_root,
+                                                  field_id_attribute_key, file_column_id_idx_map,
+                                                  file_column_name_idx_map, use_field_id,
+                                                  use_current_iceberg_semantics, &file_field_idx);
 
         if (!matched) {
             struct_node->add_not_exist_children(table_column_name, use_current_iceberg_semantics

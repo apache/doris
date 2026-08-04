@@ -29,6 +29,7 @@ import org.apache.doris.thrift.schema.external.TSchema;
 import org.apache.doris.thrift.schema.external.TStructField;
 
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.mapping.MappedField;
@@ -166,6 +167,22 @@ public final class IcebergSchemaUtils {
     }
 
     /**
+     * Encodes the bounded equality-delete carrier without constructing an Iceberg {@link Schema}. Historical
+     * drop/re-add operations may legitimately contribute two fields with the same name and different IDs;
+     * Iceberg validates names when a Schema is constructed even though BE consumes this carrier strictly by ID.
+     */
+    static String encodeEqualitySchemaEvolutionProp(Table table, List<Types.NestedField> fields,
+            boolean appendRowLineage, boolean enableVarbinary, boolean enableTimestampTz) {
+        Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping(table);
+        TSchema current = buildCurrentSchema(fields, nameMapping.orElse(Collections.emptyMap()),
+                nameMapping.isPresent(), enableVarbinary, enableTimestampTz);
+        if (appendRowLineage) {
+            appendRowLineageFields(current.getRootField());
+        }
+        return encode(CURRENT_SCHEMA_ID, Collections.singletonList(current));
+    }
+
+    /**
      * Decode the schema-evolution prop produced by {@link #encodeSchemaEvolutionProp} and copy
      * {@code current_schema_id} + {@code history_schema_info} onto the real scan params. Fail loud on a decode
      * error — this prop is produced by us, so a failure is a real bug, and silently dropping it would
@@ -291,6 +308,20 @@ public final class IcebergSchemaUtils {
         return tSchema;
     }
 
+    private static TSchema buildCurrentSchema(List<Types.NestedField> fields,
+            Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableVarbinary,
+            boolean enableTimestampTz) {
+        TSchema tSchema = new TSchema();
+        tSchema.setSchemaId(CURRENT_SCHEMA_ID);
+        TStructField root = new TStructField();
+        for (Types.NestedField field : fields) {
+            addField(root, buildField(field, field.name().toLowerCase(Locale.ROOT), nameMapping,
+                    hasNameMapping, enableVarbinary, enableTimestampTz));
+        }
+        tSchema.setRootField(root);
+        return tSchema;
+    }
+
     /**
      * Recursively build a {@link TField} from an iceberg {@link Types.NestedField}. {@code nameOverride}
      * replaces the field name at the top level (the Doris slot name, case-preserved post-#65094);
@@ -332,10 +363,14 @@ public final class IcebergSchemaUtils {
         // Binary-like values (UUID/BINARY/FIXED) go through a lossless Base64 carrier flagged for BE, because
         // their Doris type (STRING/CHAR when varbinary-mapping is off) can't tell BE to decode bytes; other
         // values use the Doris FE string form (timestamp normalized to DATETIMEV2 spacing).
+        if (isBinaryLike(field.type())) {
+            // Complex defaults use Iceberg single-value JSON. Mark binary leaves even when the leaf itself has
+            // no field-level default so BE decodes UUID/FIXED/BINARY values nested in the parent's JSON.
+            tField.setInitialDefaultValueIsBase64(true);
+        }
         if (field.initialDefault() != null) {
             if (isBinaryLike(field.type())) {
                 tField.setInitialDefaultValue(serializeBinaryInitialDefault(field.type(), field.initialDefault()));
-                tField.setInitialDefaultValueIsBase64(true);
             } else {
                 tField.setInitialDefaultValue(
                         serializeInitialDefault(field.type(), field.initialDefault(), enableTimestampTz));
@@ -464,7 +499,10 @@ public final class IcebergSchemaUtils {
         return columnType;
     }
 
-    private static String serializeInitialDefault(Type type, Object value, boolean enableTimestampTz) {
+    static String serializeInitialDefault(Type type, Object value, boolean enableTimestampTz) {
+        if (type.isNestedType()) {
+            return SingleValueParser.toJson(type, value);
+        }
         String humanValue = Transforms.identity(type).toHumanString(type, value);
         if (type.typeId() == TypeID.TIMESTAMP) {
             // Iceberg prints ISO-8601 (2024-01-01T00:00:00); Doris DATETIMEV2 needs a space separator.

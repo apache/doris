@@ -237,6 +237,8 @@ public class IcebergWritePlanProviderTest {
                         .withId(2).ofType(Types.IntegerType.get()).withWriteDefault(42).build(),
                 Types.NestedField.optional("text")
                         .withId(3).ofType(Types.StringType.get()).withWriteDefault("O'Reilly").build(),
+                Types.NestedField.optional("windows_path")
+                        .withId(7).ofType(Types.StringType.get()).withWriteDefault("C:\\new").build(),
                 Types.NestedField.optional("payload")
                         .withId(4).ofType(Types.BinaryType.get())
                         .withWriteDefault(ByteBuffer.wrap(new byte[] {0x00, 0x0f, (byte) 0xff})).build(),
@@ -259,6 +261,8 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertFalse(columns.get("id").isNullable());
         Assertions.assertEquals("42", columns.get("value").getDefaultValueSql());
         Assertions.assertEquals("'O''Reilly'", columns.get("text").getDefaultValueSql());
+        Assertions.assertEquals("UNHEX('433A5C6E6577')",
+                columns.get("windows_path").getDefaultValueSql());
         Assertions.assertEquals("UNHEX('000FFF')", columns.get("payload").getDefaultValueSql());
         Assertions.assertEquals("NULL", columns.get("nullable_value").getDefaultValueSql());
         Assertions.assertNull(columns.get("required_value").getDefaultValueSql());

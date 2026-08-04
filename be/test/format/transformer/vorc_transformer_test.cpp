@@ -386,6 +386,40 @@ TEST_F(VOrcTransformerTest, SkipsInvalidBinaryChildrenHiddenByNullableCollection
     ASSERT_TRUE(transformer.close().ok());
 }
 
+TEST_F(VOrcTransformerTest, DetectsOnlyFieldsThatNeedIcebergBinaryNormalization) {
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {"id": 1, "name": "plain", "required": false, "type": "string"},
+            {"id": 2, "name": "binary", "required": false, "type": "binary"},
+            {
+                "id": 3,
+                "name": "plain_struct",
+                "required": false,
+                "type": {"type": "struct", "fields": [
+                    {"id": 4, "name": "value", "required": false, "type": "long"}
+                ]}
+            },
+            {
+                "id": 5,
+                "name": "uuid_array",
+                "required": false,
+                "type": {"type": "list", "element-id": 6,
+                         "element-required": false, "element": "uuid"}
+            },
+            {"id": 7, "name": "fixed", "required": false, "type": "fixed[4]"}
+        ]
+    })";
+    std::unique_ptr<iceberg::Schema> schema = iceberg::SchemaParser::from_json(schema_json);
+    const auto& fields = schema->columns();
+
+    EXPECT_FALSE(iceberg_type_requires_binary_normalization(*fields[0].field_type()));
+    EXPECT_FALSE(iceberg_type_requires_binary_normalization(*fields[1].field_type()));
+    EXPECT_FALSE(iceberg_type_requires_binary_normalization(*fields[2].field_type()));
+    EXPECT_TRUE(iceberg_type_requires_binary_normalization(*fields[3].field_type()));
+    EXPECT_TRUE(iceberg_type_requires_binary_normalization(*fields[4].field_type()));
+}
+
 TEST(OrcSerdeUtilsTest, CopiesOnlyBorrowedStringData) {
     Arena arena;
     char* arena_owned = arena.alloc(5);

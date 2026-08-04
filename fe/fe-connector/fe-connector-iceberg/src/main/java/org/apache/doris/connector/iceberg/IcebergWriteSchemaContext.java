@@ -48,6 +48,7 @@ import org.apache.iceberg.util.SnapshotUtil;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -416,7 +417,7 @@ final class IcebergWriteSchemaContext {
                 List<String> fields = new ArrayList<>();
                 for (int i = 0; i < structType.fields().size(); i++) {
                     Types.NestedField field = structType.fields().get(i);
-                    fields.add(quote(field.name()));
+                    fields.add(quoteStructFieldName(field.name()));
                     fields.add(toDorisSql(field.type(), struct.get(i, Object.class),
                             enableMappingVarbinary, enableMappingTimestampTz));
                 }
@@ -432,6 +433,13 @@ final class IcebergWriteSchemaContext {
     }
 
     private static String quote(String value) {
+        if (value.indexOf('\\') >= 0) {
+            return binarySql(value.getBytes(StandardCharsets.UTF_8), false);
+        }
+        return quoteStructFieldName(value);
+    }
+
+    private static String quoteStructFieldName(String value) {
         return "'" + value.replace("'", "''") + "'";
     }
 

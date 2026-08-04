@@ -743,7 +743,7 @@ TEST(MockTableSchemaChangeHelper,
 
     FieldSchema file_id;
     file_id.name = "id";
-    file_id.field_id = 1;
+    file_id.field_id = -1;
     file_id.data_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     FieldSchema file_child;
     file_child.name = "a";
@@ -1018,11 +1018,22 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcNestedMixedFieldIdsPreferExistingIds
     EXPECT_TRUE(default_field->initial_default_value_is_base64);
 }
 
-TEST(MockTableSchemaChangeHelper, IcebergOrcDoesNotBindIdlessWrapperByName) {
+TEST(MockTableSchemaChangeHelper, IcebergOrcDescendantIdRetainsIdlessWrapper) {
     auto root_field = nested_partial_name_mapping_root_field();
-    std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString("struct<s:struct<a:int>>"));
+    TColumnType int_type;
+    int_type.__set_type(TPrimitiveType::INT);
+    auto id_field = std::make_shared<schema::external::TField>();
+    id_field->__set_name("id");
+    id_field->__set_id(20);
+    id_field->__set_type(int_type);
+    schema::external::TFieldPtr id_ptr;
+    id_ptr.__set_field_ptr(id_field);
+    root_field.fields.insert(root_field.fields.begin(), std::move(id_ptr));
+
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<id:int,s:struct<a:int>>"));
     const auto& attribute = IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE;
-    orc_type->getSubtype(0)->getSubtype(0)->setAttribute(attribute, "1");
+    orc_type->getSubtype(1)->getSubtype(0)->setAttribute(attribute, "1");
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
@@ -1030,7 +1041,13 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcDoesNotBindIdlessWrapperByName) {
                         .ok());
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"
-              "  s (not exists)\n");
+              "  id (file: id)\n"
+              "    ScalarNode\n"
+              "  s (file: s)\n"
+              "    StructNode\n"
+              "      a (file: a)\n"
+              "        ScalarNode\n"
+              "      b (not exists)\n");
 }
 
 TEST(MockTableSchemaChangeHelper, NestedMapArrayStruct) {

@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Pins {@link PluginDrivenExternalTable#getFullSchema()} request-scoped synthetic-write-column injection
@@ -400,6 +401,42 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertEquals(1, cols.size());
         Assertions.assertEquals("__syn_write_col__", cols.get(0).getName());
         Assertions.assertFalse(cols.get(0).isVisible(), "the invisible marker survives the SPI conversion");
+    }
+
+    @Test
+    public void resolveWriteColumnsRunsAndRestoresPluginContextClassLoader() {
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        AtomicReference<ClassLoader> observed = new AtomicReference<>();
+        Mockito.when(provider.getWriteColumns(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    observed.set(Thread.currentThread().getContextClassLoader());
+                    return Optional.of(Collections.emptyList());
+                });
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(handle));
+        ConnectorSession session = noneScopedSession();
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        Mockito.when(connector.getWritePlanProvider(handle)).thenReturn(provider);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        PluginDrivenExternalTable table = Mockito.mock(
+                PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        ClassLoader previous = new ClassLoader(null) { };
+        Thread.currentThread().setContextClassLoader(previous);
+        try {
+            Assertions.assertTrue(table.resolveWriteColumns(Optional.empty()).isPresent());
+            Assertions.assertSame(provider.getClass().getClassLoader(), observed.get());
+            Assertions.assertSame(previous, Thread.currentThread().getContextClassLoader());
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
     }
 
     @Test
