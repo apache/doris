@@ -1300,6 +1300,182 @@ TEST(VariantColumnReaderTest, ImmediateCorruptionLeavesDestinationUnchanged) {
     EXPECT_EQ(variants.get_value_ref(0).get_int(), 7);
 }
 
+TEST(VariantColumnReaderTest, LazyNestedCorruptionLeavesDestinationUnchanged) {
+    const std::array<char, 1> invalid_value {static_cast<char>(0xff)};
+    const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
+    auto corrupt_variant = [&]() {
+        MutableColumns fields;
+        fields.push_back(nullable_strings({metadata}, {0}));
+        fields.push_back(nullable_strings({{invalid_value.data(), invalid_value.size()}}, {0}));
+        return root_wrapper(std::move(fields));
+    };
+    auto label_schema = []() {
+        auto schema = std::make_unique<ParquetColumnSchema>();
+        schema->name = "label";
+        schema->kind = ParquetColumnSchemaKind::PRIMITIVE;
+        schema->type = make_nullable(std::make_shared<DataTypeString>());
+        return schema;
+    };
+    auto make_plan = [](const ParquetColumnSchema& root) {
+        auto build = [&](auto&& self, const ParquetColumnSchema* schema)
+                -> std::unique_ptr<VariantMaterializationNode> {
+            auto node = std::make_unique<VariantMaterializationNode>();
+            node->schema = schema;
+            node->contains_variant = schema->kind == ParquetColumnSchemaKind::VARIANT;
+            for (const auto& child_schema : schema->children) {
+                auto child = self(self, child_schema.get());
+                node->contains_variant = node->contains_variant || child->contains_variant;
+                node->children.push_back(std::move(child));
+            }
+            return node;
+        };
+        return build(build, &root);
+    };
+    auto make_struct_schema = [&](ParquetColumnSchema variant_schema) {
+        ParquetColumnSchema root;
+        root.name = "row";
+        root.kind = ParquetColumnSchemaKind::STRUCT;
+        root.children.push_back(label_schema());
+        root.children.push_back(std::make_unique<ParquetColumnSchema>(std::move(variant_schema)));
+        return root;
+    };
+    auto make_struct_physical = [&](std::string_view label, MutableColumnPtr variant) {
+        MutableColumns fields;
+        fields.push_back(nullable_strings({StringRef(label.data(), label.size())}, {0}));
+        fields.push_back(std::move(variant));
+        return ColumnStruct::create(std::move(fields));
+    };
+    const auto element_type = std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeString>()),
+                       make_nullable(std::make_shared<DataTypeVariantV2>())},
+            Strings {"label", "payload"});
+
+    {
+        auto output = element_type->create_column();
+        auto valid_schema = make_struct_schema(shredded_int64_schema());
+        auto valid_plan = make_plan(valid_schema);
+        ASSERT_TRUE(materialize_variant_columns(
+                            *valid_plan,
+                            *make_struct_physical("before", shredded_int64_physical({7})), output)
+                            .ok());
+
+        auto corrupt_schema = make_struct_schema(unshredded_schema());
+        auto corrupt_plan = make_plan(corrupt_schema);
+        const Status status = materialize_variant_columns(
+                *corrupt_plan, *make_struct_physical("after", corrupt_variant()), output);
+        EXPECT_FALSE(status.ok());
+
+        const auto& structure = assert_cast<const ColumnStruct&>(*output);
+        const auto& label = assert_cast<const ColumnNullable&>(structure.get_column(0));
+        EXPECT_EQ(label.size(), 1);
+        EXPECT_EQ(label.get_null_map_data(), (NullMap {0}));
+        EXPECT_EQ(label.get_nested_column().get_data_at(0).to_string(), "before");
+        const auto& payload = assert_cast<const ColumnNullable&>(structure.get_column(1));
+        EXPECT_EQ(payload.size(), 1);
+        EXPECT_EQ(payload.get_null_map_data(), (NullMap {0}));
+        EXPECT_EQ(assert_cast<const ColumnVariantV2&>(payload.get_nested_column())
+                          .get_value_ref(0)
+                          .get_int(),
+                  7);
+    }
+
+    {
+        auto output = std::make_shared<DataTypeArray>(element_type)->create_column();
+        auto valid_element_schema = make_struct_schema(shredded_int64_schema());
+        ParquetColumnSchema valid_schema;
+        valid_schema.name = "rows";
+        valid_schema.kind = ParquetColumnSchemaKind::LIST;
+        valid_schema.children.push_back(
+                std::make_unique<ParquetColumnSchema>(std::move(valid_element_schema)));
+        auto valid_plan = make_plan(valid_schema);
+        auto valid_offsets = ColumnArray::ColumnOffsets::create();
+        valid_offsets->insert_value(1);
+        auto valid_physical =
+                ColumnArray::create(make_struct_physical("before", shredded_int64_physical({7})),
+                                    std::move(valid_offsets));
+        ASSERT_TRUE(materialize_variant_columns(*valid_plan, *valid_physical, output).ok());
+
+        auto corrupt_element_schema = make_struct_schema(unshredded_schema());
+        ParquetColumnSchema corrupt_schema;
+        corrupt_schema.name = "rows";
+        corrupt_schema.kind = ParquetColumnSchemaKind::LIST;
+        corrupt_schema.children.push_back(
+                std::make_unique<ParquetColumnSchema>(std::move(corrupt_element_schema)));
+        auto corrupt_plan = make_plan(corrupt_schema);
+        auto corrupt_offsets = ColumnArray::ColumnOffsets::create();
+        corrupt_offsets->insert_value(1);
+        auto corrupt_physical = ColumnArray::create(
+                make_struct_physical("after", corrupt_variant()), std::move(corrupt_offsets));
+        const Status status = materialize_variant_columns(*corrupt_plan, *corrupt_physical, output);
+        EXPECT_FALSE(status.ok());
+
+        const auto& array = assert_cast<const ColumnArray&>(*output);
+        EXPECT_EQ(array.get_offsets(), (ColumnArray::Offsets64 {1}));
+        const auto& element = assert_cast<const ColumnNullable&>(array.get_data());
+        EXPECT_EQ(element.get_null_map_data(), (NullMap {0}));
+        const auto& structure = assert_cast<const ColumnStruct&>(element.get_nested_column());
+        const auto& label = assert_cast<const ColumnNullable&>(structure.get_column(0));
+        EXPECT_EQ(label.size(), 1);
+        EXPECT_EQ(label.get_null_map_data(), (NullMap {0}));
+        EXPECT_EQ(label.get_nested_column().get_data_at(0).to_string(), "before");
+        const auto& payload = assert_cast<const ColumnNullable&>(structure.get_column(1));
+        EXPECT_EQ(payload.size(), 1);
+        EXPECT_EQ(payload.get_null_map_data(), (NullMap {0}));
+        EXPECT_EQ(assert_cast<const ColumnVariantV2&>(payload.get_nested_column())
+                          .get_value_ref(0)
+                          .get_int(),
+                  7);
+    }
+
+    {
+        auto output =
+                std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
+                                              make_nullable(std::make_shared<DataTypeVariantV2>()))
+                        ->create_column();
+        auto make_map_schema = [&](ParquetColumnSchema variant_schema) {
+            ParquetColumnSchema root;
+            root.name = "entries";
+            root.kind = ParquetColumnSchemaKind::MAP;
+            root.children.push_back(label_schema());
+            root.children.push_back(
+                    std::make_unique<ParquetColumnSchema>(std::move(variant_schema)));
+            return root;
+        };
+        auto make_map_physical = [&](std::string_view key, MutableColumnPtr variant) {
+            auto offsets = ColumnArray::ColumnOffsets::create();
+            offsets->insert_value(1);
+            return ColumnMap::create(nullable_strings({StringRef(key.data(), key.size())}, {0}),
+                                     std::move(variant), std::move(offsets));
+        };
+
+        auto valid_schema = make_map_schema(shredded_int64_schema());
+        auto valid_plan = make_plan(valid_schema);
+        ASSERT_TRUE(materialize_variant_columns(
+                            *valid_plan, *make_map_physical("before", shredded_int64_physical({7})),
+                            output)
+                            .ok());
+        auto corrupt_schema = make_map_schema(unshredded_schema());
+        auto corrupt_plan = make_plan(corrupt_schema);
+        const Status status = materialize_variant_columns(
+                *corrupt_plan, *make_map_physical("after", corrupt_variant()), output);
+        EXPECT_FALSE(status.ok());
+
+        const auto& map = assert_cast<const ColumnMap&>(*output);
+        EXPECT_EQ(map.get_offsets(), (ColumnArray::Offsets64 {1}));
+        const auto& keys = assert_cast<const ColumnNullable&>(map.get_keys());
+        EXPECT_EQ(keys.size(), 1);
+        EXPECT_EQ(keys.get_null_map_data(), (NullMap {0}));
+        EXPECT_EQ(keys.get_nested_column().get_data_at(0).to_string(), "before");
+        const auto& values = assert_cast<const ColumnNullable&>(map.get_values());
+        EXPECT_EQ(values.size(), 1);
+        EXPECT_EQ(values.get_null_map_data(), (NullMap {0}));
+        EXPECT_EQ(assert_cast<const ColumnVariantV2&>(values.get_nested_column())
+                          .get_value_ref(0)
+                          .get_int(),
+                  7);
+    }
+}
+
 TEST(VariantColumnReaderTest, MaterializesMixedRootArraysAndNullKinds) {
     VariantBatchBuilder residual_builder;
     {
