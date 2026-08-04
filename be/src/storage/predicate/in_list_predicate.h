@@ -436,11 +436,11 @@ public:
                             return true;
                         }
                     } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
-                        if (test_bytes(*value)) {
+                        if (bf->test_floating_point(*value)) {
                             return true;
                         }
                     } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
-                        if (test_bytes(*value)) {
+                        if (bf->test_floating_point(*value)) {
                             return true;
                         }
                     } else {

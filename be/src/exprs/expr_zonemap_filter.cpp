@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include <type_traits>
 #include <utility>
 
 #include "common/check.h"
@@ -61,6 +62,24 @@ bool dictionary_contains(const DictionaryEvalContext::SlotDictionary& dictionary
     });
 }
 
+template <typename T>
+bool floating_point_bloom_filter_may_contain(const segment_v2::BloomFilter& bloom_filter, T value) {
+    static_assert(std::is_floating_point_v<T>);
+    // Doris equality collapses NaN payloads and signed zeros, while Parquet Bloom hashes physical
+    // bytes. A negative probe is safe only after covering the entire Doris-equivalent class.
+    if (std::isnan(value)) {
+        return true;
+    }
+    const auto test_value = [&](T candidate) {
+        return bloom_filter.test_bytes(reinterpret_cast<const char*>(&candidate),
+                                       sizeof(candidate));
+    };
+    if (test_value(value)) {
+        return true;
+    }
+    return value == T {0} && test_value(-value);
+}
+
 bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slot_filter,
                               const Field& value) {
     DORIS_CHECK(slot_filter.data_type != nullptr);
@@ -85,21 +104,11 @@ bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slo
     }
     case TYPE_FLOAT: {
         const float typed_value = value.get<TYPE_FLOAT>();
-        // Doris equates all NaN payloads, but Parquet Bloom hashes their physical bits, so a
-        // negative raw-byte probe cannot prove that an equivalent NaN is absent.
-        if (std::isnan(typed_value)) {
-            return true;
-        }
-        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
-                                                    sizeof(typed_value));
+        return floating_point_bloom_filter_may_contain(*slot_filter.bloom_filter, typed_value);
     }
     case TYPE_DOUBLE: {
         const double typed_value = value.get<TYPE_DOUBLE>();
-        if (std::isnan(typed_value)) {
-            return true;
-        }
-        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
-                                                    sizeof(typed_value));
+        return floating_point_bloom_filter_may_contain(*slot_filter.bloom_filter, typed_value);
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:

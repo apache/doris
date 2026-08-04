@@ -19,6 +19,9 @@
 
 #include <stdint.h>
 
+#include <cmath>
+#include <type_traits>
+
 #include "storage/index/bloom_filter/bloom_filter.h"
 
 namespace doris {
@@ -40,6 +43,23 @@ public:
     Status init(const char* buf, size_t size, segment_v2::HashStrategyPB strategy) override;
     void add_bytes(const char* buf, size_t size) override;
     bool test_bytes(const char* buf, size_t size) const override;
+
+    template <typename T>
+    bool test_floating_point(T value) const {
+        static_assert(std::is_floating_point_v<T>);
+        // Doris equality collapses NaN payloads and signed zeros, so raw Parquet Bloom bytes may
+        // disprove membership only after every representable equivalent has been covered.
+        if (std::isnan(value)) {
+            return true;
+        }
+        if (test_bytes(reinterpret_cast<const char*>(&value), sizeof(value))) {
+            return true;
+        }
+        const T opposite_zero = -value;
+        return value == T {0} &&
+               test_bytes(reinterpret_cast<const char*>(&opposite_zero), sizeof(opposite_zero));
+    }
+
     void set_has_null(bool has_null) override;
     bool has_null() const override { return false; }
 
