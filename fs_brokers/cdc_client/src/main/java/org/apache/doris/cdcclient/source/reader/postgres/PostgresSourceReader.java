@@ -26,6 +26,7 @@ import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SmallFileMgr;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 
@@ -55,6 +56,8 @@ import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresTypeUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils;
 import org.apache.flink.table.types.DataType;
 
+import java.math.BigDecimal;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -488,6 +491,43 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
             }
         } catch (Exception ex) {
             throw new RuntimeException(ex);
+        }
+    }
+
+    @Override
+    public long getLagBytes(FetchEndOffsetRequest request, Map<String, String> endOffset) {
+        PostgresSourceConfig sourceConfig = getSourceConfig(request);
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
+            return PostgresWalLagCalculator.calculate(
+                    dialect.getSlotName(),
+                    slotName -> {
+                        try (PreparedStatement statement =
+                                jdbcConnection
+                                        .connection()
+                                        .prepareStatement(
+                                                "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(),"
+                                                        + " confirmed_flush_lsn)"
+                                                        + " FROM pg_replication_slots"
+                                                        + " WHERE slot_name = ?")) {
+                            statement.setString(1, slotName);
+                            try (ResultSet resultSet = statement.executeQuery()) {
+                                if (!resultSet.next()) {
+                                    throw new SQLException(
+                                            "Replication slot not found: " + slotName);
+                                }
+                                BigDecimal lagBytes = resultSet.getBigDecimal(1);
+                                if (lagBytes == null) {
+                                    throw new SQLException(
+                                            "Replication slot has no confirmed flush LSN: "
+                                                    + slotName);
+                                }
+                                return lagBytes;
+                            }
+                        }
+                    });
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
         }
     }
 

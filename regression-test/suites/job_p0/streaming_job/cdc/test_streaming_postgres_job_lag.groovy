@@ -84,7 +84,8 @@ suite("test_streaming_postgres_job_lag",
                         }
                         def lagValue = jobInfo[0][1] as String
                         log.info("lag value: " + lagValue)
-                        return lagValue != null && lagValue != "" && lagValue.isNumber()
+                        return lagValue != null && lagValue != ""
+                                && lagValue.isLong() && Long.parseLong(lagValue) >= 0
                     })
         } catch (Exception ex) {
             def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""

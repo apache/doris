@@ -205,12 +205,11 @@ suite("test_streaming_mysql_job_metrics",
                         it.tags?.metric == "doris_fe_streaming_job_per_job_lag" &&
                         it.tags?.job_name == "${jobName}"
                     }
-                    if (perJobLag != null) {
+                    if (perJobLag != null && perJobLag.value != null
+                            && new BigDecimal(perJobLag.value.toString()).signum() >= 0) {
                         log.info("per-job lag: ${perJobLag}".toString())
                         metricCount++
                     }
-
-
                 }
             }
 

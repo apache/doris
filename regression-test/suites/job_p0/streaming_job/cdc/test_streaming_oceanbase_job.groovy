@@ -138,6 +138,18 @@ suite("test_streaming_oceanbase_job",
 
         def status = sql """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
         assert status.size() == 1 && status[0][0] == "RUNNING"
+
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
+            def jobInfo = sql """SELECT Lag FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            if (jobInfo.size() != 1) {
+                return false
+            }
+            def lagValue = jobInfo[0][0] as String
+            log.info("OceanBase lag value: " + lagValue)
+            return lagValue != null && lagValue != ""
+                    && lagValue.isLong() && Long.parseLong(lagValue) >= 0
+        })
+
         sql """DROP JOB IF EXISTS WHERE jobname='${jobName}'"""
     }
 }

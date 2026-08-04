@@ -22,6 +22,7 @@ import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
@@ -471,6 +472,16 @@ final class CdcClientWriteHarness implements AutoCloseable {
 
     String committedTableSchemas() {
         return lastTableSchemas;
+    }
+
+    long sourceLogLagBytes() throws Exception {
+        Map<String, String> referenceOffset =
+                "POSTGRES".equals(dataSource) ? null : committedBinlogOffset();
+        FetchEndOffsetRequest request =
+                new FetchEndOffsetRequest(jobId, dataSource, config, null, referenceOffset);
+        SourceReader reader = openReader();
+        Map<String, String> endOffset = reader.getEndOffset(request);
+        return reader.getLagBytes(request, endOffset);
     }
 
     @Override

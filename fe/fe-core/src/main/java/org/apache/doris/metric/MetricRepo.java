@@ -1463,11 +1463,11 @@ public final class MetricRepo {
                 DORIS_METRIC_REGISTER.addMetrics(failedTaskCount);
 
                 GaugeMetric<Long> lag = new GaugeMetric<Long>(
-                        STREAMING_JOB_PER_JOB_LAG, MetricUnit.SECONDS,
-                        "per job lag in seconds of streaming job, -1 means N/A") {
+                        STREAMING_JOB_PER_JOB_LAG, MetricUnit.BYTES,
+                        "latest successfully observed source log lag in bytes, -1 means no valid observation") {
                     @Override
                     public Long getValue() {
-                        return sJob.getLagSeconds();
+                        return sJob.getLagBytes();
                     }
                 };
                 lag.addLabel(new MetricLabel("job_id", jobId))

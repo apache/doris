@@ -22,14 +22,17 @@ import org.apache.doris.cdcclient.model.rest.RestResponse;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
+import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,12 +106,20 @@ public class ClientController {
 
     /** Fetch lastest end meta */
     @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
-    public Object fetchEndOffset(@RequestBody JobBaseConfig jobConfig) {
+    public Object fetchEndOffset(@RequestBody FetchEndOffsetRequest jobConfig) {
         LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
         try {
             SourceReader reader = Env.getCurrentEnv().getMetaReader(jobConfig);
             Env.getCurrentEnv().keepAlive(jobConfig.getJobId());
-            return RestResponse.success(reader.getEndOffset(jobConfig));
+            Map<String, String> endOffset = reader.getEndOffset(jobConfig);
+            long lagBytes;
+            try {
+                lagBytes = reader.getLagBytes(jobConfig, endOffset);
+            } catch (Exception ex) {
+                lagBytes = -1;
+                LOG.warn("Failed to calculate source log lag, jobId={}", jobConfig.getJobId(), ex);
+            }
+            return RestResponse.success(new FetchEndOffsetResult(endOffset, lagBytes));
         } catch (Exception ex) {
             LOG.error("Failed to fetch end offset, jobId={}", jobConfig.getJobId(), ex);
             return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));

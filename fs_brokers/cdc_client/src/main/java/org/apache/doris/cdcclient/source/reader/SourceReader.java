@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.reader;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
@@ -79,6 +80,9 @@ public interface SourceReader {
 
     /** Get the end offset for the job */
     Map<String, String> getEndOffset(JobBaseConfig jobConfig);
+
+    /** Get the latest source-log lag in bytes. */
+    long getLagBytes(FetchEndOffsetRequest request, Map<String, String> endOffset);
 
     /** Compare the offsets */
     int compareOffset(CompareOffsetRequest compareOffsetRequest);

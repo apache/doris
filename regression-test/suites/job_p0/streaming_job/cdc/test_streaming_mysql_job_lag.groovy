@@ -81,7 +81,21 @@ suite("test_streaming_mysql_job_lag",
                         }
                         def lagValue = jobInfo[0][1] as String
                         log.info("lag value: " + lagValue)
-                        return lagValue != null && lagValue != "" && lagValue.isNumber()
+                        return lagValue != null && lagValue != ""
+                                && lagValue.isLong() && Long.parseLong(lagValue) >= 0
+                    })
+
+            sql "PAUSE JOB where jobname = '${jobName}'"
+            Awaitility.await().atMost(30, SECONDS)
+                    .pollInterval(1, SECONDS).until({
+                        def jobInfo = sql """ select Status, Lag from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        if (jobInfo.size() != 1 || jobInfo[0][0] != "PAUSED") {
+                            return false
+                        }
+                        def lagValue = jobInfo[0][1] as String
+                        log.info("paused lag value: " + lagValue)
+                        return lagValue != null && lagValue != ""
+                                && lagValue.isLong() && Long.parseLong(lagValue) >= 0
                     })
         } catch (Exception ex) {
             def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
