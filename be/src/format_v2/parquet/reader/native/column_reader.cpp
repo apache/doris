@@ -1386,7 +1386,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_dictionary_filter_
         size_t num_values, const IColumn::Filter& dictionary_filter, FilterMap& filter_map,
         const IColumn* typed_dictionary, IColumn* projected_values,
         ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter, size_t* survivor_count,
-        bool* projected_directly) {
+        bool* projected_directly, bool preserve_filter_values) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(survivor_count != nullptr);
     DORIS_CHECK(projected_directly != nullptr);
@@ -1431,7 +1431,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_dictionary_filter_
     bool used_filter = false;
     RETURN_IF_ERROR(_chunk_reader->filter_dictionary_indices(
             dictionary_filter, _select_vector, typed_dictionary, projected_values,
-            matched_dictionary_ids, row_filter, survivor_count, projected_directly, &used_filter));
+            matched_dictionary_ids, row_filter, survivor_count, projected_directly, &used_filter,
+            preserve_filter_values));
     // Pure-dictionary chunks are prevalidated before definition levels are consumed.
     DORIS_CHECK(used_filter);
     return Status::OK();
@@ -1442,7 +1443,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_dictionary_filter(
         const IColumn::Filter& dictionary_filter, FilterMap& filter_map, size_t batch_size,
         const IColumn* typed_dictionary, IColumn* projected_values,
         ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter, size_t* survivor_count,
-        size_t* read_rows, bool* eof, bool* projected_directly, bool* used_filter) {
+        size_t* read_rows, bool* eof, bool* projected_directly, bool* used_filter,
+        bool preserve_filter_values) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(survivor_count != nullptr);
     DORIS_CHECK(read_rows != nullptr);
@@ -1487,7 +1489,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_dictionary_filter(
             RETURN_IF_ERROR(_read_dictionary_filter_values(
                     values, dictionary_filter, filter_map, typed_dictionary, projected_values,
                     matched_dictionary_ids, row_filter, &fragment_survivors,
-                    &fragment_projected_directly));
+                    &fragment_projected_directly, preserve_filter_values));
             if (has_read != 0) {
                 DORIS_CHECK_EQ(*projected_directly, fragment_projected_directly);
             }

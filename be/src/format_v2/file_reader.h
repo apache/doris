@@ -91,6 +91,9 @@ struct FileScanRequest {
     // Constant split pruning may use only this table-filter prefix after mapping. A rejected
     // file-local rewrite is a materialization barrier even when a later filter is constant.
     size_t constant_pruning_safe_table_filter_count = std::numeric_limits<size_t>::max();
+    // Keep the residual expression as the semantic baseline when an integrator needs to compare
+    // or disable the optional multi-column OR raw-filter execution policy.
+    bool enable_multi_column_or_raw_filter = true;
     // Delete predicates converted to file-local expressions. A TRUE result means that the row is
     // deleted, so readers must invert each result when building their keep filter.
     VExprContextSPtrs delete_conjuncts;

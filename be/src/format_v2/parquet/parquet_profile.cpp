@@ -228,6 +228,12 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "DictionaryPredicateDirectRows", TUnit::UNIT, parquet_profile, 1);
     dictionary_predicate_projected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictionaryPredicateProjectedRows", TUnit::UNIT, parquet_profile, 1);
+    multi_column_or_raw_filter_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "MultiColumnOrRawFilterBatches", TUnit::UNIT, parquet_profile, 1);
+    multi_column_or_raw_filter_fallback_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "MultiColumnOrRawFilterFallbackBatches", TUnit::UNIT, parquet_profile, 1);
+    multi_column_or_raw_filter_branches = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "MultiColumnOrRawFilterBranches", TUnit::UNIT, parquet_profile, 1);
     dictionary_predicate_fused_projected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictionaryPredicateFusedProjectedRows", TUnit::UNIT, parquet_profile, 1);
     dict_filter_rewrite_time =
@@ -409,6 +415,10 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .dictionary_predicate_direct_batches = dictionary_predicate_direct_batches,
             .dictionary_predicate_direct_rows = dictionary_predicate_direct_rows,
             .dictionary_predicate_projected_rows = dictionary_predicate_projected_rows,
+            .multi_column_or_raw_filter_batches = multi_column_or_raw_filter_batches,
+            .multi_column_or_raw_filter_fallback_batches =
+                    multi_column_or_raw_filter_fallback_batches,
+            .multi_column_or_raw_filter_branches = multi_column_or_raw_filter_branches,
             .dict_filter_rewrite_time = dict_filter_rewrite_time,
             .dict_filter_expr_rewrite_time = dict_filter_expr_rewrite_time,
             .dict_filter_read_dict_time = dict_filter_read_dict_time,

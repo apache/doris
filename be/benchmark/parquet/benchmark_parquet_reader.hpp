@@ -39,6 +39,7 @@
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/vcompound_pred.h"
@@ -108,6 +109,19 @@ inline std::shared_ptr<arrow::Array> build_int32_array(int null_percent, Pattern
     return builder.Finish().ValueOrDie();
 }
 
+inline std::shared_ptr<arrow::Array> build_dnf_category_array(int null_percent, Pattern pattern) {
+    arrow::Int32Builder builder;
+    PARQUET_THROW_NOT_OK(builder.Reserve(READER_ROWS));
+    for (size_t row = 0; row < READER_ROWS; ++row) {
+        if (is_null_row(row, null_percent, pattern)) {
+            PARQUET_THROW_NOT_OK(builder.AppendNull());
+        } else {
+            PARQUET_THROW_NOT_OK(builder.Append(static_cast<int32_t>(row % 3)));
+        }
+    }
+    return builder.Finish().ValueOrDie();
+}
+
 inline std::shared_ptr<arrow::Array> build_int64_array(int null_percent, Pattern pattern) {
     arrow::Int64Builder builder;
     PARQUET_THROW_NOT_OK(builder.Reserve(READER_ROWS));
@@ -140,6 +154,20 @@ inline std::shared_ptr<arrow::Array> build_string_array(int null_percent, Patter
     return builder.Finish().ValueOrDie();
 }
 
+inline std::shared_ptr<arrow::Array> build_decimal64_array(int null_percent, Pattern pattern) {
+    arrow::Decimal128Builder builder(arrow::decimal128(10, 2));
+    PARQUET_THROW_NOT_OK(builder.Reserve(READER_ROWS));
+    for (size_t row = 0; row < READER_ROWS; ++row) {
+        if (is_null_row(row, null_percent, pattern)) {
+            PARQUET_THROW_NOT_OK(builder.AppendNull());
+        } else {
+            PARQUET_THROW_NOT_OK(
+                    builder.Append(arrow::Decimal128(static_cast<int64_t>(row % 100) * 100)));
+        }
+    }
+    return builder.Finish().ValueOrDie();
+}
+
 inline std::shared_ptr<arrow::Array> build_value_array(const ReaderScenario& scenario) {
     switch (scenario.value_type) {
     case ValueType::INT32:
@@ -148,6 +176,8 @@ inline std::shared_ptr<arrow::Array> build_value_array(const ReaderScenario& sce
         return build_int64_array(scenario.null_percent, scenario.null_pattern);
     case ValueType::BYTE_ARRAY:
         return build_string_array(scenario.null_percent, scenario.null_pattern);
+    case ValueType::DECIMAL64:
+        return build_decimal64_array(scenario.null_percent, scenario.null_pattern);
     default:
         throw std::logic_error("unsupported Parquet reader benchmark value type");
     }
@@ -161,6 +191,8 @@ inline std::shared_ptr<arrow::DataType> arrow_value_type(ValueType value_type) {
         return arrow::int64();
     case ValueType::BYTE_ARRAY:
         return arrow::utf8();
+    case ValueType::DECIMAL64:
+        return arrow::decimal128(10, 2);
     default:
         throw std::logic_error("unsupported Parquet reader benchmark value type");
     }
@@ -185,9 +217,9 @@ inline ::parquet::Encoding::type file_encoding(Encoding encoding) {
 }
 
 inline std::string fixture_name(const ReaderScenario& scenario) {
-    return "v2_" + to_string(scenario.encoding) + "_" + to_string(scenario.value_type) + "_null" +
-           std::to_string(scenario.null_percent) + "_" + to_string(scenario.null_pattern) + "_w" +
-           std::to_string(scenario.schema_width) + "_p" +
+    return "v4_" + to_string(scenario.operation) + "_" + to_string(scenario.encoding) + "_" +
+           to_string(scenario.value_type) + "_null" + std::to_string(scenario.null_percent) + "_" +
+           to_string(scenario.null_pattern) + "_w" + std::to_string(scenario.schema_width) + "_p" +
            std::to_string(scenario.predicate_position) + ".parquet";
 }
 
@@ -235,7 +267,11 @@ inline std::filesystem::path ensure_fixture(const ReaderScenario& scenario) {
     for (int column = 0; column < scenario.schema_width; ++column) {
         fields.push_back(arrow::field("c" + std::to_string(column),
                                       arrow_value_type(scenario.value_type), true));
-        columns.push_back(std::make_shared<arrow::ChunkedArray>(values));
+        const auto column_values =
+                scenario.operation == ReaderOperation::MULTI_COLUMN_DNF_SCAN && column == 0
+                        ? build_dnf_category_array(scenario.null_percent, scenario.null_pattern)
+                        : values;
+        columns.push_back(std::make_shared<arrow::ChunkedArray>(column_values));
     }
     const auto table = arrow::Table::Make(arrow::schema(std::move(fields)), std::move(columns));
 
@@ -248,7 +284,7 @@ inline std::filesystem::path ensure_fixture(const ReaderScenario& scenario) {
     properties.version(::parquet::ParquetVersion::PARQUET_2_6);
     properties.data_page_version(::parquet::ParquetDataPageVersion::V2);
     properties.compression(::parquet::Compression::UNCOMPRESSED);
-    properties.disable_statistics();
+    // Keep footer statistics enabled to match the common production fixture shape.
     if (scenario.encoding == Encoding::DICTIONARY) {
         properties.enable_dictionary();
     } else {
@@ -394,6 +430,10 @@ inline VExprSPtr make_reader_literal(const ReaderScenario& scenario, const DataT
         return VLiteral::create_shared(
                 remove_nullable(type),
                 Field::create_field<TYPE_STRING>(padded_decimal(scenario.selectivity_percent)));
+    case ValueType::DECIMAL64:
+        return VLiteral::create_shared(remove_nullable(type),
+                                       Field::create_field<TYPE_DECIMAL64>(
+                                               Decimal64 {scenario.selectivity_percent * 100}));
     default:
         throw std::logic_error("unsupported Parquet reader benchmark predicate type");
     }
@@ -422,6 +462,75 @@ inline VExprContextSPtr make_complex_residual_predicate(int selectivity_percent,
             VSlotRef::create_shared(later_right_position, later_right_position, -1, int_type,
                                     "c3")));
     return VExprContext::create_shared(std::move(compound));
+}
+
+inline VExprSPtr make_compound_predicate(TExprOpcode::type opcode, VExprSPtr left,
+                                         VExprSPtr right) {
+    const auto bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(bool_type->to_thrift());
+    node.__set_num_children(2);
+    node.__set_is_nullable(true);
+    auto compound = VCompoundPred::create_shared(node);
+    compound->add_child(std::move(left));
+    compound->add_child(std::move(right));
+    return compound;
+}
+
+inline VExprContextSPtr make_multi_column_or_predicate(const ReaderScenario& scenario,
+                                                       const std::array<int, 3>& positions,
+                                                       const DataTypePtr& value_type) {
+    const auto literal = [&](int value) -> VExprSPtr {
+        if (scenario.value_type == ValueType::DECIMAL64) {
+            return VLiteral::create_shared(
+                    remove_nullable(value_type),
+                    Field::create_field<TYPE_DECIMAL64>(Decimal64 {value * 100}));
+        }
+        return VLiteral::create_shared(remove_nullable(value_type),
+                                       Field::create_field<TYPE_INT>(value));
+    };
+    const auto make_between = [&](int position) {
+        auto slot = [&] {
+            return VSlotRef::create_shared(position, position, -1, value_type,
+                                           "c" + std::to_string(position));
+        };
+        auto lower = make_int32_comparison("ge", TExprOpcode::GE, slot(), literal(0));
+        auto upper = make_int32_comparison("lt", TExprOpcode::LT, slot(),
+                                           literal(scenario.selectivity_percent));
+        return make_compound_predicate(TExprOpcode::COMPOUND_AND, std::move(lower),
+                                       std::move(upper));
+    };
+    auto first_two = make_compound_predicate(TExprOpcode::COMPOUND_OR, make_between(positions[0]),
+                                             make_between(positions[1]));
+    return VExprContext::create_shared(make_compound_predicate(
+            TExprOpcode::COMPOUND_OR, std::move(first_two), make_between(positions[2])));
+}
+
+inline VExprContextSPtr make_multi_column_dnf_predicate(const ReaderScenario& scenario,
+                                                        const std::array<int, 2>& positions,
+                                                        const DataTypePtr& value_type) {
+    const auto literal = [&](int value) {
+        return VLiteral::create_shared(remove_nullable(value_type),
+                                       Field::create_field<TYPE_INT>(value));
+    };
+    const auto make_branch = [&](int category) {
+        auto category_match = make_int32_comparison(
+                "eq", TExprOpcode::EQ,
+                VSlotRef::create_shared(positions[0], positions[0], -1, value_type, "c0"),
+                literal(category));
+        auto capacity_match = make_int32_comparison(
+                "lt", TExprOpcode::LT,
+                VSlotRef::create_shared(positions[1], positions[1], -1, value_type, "c1"),
+                literal(scenario.selectivity_percent));
+        return make_compound_predicate(TExprOpcode::COMPOUND_AND, std::move(category_match),
+                                       std::move(capacity_match));
+    };
+    auto first_two =
+            make_compound_predicate(TExprOpcode::COMPOUND_OR, make_branch(0), make_branch(1));
+    return VExprContext::create_shared(make_compound_predicate(
+            TExprOpcode::COMPOUND_OR, std::move(first_two), make_branch(2)));
 }
 
 inline Block make_block(const std::vector<format::ColumnDefinition>& schema) {
@@ -509,6 +618,52 @@ inline std::unique_ptr<ReaderSession> open_reader(const std::filesystem::path& p
         throw_if_error(context->open(&session->runtime_state));
         session->request->conjuncts.push_back(context);
         session->opened_conjuncts.push_back(std::move(context));
+    } else if (scenario.operation == ReaderOperation::MULTI_COLUMN_OR_SCAN) {
+        DORIS_CHECK(scenario.value_type == ValueType::DECIMAL64);
+        DORIS_CHECK(scenario.schema_width >= 4);
+        std::array<int, 3> predicate_positions {};
+        for (int column = 0; column < 3; ++column) {
+            const auto predicate_id = format::LocalColumnId(column);
+            throw_if_error(request_builder.add_predicate_column(predicate_id));
+            if (scenario.projection == Projection::PREDICATE_ONLY || column != 0) {
+                session->request->predicate_only_columns.push_back(predicate_id);
+            }
+            predicate_positions[column] =
+                    static_cast<int>(session->request->local_positions.at(predicate_id).value());
+        }
+        throw_if_error(request_builder.add_non_predicate_column(
+                format::LocalColumnId(scenario.schema_width - 1)));
+        auto context = make_multi_column_or_predicate(scenario, predicate_positions,
+                                                      session->schema[0].type);
+        throw_if_error(context->prepare(&session->runtime_state, RowDescriptor()));
+        throw_if_error(context->open(&session->runtime_state));
+        session->request->conjuncts.push_back(context);
+        session->request->enable_multi_column_or_raw_filter =
+                scenario.implementation == ReaderImplementation::RAW_DISJUNCTION;
+        session->opened_conjuncts.push_back(std::move(context));
+    } else if (scenario.operation == ReaderOperation::MULTI_COLUMN_DNF_SCAN) {
+        DORIS_CHECK(scenario.value_type == ValueType::INT32);
+        DORIS_CHECK(scenario.schema_width >= 3);
+        std::array<int, 2> predicate_positions {};
+        for (int column = 0; column < 2; ++column) {
+            const auto predicate_id = format::LocalColumnId(column);
+            throw_if_error(request_builder.add_predicate_column(predicate_id));
+            if (scenario.projection == Projection::PREDICATE_ONLY || column != 0) {
+                session->request->predicate_only_columns.push_back(predicate_id);
+            }
+            predicate_positions[column] =
+                    static_cast<int>(session->request->local_positions.at(predicate_id).value());
+        }
+        throw_if_error(request_builder.add_non_predicate_column(
+                format::LocalColumnId(scenario.schema_width - 1)));
+        auto context = make_multi_column_dnf_predicate(scenario, predicate_positions,
+                                                       session->schema[0].type);
+        throw_if_error(context->prepare(&session->runtime_state, RowDescriptor()));
+        throw_if_error(context->open(&session->runtime_state));
+        session->request->conjuncts.push_back(context);
+        session->request->enable_multi_column_or_raw_filter =
+                scenario.implementation == ReaderImplementation::RAW_DNF_MASK;
+        session->opened_conjuncts.push_back(std::move(context));
     } else {
         throw_if_error(request_builder.add_non_predicate_column(format::LocalColumnId(0)));
         if (scenario.schema_width > 1) {
@@ -571,6 +726,12 @@ inline int projected_columns(const ReaderScenario& scenario) {
     if (scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN) {
         return 4;
     }
+    if (scenario.operation == ReaderOperation::MULTI_COLUMN_OR_SCAN) {
+        return scenario.projection == Projection::PREDICATE_ONLY ? 1 : 2;
+    }
+    if (scenario.operation == ReaderOperation::MULTI_COLUMN_DNF_SCAN) {
+        return scenario.projection == Projection::PREDICATE_ONLY ? 1 : 2;
+    }
     return std::min(2, scenario.schema_width);
 }
 
@@ -582,6 +743,8 @@ inline size_t value_width(const ReaderScenario& scenario) {
         return sizeof(int64_t);
     case ValueType::BYTE_ARRAY:
         return 3;
+    case ValueType::DECIMAL64:
+        return sizeof(Decimal64);
     default:
         return sizeof(int32_t);
     }

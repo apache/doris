@@ -208,7 +208,7 @@ public:
                                           const IColumn*, IColumn*, ColumnInt32*,
                                           IColumn::Filter* row_filter, size_t* survivor_count,
                                           size_t* read_rows, bool* eof, bool* projected_directly,
-                                          bool* used_filter) {
+                                          bool* used_filter, bool preserve_filter_values) {
         DORIS_CHECK(row_filter != nullptr);
         DORIS_CHECK(survivor_count != nullptr);
         DORIS_CHECK(read_rows != nullptr);
@@ -316,7 +316,7 @@ public:
                                   IColumn* projected_values, ColumnInt32* matched_dictionary_ids,
                                   IColumn::Filter* row_filter, size_t* survivor_count,
                                   size_t* read_rows, bool* eof, bool* projected_directly,
-                                  bool* used_filter) override;
+                                  bool* used_filter, bool preserve_filter_values) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                               bool* eof) override;
     Result<MutableColumnPtr> materialize_dictionary_values(const ColumnInt32* dict_column,
@@ -456,7 +456,7 @@ private:
                                           IColumn* projected_values,
                                           ColumnInt32* matched_dictionary_ids,
                                           IColumn::Filter* row_filter, size_t* survivor_count,
-                                          bool* projected_directly);
+                                          bool* projected_directly, bool preserve_filter_values);
     Status _read_nested_column(ColumnPtr& doris_column, const DataTypePtr& type,
                                FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                bool* eof, bool is_dict_filter);
