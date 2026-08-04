@@ -73,7 +73,7 @@ suite("test_distribution_hash_type_identity") {
                 "distribution_hash_type" = "identity"
             );
         """
-        exception "integer distribution column"
+        exception "Only supports integer distribution column"
     }
 
     // multiple distribution columns rejected
@@ -91,7 +91,7 @@ suite("test_distribution_hash_type_identity") {
                 "distribution_hash_type" = "identity"
             );
         """
-        exception "one distribution column"
+        exception "Only supports one distribution column"
     }
 
     // invalid hash type value rejected
@@ -108,7 +108,7 @@ suite("test_distribution_hash_type_identity") {
                 "distribution_hash_type" = "murmur"
             );
         """
-        exception "distribution_hash_type"
+        exception "Invalid distribution_hash_type"
     }
 
     // ---------------------------------------------------------------------
@@ -158,7 +158,7 @@ suite("test_distribution_hash_type_identity") {
                 "colocate_with" = "test_dist_hash_cg_identity"
             );
         """
-        exception "distribution_hash_type"
+        exception "Colocate tables must have same distribution hash type"
     }
 
     // ---------------------------------------------------------------------
@@ -175,7 +175,7 @@ suite("test_distribution_hash_type_identity") {
     // equality queries drive single-bucket pruning; every inserted key must be locatable.
     [0L, 1L, 7L, 8L, 513L, -1L, 1024L].each { key ->
         def rows = sql("SELECT id FROM test_dist_hash_identity WHERE id = ${key}")
-        assertEquals("equality pruning lost row id=${key}".toString(), 1, rows.size())
+        assertEquals(1, rows.size(), "equality pruning lost row id=${key}".toString())
         assertEquals(key, rows[0][0] as long)
     }
 
@@ -185,7 +185,88 @@ suite("test_distribution_hash_type_identity") {
     assertEquals([7L, 8L, 1024L], inRows.collect { it[0] as long })
 
     // ---------------------------------------------------------------------
-    // 5. ADD PARTITION inherits the table hash type (commit: inherit on ADD PARTITION).
+    // 5. bucket data distribution: identity spreads rows evenly, crc32 does not.
+    //    Insert ids 1..8 (10 rows each, 80 rows total) into a crc32 table and an identity
+    //    table, both DISTRIBUTED BY HASH(id) BUCKETS 8. With this key set:
+    //      - crc32(id)%8 folds ids 3 and 8 onto the same bucket and leaves one bucket empty,
+    //        so the row distribution is skewed (one 20-row bucket, one 0-row bucket).
+    //      - identity uses id%8 directly, mapping the 8 distinct ids onto 8 distinct buckets,
+    //        so every bucket holds exactly 10 rows and none is empty.
+    //    crc32(id)%8 for id=1..8 -> {1:7, 2:5, 3:3, 4:0, 5:6, 6:4, 7:2, 8:3};
+    //    bucket 1 receives no id (empty) while bucket 3 gets both 3 and 8.
+    //    (verify with:  select crc32(8)%8;  -> same bucket as crc32(3)%8)
+    //    id%8 for id=1..8 -> {1:1, 2:2, 3:3, 4:4, 5:5, 6:6, 7:7, 8:0}: 8 buckets, 10 rows each.
+        // ---------------------------------------------------------------------
+    // helper: read the per-bucket RowCount via SHOW TABLETS. Each tablet maps to one bucket and
+    // (single replica here) appears once, so the list of RowCounts is the per-bucket row spread.
+    // RowCount is reported asynchronously, so poll until the total matches the expected row count
+    // before trusting the layout.
+    def bucketRowCounts = { String tbl, int expectedTotal ->
+        def counts = null
+        for (int attempt = 0; attempt < 60; attempt++) {
+            def tablets = sql_return_maparray "SHOW TABLETS FROM ${tbl}"
+            def perBucket = tablets.collect { (it["RowCount"] as String) as long }
+            long total = perBucket.sum() as long
+            if (total == expectedTotal) {
+                counts = perBucket
+                break
+            }
+            sleep(5000)
+        }
+        assertNotNull(counts, "RowCount for ${tbl} never reached ${expectedTotal}".toString())
+        return counts
+    }
+
+    // truncate existing data
+    // identity table: even distribution, one row per bucket per id.
+    sql "TRUNCATE TABLE test_dist_hash_identity"
+    // crc32 (default) table: skewed distribution with an empty bucket.
+    sql "TRUNCATE TABLE test_dist_hash_default"
+
+    // write ids 1..8, 10 rows each (v = 1..10) -> 80 rows total for both tables.
+    def bucketValues = []
+    (1..8).each { id ->
+        (1..10).each { v -> bucketValues << "(${id}, ${v})" }
+    }
+    def bucketInsert = bucketValues.join(", ")
+    sql "INSERT INTO test_dist_hash_default VALUES ${bucketInsert}"
+    sql "INSERT INTO test_dist_hash_identity VALUES ${bucketInsert}"
+
+    // sanity: both tables received all 80 rows with 10 rows per id (no rows dropped on write).
+    [
+        "test_dist_hash_default",
+        "test_dist_hash_identity",
+    ].each { tbl ->
+        assertEquals(80,
+                sql("SELECT COUNT(*) FROM ${tbl}")[0][0] as int, "row total mismatch for ${tbl}".toString())
+        def perId = sql("SELECT id, COUNT(*) FROM ${tbl} GROUP BY id ORDER BY id")
+        assertEquals(8, perId.size())
+        perId.each { r ->
+            assertEquals(10L, r[1] as long, "id=${r[0]} in ${tbl} must have 10 rows".toString())
+        }
+    }
+
+    // crc32: at least one bucket is empty and at least one bucket is overloaded (>10 rows),
+    // because crc32(id)%8 collides ids 3 and 8 and skips one bucket for ids 1..8.
+    def crc32Counts = bucketRowCounts("test_dist_hash_default", 80)
+    assertTrue(crc32Counts.any { it == 0L },
+            "crc32 must leave at least one empty bucket, counts=${crc32Counts}".toString())
+    assertTrue(crc32Counts.any { it > 10L },
+            "crc32 must overload at least one bucket (>10), counts=${crc32Counts}".toString())
+
+    // identity: every bucket holds exactly 10 rows -> no empty bucket, perfectly even spread.
+    def identityCounts = bucketRowCounts("test_dist_hash_identity", 80)
+    assertEquals(8, identityCounts.size(),
+            "identity should fill all 8 buckets, counts=${identityCounts}".toString())
+    assertFalse(identityCounts.any { it == 0L },
+            "identity must NOT leave any empty bucket, counts=${identityCounts}".toString())
+    identityCounts.each { c ->
+        assertEquals(10L, c as long,
+                "identity bucket must hold exactly 10 rows, counts=${identityCounts}".toString())
+    }
+
+    // ---------------------------------------------------------------------
+    // 6. ADD PARTITION inherits the table hash type (commit: inherit on ADD PARTITION).
     //    A partitioned identity table; manually added partitions must keep identity so
     //    writes/reads stay consistent.
     // ---------------------------------------------------------------------
@@ -213,17 +294,18 @@ suite("test_distribution_hash_type_identity") {
     // rows in the newly added partition p2 (dt=15) must be found by equality pruning too;
     // if the new partition fell back to crc32, BE/FE hash mismatch would drop these rows.
     def p2Rows = sql("SELECT id FROM test_dist_hash_identity_part WHERE dt = 15 AND id = 513")
-    assertEquals("ADD PARTITION did not inherit identity: row lost in p2", 1, p2Rows.size())
+    assertEquals(1, p2Rows.size(), "ADD PARTITION did not inherit identity: row lost in p2")
     assertEquals(513L, p2Rows[0][0] as long)
     assertEquals(4, sql("SELECT COUNT(*) FROM test_dist_hash_identity_part")[0][0] as int)
 
     // ---------------------------------------------------------------------
-    // 6. colocate join: two identity tables in the same colocate group join with no reshuffle.
+    // 7. colocate join: two identity tables in the same colocate group join with no reshuffle.
     //    Both sides keep their storage layout (same identity hash + same bucket count), so the
     //    plan must be a COLOCATE join and the result must match the non-optimized join.
     // ---------------------------------------------------------------------
     sql "set enable_nereids_planner=true"
     sql "set disable_colocate_plan=false"
+
     waitForColocateGroupStable("test_dist_hash_cg_identity")
 
     sql "INSERT INTO test_dist_hash_colo_id1 VALUES (0), (1), (7), (8), (513), (-1), (1024)"
@@ -232,7 +314,7 @@ suite("test_distribution_hash_type_identity") {
     explain {
         sql("""SELECT a.id FROM test_dist_hash_colo_id1 a
                  JOIN test_dist_hash_colo_id2 b ON a.id = b.id""")
-        contains "COLOCATE"
+        contains "HAS_COLO_PLAN_NODE: true"
     }
 
     def coloJoin = sql("""SELECT a.id FROM test_dist_hash_colo_id1 a
@@ -256,15 +338,19 @@ suite("test_distribution_hash_type_identity") {
     explain {
         sql("""SELECT a.id FROM test_dist_hash_colo_id1 a
                  JOIN test_dist_hash_join_crc32 b ON a.id = b.id""")
-        notContains "COLOCATE"
+        contains "HAS_COLO_PLAN_NODE: false"
     }
 
     // ---------------------------------------------------------------------
-    // 7. bucket-shuffle join: an identity table joins a table with a different bucket count.
+    // 8. bucket-shuffle join: an identity table joins a table with a different bucket count.
     //    The optimizer keeps the identity side on its storage layout and reshuffles the other
     //    side to that layout. The reshuffle must use the identity hash on BE (not crc32),
     //    otherwise rows land on the wrong channel and the join result is wrong.
     // ---------------------------------------------------------------------
+    sql "set enable_nereids_planner=true"
+    sql "set enable_bucket_shuffle_join = true"
+    sql "set bucket_shuffle_downgrade_ratio = 0"
+
     sql "DROP TABLE IF EXISTS test_dist_hash_bs_left"
     sql "DROP TABLE IF EXISTS test_dist_hash_bs_right"
     sql """
@@ -300,8 +386,8 @@ suite("test_distribution_hash_type_identity") {
 
     explain {
         sql("""SELECT l.id, l.v, r.w FROM test_dist_hash_bs_left l
-                 JOIN test_dist_hash_bs_right r ON l.id = r.id""")
-        contains "BUCKET_SHUFFLE"
+                 JOIN [shuffle] test_dist_hash_bs_right r ON l.id = r.id""")
+        contains "INNER JOIN(BUCKET_SHUFFLE)"
     }
 
     def bsJoin = sql("""SELECT l.id, l.v, r.w FROM test_dist_hash_bs_left l
