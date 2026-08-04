@@ -26,6 +26,7 @@
 #include <mutex>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 #include "common/exception.h"
 #include "core/assert_cast.h"
@@ -852,16 +853,30 @@ ColumnPtr transform_node(const VariantMaterializationNode& plan, ColumnPtr physi
 
 void append_compatible_column(IColumn& output, const IColumn& converted) {
     if (auto* output_nullable = check_and_get_column<ColumnNullable>(output)) {
-        if (const auto* converted_nullable = check_and_get_column<ColumnNullable>(converted)) {
-            append_compatible_column(output_nullable->get_nested_column(),
-                                     converted_nullable->get_nested_column());
-            output_nullable->get_null_map_column().insert_range_from(
-                    converted_nullable->get_null_map_column(), 0, converted.size());
-        } else {
-            append_compatible_column(output_nullable->get_nested_column(), converted);
-            // External slots and nested Iceberg fields may remain nullable even when one file's
-            // physical node is required. Preserve that destination invariant with non-null bits.
-            output_nullable->push_false_to_nullmap(converted.size());
+        auto& nested = output_nullable->get_nested_column();
+        auto& null_map = output_nullable->get_null_map_column();
+        const size_t nested_size = nested.size();
+        const size_t null_map_size = null_map.size();
+        try {
+            if (const auto* converted_nullable = check_and_get_column<ColumnNullable>(converted)) {
+                append_compatible_column(nested, converted_nullable->get_nested_column());
+                null_map.insert_range_from(converted_nullable->get_null_map_column(), 0,
+                                           converted.size());
+            } else {
+                append_compatible_column(nested, converted);
+                // External slots and nested Iceberg fields may remain nullable even when one
+                // file's physical node is required. Preserve that destination invariant with
+                // non-null bits.
+                output_nullable->push_false_to_nullmap(converted.size());
+            }
+        } catch (...) {
+            if (nested.size() > nested_size) {
+                nested.pop_back(nested.size() - nested_size);
+            }
+            if (null_map.size() > null_map_size) {
+                null_map.pop_back(null_map.size() - null_map_size);
+            }
+            throw;
         }
         return;
     }
@@ -885,8 +900,25 @@ void append_compatible_column(IColumn& output, const IColumn& converted) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Parquet Variant materialization produced an incompatible STRUCT");
         }
+        std::vector<size_t> original_sizes(output_struct->tuple_size());
         for (size_t i = 0; i < output_struct->tuple_size(); ++i) {
-            append_compatible_column(output_struct->get_column(i), converted_struct->get_column(i));
+            original_sizes[i] = output_struct->get_column(i).size();
+        }
+        try {
+            for (size_t i = 0; i < output_struct->tuple_size(); ++i) {
+                append_compatible_column(output_struct->get_column(i),
+                                         converted_struct->get_column(i));
+            }
+        } catch (...) {
+            // Variant corruption can surface only during lazy fallback after earlier siblings
+            // were appended. Roll every child back to preserve the failed-append invariant.
+            for (size_t i = 0; i < output_struct->tuple_size(); ++i) {
+                auto& child = output_struct->get_column(i);
+                if (child.size() > original_sizes[i]) {
+                    child.pop_back(child.size() - original_sizes[i]);
+                }
+            }
+            throw;
         }
         return;
     }
@@ -897,12 +929,22 @@ void append_compatible_column(IColumn& output, const IColumn& converted) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Parquet Variant materialization produced an incompatible ARRAY");
         }
-        const size_t element_base = output_array->get_data().size();
-        append_compatible_column(output_array->get_data(), converted_array->get_data());
+        auto& output_data = output_array->get_data();
         auto& output_offsets = output_array->get_offsets();
-        output_offsets.reserve(output_offsets.size() + converted_array->size());
-        for (const auto offset : converted_array->get_offsets()) {
-            output_offsets.push_back(element_base + offset);
+        const size_t element_base = output_data.size();
+        const size_t offsets_size = output_offsets.size();
+        try {
+            append_compatible_column(output_data, converted_array->get_data());
+            output_offsets.reserve(output_offsets.size() + converted_array->size());
+            for (const auto offset : converted_array->get_offsets()) {
+                output_offsets.push_back(element_base + offset);
+            }
+        } catch (...) {
+            if (output_data.size() > element_base) {
+                output_data.pop_back(output_data.size() - element_base);
+            }
+            output_offsets.resize(offsets_size);
+            throw;
         }
         return;
     }
@@ -913,13 +955,28 @@ void append_compatible_column(IColumn& output, const IColumn& converted) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Parquet Variant materialization produced an incompatible MAP");
         }
-        const size_t element_base = output_map->get_keys().size();
-        append_compatible_column(output_map->get_keys(), converted_map->get_keys());
-        append_compatible_column(output_map->get_values(), converted_map->get_values());
+        auto& output_keys = output_map->get_keys();
+        auto& output_values = output_map->get_values();
         auto& output_offsets = output_map->get_offsets();
-        output_offsets.reserve(output_offsets.size() + converted_map->size());
-        for (const auto offset : converted_map->get_offsets()) {
-            output_offsets.push_back(element_base + offset);
+        const size_t element_base = output_keys.size();
+        const size_t values_size = output_values.size();
+        const size_t offsets_size = output_offsets.size();
+        try {
+            append_compatible_column(output_keys, converted_map->get_keys());
+            append_compatible_column(output_values, converted_map->get_values());
+            output_offsets.reserve(output_offsets.size() + converted_map->size());
+            for (const auto offset : converted_map->get_offsets()) {
+                output_offsets.push_back(element_base + offset);
+            }
+        } catch (...) {
+            if (output_keys.size() > element_base) {
+                output_keys.pop_back(output_keys.size() - element_base);
+            }
+            if (output_values.size() > values_size) {
+                output_values.pop_back(output_values.size() - values_size);
+            }
+            output_offsets.resize(offsets_size);
+            throw;
         }
         return;
     }

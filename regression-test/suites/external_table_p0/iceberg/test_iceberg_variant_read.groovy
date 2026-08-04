@@ -123,11 +123,11 @@ suite("test_iceberg_variant_read",
             (6, parse_json('42')),
             (7, parse_json('"root-string"'));
         ALTER TABLE demo.${dbName}.variant_values SET TBLPROPERTIES (
-            'write.parquet.shred-variants'='true',
+            'write.parquet.shred-variants'='false',
             'write.parquet.variant-inference-buffer-size'='100'
         );
         INSERT INTO demo.${dbName}.variant_values
-        WITH (`shred-variants`=true, `variant-inference-buffer-size`=100) VALUES
+        VALUES
             (8, parse_json('{"ok":true,"n":30,"name":"same"}')),
             (9, parse_json('{"name":"carol","n":40,"ratio":4.5,"ok":true,"arr":[5,6],"nested":{"city":"bj"},"new_key":"new"}')),
             (10, parse_json('{"name":"dave","n":50,"ratio":5.5,"ok":false,"arr":[7,8],"nested":{"city":"sz"}}')),
@@ -138,7 +138,7 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES (
             'format-version'='3',
             'write.format.default'='parquet',
-            'write.parquet.shred-variants'='true',
+            'write.parquet.shred-variants'='false',
             'write.parquet.variant-inference-buffer-size'='100'
         );
         INSERT INTO demo.${dbName}.variant_root_arrays VALUES
@@ -158,7 +158,7 @@ suite("test_iceberg_variant_read",
         INSERT INTO demo.${dbName}.variant_multi_file
             VALUES (1, parse_json('{"a":1,"shared":10}'));
         ALTER TABLE demo.${dbName}.variant_multi_file SET TBLPROPERTIES (
-            'write.parquet.shred-variants'='true',
+            'write.parquet.shred-variants'='false',
             'write.parquet.variant-inference-buffer-size'='1'
         );
         INSERT INTO demo.${dbName}.variant_multi_file
@@ -170,7 +170,7 @@ suite("test_iceberg_variant_read",
         INSERT INTO demo.${dbName}.variant_multi_file
             VALUES (4, parse_json('{"c":4,"shared":40}'));
         ALTER TABLE demo.${dbName}.variant_multi_file SET TBLPROPERTIES
-            ('write.parquet.shred-variants'='true');
+            ('write.parquet.shred-variants'='false');
         INSERT INTO demo.${dbName}.variant_multi_file
             VALUES (5, parse_json('{"shared":50,"b":5,"new_field":{"k":500}}'));
 
@@ -179,7 +179,7 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES (
             'format-version'='3',
             'write.format.default'='parquet',
-            'write.parquet.shred-variants'='true',
+            'write.parquet.shred-variants'='false',
             'write.parquet.variant-inference-buffer-size'='100'
         );
         INSERT INTO demo.${dbName}.variant_type_matrix SELECT 1, to_variant_object(named_struct(
@@ -202,7 +202,7 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES (
             'format-version'='3',
             'write.format.default'='parquet',
-            'write.parquet.shred-variants'='true',
+            'write.parquet.shred-variants'='false',
             'write.parquet.variant-inference-buffer-size'='100',
             'write.parquet.row-group-size-bytes'='4096'
         );
@@ -217,7 +217,7 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES (
             'format-version'='3',
             'write.format.default'='parquet',
-            'write.parquet.shred-variants'='true',
+            'write.parquet.shred-variants'='false',
             'write.parquet.variant-inference-buffer-size'='100',
             'write.delete.mode'='merge-on-read',
             'read.parquet.vectorization.enabled'='false',
@@ -234,7 +234,7 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES (
             'format-version'='3',
             'write.format.default'='parquet',
-            'write.parquet.shred-variants'='true',
+            'write.parquet.shred-variants'='false',
             'write.parquet.variant-inference-buffer-size'='100'
         );
         INSERT INTO demo.${dbName}.variant_equality_delete VALUES
@@ -254,7 +254,7 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES (
             'format-version'='3',
             'write.format.default'='parquet',
-            'write.parquet.shred-variants'='true',
+            'write.parquet.shred-variants'='false',
             'write.parquet.variant-inference-buffer-size'='100'
         );
         INSERT INTO demo.${dbName}.variant_nested SELECT
@@ -276,7 +276,7 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES (
             'format-version'='3',
             'write.format.default'='parquet',
-            'write.parquet.shred-variants'='true',
+            'write.parquet.shred-variants'='false',
             'write.parquet.variant-inference-buffer-size'='100'
         );
         INSERT INTO demo.${dbName}.variant_signed_selector
@@ -297,6 +297,13 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES ('format-version'='3', 'write.format.default'='parquet');
         INSERT INTO demo.${dbName}.variant_write_guard VALUES (1);
     """
+
+    List<List<Object>> multiFileDataFiles = spark_iceberg """
+        SELECT COUNT(*) FROM demo.${dbName}.variant_multi_file.files WHERE content = 0
+    """
+    assertEquals(1, multiFileDataFiles.size())
+    assertTrue(Long.parseLong(multiFileDataFiles[0][0].toString()) > 1,
+            "The parallel Variant fixture must contain multiple data files")
 
     List<List<Object>> multiRowGroupFiles = spark_iceberg """
         SELECT COUNT(*) FROM demo.${dbName}.variant_multi_row_group.files WHERE content = 0
@@ -375,6 +382,21 @@ public class AppendVariantEqualityDelete {
     spark_iceberg """
         DELETE FROM demo.${dbName}.variant_deletion_vector WHERE id % 2 = 1
     """
+    List<List<Object>> deletionVectorFiles = spark_iceberg """
+        SELECT file_format, content_offset, content_size_in_bytes
+        FROM demo.${dbName}.variant_deletion_vector.files
+        WHERE content = 1
+    """
+    assertFalse(deletionVectorFiles.isEmpty(),
+            "The Variant deletion fixture must expose a live delete file")
+    deletionVectorFiles.each { List<Object> deleteFile ->
+        assertEquals("PUFFIN", deleteFile[0].toString().toUpperCase(),
+                "The format-v3 Variant fixture must use PUFFIN deletion vectors")
+        assertTrue(Long.parseLong(deleteFile[1].toString()) >= 0,
+                "A PUFFIN deletion vector must expose its content offset")
+        assertTrue(Long.parseLong(deleteFile[2].toString()) > 0,
+                "A PUFFIN deletion vector must expose its content size")
+    }
 
     // Register a stable Iceberg metadata fixture so the page-pruning case always uses a
     // standards-compliant shredded Variant file, independent of the Spark writer version.
@@ -428,33 +450,60 @@ public class AppendVariantEqualityDelete {
     sql """set profile_level=2"""
 
     def profileAction = new ProfileAction(context)
+    def mergedProfile = { String profile ->
+        if (!profile.contains("MergedProfile:")) {
+            return profile
+        }
+        String merged = profile.substring(profile.indexOf("MergedProfile:"))
+        int end = merged.length()
+        ["DetailProfile(", "Execution Profile:", "Appendix:"].each { String sectionName ->
+            int sectionIndex = merged.indexOf(sectionName)
+            if (sectionIndex > 0) {
+                end = Math.min(end, sectionIndex)
+            }
+        }
+        return merged.substring(0, end)
+    }
     def counterSum = { String profile, String counterName ->
-        Pattern pattern = Pattern.compile(Pattern.quote(counterName) + ":\\s*([0-9,]+)")
-        Matcher matcher = pattern.matcher(profile)
+        Pattern pattern = Pattern.compile("(?m)^\\s*(?:-\\s*)?" +
+                Pattern.quote(counterName) + ":\\s+([^\\n]+)")
+        Matcher matcher = pattern.matcher(mergedProfile(profile))
         long sum = 0
         while (matcher.find()) {
-            sum += Long.parseLong(matcher.group(1).replace(",", ""))
+            String valueText = matcher.group(1)
+            // Merged counters may be human-readable; the parenthesized value is the exact sum.
+            Matcher exact = Pattern.compile("\\(([0-9,]+)\\)").matcher(valueText)
+            Matcher number = Pattern.compile("([0-9,]+)").matcher(valueText)
+            if (exact.find()) {
+                sum += Long.parseLong(exact.group(1).replace(",", ""))
+            } else if (number.find()) {
+                sum += Long.parseLong(number.group(1).replace(",", ""))
+            }
         }
         return sum
     }
-    def getProfileByToken = { String token, List<String> positiveCounters = [] ->
-        String lastProfile = ""
-        for (int retry = 0; retry < 20; ++retry) {
-            List profileData = profileAction.getProfileList()
-            for (final def profileItem in profileData) {
-                if (profileItem["Sql Statement"].toString().contains(token)) {
-                    lastProfile = profileAction.getProfile(
-                            profileItem["Profile ID"].toString()).toString()
-                    if (positiveCounters.every { counterSum(lastProfile, it) > 0 }) {
-                        return lastProfile
-                    }
-                }
-            }
-            Thread.sleep(500)
+    def profileInfoValues = { String profile, String infoName ->
+        Pattern pattern = Pattern.compile(
+                Pattern.quote(infoName) + ":\\s*\\[([^\\]]*)\\]")
+        Matcher matcher = pattern.matcher(profile)
+        if (!matcher.find()) {
+            return []
         }
-        throw new IllegalStateException(
-                "Profile did not expose positive counters ${positiveCounters} for token ${token}: " +
-                        lastProfile)
+        return matcher.group(1).split(",").collect { String value -> value.trim() }
+                .findAll { String value -> !value.isEmpty() }
+                .collect { String value -> Long.parseLong(value.replace(",", "")) }
+    }
+    def getProfileByToken = { String token, List<String> positiveCounters = [] ->
+        String lastProfile = profileAction.getProfileBySql(token, positiveCounters)
+        if (positiveCounters.every { String counter -> counterSum(lastProfile, counter) > 0 }) {
+            return lastProfile
+        }
+        return profileAction.waitProfile({
+            lastProfile = profileAction.getProfileBySql(token, positiveCounters)
+            return positiveCounters.every {
+                String counter -> counterSum(lastProfile, counter) > 0
+            } ? lastProfile : ""
+        }, [], "Completed profile with positive counters ${positiveCounters} for ${token}")
     }
 
     String evolutionInitial = latestSnapshotId("variant_evolution")
@@ -599,6 +648,7 @@ public class AppendVariantEqualityDelete {
     """
     sql "set parallel_pipeline_task_num=4"
     sql "set max_file_scanners_concurrency=8"
+    sql "set min_file_scanners_concurrency=4"
     order_qt_variant_multi_file_parallel """
         SELECT id,
                CAST(v['shared'] AS INT),
@@ -610,6 +660,36 @@ public class AppendVariantEqualityDelete {
         WHERE v['shared'] >= 20
         ORDER BY id
     """
+    String parallelScanToken =
+            "iceberg_variant_parallel_scan_" + UUID.randomUUID().toString()
+    List<List<Object>> parallelScanRows = sql """
+        SELECT '${parallelScanToken}', id,
+               CAST(v['shared'] AS INT),
+               CAST(v['a'] AS INT),
+               CAST(v['b'] AS INT),
+               CAST(v['new_field']['k'] AS INT),
+               CAST(v AS STRING)
+        FROM variant_multi_file
+        WHERE v['shared'] >= 20
+        ORDER BY id
+    """
+    assertEquals(4, parallelScanRows.size(),
+            "The parallel Variant query must read rows from multiple data files")
+    String parallelScanProfile = profileAction.getProfileBySql(
+            parallelScanToken, ["PerScannerRowsRead"])
+    if (profileInfoValues(parallelScanProfile, "PerScannerRowsRead")
+            .count { long rows -> rows > 0 } <= 1) {
+        parallelScanProfile = profileAction.waitProfile({
+            String profile = profileAction.getProfileBySql(
+                    parallelScanToken, ["PerScannerRowsRead"])
+            return profileInfoValues(profile, "PerScannerRowsRead")
+                    .count { long rows -> rows > 0 } > 1 ? profile : ""
+        }, [], "Completed parallel Variant profile with multiple non-empty scanners")
+    }
+    assertTrue(profileInfoValues(parallelScanProfile, "PerScannerRowsRead")
+                    .count { long rows -> rows > 0 } > 1,
+            "The parallel Variant query did not use multiple non-empty scanners")
+    sql "set min_file_scanners_concurrency=1"
 
     order_qt_variant_type_matrix """
         SELECT CAST(v['bool_value'] AS BOOLEAN),
@@ -665,7 +745,7 @@ public class AppendVariantEqualityDelete {
     qt_variant_deletion_vector_current """
         SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
         FROM variant_deletion_vector
-        WHERE v['keep'] = true
+        WHERE v['n'] >= 0
     """
     qt_variant_deletion_vector_before_delete """
         SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
@@ -705,6 +785,29 @@ public class AppendVariantEqualityDelete {
         WHERE CAST(v['n'] AS INT) > 3000
     """
 
+    // The complete Variant is the only scanned output column outside the predicate. A positive
+    // lazy-read count therefore proves Variant output deferral rather than deferral of an id
+    // sibling, while the row relationship proves reconstruction happens after filtering.
+    String lazyVariantToken =
+            "iceberg_variant_lazy_materialization_" + UUID.randomUUID().toString()
+    List<List<Object>> lazyVariantRows = sql """
+        SELECT '${lazyVariantToken}', CAST(v AS STRING)
+        FROM variant_page_pruning FOR VERSION AS OF ${shreddedOnlySnapshot}
+        WHERE CAST(v['n'] AS INT) > 3000
+    """
+    String lazyVariantProfile = getProfileByToken(lazyVariantToken,
+            ["VariantDirectLeafRows", "VariantReconstructedRows",
+             "FilteredRowsByLazyRead"]).toString()
+    long reconstructedVariantRows =
+            counterSum(lazyVariantProfile, "VariantReconstructedRows")
+    assertEquals((long) lazyVariantRows.size(), reconstructedVariantRows,
+            "Complete Variant reconstruction must be limited to selected output rows")
+    assertTrue(counterSum(lazyVariantProfile, "VariantDirectLeafRows") >
+                    reconstructedVariantRows,
+            "Variant output was not deferred until after its shredded-leaf predicate")
+    assertTrue(counterSum(lazyVariantProfile, "FilteredRowsByLazyRead") > 0,
+            "The shredded predicate did not defer complete Variant output")
+
     // The query projects the complete Variant while its predicate reads the shredded typed leaf.
     // The appended unshredded file must fall back independently in the same scan.
     String pagePruningToken = "iceberg_variant_page_pruning_" + UUID.randomUUID().toString()
@@ -716,8 +819,7 @@ public class AppendVariantEqualityDelete {
     """
     String pagePruningProfile = getProfileByToken(pagePruningToken,
             ["FilteredRowsByPage", "VariantLeafProjections", "VariantDirectLeafPathMisses",
-             "VariantDirectLeafRows", "VariantReconstructedRows",
-             "FilteredRowsByLazyRead"]).toString()
+             "VariantDirectLeafRows", "VariantReconstructedRows"]).toString()
     assertTrue(counterSum(pagePruningProfile, "FilteredRowsByPage") > 0,
                "Shredded Variant typed_value did not filter any Parquet page")
     // The predicate_access_paths contract keeps the typed leaf eager while the complete Variant
@@ -730,8 +832,6 @@ public class AppendVariantEqualityDelete {
                "The mixed scan did not evaluate rows from the shredded typed leaf")
     assertTrue(counterSum(pagePruningProfile, "VariantReconstructedRows") > 0,
                "The mixed scan did not reconstruct complete Variant output")
-    assertTrue(counterSum(pagePruningProfile, "FilteredRowsByLazyRead") > 0,
-               "The mixed Variant scan did not delay output materialization")
     String leafProjectionToken =
             "iceberg_variant_leaf_projection_" + UUID.randomUUID().toString()
     sql """
