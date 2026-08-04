@@ -107,7 +107,8 @@ public abstract class Job implements TracerSupplier {
 
         CopyInResult result = context.getCascadesContext()
                 .getMemo()
-                .copyIn(after, targetGroup, rule.isRewrite());
+                .copyIn(after, targetGroup, rule.isRewrite(),
+                        context.getCascadesContext().getStatementContext().isDpHyp());
 
         if (result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup) {
             getEventTracer().log(TransformEvent.of(targetGroup.getLogicalExpression(), before, afters,

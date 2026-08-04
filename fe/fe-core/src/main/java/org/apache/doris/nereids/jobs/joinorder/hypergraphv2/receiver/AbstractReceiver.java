@@ -18,10 +18,13 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraphv2.receiver;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
 import org.apache.doris.nereids.memo.Group;
 
+import java.util.BitSet;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -38,6 +41,56 @@ public abstract class AbstractReceiver {
     public abstract void reset();
 
     public abstract Group getBestPlan(long bitSet);
+
+    /**
+     * Find all edges that are missed by the current connection edges but whose
+     * reference nodes are a subset of the joined nodes.  These missed edges
+     * must be added to the emitted join (they become additional join
+     * conditions).  If any missed edge is enforced-order, or references a
+     * projected alias whose source spans both children, the csg-cmp pair is
+     * rejected (returns false).
+     *
+     * <p>This logic is shared by {@link PlanReceiver} (which actually emits
+     * the plan) and {@link Counter} (which counts csg-cmp pairs during graph
+     * simplification).  Keeping them consistent is essential: GraphSimplifier
+     * relies on Counter to decide how many simplification steps are needed to
+     * satisfy {@code dphyperLimit}, and an over-count would over-constrain the
+     * graph and change the enumeration output.
+     */
+    protected boolean processMissedEdges(HyperGraph hyperGraph, HashMap<Long, BitSet> usdEdges,
+            long left, long right, List<Edge> edges, List<Edge> missingEdges) {
+        // find all used edges
+        BitSet usedEdgesBitmap = new BitSet();
+        usedEdgesBitmap.or(usdEdges.get(left));
+        usedEdgesBitmap.or(usdEdges.get(right));
+        edges.forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
+
+        // find all referenced nodes
+        long allReferenceNodes = LongBitmap.or(left, right);
+
+        // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
+        for (Edge edge : hyperGraph.getJoinEdges()) {
+            if (LongBitmap.isSubset(edge.getReferenceNodes(), allReferenceNodes)
+                    && !usedEdgesBitmap.get(edge.getIndex())) {
+                if (edge.isEnforcedOrder()) {
+                    return false;
+                } else {
+                    // Reject missed edges that reference a projected alias whose
+                    // source bitmap spans both children. The alias layer is emitted
+                    // by proposeProject (after proposeJoin), so the join predicate
+                    // would reference a slot that does not exist in either child's
+                    // output. Wait for a later join step where the alias source is
+                    // fully contained in one child.
+                    if (!hyperGraph.isEdgeSafeForJoin(edge, left, right)) {
+                        return false;
+                    }
+                    // add the missed edge to edges
+                    missingEdges.add(edge);
+                }
+            }
+        }
+        return true;
+    }
 
     /**
      * checkConflictRule for CD-C
