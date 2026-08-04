@@ -67,8 +67,13 @@ public class HdfsResource extends Resource {
 
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
-            replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
+        writeLock();
+        try {
+            for (Map.Entry<String, String> kv : properties.entrySet()) {
+                replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
+            }
+        } finally {
+            writeUnlock();
         }
         super.modifyProperties(properties);
     }
@@ -85,14 +90,24 @@ public class HdfsResource extends Resource {
 
     @Override
     public Map<String, String> getCopiedProperties() {
-        return Maps.newHashMap(properties);
+        readLock();
+        try {
+            return Maps.newHashMap(properties);
+        } finally {
+            readUnlock();
+        }
     }
 
     @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+        readLock();
+        try {
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+            }
+        } finally {
+            readUnlock();
         }
     }
 

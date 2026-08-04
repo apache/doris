@@ -31,6 +31,8 @@ import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -145,16 +147,22 @@ public class ResourceMgr implements Writable {
     }
 
     public void alterResource(String resourceName, Map<String, String> properties) throws DdlException {
-        if (!nameToResource.containsKey(resourceName)) {
+        Resource resource = nameToResource.get(resourceName);
+        if (resource == null) {
             throw new DdlException("Resource(" + resourceName + ") dose not exist.");
         }
 
-        Resource resource = nameToResource.get(resourceName);
-        resource.modifyProperties(properties);
+        EditLog.EditLogItem logItem;
+        Resource logResource;
+        synchronized (resource.getAlterLock()) {
+            resource.modifyProperties(properties);
+            // Keep the journal entry detached and ordered with the in-memory ALTER.
+            logResource = getAlterLogResource(resource);
+            logItem = Env.getCurrentEnv().getEditLog().submitEdit(OperationType.OP_ALTER_RESOURCE, logResource);
+        }
 
-        // log alter
-        Env.getCurrentEnv().getEditLog().logAlterResource(resource);
-        LOG.info("Alter resource success. Resource: {}", resource);
+        logItem.await();
+        LOG.info("Alter resource success. Resource: {}", logResource);
     }
 
     public void replayAlterResource(Resource resource) {
@@ -231,8 +239,30 @@ public class ResourceMgr implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
+        String json = GsonUtils.GSON.toJson(getCopiedResourceMgr());
         Text.writeString(out, json);
+    }
+
+    private Resource getAlterLogResource(Resource resource) {
+        try {
+            return resource.getCopiedResourceSnapshot();
+        } catch (Throwable t) {
+            LOG.error("Fatal Error : failed to copy altered resource {}", resource.getName(), t);
+            System.exit(-1);
+            throw new IllegalStateException(t);
+        }
+    }
+
+    private ResourceMgr getCopiedResourceMgr() {
+        ResourceMgr copied = new ResourceMgr();
+        for (Map.Entry<String, Resource> entry : nameToResource.entrySet()) {
+            Resource resource = entry.getValue();
+            synchronized (resource.getAlterLock()) {
+                // Checkpoint serialization must not walk a live resource while ALTER mutates it.
+                copied.nameToResource.put(entry.getKey(), resource.getCopiedResourceSnapshot());
+            }
+        }
+        return copied;
     }
 
     public static ResourceMgr read(DataInput in) throws IOException {
