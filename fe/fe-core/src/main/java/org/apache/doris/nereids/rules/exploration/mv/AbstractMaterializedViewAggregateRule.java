@@ -261,6 +261,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             }
             LogicalRepeat<Plan> repeat = new LogicalRepeat<>(rewrittenGroupSetsExpressions,
                     finalOutputExpressions, queryStructInfo.getGroupingId().get(),
+                    queryAggregate.getSourceRepeat().get().getGroupingIdValues().orElse(null),
                     queryAggregate.getSourceRepeat().get().getRepeatType(), tempRewritedPlan);
             return NormalizeRepeat.doNormalize(repeat);
         }
