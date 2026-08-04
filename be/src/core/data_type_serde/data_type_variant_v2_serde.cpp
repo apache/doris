@@ -178,8 +178,7 @@ void preflight_json(const IColumn& column, size_t start, size_t end,
 
 void validate_paimon_variant_value(VariantRef value, uint32_t depth = 0) {
     if (depth > VARIANT_MAX_NESTING_DEPTH) {
-        throw Exception(ErrorCode::CORRUPTION,
-                        "Variant value exceeds maximum nesting depth {}",
+        throw Exception(ErrorCode::CORRUPTION, "Variant value exceeds maximum nesting depth {}",
                         VARIANT_MAX_NESTING_DEPTH);
     }
     const size_t encoded_size = value.value_size();
