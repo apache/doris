@@ -279,6 +279,15 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
     DORIS_CHECK(field_types_compatible(min_value.get_type(), data_type->get_primitive_type()));
     DORIS_CHECK(field_types_compatible(max_value.get_type(), data_type->get_primitive_type()));
 
+    if (!is_not_in && ctx.floating_nan_count_unknown(slot->column_id()) &&
+        std::ranges::any_of(values, [&](const Field& value) {
+            return field_is_nan(value, data_type->get_primitive_type());
+        })) {
+        // Parquet range bounds may omit NaNs, so they cannot disprove an IN candidate containing
+        // one without a separate trustworthy NaN count.
+        return unsupported_zonemap_filter(ctx);
+    }
+
     // Re-check against the reader-schema type and the available zone map. Missing or unsupported
     // metadata must conservatively fall back to may-match.
     auto slot_type = fetch_compatible_slot_type(ctx, slot->column_id(), slot->data_type());

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <type_traits>
 
@@ -167,6 +168,12 @@ public:
         T max_value = max_field.template get<Type>();
 
         if constexpr (PT == PredicateType::EQ) {
+            if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
+                // Parquet range bounds may exclude NaNs from a mixed-value chunk.
+                if (std::isnan(_value)) {
+                    return true;
+                }
+            }
             return Compare::less_equal(min_value, _value) &&
                    Compare::greater_equal(max_value, _value);
         } else if constexpr (PT == PredicateType::NE) {
