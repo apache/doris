@@ -46,12 +46,10 @@ public class HadoopHudiColumnValue implements ColumnValue {
     private ColumnType dorisType;
     private ObjectInspector fieldInspector;
     private Object fieldData;
-    private final ZoneId sessionZoneId;
-    private final ZoneId int96ZoneId;
+    private final ZoneId zoneId;
 
-    public HadoopHudiColumnValue(ZoneId sessionZoneId, ZoneId int96ZoneId) {
-        this.sessionZoneId = sessionZoneId;
-        this.int96ZoneId = int96ZoneId;
+    public HadoopHudiColumnValue(ZoneId zoneId) {
+        this.zoneId = zoneId;
     }
 
     public void setRow(Object record) {
@@ -135,7 +133,7 @@ public class HadoopHudiColumnValue implements ColumnValue {
             return ((Timestamp) fieldData).toLocalDateTime();
         } else if (fieldData instanceof TimestampWritableV2) {
             return LocalDateTime.ofInstant(Instant.ofEpochSecond((((TimestampObjectInspector) fieldInspector)
-                    .getPrimitiveJavaObject(fieldData)).toEpochSecond()), int96ZoneId);
+                    .getPrimitiveJavaObject(fieldData)).toEpochSecond()), zoneId);
         } else {
             long datetime = ((LongWritable) fieldData).get();
             long seconds;
@@ -150,9 +148,7 @@ public class HadoopHudiColumnValue implements ColumnValue {
                 throw new RuntimeException("Hoodie timestamp only support milliseconds and microseconds, "
                         + "wrong precision = " + dorisType.getPrecision());
             }
-            // Logical INT64 timestamps carry epoch values and must remain in the session zone;
-            // applying the INT96 override would make native and JNI Hudi splits disagree.
-            return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanoseconds), sessionZoneId);
+            return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanoseconds), zoneId);
         }
     }
 
@@ -183,7 +179,7 @@ public class HadoopHudiColumnValue implements ColumnValue {
         ObjectInspector itemInspector = inspector.getListElementObjectInspector();
         for (int i = 0; i < items.size(); i++) {
             Object item = items.get(i);
-            HadoopHudiColumnValue childValue = new HadoopHudiColumnValue(sessionZoneId, int96ZoneId);
+            HadoopHudiColumnValue childValue = new HadoopHudiColumnValue(zoneId);
             childValue.setRow(item);
             childValue.setField(dorisType.getChildTypes().get(0), itemInspector);
             values.add(childValue);
@@ -196,12 +192,12 @@ public class HadoopHudiColumnValue implements ColumnValue {
         ObjectInspector keyObjectInspector = inspector.getMapKeyObjectInspector();
         ObjectInspector valueObjectInspector = inspector.getMapValueObjectInspector();
         for (Map.Entry kv : inspector.getMap(fieldData).entrySet()) {
-            HadoopHudiColumnValue key = new HadoopHudiColumnValue(sessionZoneId, int96ZoneId);
+            HadoopHudiColumnValue key = new HadoopHudiColumnValue(zoneId);
             key.setRow(kv.getKey());
             key.setField(dorisType.getChildTypes().get(0), keyObjectInspector);
             keys.add(key);
 
-            HadoopHudiColumnValue value = new HadoopHudiColumnValue(sessionZoneId, int96ZoneId);
+            HadoopHudiColumnValue value = new HadoopHudiColumnValue(zoneId);
             value.setRow(kv.getValue());
             value.setField(dorisType.getChildTypes().get(1), valueObjectInspector);
             values.add(value);
@@ -214,7 +210,7 @@ public class HadoopHudiColumnValue implements ColumnValue {
         List<? extends StructField> fields = inspector.getAllStructFieldRefs();
         for (int i = 0; i < structFieldIndex.size(); i++) {
             Integer idx = structFieldIndex.get(i);
-            HadoopHudiColumnValue value = new HadoopHudiColumnValue(sessionZoneId, int96ZoneId);
+            HadoopHudiColumnValue value = new HadoopHudiColumnValue(zoneId);
             Object obj = null;
             if (idx != null) {
                 StructField sf = fields.get(idx);

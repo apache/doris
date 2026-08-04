@@ -3062,6 +3062,43 @@ TEST(ColumnMapperScanRequestTest, PredicateProjectionRebuildsProjectedStructFile
     EXPECT_FALSE(mapper.mappings()[0].is_trivial);
 }
 
+// Scenario: Paimon projects one struct child but filters on an unprojected TIMESTAMP_LTZ(9)
+// child. The filter-only file projection must retain the history-schema timestamp semantic so an
+// unannotated INT96 leaf is materialized as TIMESTAMPTZ instead of DATETIMEV2.
+TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSemantic) {
+    const auto int_type = i32();
+    const auto ltz_type = timestamptz(9);
+
+    auto table_payload = field_id_col("payload", 1, int_type);
+    auto projected_table_struct = struct_col("s", 10, {table_payload});
+    auto table_ltz = field_id_col("ltz", 2, ltz_type);
+    auto full_table_struct = struct_col("s", 10, {table_payload, table_ltz});
+
+    auto file_payload = field_id_col("payload", 1, int_type, 0);
+    auto file_ltz = field_id_col("ltz", 2, ltz_type, 1);
+    file_ltz.timestamp_is_adjusted_to_utc = true;
+    auto file_struct = struct_col("s", 10, {file_payload, file_ltz}, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({projected_table_struct}, {}, {file_struct}).ok());
+
+    auto filter_expr = null_predicate(
+            struct_element(table_slot(0, 0, full_table_struct.type, "s"), ltz_type, "ltz"), false);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {projected_table_struct}, &request).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& root_projection = request.predicate_columns[0];
+    ASSERT_EQ(projection_ids(root_projection.children), std::vector<int32_t>({0, 1}));
+    const auto* ltz_projection = find_child_projection(&root_projection, 1);
+    ASSERT_NE(ltz_projection, nullptr);
+    ASSERT_TRUE(ltz_projection->timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*ltz_projection->timestamp_is_adjusted_to_utc);
+}
+
 // Scenario: a filter references a top-level column that is not projected by the query; the mapper
 // creates a hidden filter mapping without adding that hidden column to visible table mappings.
 TEST(ColumnMapperScanRequestTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) {

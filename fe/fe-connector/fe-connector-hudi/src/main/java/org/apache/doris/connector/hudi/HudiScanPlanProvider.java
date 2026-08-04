@@ -122,7 +122,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public boolean usesHiveParquetInt96TimeZone() {
-        return true;
+        // Hudi preserves its legacy session-timezone contract in both native and JNI readers.
+        return false;
     }
 
     /**

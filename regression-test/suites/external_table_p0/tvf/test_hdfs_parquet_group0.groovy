@@ -105,7 +105,9 @@ suite("test_hdfs_parquet_group0", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/large_string_map.brotli.parquet"
-            order_qt_test_11 """ select count(arr) from HDFS(
+            // The file has a multi-gigabyte MAP payload; keep COUNT pushdown deterministic so
+            // scanner v2 reads definition levels instead of materializing the payload under ASAN.
+            order_qt_test_11 """ select /*+ SET_VAR(enable_count_push_down_for_external_table=true) */ count(arr) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """

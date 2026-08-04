@@ -131,21 +131,14 @@ public class HadoopHudiJniScanner extends JniScanner {
         }
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(fsOptionsProps);
 
-        ZoneId sessionZoneId;
+        ZoneId zoneId;
         if (Strings.isNullOrEmpty(params.get("time_zone"))) {
-            sessionZoneId = ZoneId.systemDefault();
+            zoneId = ZoneId.systemDefault();
         } else {
-            sessionZoneId = ZoneId.of(params.get("time_zone"));
+            zoneId = ZoneId.of(params.get("time_zone"));
         }
-        ZoneId int96ZoneId;
-        if (Strings.isNullOrEmpty(params.get("int96_time_zone"))) {
-            // Scanner v1 does not send the v2-only override and must keep its legacy session-zone
-            // behavior for every timestamp representation.
-            int96ZoneId = sessionZoneId;
-        } else {
-            int96ZoneId = ZoneId.of(params.get("int96_time_zone"));
-        }
-        this.columnValue = new HadoopHudiColumnValue(sessionZoneId, int96ZoneId);
+        // Hudi keeps one session zone for every timestamp encoding to preserve its JNI contract.
+        this.columnValue = new HadoopHudiColumnValue(zoneId);
         this.fetchSize = fetchSize;
         this.classLoader = this.getClass().getClassLoader();
     }

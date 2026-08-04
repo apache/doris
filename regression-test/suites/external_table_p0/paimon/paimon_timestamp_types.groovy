@@ -71,7 +71,7 @@ suite("paimon_timestamp_types", "p0,external") {
             qt_ltz_ntz21 """ select crow3 from ${table} """
         }
 
-        def test_ltz_ntz_simple = { table -> 
+        def test_ltz_ntz_simple = { table, expectedCrow2 ->
             qt_ltz_ntz_simple2 """ select * from ${table} """
             qt_ltz_ntz_simple3 """ select cmap1 from ${table} """
             qt_ltz_ntz_simple4 """ select cmap1['2024-01-01 10:12:34.123456'] from ${table} """
@@ -84,7 +84,12 @@ suite("paimon_timestamp_types", "p0,external") {
             qt_ltz_ntz_simple11 """ select carray2 from ${table} """
             qt_ltz_ntz_simple12 """ select carray2[2] from ${table} """
             qt_ltz_ntz_simple13 """ select crow from ${table} """
-            qt_ltz_ntz_simple14 """ select element_at(crow, 'crow1') from ${table} """
+            // Project crow1 while crow2 is filter-only so the predicate keeps Paimon's nested
+            // TIMESTAMP_LTZ semantic. The BE unit test pins the same path for precision-9 INT96.
+            order_qt_ltz_ntz_simple14 """
+                select element_at(crow, 'crow1') from ${table}
+                where cast(element_at(crow, 'crow2') as string) = '${expectedCrow2}'
+            """
             qt_ltz_ntz_simple15 """ select element_at(crow, 'crow2') from ${table} """
         }
 
@@ -100,15 +105,15 @@ suite("paimon_timestamp_types", "p0,external") {
         test_scale()
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
         // test_ltz_ntz("test_timestamp_ntz_ltz_parquet")
-        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc")
+        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 10:12:34.123456")
         // test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet")
 
         sql """set force_jni_scanner=false"""
         test_scale()
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
         // test_ltz_ntz("test_timestamp_ntz_ltz_parquet")
-        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc")
-        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet")
+        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 02:12:34.123456")
+        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet", "2024-01-02 10:12:34.123456")
     } finally {
         sql """set force_jni_scanner=false"""
         sql """set time_zone = '${originalTimeZone}'"""

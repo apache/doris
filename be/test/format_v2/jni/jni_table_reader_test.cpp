@@ -168,7 +168,7 @@ TEST(JniTableReaderTest, GenericConnectorUsesQuerySessionTimezone) {
     EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
 }
 
-TEST(HudiJniReaderTest, CatalogInt96TimezoneIsSeparateFromQuerySession) {
+TEST(HudiJniReaderTest, CatalogInt96TimezoneDoesNotOverrideSessionTimezone) {
     TFileScanRangeParams scan_params;
     scan_params.__set_hive_parquet_time_zone("Asia/Shanghai");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -195,10 +195,10 @@ TEST(HudiJniReaderTest, CatalogInt96TimezoneIsSeparateFromQuerySession) {
     reader._scanner_params = std::move(params);
     reader._apply_common_scanner_params();
     EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
-    EXPECT_EQ(reader._scanner_params["int96_time_zone"], "Asia/Shanghai");
+    EXPECT_FALSE(reader._scanner_params.contains("int96_time_zone"));
 }
 
-TEST(HudiJniReaderTest, UnconfiguredInt96TimezoneUsesRawWallClockPolicy) {
+TEST(HudiJniReaderTest, UnconfiguredInt96TimezoneUsesSessionTimezone) {
     TFileScanRangeParams scan_params;
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("America/Los_Angeles");
@@ -224,7 +224,7 @@ TEST(HudiJniReaderTest, UnconfiguredInt96TimezoneUsesRawWallClockPolicy) {
     reader._scanner_params = std::move(params);
     reader._apply_common_scanner_params();
     EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
-    EXPECT_EQ(reader._scanner_params["int96_time_zone"], "UTC");
+    EXPECT_FALSE(reader._scanner_params.contains("int96_time_zone"));
 }
 
 TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {

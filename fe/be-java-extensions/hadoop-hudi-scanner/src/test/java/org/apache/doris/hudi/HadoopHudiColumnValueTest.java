@@ -32,8 +32,7 @@ import java.time.ZoneId;
 public class HadoopHudiColumnValueTest {
     @Test
     public void testInt64TimestampUsesSessionTimezone() {
-        HadoopHudiColumnValue value = new HadoopHudiColumnValue(
-                ZoneId.of("America/Los_Angeles"), ZoneId.of("Asia/Shanghai"));
+        HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of("America/Los_Angeles"));
         value.setField(ColumnType.parseType("ts", "datetimev2(6)"), null);
         value.setRow(new LongWritable(0));
 
@@ -41,13 +40,12 @@ public class HadoopHudiColumnValueTest {
     }
 
     @Test
-    public void testInt96TimestampUsesCompatibilityTimezone() {
-        HadoopHudiColumnValue value = new HadoopHudiColumnValue(
-                ZoneId.of("America/Los_Angeles"), ZoneId.of("Asia/Shanghai"));
+    public void testInt96TimestampUsesSessionTimezone() {
+        HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of("America/Los_Angeles"));
         value.setField(ColumnType.parseType("ts", "datetimev2(6)"),
                 PrimitiveObjectInspectorFactory.writableTimestampObjectInspector);
         value.setRow(new TimestampWritableV2(Timestamp.ofEpochSecond(0)));
 
-        Assert.assertEquals(LocalDateTime.of(1970, 1, 1, 8, 0), value.getDateTime());
+        Assert.assertEquals(LocalDateTime.of(1969, 12, 31, 16, 0), value.getDateTime());
     }
 }

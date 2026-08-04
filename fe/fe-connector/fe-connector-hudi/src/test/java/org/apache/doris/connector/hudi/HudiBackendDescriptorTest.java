@@ -225,8 +225,8 @@ public class HudiBackendDescriptorTest {
     }
 
     @Test
-    public void usesHiveParquetInt96TimeZone() {
-        Assertions.assertTrue(
+    public void doesNotUseHiveParquetInt96TimeZone() {
+        Assertions.assertFalse(
                 new HudiScanPlanProvider(new HashMap<>(), null).usesHiveParquetInt96TimeZone());
     }
 
