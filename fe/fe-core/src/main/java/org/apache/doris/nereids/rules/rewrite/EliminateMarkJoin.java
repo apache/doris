@@ -54,6 +54,12 @@ import java.util.Set;
  * The literal-TRUE alias keeps the mark slot's ExprId alive for references above the filter
  * (after the filter the mark can only be TRUE); column pruning removes it when unused.
  *
+ * The rewrite fires ONLY when the mark slot appears as a bare top-level conjunct of that
+ * filter. Whenever it occurs inside a compound predicate the three-valued mark semantics
+ * is observable and the mark join must stay as it is: filter((m and rest) is null),
+ * filter(m is null), filter(m or x), filter(not m) and a projection outputting m all keep
+ * the mark join.
+ *
  * Besides being cheaper to execute, this matters because {@code RuntimeFilterGenerator}
  * refuses to generate runtime filters on mark joins, so a residual mark join needlessly
  * disables runtime filter pruning on the probe side scan. This shape typically arises from

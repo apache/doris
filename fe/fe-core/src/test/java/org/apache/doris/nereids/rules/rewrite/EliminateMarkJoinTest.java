@@ -88,6 +88,27 @@ class EliminateMarkJoinTest extends TestWithFeService implements MemoPatternMatc
     }
 
     @Test
+    void markSlotInNullDistinguishingPredicate() {
+        // the consumer keeps rows whose mark is NULL, so three-valued mark semantics is
+        // observable and the mark join must stay as it is
+        String sql = "select t1.id from t1"
+                + " where (t1.score in (select score from t3) and t1.id > 0) is null";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin().when(LogicalJoin::isMarkJoin));
+
+        String bareIsNull = "select t1.id from t1"
+                + " where (t1.score in (select score from t3)) is null";
+
+        PlanChecker.from(connectContext)
+                .analyze(bareIsNull)
+                .rewrite()
+                .matches(logicalJoin().when(LogicalJoin::isMarkJoin));
+    }
+
+    @Test
     void markSlotInDisjunction() {
         // FALSE and NULL marks are distinguishable inside OR: must keep the mark join
         String sql = "select t1.id from t1 where t1.id = 1"
