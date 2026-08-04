@@ -22,7 +22,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
-import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
@@ -186,29 +185,14 @@ public class StreamingInsertJobOffsetPersistenceTest {
     }
 
     @Test
-    public void testReplayUpdatedRestoresStartTimeAndFailureReason() {
+    public void testReplayUpdatedRestoresStartTime() {
         TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1015L);
         TestStreamingInsertJob replayJob = newJob(new JdbcSourceOffsetProvider(), 1016L);
-        FailureReason replayFailureReason = new FailureReason("replay failure");
         replayJob.setStartTimeMs(1234L);
-        replayJob.setFailureReason(replayFailureReason);
 
         job.replayOnUpdated(replayJob);
 
         Assert.assertEquals(1234L, job.getStartTimeMs());
-        Assert.assertSame(replayFailureReason, job.getFailureReason());
-    }
-
-    @Test
-    public void testReplayUpdatedClearsFailureReason() {
-        TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1017L);
-        TestStreamingInsertJob replayJob = newJob(new JdbcSourceOffsetProvider(), 1018L);
-        job.setFailureReason(new FailureReason("stale failure"));
-        replayJob.setFailureReason(null);
-
-        job.replayOnUpdated(replayJob);
-
-        Assert.assertNull(job.getFailureReason());
     }
 
     private static TestStreamingInsertJob newJob(JdbcSourceOffsetProvider provider, long taskId) {

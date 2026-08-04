@@ -1066,7 +1066,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setCanceledTaskCount(replayJob.getCanceledTaskCount());
         setLastTaskSuccessTime(replayJob.getLastTaskSuccessTime());
         setStartTimeMs(replayJob.getStartTimeMs());
-        setFailureReason(replayJob.getFailureReason());
         this.boundBackendId = replayJob.boundBackendId;
     }
 
