@@ -17,10 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

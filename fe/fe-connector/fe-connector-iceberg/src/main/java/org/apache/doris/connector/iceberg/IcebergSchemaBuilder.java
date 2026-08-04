@@ -17,12 +17,12 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
-import org.apache.doris.connector.api.ddl.ConnectorSortField;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
+import org.apache.doris.connector.spi.ddl.ConnectorSortField;
 
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.NullOrder;
@@ -47,7 +47,7 @@ import java.util.UUID;
 
 /**
  * Builds the Iceberg create-table artifacts (Schema / PartitionSpec / SortOrder / default properties)
- * from a connector-SPI {@link org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest}.
+ * from a connector-SPI {@link org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest}.
  *
  * <p>String-driven port of the legacy fe-core iceberg create path
  * ({@code DorisTypeToIcebergType} + {@code IcebergUtils.solveIcebergPartitionSpec} +

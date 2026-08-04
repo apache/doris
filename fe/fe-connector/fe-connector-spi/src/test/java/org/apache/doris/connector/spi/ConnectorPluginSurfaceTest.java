@@ -17,8 +17,6 @@
 
 package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.api.Connector;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -70,9 +68,11 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // ConnectorProvider gained detached property validation in this surface revision. Keeping
-        // major 1 would let pre-change plugins load while silently using the new default method.
-        Assertions.assertEquals("2.0", version.getProperty("api.version"));
+        // fe-connector-api was merged into fe-connector-spi in this surface revision, so every type on
+        // the contract changed its fully-qualified name (org.apache.doris.connector.api.* ->
+        // org.apache.doris.connector.spi.*). A plugin built against major 2 cannot resolve a single one
+        // of them; it must be refused at load time rather than fail later with NoClassDefFoundError.
+        Assertions.assertEquals("3.0", version.getProperty("api.version"));
     }
 
     /** The types a connector plugin implements or calls. Everything reachable on them is the contract. */

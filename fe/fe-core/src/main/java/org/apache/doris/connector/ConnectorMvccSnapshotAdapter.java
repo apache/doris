@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
 import java.util.Objects;

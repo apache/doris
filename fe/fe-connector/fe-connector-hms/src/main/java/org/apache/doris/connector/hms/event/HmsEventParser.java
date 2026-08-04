@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.hms.event;
 
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor.Op;
 import org.apache.doris.connector.hms.HmsNotificationEvent;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.hive.common.FileUtils;

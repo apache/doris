@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.fake;
 
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.RewriteCapableTransaction;
-import org.apache.doris.connector.api.handle.WriteBlockAllocatingConnectorTransaction;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.RewriteCapableTransaction;
+import org.apache.doris.connector.spi.handle.WriteBlockAllocatingConnectorTransaction;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

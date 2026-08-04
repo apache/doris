@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.scan;
 
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

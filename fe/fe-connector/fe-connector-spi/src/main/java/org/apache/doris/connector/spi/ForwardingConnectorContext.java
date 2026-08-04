@@ -17,9 +17,6 @@
 
 package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
-
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;

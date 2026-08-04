@@ -19,11 +19,11 @@ package org.apache.doris.datasource.upgrade;
 
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorPluginManager;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSession;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,7 +34,7 @@ import java.util.TreeMap;
 /**
  * A connector provider that records what it was asked to build.
  *
- * <p>fe-core depends only on {@code fe-connector-api} and {@code fe-connector-spi}, so no real connector is
+ * <p>fe-core depends only on {@code fe-connector-spi}, so no real connector is
  * on the unit-test classpath and every catalog would otherwise land in the degraded arm of
  * {@code CatalogFactory}. Registering a recorder instead buys the strongest statement a fe-core test can
  * make about a migrated catalog: the right provider was chosen, and the properties that reach it are

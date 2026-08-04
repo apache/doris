@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.connector.converter;
 
-import org.apache.doris.connector.api.ddl.PartitionFieldChange;
+import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;

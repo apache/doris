@@ -115,7 +115,7 @@ public interface PaimonCatalogOps {
     /**
      * Returns the schema version (schemaId) of the snapshot with {@code snapshotId}
      * ({@code snapshotManager().snapshot(id).schemaId()}), or empty when it cannot be resolved.
-     * Used to stamp {@link org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot#getSchemaId()}
+     * Used to stamp {@link org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot#getSchemaId()}
      * for snapshot-id / timestamp time-travel so schema-at-snapshot reads pick the historical schema.
      */
     OptionalLong snapshotSchemaId(Table table, long snapshotId);

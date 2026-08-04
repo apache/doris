@@ -19,9 +19,9 @@ package org.apache.doris.connector;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.connector.api.ConnectorDelegatedCredential;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.nereids.StatementContext;
@@ -123,7 +123,7 @@ public final class ConnectorSessionBuilder {
 
     /**
      * Declares whether the target connector consumes the user's delegated credential
-     * ({@link org.apache.doris.connector.api.ConnectorCapability#SUPPORTS_USER_SESSION}). When {@code false}
+     * ({@link org.apache.doris.connector.spi.ConnectorCapability#SUPPORTS_USER_SESSION}). When {@code false}
      * (the default), {@link #build()} carries neither the session id nor the credential onto the session, so a
      * connector that would never use the OIDC token never receives it (least-privilege).
      */

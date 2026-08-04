@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import io.trino.spi.type.BigintType;
 import io.trino.spi.type.BooleanType;
@@ -44,7 +44,7 @@ import java.util.List;
  * Maps Trino SPI types to Doris {@link ConnectorType}.
  *
  * <p>Adapted from {@code TrinoConnectorExternalTable.trinoConnectorTypeToDorisType()}
- * in fe-core, but produces ConnectorType (fe-connector-api) instead of
+ * in fe-core, but produces ConnectorType (fe-connector-spi) instead of
  * Doris Column/Type (fe-core).</p>
  */
 public final class TrinoTypeMapping {

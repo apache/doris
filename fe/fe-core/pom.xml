@@ -109,13 +109,8 @@ under the License.
             <artifactId>fe-filesystem-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- fe-connector-api: consumer-facing connector API (Connector, ConnectorMetadata, handles, etc.) -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <!-- fe-connector-spi: provider contracts (ConnectorProvider, ConnectorContext) -->
+        <!-- fe-connector-spi: the whole connector plugin contract - ConnectorProvider and
+             ConnectorContext, plus Connector, ConnectorMetadata, handles and value types. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>

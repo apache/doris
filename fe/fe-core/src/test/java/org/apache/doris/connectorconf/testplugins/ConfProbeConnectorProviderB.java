@@ -18,7 +18,7 @@
 package org.apache.doris.connectorconf.testplugins;
 
 import org.apache.doris.connector.ConfProbeSink;
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 

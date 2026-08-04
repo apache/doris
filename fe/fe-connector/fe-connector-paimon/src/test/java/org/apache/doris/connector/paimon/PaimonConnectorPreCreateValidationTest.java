@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorValidationContext;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

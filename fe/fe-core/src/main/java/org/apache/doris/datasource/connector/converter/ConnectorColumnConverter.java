@@ -25,8 +25,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,8 +40,8 @@ import java.util.stream.Collectors;
  * Converts between the connector SPI type system ({@link ConnectorColumn}/{@link ConnectorType})
  * and the Doris internal type system ({@link Column}/{@link Type}).
  *
- * <p>This converter lives in fe-core because it depends on both the SPI API types
- * (from fe-connector-api) and the internal Doris catalog types (from fe-type/fe-core).</p>
+ * <p>This converter lives in fe-core because it depends on both the SPI types
+ * (from fe-connector-spi) and the internal Doris catalog types (from fe-type/fe-core).</p>
  */
 public final class ConnectorColumnConverter {
 

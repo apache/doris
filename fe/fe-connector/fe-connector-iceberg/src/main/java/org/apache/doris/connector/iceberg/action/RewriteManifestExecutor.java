@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg.action;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.RewriteManifests;

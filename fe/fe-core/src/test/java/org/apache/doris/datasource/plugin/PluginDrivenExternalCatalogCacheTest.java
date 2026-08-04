@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 
 import org.junit.jupiter.api.Assertions;

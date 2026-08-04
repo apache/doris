@@ -17,14 +17,14 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorViewDefinition;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorViewDefinition;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
@@ -1321,7 +1321,7 @@ public class IcebergConnectorMetadataTest {
         // GlobalExternalTransactionInfoMgr — the BE->FE report path finds the txn by this id). Dormant
         // until the P6.6 cutover; the SDK transaction is opened later by the write plan via beginWrite.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-        org.apache.doris.connector.api.handle.ConnectorTransaction txn =
+        org.apache.doris.connector.spi.handle.ConnectorTransaction txn =
                 metadataWith(ops).beginTransaction(new TxnIdSession(31337L));
 
         Assertions.assertTrue(txn instanceof IcebergConnectorTransaction);
@@ -1331,8 +1331,8 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertTrue(ops.log.isEmpty(), "beginTransaction must not touch the catalog seam");
     }
 
-    /** Minimal {@link org.apache.doris.connector.api.ConnectorSession} that only hands out a txn id. */
-    private static final class TxnIdSession implements org.apache.doris.connector.api.ConnectorSession {
+    /** Minimal {@link org.apache.doris.connector.spi.ConnectorSession} that only hands out a txn id. */
+    private static final class TxnIdSession implements org.apache.doris.connector.spi.ConnectorSession {
         private final long txnId;
 
         TxnIdSession(long txnId) {

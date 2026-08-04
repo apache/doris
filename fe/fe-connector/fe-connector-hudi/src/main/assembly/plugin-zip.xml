@@ -42,7 +42,6 @@ under the License.
             <useProjectArtifact>false</useProjectArtifact>
             <excludes>
                 <!-- Provided by fe-core classloader (parent-first) -->
-                <exclude>org.apache.doris:fe-connector-api</exclude>
                 <exclude>org.apache.doris:fe-connector-spi</exclude>
                 <exclude>org.apache.doris:fe-extension-spi</exclude>
                 <exclude>org.apache.doris:fe-filesystem-api</exclude>
