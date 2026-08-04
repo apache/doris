@@ -549,9 +549,10 @@ public class PaimonScanPlanProviderTest {
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
 
         // The connector boundary must keep one stable exception type while preserving the
-        // validation failure as its cause for diagnostics.
+        // actionable validation detail in the user-facing message and the original cause.
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.resolveScanTable(handle));
+        Assertions.assertTrue(e.getMessage().contains("scan.manifest.parallelism"));
         Assertions.assertInstanceOf(IllegalArgumentException.class, e.getCause());
         Assertions.assertTrue(e.getCause().getMessage().contains("scan.manifest.parallelism"));
     }
