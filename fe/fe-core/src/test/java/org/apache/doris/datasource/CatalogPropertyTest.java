@@ -33,7 +33,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class CatalogPropertyTest {
 
@@ -55,31 +55,59 @@ public class CatalogPropertyTest {
             }
         };
 
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch readerStarted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        AtomicReference<Map<String, String>> readerResult = new AtomicReference<>();
+        Thread concurrentReader = new Thread(
+                () -> readerResult.set(new HashMap<>(catalogProperty.getHadoopProperties())));
         try {
             Future<Map<String, String>> initializer = executor.submit(catalogProperty::getHadoopProperties);
             Assert.assertTrue(iterationStarted.await(5, TimeUnit.SECONDS));
 
-            Future<Map<String, String>> concurrentReader = executor.submit(() -> {
-                readerStarted.countDown();
-                return new HashMap<>(catalogProperty.getHadoopProperties());
-            });
-            Assert.assertTrue(readerStarted.await(5, TimeUnit.SECONDS));
-            try {
-                concurrentReader.get(200, TimeUnit.MILLISECONDS);
-                Assert.fail("Concurrent readers must not observe a partially initialized cache");
-            } catch (TimeoutException expected) {
-                // The reader must wait for the initializing thread to publish the completed map.
-            }
+            concurrentReader.start();
+            Assert.assertTrue(waitUntilBlockedOrTerminated(concurrentReader, 5, TimeUnit.SECONDS));
+            Assert.assertEquals("The reader must block until initialization publishes the completed map",
+                    Thread.State.BLOCKED, concurrentReader.getState());
 
             allowIteration.countDown();
             Assert.assertEquals("complete", initializer.get(5, TimeUnit.SECONDS).get("fs.test.property"));
-            Assert.assertEquals("complete", concurrentReader.get(5, TimeUnit.SECONDS).get("fs.test.property"));
+            concurrentReader.join(TimeUnit.SECONDS.toMillis(5));
+            Assert.assertFalse(concurrentReader.isAlive());
+            Assert.assertEquals("complete", readerResult.get().get("fs.test.property"));
         } finally {
             allowIteration.countDown();
+            concurrentReader.interrupt();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    public void testHadoopPropertiesCacheIsImmutable() {
+        Configuration configuration = new Configuration(false);
+        configuration.set("fs.test.property", "complete");
+
+        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
+        Mockito.when(storageProperties.getHadoopStorageConfig()).thenReturn(configuration);
+        Mockito.when(storageProperties.getFsCacheFingerprint()).thenReturn("test-fingerprint");
+
+        CatalogProperty catalogProperty = new CatalogProperty(null, Collections.emptyMap()) {
+            @Override
+            public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+                return Collections.singletonMap(StorageProperties.Type.HDFS, storageProperties);
+            }
+        };
+
+        Map<String, String> hadoopProperties = catalogProperty.getHadoopProperties();
+        Assert.assertThrows(UnsupportedOperationException.class,
+                () -> hadoopProperties.put("fs.test.property", "modified"));
+    }
+
+    private static boolean waitUntilBlockedOrTerminated(Thread thread, long timeout, TimeUnit timeUnit) {
+        long deadline = System.nanoTime() + timeUnit.toNanos(timeout);
+        while (thread.isAlive() && thread.getState() != Thread.State.BLOCKED
+                && System.nanoTime() < deadline) {
+            Thread.yield();
+        }
+        return !thread.isAlive() || thread.getState() == Thread.State.BLOCKED;
     }
 
     private static class BlockingConfiguration extends Configuration {
