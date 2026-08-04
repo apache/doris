@@ -118,13 +118,13 @@ public class JdbcSourceOffsetProviderOffsetTest {
     }
 
     @Test
-    public void testEmptyBinlogOffsetIsRejected() {
-        assertEmptyBinlogOffsetIsRejected(new TestJdbcSourceOffsetProvider(-1));
+    public void testEmptyBinlogOffsetKeepsPreviousState() {
+        assertEmptyBinlogOffsetKeepsPreviousState(new TestJdbcSourceOffsetProvider(-1));
     }
 
     @Test
-    public void testTvfEmptyBinlogOffsetIsRejected() {
-        assertEmptyBinlogOffsetIsRejected(new TestJdbcTvfSourceOffsetProvider(-1));
+    public void testTvfEmptyBinlogOffsetKeepsPreviousState() {
+        assertEmptyBinlogOffsetKeepsPreviousState(new TestJdbcTvfSourceOffsetProvider(-1));
     }
 
     @Test
@@ -209,17 +209,18 @@ public class JdbcSourceOffsetProviderOffsetTest {
         Assert.assertTrue(persistInfo.contains("table-schemas"));
     }
 
-    private static void assertEmptyBinlogOffsetIsRejected(JdbcSourceOffsetProvider provider) {
+    private static void assertEmptyBinlogOffsetKeepsPreviousState(JdbcSourceOffsetProvider provider) {
         seedSnapshotState(provider);
+        JdbcOffset previousOffset = new JdbcOffset(
+                Collections.singletonList(snapshotSplit("source_table:0")));
+        provider.currentOffset = previousOffset;
+        provider.hasMoreData = false;
 
-        try {
-            provider.updateOffset(new JdbcOffset(
-                    Collections.singletonList(new BinlogSplit(Collections.emptyMap()))));
-            Assert.fail("Empty committed binlog offset should be rejected");
-        } catch (IllegalArgumentException e) {
-            Assert.assertTrue(e.getMessage().contains("Committed binlog offset must not be empty"));
-        }
+        provider.updateOffset(new JdbcOffset(
+                Collections.singletonList(new BinlogSplit(Collections.emptyMap()))));
 
+        Assert.assertSame(previousOffset, provider.currentOffset);
+        Assert.assertFalse(provider.hasMoreData);
         Assert.assertFalse(provider.chunkHighWatermarkMap.isEmpty());
         Assert.assertFalse(provider.remainingSplits.isEmpty());
         Assert.assertFalse(provider.finishedSplits.isEmpty());

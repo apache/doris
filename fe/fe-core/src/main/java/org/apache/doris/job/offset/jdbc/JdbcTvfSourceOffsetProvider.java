@@ -294,8 +294,10 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             synchronized (splitsLock) {
                 // Mirror binlog offset into bop so it survives FE checkpoint
                 BinlogSplit bs = (BinlogSplit) newOffset.getSplits().get(0);
-                Preconditions.checkArgument(MapUtils.isNotEmpty(bs.getStartingOffset()),
-                        "Committed binlog offset must not be empty");
+                if (MapUtils.isEmpty(bs.getStartingOffset())) {
+                    log.warn("Skip empty committed binlog offset for job {}", getJobId());
+                    return;
+                }
                 binlogOffsetPersist = new HashMap<>(bs.getStartingOffset());
                 binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
                 clearSnapshotState();

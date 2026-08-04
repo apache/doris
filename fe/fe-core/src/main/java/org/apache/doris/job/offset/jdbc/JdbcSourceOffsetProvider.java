@@ -50,7 +50,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -257,8 +256,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         } else {
             synchronized (splitsLock) {
                 BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
-                Preconditions.checkArgument(MapUtils.isNotEmpty(binlogSplit.getStartingOffset()),
-                        "Committed binlog offset must not be empty");
+                if (MapUtils.isEmpty(binlogSplit.getStartingOffset())) {
+                    log.warn("Skip empty committed binlog offset for job {}", getJobId());
+                    return;
+                }
                 binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
                 binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
                 clearSnapshotState();
