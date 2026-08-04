@@ -857,13 +857,21 @@ Status FileScanner::_convert_to_output_block(Block* block) {
             column_ptr = make_nullable(column_ptr);
         }
         DORIS_CHECK_EQ(column_ptr->size(), rows);
-        DORIS_CHECK_EQ(mutable_output_columns[j]->get_name(), column_ptr->get_name());
-        output_columns[j] = std::move(column_ptr);
+        if (mutable_output_columns[j]->get_name() == column_ptr->get_name()) {
+            output_columns[j] = std::move(column_ptr);
+        } else {
+            // Some columns use specialized expression-result representations. For example, a
+            // scalar Variant must be inserted into the destination Variant column to normalize
+            // its internal structure before publication.
+            mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
+        }
         ctx_idx++;
     }
     scoped_mutable_output_block.restore();
     for (size_t i = 0; i < output_columns.size(); ++i) {
-        block->replace_by_position(i, std::move(output_columns[i]));
+        if (output_columns[i]) {
+            block->replace_by_position(i, std::move(output_columns[i]));
+        }
     }
 
     // Clear the source references before filtering so directly published columns can become
