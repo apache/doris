@@ -55,6 +55,7 @@ enum class Kernel {
     NESTED_SELECTION
 };
 enum class NestedSelectionImplementation { LEGACY, FUSED };
+enum class NullableSelectionImplementation { LEGACY, FUSED };
 
 struct DecoderScenario {
     Encoding encoding;
@@ -87,6 +88,14 @@ struct SelectionScenario {
     SelectionOperation operation;
     int selectivity_percent;
     Pattern pattern;
+};
+
+struct NullableSelectionScenario {
+    int selectivity_percent;
+    int null_percent;
+    Pattern selection_pattern;
+    Pattern null_pattern;
+    NullableSelectionImplementation implementation;
 };
 
 struct SelectionRange {
@@ -171,6 +180,24 @@ inline std::vector<SelectionScenario> selection_scenarios() {
         for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
             for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
                 scenarios.push_back({operation, selectivity, pattern});
+            }
+        }
+    }
+    return scenarios;
+}
+
+inline std::vector<NullableSelectionScenario> nullable_selection_scenarios() {
+    std::vector<NullableSelectionScenario> scenarios;
+    for (const int selectivity : {1, 10, 50, 90, 99}) {
+        for (const int null_percent : {0, 1, 10, 50, 90}) {
+            for (const auto selection_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                for (const auto null_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                    for (const auto implementation : {NullableSelectionImplementation::LEGACY,
+                                                      NullableSelectionImplementation::FUSED}) {
+                        scenarios.push_back({selectivity, null_percent, selection_pattern,
+                                             null_pattern, implementation});
+                    }
+                }
             }
         }
     }
@@ -430,6 +457,16 @@ inline std::string to_string(NestedSelectionImplementation value) {
     case NestedSelectionImplementation::LEGACY:
         return "legacy";
     case NestedSelectionImplementation::FUSED:
+        return "fused";
+    }
+    return "unknown";
+}
+
+inline std::string to_string(NullableSelectionImplementation value) {
+    switch (value) {
+    case NullableSelectionImplementation::LEGACY:
+        return "legacy";
+    case NullableSelectionImplementation::FUSED:
         return "fused";
     }
     return "unknown";

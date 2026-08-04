@@ -17,6 +17,7 @@
 
 #include "format_v2/parquet/reader/native/common.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "core/types.h"
@@ -66,6 +67,133 @@ bool FilterMap::can_filter_all(size_t remaining_num_values, size_t filter_map_in
     return simd::count_zero_num(
                    reinterpret_cast<const int8_t*>(_filter_map_data + filter_map_index),
                    remaining_num_values) == remaining_num_values;
+}
+
+bool should_use_fused_nullable_selection(size_t num_values, size_t num_nulls,
+                                         size_t num_null_runs) {
+    constexpr size_t MIN_BATCH_VALUES = 1024;
+    constexpr size_t MIN_NULL_RUNS = 32;
+    constexpr size_t MAX_AVERAGE_NULL_RUN = 64;
+    constexpr size_t MIN_NULL_RATIO_DENOMINATOR = 10;
+    if (num_values < MIN_BATCH_VALUES || num_nulls < num_values / MIN_NULL_RATIO_DENOMINATOR) {
+        return false;
+    }
+    return num_null_runs >= std::max(MIN_NULL_RUNS, num_values / MAX_AVERAGE_NULL_RUN);
+}
+
+Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length_null_map,
+                                         size_t num_values, size_t num_nulls,
+                                         NullMap* output_null_map, FilterMap* filter_map,
+                                         size_t filter_map_index, ParquetSelection* selection,
+                                         NullMap* selected_nulls, size_t* num_filtered) {
+    if (output_null_map == nullptr || filter_map == nullptr || selection == nullptr ||
+        selected_nulls == nullptr || num_filtered == nullptr) {
+        return Status::InvalidArgument(
+                "Nullable selection planning requires non-null output state");
+    }
+    if (!filter_map->has_filter()) {
+        return Status::InvalidArgument("Nullable selection planning requires a row filter");
+    }
+    if (!filter_map->filter_all() &&
+        (filter_map->filter_map_data() == nullptr ||
+         filter_map_index + num_values > filter_map->filter_map_size())) {
+        return Status::InvalidArgument("Nullable selection filter range [{}, {}) exceeds size {}",
+                                       filter_map_index, filter_map_index + num_values,
+                                       filter_map->filter_map_size());
+    }
+    if (num_nulls > num_values) {
+        return Status::InvalidArgument("Nullable selection has {} nulls for {} values", num_nulls,
+                                       num_values);
+    }
+
+    selection->ranges.clear();
+    selection->total_values = num_values - num_nulls;
+    selection->selected_values = 0;
+    selected_nulls->clear();
+    *num_filtered = 0;
+    if (filter_map->filter_all()) {
+        *num_filtered = num_values;
+        return Status::OK();
+    }
+
+    selected_nulls->reserve(num_values);
+    const uint8_t* filter = filter_map->filter_map_data() + filter_map_index;
+    const auto select_physical_values = [&](size_t physical_index, size_t count) {
+        if (!selection->ranges.empty() &&
+            selection->ranges.back().first + selection->ranges.back().count == physical_index) {
+            selection->ranges.back().count += count;
+        } else {
+            selection->ranges.push_back({.first = physical_index, .count = count});
+        }
+        selection->selected_values += count;
+    };
+
+    if (num_nulls == 0) {
+        size_t row = 0;
+        while (row < num_values) {
+            const bool selected = filter[row] != 0;
+            const size_t run_start = row++;
+            while (row < num_values && (filter[row] != 0) == selected) {
+                ++row;
+            }
+            const size_t run_length = row - run_start;
+            if (selected) {
+                select_physical_values(run_start, run_length);
+            } else {
+                *num_filtered += run_length;
+            }
+        }
+        selected_nulls->resize_fill(selection->selected_values, 0);
+    } else {
+        size_t logical_index = 0;
+        size_t physical_index = 0;
+        size_t observed_nulls = 0;
+        bool is_null = false;
+        for (const size_t run_length : run_length_null_map) {
+            if (logical_index + run_length > num_values) {
+                return Status::InvalidArgument("Nullable selection run lengths exceed {} values",
+                                               num_values);
+            }
+            const size_t run_end = logical_index + run_length;
+            while (logical_index < run_end) {
+                const bool selected = filter[logical_index] != 0;
+                const size_t filter_run_start = logical_index++;
+                while (logical_index < run_end && (filter[logical_index] != 0) == selected) {
+                    ++logical_index;
+                }
+                const size_t filter_run_length = logical_index - filter_run_start;
+                if (selected) {
+                    selected_nulls->resize_fill(selected_nulls->size() + filter_run_length,
+                                                static_cast<UInt8>(is_null));
+                    if (!is_null) {
+                        select_physical_values(physical_index, filter_run_length);
+                    }
+                } else {
+                    *num_filtered += filter_run_length;
+                }
+                if (!is_null) {
+                    physical_index += filter_run_length;
+                } else {
+                    observed_nulls += filter_run_length;
+                }
+            }
+            is_null = !is_null;
+        }
+        if (logical_index != num_values || observed_nulls != num_nulls ||
+            physical_index != selection->total_values) {
+            return Status::InvalidArgument(
+                    "Nullable selection level plan is inconsistent: values={}, nulls={}",
+                    logical_index, observed_nulls);
+        }
+    }
+
+    const size_t old_null_size = output_null_map->size();
+    output_null_map->resize(old_null_size + selected_nulls->size());
+    if (!selected_nulls->empty()) {
+        memcpy(output_null_map->data() + old_null_size, selected_nulls->data(),
+               selected_nulls->size());
+    }
+    return Status::OK();
 }
 
 Status FilterMap::generate_nested_filter_map(const std::vector<level_t>& rep_levels,

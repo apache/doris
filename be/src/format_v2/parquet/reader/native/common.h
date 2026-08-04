@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 
 namespace doris::format::parquet::native {
 
@@ -115,5 +116,15 @@ private:
     size_t _num_filtered = 0;
     size_t _read_index = 0;
 };
+
+Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length_null_map,
+                                         size_t num_values, size_t num_nulls,
+                                         NullMap* output_null_map, FilterMap* filter_map,
+                                         size_t filter_map_index, ParquetSelection* selection,
+                                         NullMap* selected_nulls, size_t* num_filtered);
+
+// Fusion pays for its additional planning branches only when definition levels are materially
+// nullable and fragmented. Keep compact/no-NULL batches on the run-oriented legacy path.
+bool should_use_fused_nullable_selection(size_t num_values, size_t num_nulls, size_t num_null_runs);
 
 } // namespace doris::format::parquet::native
