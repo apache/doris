@@ -236,6 +236,40 @@ suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,
     }
     // ===== End File Cache Features Metrics Check =====
 
+    // Both setBeConfigTemporary blocks above deliberately push EVERY backend into
+    // disk_resource_limit_mode and need_evict_cache_in_advance. Those two modes drain the shared
+    // file cache, and while disk_resource_limit_mode is on BlockFileCache::try_reserve refuses
+    // every new block: it multiplies the requested size by 5 and admits only if it managed to evict
+    // that much, which an already-drained cache never can. setBeConfigTemporary restores the
+    // configs, but the BE only recomputes the two flags in run_background_monitor, i.e. once per
+    // file_cache_background_monitor_interval_ms. Returning right after the restore therefore hands
+    // a drained, admit-nothing cache to whatever suite runs next -- that is what made
+    // test_file_cache_statistics see normal_queue_curr_size == 0 and fail. Wait for the cluster to
+    // come back to normal before finishing so this suite leaves the state it found.
+    //
+    // max() (not "limit 1") because a single row is one arbitrary (backend, cache_path) pair: the
+    // wait has to see every path leave the mode, and any path still in it is a 1.
+    def cacheMetricMax = { String metricName ->
+        def r = sql """select max(cast(METRIC_VALUE as double)) from information_schema.file_cache_statistics
+                where METRIC_NAME = '${metricName}';"""
+        if (r.size() == 0 || r[0][0] == null) {
+            return null
+        }
+        return Double.valueOf(r[0][0].toString())
+    }
+
+    Awaitility.await()
+            .atMost((totalWaitTime * 4 + 10) as long, TimeUnit.SECONDS)
+            .pollInterval(1, TimeUnit.SECONDS)
+            .until {
+                def limitMode = cacheMetricMax('disk_resource_limit_mode')
+                def evictInAdvance = cacheMetricMax('need_evict_cache_in_advance')
+                logger.info("waiting for file cache modes to reset - disk_resource_limit_mode: " +
+                    "${limitMode}, need_evict_cache_in_advance: ${evictInAdvance}")
+                return limitMode != null && evictInAdvance != null &&
+                    limitMode == 0.0 && evictInAdvance == 0.0
+            }
+
     sql """set global enable_file_cache=false"""
     return true
 }
