@@ -168,13 +168,19 @@ public:
         T min_value = min_field.template get<Type>();
         T max_value = max_field.template get<Type>();
 
-        if constexpr (PT == PredicateType::EQ) {
-            if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
-                // Parquet range bounds may exclude NaNs from a mixed-value chunk.
-                if (std::isnan(_value)) {
-                    return true;
-                }
+        if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
+            constexpr bool hidden_nan_can_match_non_nan =
+                    PT == PredicateType::NE || PT == PredicateType::GT || PT == PredicateType::GE;
+            constexpr bool hidden_nan_can_match_nan =
+                    PT == PredicateType::EQ || PT == PredicateType::GE;
+            // Parquet bounds omit NaNs, so only operators that cannot match a hidden NaN may prune.
+            if ((std::isnan(_value) && hidden_nan_can_match_nan) ||
+                (!std::isnan(_value) && hidden_nan_can_match_non_nan)) {
+                return true;
             }
+        }
+
+        if constexpr (PT == PredicateType::EQ) {
             return Compare::less_equal(min_value, _value) &&
                    Compare::greater_equal(max_value, _value);
         } else if constexpr (PT == PredicateType::NE) {

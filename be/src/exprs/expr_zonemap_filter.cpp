@@ -168,6 +168,7 @@ Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataT
     DORIS_CHECK(value_type != nullptr);
 
     result->contains_null = set.contain_null();
+    result->contains_nan = false;
     result->values.clear();
     result->min_value = Field();
     result->max_value = Field();
@@ -182,6 +183,7 @@ Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataT
             auto literal = VLiteral::create_shared(literal_node);
             Field field;
             literal->get_column_ptr()->get(0, field);
+            result->contains_nan |= field_is_nan(field, value_type->get_primitive_type());
             result->values.emplace_back(std::move(field));
         }
         iterator->next();
@@ -261,7 +263,8 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
 
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
                                     bool is_not_in, const std::vector<Field>& values,
-                                    const Field& min_value, const Field& max_value) {
+                                    bool contains_nan, const Field& min_value,
+                                    const Field& max_value) {
     auto slot = std::dynamic_pointer_cast<VSlotRef>(slot_expr);
     DORIS_CHECK(slot != nullptr);
     // Empty IN has no candidate values, while NOT IN with an empty set cannot filter anything.
@@ -278,15 +281,6 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
     DORIS_CHECK(field_types_compatible(min_value.get_type(), data_type->get_primitive_type()));
     DORIS_CHECK(field_types_compatible(max_value.get_type(), data_type->get_primitive_type()));
 
-    if (!is_not_in && ctx.floating_nan_count_unknown(slot->column_id()) &&
-        std::ranges::any_of(values, [&](const Field& value) {
-            return field_is_nan(value, data_type->get_primitive_type());
-        })) {
-        // Parquet range bounds may omit NaNs, so they cannot disprove an IN candidate containing
-        // one without a separate trustworthy NaN count.
-        return unsupported_zonemap_filter(ctx);
-    }
-
     // Re-check against the reader-schema type and the available zone map. Missing or unsupported
     // metadata must conservatively fall back to may-match.
     auto slot_type = fetch_compatible_slot_type(ctx, slot->column_id(), slot->data_type());
@@ -301,6 +295,12 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
     // IN values are all non-null here, so an all-null zone cannot match.
     if (!zone_map.has_not_null) {
         return ZoneMapFilterResult::kNoMatch;
+    }
+
+    if (ctx.floating_nan_count_unknown(slot->column_id()) &&
+        ((!is_not_in && contains_nan) || (is_not_in && !contains_nan))) {
+        // Hidden Parquet NaNs can satisfy IN only when queried, and NOT IN only when omitted.
+        return unsupported_zonemap_filter(ctx);
     }
 
     if (!range_stats_usable_for_zonemap(zone_map, slot_type)) {

@@ -322,9 +322,14 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
 
     const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
     const auto& literal = slot_literal->literal;
-    if (effective_op == Op::EQ && ctx.floating_nan_count_unknown(slot_literal->slot_index) &&
-        expr_zonemap::field_is_nan(literal, remove_nullable(slot_type)->get_primitive_type())) {
-        // Parquet min/max can describe only finite values from a mixed finite/NaN chunk.
+    const bool literal_is_nan =
+            expr_zonemap::field_is_nan(literal, remove_nullable(slot_type)->get_primitive_type());
+    const bool hidden_nan_can_match = (effective_op == Op::EQ && literal_is_nan) ||
+                                      (effective_op == Op::NE && !literal_is_nan) ||
+                                      (effective_op == Op::GT && !literal_is_nan) ||
+                                      effective_op == Op::GE;
+    if (ctx.floating_nan_count_unknown(slot_literal->slot_index) && hidden_nan_can_match) {
+        // Parquet bounds omit NaNs, so only operators that cannot match a hidden NaN may prune.
         return unsupported_zonemap_filter(ctx);
     }
     switch (effective_op) {

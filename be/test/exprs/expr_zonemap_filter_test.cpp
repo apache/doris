@@ -466,38 +466,72 @@ TEST(ExprZonemapFilterTest, FloatingPointNanBloomProbeIsConservative) {
 }
 
 TEST(ExprZonemapFilterTest, FloatingPointNanEqualityIgnoresFiniteOnlyRangeBounds) {
-    const auto check_type =
-            []<PrimitiveType Type, typename DataType, typename UInt>(UInt nan_bits) {
-                using T = typename PrimitiveTypeTraits<Type>::CppType;
-                auto type = std::make_shared<DataType>();
-                auto slot = make_slot(0, type);
-                const auto nan_field = Field::create_field<Type>(std::bit_cast<T>(nan_bits));
-                auto nan_literal =
-                        std::make_shared<VLiteral>(create_texpr_node_from(nan_field, Type, 0, 0));
+    const auto check_type = []<PrimitiveType Type, typename DataType, typename UInt>(
+                                    UInt nan_bits) {
+        using T = typename PrimitiveTypeTraits<Type>::CppType;
+        auto type = std::make_shared<DataType>();
+        auto slot = make_slot(0, type);
+        const auto nan_field = Field::create_field<Type>(std::bit_cast<T>(nan_bits));
+        auto nan_literal =
+                std::make_shared<VLiteral>(create_texpr_node_from(nan_field, Type, 0, 0));
 
-                segment_v2::ZoneMap zone_map;
-                zone_map.min_value = Field::create_field<Type>(T {0});
-                zone_map.max_value = Field::create_field<Type>(T {0});
-                zone_map.has_not_null = true;
-                auto ctx = make_context(std::move(zone_map), type);
-                ctx.slots.at(0).floating_nan_count_unknown = true;
+        segment_v2::ZoneMap zone_map;
+        zone_map.min_value = Field::create_field<Type>(T {0});
+        zone_map.max_value = Field::create_field<Type>(T {0});
+        zone_map.has_not_null = true;
+        auto ctx = make_context(std::move(zone_map), type);
+        ctx.slots.at(0).floating_nan_count_unknown = true;
 
-                FunctionComparison<EqualsOp, NameEquals> equals;
-                EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
-                          equals.evaluate_zonemap_filter(ctx, {slot, nan_literal}));
+        FunctionComparison<EqualsOp, NameEquals> equals;
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  equals.evaluate_zonemap_filter(ctx, {slot, nan_literal}));
 
-                const auto finite_field = Field::create_field<Type>(T {10});
-                EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
-                          expr_zonemap::eval_in_zonemap(ctx, slot, false, {finite_field, nan_field},
-                                                        finite_field, nan_field));
+        const auto finite_field = Field::create_field<Type>(T {10});
+        const auto zero_field = Field::create_field<Type>(T {0});
+        const auto one_field = Field::create_field<Type>(T {1});
+        auto zero_literal =
+                std::make_shared<VLiteral>(create_texpr_node_from(zero_field, Type, 0, 0));
+        auto one_literal =
+                std::make_shared<VLiteral>(create_texpr_node_from(one_field, Type, 0, 0));
+        FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+        FunctionComparison<GreaterOp, NameGreater> greater;
+        FunctionComparison<GreaterOrEqualsOp, NameGreaterOrEquals> greater_equal;
+        FunctionComparison<LessOp, NameLess> less;
+        FunctionComparison<LessOrEqualsOp, NameLessOrEquals> less_equal;
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  not_equals.evaluate_zonemap_filter(ctx, {slot, zero_literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  greater.evaluate_zonemap_filter(ctx, {slot, one_literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  greater_equal.evaluate_zonemap_filter(ctx, {slot, one_literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  less.evaluate_zonemap_filter(ctx, {one_literal, slot}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  less_equal.evaluate_zonemap_filter(ctx, {one_literal, slot}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  expr_zonemap::eval_in_zonemap(ctx, slot, false, {finite_field, nan_field}, true,
+                                                finite_field, nan_field));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  expr_zonemap::eval_in_zonemap(ctx, slot, true, {zero_field}, false, zero_field,
+                                                zero_field));
 
-                ctx.slots.at(0).floating_nan_count_unknown = false;
-                EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-                          equals.evaluate_zonemap_filter(ctx, {slot, nan_literal}));
-                EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-                          expr_zonemap::eval_in_zonemap(ctx, slot, false, {finite_field, nan_field},
-                                                        finite_field, nan_field));
-            };
+        segment_v2::ZoneMap all_null_zone_map;
+        all_null_zone_map.min_value = zero_field;
+        all_null_zone_map.max_value = zero_field;
+        auto all_null_ctx = make_context(std::move(all_null_zone_map), type);
+        all_null_ctx.slots.at(0).floating_nan_count_unknown = true;
+        EXPECT_EQ(
+                ZoneMapFilterResult::kNoMatch,
+                expr_zonemap::eval_in_zonemap(all_null_ctx, slot, false, {finite_field, nan_field},
+                                              true, finite_field, nan_field));
+
+        ctx.slots.at(0).floating_nan_count_unknown = false;
+        EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+                  equals.evaluate_zonemap_filter(ctx, {slot, nan_literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+                  expr_zonemap::eval_in_zonemap(ctx, slot, false, {finite_field, nan_field}, true,
+                                                finite_field, nan_field));
+    };
 
     check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(uint32_t {0x7fc00002U});
     check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(uint64_t {0x7ff8000000000002ULL});
@@ -618,7 +652,7 @@ TEST(ExprZonemapFilterTest, MissingSlotTypeCountsUnsupportedZonemapEvalOnce) {
     std::vector<Field> values {int_field(10)};
     ZoneMapEvalContext in_ctx;
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
-              expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, int_field(10),
+              expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, false, int_field(10),
                                             int_field(10)));
     EXPECT_EQ(1, in_ctx.stats.unusable_zonemap_eval_count);
 }
@@ -681,20 +715,20 @@ TEST(ExprZonemapFilterTest, InZonemapSkipsZonesWithoutNonNullValues) {
     segment_v2::ZoneMap empty_zone;
     auto empty_ctx = make_context(empty_zone, type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(empty_ctx, slot, false, values, int_field(10),
+              expr_zonemap::eval_in_zonemap(empty_ctx, slot, false, values, false, int_field(10),
                                             int_field(10)));
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(empty_ctx, slot, true, values, int_field(10),
+              expr_zonemap::eval_in_zonemap(empty_ctx, slot, true, values, false, int_field(10),
                                             int_field(10)));
 
     segment_v2::ZoneMap only_null_zone;
     only_null_zone.has_null = true;
     auto only_null_ctx = make_context(only_null_zone, type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(only_null_ctx, slot, false, values, int_field(10),
-                                            int_field(10)));
+              expr_zonemap::eval_in_zonemap(only_null_ctx, slot, false, values, false,
+                                            int_field(10), int_field(10)));
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(only_null_ctx, slot, true, values, int_field(10),
+              expr_zonemap::eval_in_zonemap(only_null_ctx, slot, true, values, false, int_field(10),
                                             int_field(10)));
 }
 
@@ -784,8 +818,9 @@ TEST(ExprZonemapFilterTest, CharZonemapUsesTrimmedLogicalBounds) {
     auto in_value = Field::create_field<TYPE_STRING>("gamma");
     std::vector<Field> values {in_value};
     auto in_ctx = make_context(zone_map, char_type);
-    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, in_value, in_value));
+    EXPECT_EQ(
+            ZoneMapFilterResult::kNoMatch,
+            expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, false, in_value, in_value));
 }
 
 TEST(ExprZonemapFilterTest, InZonemapFallsBackToRangeWhenPointListIsLarge) {
@@ -798,7 +833,8 @@ TEST(ExprZonemapFilterTest, InZonemapFallsBackToRangeWhenPointListIsLarge) {
         values.emplace_back(int_field(value));
     }
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
-              expr_zonemap::eval_in_zonemap(ctx, slot, false, values, int_field(1), int_field(65)));
+              expr_zonemap::eval_in_zonemap(ctx, slot, false, values, false, int_field(1),
+                                            int_field(65)));
 
     EXPECT_EQ(0, ctx.stats.in_zonemap_point_check_count);
     EXPECT_EQ(1, ctx.stats.in_zonemap_range_only_count);
@@ -811,7 +847,8 @@ TEST(ExprZonemapFilterTest, InZonemapUsesPointChecksUnderThreshold) {
 
     std::vector<Field> values {int_field(1), int_field(30)};
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(ctx, slot, false, values, int_field(1), int_field(30)));
+              expr_zonemap::eval_in_zonemap(ctx, slot, false, values, false, int_field(1),
+                                            int_field(30)));
     EXPECT_EQ(1, ctx.stats.in_zonemap_point_check_count);
 }
 
@@ -822,19 +859,19 @@ TEST(ExprZonemapFilterTest, InZonemapHandlesEmptyListAndNotInSingleValueRange) {
 
     std::vector<Field> empty_values;
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(ctx, slot, false, empty_values, {}, {}));
+              expr_zonemap::eval_in_zonemap(ctx, slot, false, empty_values, false, {}, {}));
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
-              expr_zonemap::eval_in_zonemap(ctx, slot, true, empty_values, {}, {}));
+              expr_zonemap::eval_in_zonemap(ctx, slot, true, empty_values, false, {}, {}));
 
     auto single_value_ctx = make_context(make_int_zonemap(10, 10), type);
     std::vector<Field> values {int_field(10)};
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, values, int_field(10),
-                                            int_field(10)));
+              expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, values, false,
+                                            int_field(10), int_field(10)));
 
     std::vector<Field> other_values {int_field(11)};
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
-              expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, other_values,
+              expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, other_values, false,
                                             int_field(11), int_field(11)));
 }
 

@@ -630,7 +630,6 @@ private:
         if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
             if (std::isnan(value)) {
                 _contains_nan = true;
-                return;
             }
         }
         if (Compare::greater(value, _max_value)) {

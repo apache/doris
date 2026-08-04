@@ -150,7 +150,7 @@ private:
 
 class MetadataFloatingEqualityExpr final : public VExpr {
 public:
-    enum class Mode { EQ, IN };
+    enum class Mode { EQ, IN, NE, GT, GE, REVERSED_LT, REVERSED_LE, NOT_IN };
 
     MetadataFloatingEqualityExpr(int column_id, DataTypePtr data_type, Field nan_value, Mode mode)
             : VExpr(std::make_shared<DataTypeUInt8>(), false),
@@ -159,8 +159,20 @@ public:
                       nan_value, remove_nullable(data_type)->get_primitive_type(), 0, 0))),
               _mode(mode),
               _values {Field::create_field<TYPE_DOUBLE>(10.0), std::move(nan_value)} {
-        if (remove_nullable(data_type)->get_primitive_type() == TYPE_FLOAT) {
+        const auto primitive_type = remove_nullable(data_type)->get_primitive_type();
+        if (primitive_type == TYPE_FLOAT) {
             _values[0] = Field::create_field<TYPE_FLOAT>(10.0F);
+            _zero_literal = VLiteral::create_shared(create_texpr_node_from(
+                    Field::create_field<TYPE_FLOAT>(0.0F), TYPE_FLOAT, 0, 0));
+            _one_literal = VLiteral::create_shared(create_texpr_node_from(
+                    Field::create_field<TYPE_FLOAT>(1.0F), TYPE_FLOAT, 0, 0));
+            _not_in_values = {Field::create_field<TYPE_FLOAT>(0.0F)};
+        } else {
+            _zero_literal = VLiteral::create_shared(create_texpr_node_from(
+                    Field::create_field<TYPE_DOUBLE>(0.0), TYPE_DOUBLE, 0, 0));
+            _one_literal = VLiteral::create_shared(create_texpr_node_from(
+                    Field::create_field<TYPE_DOUBLE>(1.0), TYPE_DOUBLE, 0, 0));
+            _not_in_values = {Field::create_field<TYPE_DOUBLE>(0.0)};
         }
     }
 
@@ -171,11 +183,33 @@ public:
     }
     bool can_evaluate_zonemap_filter() const override { return true; }
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        if (_mode == Mode::EQ) {
+        switch (_mode) {
+        case Mode::EQ:
             return comparison_zonemap_detail::evaluate(ctx, {_slot, _nan_literal},
                                                        comparison_zonemap_detail::Op::EQ);
+        case Mode::IN:
+            return expr_zonemap::eval_in_zonemap(ctx, _slot, false, _values, true, _values[0],
+                                                 _values[1]);
+        case Mode::NE:
+            return comparison_zonemap_detail::evaluate(ctx, {_slot, _zero_literal},
+                                                       comparison_zonemap_detail::Op::NE);
+        case Mode::GT:
+            return comparison_zonemap_detail::evaluate(ctx, {_slot, _one_literal},
+                                                       comparison_zonemap_detail::Op::GT);
+        case Mode::GE:
+            return comparison_zonemap_detail::evaluate(ctx, {_slot, _one_literal},
+                                                       comparison_zonemap_detail::Op::GE);
+        case Mode::REVERSED_LT:
+            return comparison_zonemap_detail::evaluate(ctx, {_one_literal, _slot},
+                                                       comparison_zonemap_detail::Op::LT);
+        case Mode::REVERSED_LE:
+            return comparison_zonemap_detail::evaluate(ctx, {_one_literal, _slot},
+                                                       comparison_zonemap_detail::Op::LE);
+        case Mode::NOT_IN:
+            return expr_zonemap::eval_in_zonemap(ctx, _slot, true, _not_in_values, false,
+                                                 _not_in_values[0], _not_in_values[0]);
         }
-        return expr_zonemap::eval_in_zonemap(ctx, _slot, false, _values, _values[0], _values[1]);
+        __builtin_unreachable();
     }
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
         _slot->collect_slot_column_ids(column_ids);
@@ -184,8 +218,11 @@ public:
 private:
     VExprSPtr _slot;
     VExprSPtr _nan_literal;
+    VExprSPtr _zero_literal;
+    VExprSPtr _one_literal;
     Mode _mode;
     std::vector<Field> _values;
+    std::vector<Field> _not_in_values;
     const std::string _expr_name = "MetadataFloatingEqualityExpr";
 };
 
@@ -506,7 +543,12 @@ TEST(NativeParquetStatisticsTest, FloatingNanEqualityKeepsFiniteOnlyFooterAndPag
 
         const auto nan_field = Field::create_field<Type>(std::bit_cast<T>(nan_bits));
         for (const auto mode :
-             {MetadataFloatingEqualityExpr::Mode::EQ, MetadataFloatingEqualityExpr::Mode::IN}) {
+             {MetadataFloatingEqualityExpr::Mode::EQ, MetadataFloatingEqualityExpr::Mode::IN,
+              MetadataFloatingEqualityExpr::Mode::NE, MetadataFloatingEqualityExpr::Mode::GT,
+              MetadataFloatingEqualityExpr::Mode::GE,
+              MetadataFloatingEqualityExpr::Mode::REVERSED_LT,
+              MetadataFloatingEqualityExpr::Mode::REVERSED_LE,
+              MetadataFloatingEqualityExpr::Mode::NOT_IN}) {
             format::FileScanRequest request;
             request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
             request.predicate_columns = {
