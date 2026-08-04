@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 
 /**
  * Plans the set of scan ranges (splits) needed to read a connector table.
@@ -146,6 +147,42 @@ public interface ConnectorScanPlanProvider {
      */
     default TFileCompressType adjustFileCompressType(TFileCompressType inferred) {
         return inferred;
+    }
+
+    /**
+     * The columns BE must READ for this scan even when the query references none of them, by Doris-side
+     * column name. The engine keeps their slots in the scan's tuple instead of pruning them away; the
+     * projection above the scan still removes them from the query's output, so the answer changes what is
+     * read, never what is returned.
+     *
+     * <p>This exists for a connector whose BE-side reader needs a column to produce CORRECT ROWS rather than
+     * to answer the query — a merge key, a suppression key, a row identity. Doris does the same thing for its
+     * own aggregate / merge-on-read unique-key tables ({@code PhysicalPlanTranslator.preserveExtraStorageKeySlots}):
+     * BE merges by key whether or not the user selected the key. Trino has no counterpart because its
+     * connectors own the page source and can add such columns privately; here the reader is BE, so the columns
+     * have to reach it through the plan.</p>
+     *
+     * <p>Answer per SCAN, not per table: a connector that only sometimes needs the column (e.g. only when it
+     * decides to combine two sources) must return it only for those scans, and must reach the SAME decision
+     * when it later plans the splits — the engine asks this during plan translation, strictly before
+     * {@link #planScan}. Memoize that decision on the provider instance (the engine keeps one per scan node)
+     * rather than deciding twice: two independent decisions can disagree, and then BE is asked to read a
+     * column the tuple does not carry.</p>
+     *
+     * <p>Every name returned must be a column of the scanned table, spelled as Doris knows it (the same
+     * identifier-mapped name {@link #classifyColumn} receives). A name that matches no slot in the scan's
+     * tuple fails the query loud: it means the connector and the engine disagree about the table, and reading
+     * on would silently produce whatever the connector's reader does without that column.</p>
+     *
+     * <p>The default returns an empty set — every connector whose reader needs nothing beyond the projection
+     * is untouched, and its scans prune exactly as before.</p>
+     *
+     * @param session the current session
+     * @param handle  the table handle being scanned
+     * @return Doris-side names of the columns to read regardless of the projection (default: empty)
+     */
+    default Set<String> getMustReadColumns(ConnectorSession session, ConnectorTableHandle handle) {
+        return Collections.emptySet();
     }
 
     /**

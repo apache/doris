@@ -129,6 +129,9 @@ private:
     Status _init_table_reader(const TFileRangeDesc& range);
     Status _create_table_reader_for_format(const TFileRangeDesc& range,
                                            std::unique_ptr<format::TableReader>* reader) const;
+    // Replaces _table_reader when {@code range} carries a different table format than the one it was
+    // built for, reporting whether it did. See the definition for why the reader follows the range.
+    Status _rebuild_table_reader_if_format_changed(const TFileRangeDesc& range, bool* rebuilt);
     Status _prepare_table_reader_split(const TFileRangeDesc& range,
                                        std::map<std::string, Field> partition_values);
     static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
@@ -182,6 +185,10 @@ private:
     std::string _current_range_path;
 
     std::unique_ptr<format::TableReader> _table_reader;
+    // The table format _table_reader was built for. A scan node may mix table formats -- a fluss
+    // union read gives one node its lake half as paimon ranges and its log half as fluss ones -- and
+    // the reader is format-specific, so it is rebuilt whenever this stops matching the range.
+    std::string _table_reader_format;
     std::vector<format::ColumnDefinition> _projected_columns;
     // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
     // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to

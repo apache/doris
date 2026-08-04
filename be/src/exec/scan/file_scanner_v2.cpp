@@ -403,6 +403,7 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
     if (_first_scan_range) {
         RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
         DORIS_CHECK(_table_reader != nullptr);
+        _table_reader_format = table_format_name(_current_range);
         RETURN_IF_ERROR(_init_expr_ctxes());
         RETURN_IF_ERROR(_init_table_reader(_current_range));
     }
@@ -508,6 +509,14 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         DORIS_CHECK(_table_reader != nullptr);
         _current_range_path = _current_range.path;
 
+        bool reader_rebuilt = false;
+        RETURN_IF_ERROR(_rebuild_table_reader_if_format_changed(_current_range, &reader_rebuilt));
+        if (reader_rebuilt) {
+            // Same init the first reader got. The expression contexts are NOT rebuilt: they are
+            // per-scanner and format-independent, and _init_expr_ctxes is not idempotent.
+            RETURN_IF_ERROR(_init_table_reader(_current_range));
+        }
+
         const auto format_type = get_range_format_type(*_params, _current_range);
         _init_adaptive_batch_size_state(format_type);
         if (_block_size_predictor != nullptr) {
@@ -587,6 +596,31 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .push_down_count_columns = std::move(push_down_count_columns),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
+    return Status::OK();
+}
+
+Status FileScannerV2::_rebuild_table_reader_if_format_changed(const TFileRangeDesc& range,
+                                                              bool* rebuilt) {
+    // The reader is chosen by the range's table format, not the node's, because one node can be given
+    // both: a connector that reads a table as a lake plus the log written after it plans its lake half
+    // through a sibling connector and its log half itself, and both land here as ranges of the same
+    // scan. Built once from the first range and never revisited, the reader is then handed a range of
+    // the other format -- which does not fail cleanly. It fails as whatever that reader makes of a
+    // foreign range, e.g. paimon's reporting an unsupported file format for a range that carries no
+    // paimon parameters at all. And which ranges share a scanner is up to the engine's assignment, so
+    // the same query succeeds or fails by how the ranges happened to be dealt out.
+    //
+    // Split out from _prepare_next_split so the decision can be tested on its own: re-initializing the
+    // new reader needs scan-wide state that choosing it does not, so that step stays with the caller.
+    auto table_format = table_format_name(range);
+    if (table_format == _table_reader_format) {
+        *rebuilt = false;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_create_table_reader_for_format(range, &_table_reader));
+    DORIS_CHECK(_table_reader != nullptr);
+    _table_reader_format = std::move(table_format);
+    *rebuilt = true;
     return Status::OK();
 }
 
