@@ -867,6 +867,30 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return attrs;
     }
 
+    /**
+     * Drops the connector's cached scan-node properties before finalizing, because they were computed
+     * against a tuple that no longer describes this scan.
+     *
+     * <p>The cache is first filled during {@code init()} — {@code FileQueryScanNode.initSchemaParams()}
+     * asks for {@link #getPathPartitionKeys()}, which loads the whole property bundle. That happens while
+     * {@code PhysicalPlanTranslator} is still translating THIS scan, i.e. strictly BEFORE the project
+     * above it prunes the tuple down to the columns the query actually reads
+     * ({@code updateScanSlotsMaterialization}). So everything the connector derived from the projection at
+     * that point — the jdbc remote {@code SELECT} list, per-column dictionaries — describes the FULL
+     * schema. Finalize is the first moment the tuple is final, so the bundle is rebuilt from here.</p>
+     *
+     * <p>Queries with a filter were getting this by accident: {@link #convertPredicate()} invalidates the
+     * same cache for its own reason, and it runs first. Filter-less queries hit its empty-conjuncts early
+     * return and kept the pre-pruning bundle, which is why {@code EXPLAIN} reported a full-width remote
+     * query for e.g. {@code select count(*) from tbl} while the scan itself read one column.</p>
+     */
+    @Override
+    protected void doFinalize() throws UserException {
+        scanNodeProperties = null;
+        cachedPropertiesResult = null;
+        super.doFinalize();
+    }
+
     @Override
     protected void convertPredicate() {
         // Attempt filter pushdown via the connector SPI
