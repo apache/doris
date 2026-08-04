@@ -503,25 +503,21 @@ std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
     const auto extra_nanos = std::max<int32_t>(nanos_tail, 0);
     constexpr int64_t NANOS_PER_MICROSECOND = 1000;
     constexpr int64_t MICROS_PER_SECOND = 1000000;
-    constexpr int64_t MIN_DORIS_TIMESTAMP_MICROS = -62135596800000000LL;
-    constexpr int64_t MAX_DORIS_TIMESTAMP_MICROS = 253402300799999999LL;
     // Stripe statistics split the timestamp into milliseconds and the remaining nanoseconds. Use
     // the same half-up rule as row decoding so zone-map pruning observes identical values.
     const auto rounded_extra_microseconds =
             (extra_nanos + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
     const auto microseconds_with_carry = millis_remainder * 1000 + rounded_extra_microseconds;
-    // Invalid statistics must disable pruning. Validate before applying the rounding carry so an
-    // overflow or year-10000 endpoint cannot become a wrapped, unsafe ZoneMap bound.
-    const __int128 epoch_microseconds =
-            static_cast<__int128>(seconds) * MICROS_PER_SECOND + microseconds_with_carry;
-    if (epoch_microseconds < MIN_DORIS_TIMESTAMP_MICROS ||
-        epoch_microseconds > MAX_DORIS_TIMESTAMP_MICROS) {
+    // Calendar bounds depend on the target timezone, so only reject arithmetic overflow here and
+    // let the converted value below decide whether the statistic is representable by Doris.
+    int64_t rounded_seconds;
+    if (__builtin_add_overflow(seconds, microseconds_with_carry / MICROS_PER_SECOND,
+                               &rounded_seconds)) {
         return std::nullopt;
     }
-    seconds += microseconds_with_carry / MICROS_PER_SECOND;
     const auto microseconds = cast_set<uint64_t>(microseconds_with_carry % MICROS_PER_SECOND);
     DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(seconds, timezone);
+    value.from_unixtime(rounded_seconds, timezone);
     value.set_microsecond(microseconds);
     if (!value.is_valid_date()) {
         return std::nullopt;

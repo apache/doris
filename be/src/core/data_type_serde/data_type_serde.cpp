@@ -487,24 +487,18 @@ Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
     constexpr int64_t NANOS_PER_SECOND = 1000000000;
     constexpr int64_t NANOS_PER_MICROSECOND = 1000;
     constexpr int64_t MICROS_PER_SECOND = 1000000;
-    constexpr int64_t MIN_DORIS_TIMESTAMP_MICROS = -62135596800000000LL;
-    constexpr int64_t MAX_DORIS_TIMESTAMP_MICROS = 253402300799999999LL;
     DORIS_CHECK(result != nullptr);
     DORIS_CHECK(nanoseconds >= 0 && nanoseconds < NANOS_PER_SECOND);
     // Doris stores six fractional digits, so use half-up rounding and carry 999999500ns into the
     // next second instead of silently truncating the ORC value.
     const auto rounded_microseconds =
             (nanoseconds + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
-    // Validate in widened epoch-microsecond arithmetic so the rounding carry cannot wrap an
-    // invalid external value into a plausible Doris timestamp.
-    const __int128 epoch_microseconds =
-            static_cast<__int128>(seconds) * MICROS_PER_SECOND + rounded_microseconds;
-    if (epoch_microseconds < MIN_DORIS_TIMESTAMP_MICROS ||
-        epoch_microseconds > MAX_DORIS_TIMESTAMP_MICROS) {
-        return Status::DataQualityError(
-                "ORC timestamp is outside the Doris 0001-9999 range after microsecond rounding");
+    // Validate the carry here, but validate Doris' calendar range after timezone conversion:
+    // a valid year-zero local timestamp may have a UTC epoch before year zero.
+    if (__builtin_add_overflow(seconds, rounded_microseconds / MICROS_PER_SECOND,
+                               &result->seconds)) {
+        return Status::DataQualityError("ORC timestamp overflows after microsecond rounding");
     }
-    result->seconds = seconds + rounded_microseconds / MICROS_PER_SECOND;
     result->microseconds = cast_set<uint64_t>(rounded_microseconds % MICROS_PER_SECOND);
     return Status::OK();
 }
@@ -577,7 +571,7 @@ Status decode_timestamp_tz_orc_values(IColumn& nested_column,
         if (!value.is_valid_date()) {
             data.resize(old_data_size);
             return Status::DataQualityError(
-                    "Decoded ORC TIMESTAMPTZ is outside the Doris 0001-9999 range");
+                    "Decoded ORC TIMESTAMPTZ is outside the Doris 0000-9999 range");
         }
     }
     return Status::OK();

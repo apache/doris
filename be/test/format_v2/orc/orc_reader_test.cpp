@@ -10262,19 +10262,19 @@ TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsRoundsToMicroseconds) {
     }
 }
 
-Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool use_timestamp_tz) {
+Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool use_timestamp_tz,
+                                     const cctz::time_zone& timezone = cctz::utc_time_zone()) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             use_timestamp_tz ? "timestamp with local time zone" : "timestamp"));
     ::orc::TimestampVectorBatch batch(1, *::orc::getDefaultPool());
     batch.numElements = 1;
     batch.data[0] = seconds;
     batch.nanoseconds[0] = nanoseconds;
-    static const auto utc_time_zone = cctz::utc_time_zone();
     OrcDecodedColumnView view {.file_type = type.get(),
                                .selected_type = type.get(),
                                .batch = &batch,
                                .rows = 1,
-                               .timezone = &utc_time_zone,
+                               .timezone = &timezone,
                                .enable_mapping_timestamp_tz = use_timestamp_tz};
     if (use_timestamp_tz) {
         DataTypeTimeStampTz data_type(6);
@@ -10284,6 +10284,23 @@ Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool 
     DataTypeDateTimeV2 data_type(6);
     auto column = data_type.create_column();
     return data_type.get_serde()->read_column_from_orc(*column, view);
+}
+
+TEST_F(NewOrcReaderTest, TimestampAcceptsDorisYearZeroBoundary) {
+    constexpr int64_t MIN_DORIS_EPOCH_SECOND = -62167219200LL;
+    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, false).ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, true).ok());
+}
+
+TEST_F(NewOrcReaderTest, PlainTimestampAcceptsDorisBoundariesAcrossTimezones) {
+    const auto plus_eight = cctz::fixed_time_zone(std::chrono::hours(8));
+    const auto minus_eight = cctz::fixed_time_zone(std::chrono::hours(-8));
+    constexpr int64_t YEAR_ZERO_IN_PLUS_EIGHT = -62167248000LL;
+    constexpr int64_t YEAR_9999_END_IN_MINUS_EIGHT = 253402329599LL;
+    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_ZERO_IN_PLUS_EIGHT, 0, false, plus_eight).ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_9999_END_IN_MINUS_EIGHT, 999999000, false,
+                                              minus_eight)
+                        .ok());
 }
 
 TEST_F(NewOrcReaderTest, TimestampRoundingRejectsUpperDorisBoundary) {
