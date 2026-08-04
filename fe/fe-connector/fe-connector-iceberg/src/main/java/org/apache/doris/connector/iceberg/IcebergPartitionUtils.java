@@ -534,9 +534,10 @@ final class IcebergPartitionUtils {
         return buildMvccPartitionView(table, pinnedSnapshotId, null, null);
     }
 
-    /** Builds the spec-derived style without consulting a snapshot committed after query begin. */
-    static ConnectorMvccPartitionView buildResolvedEmptyMvccPartitionView(Table table) {
-        if (!isValidRelatedTable(table)) {
+    /** Builds the style captured with the empty pin without consulting a later metadata generation. */
+    static ConnectorMvccPartitionView buildResolvedEmptyMvccPartitionView(
+            ConnectorMvccPartitionView.Style style) {
+        if (style != ConnectorMvccPartitionView.Style.RANGE) {
             return ConnectorMvccPartitionView.unpartitioned();
         }
         return new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,

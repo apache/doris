@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
 
@@ -35,13 +36,13 @@ import java.util.function.Supplier;
  * query-begin pin ({@link IcebergConnectorMetadata#beginQuerySnapshot}) reads the SAME snapshot until the
  * entry expires or is invalidated by {@code REFRESH TABLE}/{@code REFRESH CATALOG}.
  *
- * <p><b>Value carries BOTH snapshotId and schemaId (the single iceberg-specific deviation from the paimon
- * {@code long}-only mirror).</b> {@code beginQuerySnapshot} pins the snapshot id <i>and</i> the LATEST schema
- * id ({@code table.schema().schemaId()} — not {@code currentSnapshot().schemaId()}, mirroring legacy
+ * <p><b>Value carries snapshotId, schemaId and the resolved-empty partition style.</b>
+ * {@code beginQuerySnapshot} pins the snapshot id <i>and</i> the LATEST schema id
+ * ({@code table.schema().schemaId()} — not {@code currentSnapshot().schemaId()}, mirroring legacy
  * {@code IcebergUtils.getLatestIcebergSnapshot}). A schema-only {@code ALTER} bumps the latest schema id
- * without producing a new snapshot, so the two ids must be captured atomically — otherwise two live reads
- * within one pin could observe a snapshotId/schemaId skew. The value type therefore ports legacy
- * {@code IcebergSnapshot}'s {@code (snapshotId, schemaId)} shape.
+ * without producing a new snapshot, so the ids must be captured atomically. When the snapshot id is negative,
+ * the partition style must come from that same metadata generation; otherwise later spec evolution could make
+ * an empty scan expose live partition metadata.
  *
  * <p>Backed by the shared {@link MetaCacheEntry} framework (independent-copy meta-cache migration): a
  * contextual, access-TTL entry whose per-query loader is supplied at {@link #getOrLoad}. TTL is
@@ -53,14 +54,21 @@ import java.util.function.Supplier;
  */
 final class IcebergLatestSnapshotCache {
 
-    /** Immutable atomic pin = the latest snapshot id plus the latest schema id (port of legacy IcebergSnapshot). */
+    /** Immutable atomic pin for the latest snapshot/schema and its resolved-empty partition style. */
     static final class CachedSnapshot {
         final long snapshotId;
         final long schemaId;
+        final ConnectorMvccPartitionView.Style emptyPartitionStyle;
 
         CachedSnapshot(long snapshotId, long schemaId) {
+            this(snapshotId, schemaId, ConnectorMvccPartitionView.Style.UNPARTITIONED);
+        }
+
+        CachedSnapshot(long snapshotId, long schemaId,
+                ConnectorMvccPartitionView.Style emptyPartitionStyle) {
             this.snapshotId = snapshotId;
             this.schemaId = schemaId;
+            this.emptyPartitionStyle = emptyPartitionStyle;
         }
     }
 

@@ -1032,6 +1032,43 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteRejectsDeleteModeEvolution() {
+        assertRowLevelModeEvolutionRejected(TableProperties.DELETE_MODE, WriteOperation.DELETE);
+    }
+
+    @Test
+    public void planWriteRejectsUpdateModeEvolutionAfterUpdateIsEncodedAsMerge() {
+        assertRowLevelModeEvolutionRejected(TableProperties.UPDATE_MODE, WriteOperation.MERGE);
+    }
+
+    @Test
+    public void planWriteRejectsMergeModeEvolution() {
+        assertRowLevelModeEvolutionRejected(TableProperties.MERGE_MODE, WriteOperation.MERGE);
+    }
+
+    private static void assertRowLevelModeEvolutionRejected(String modeProperty, WriteOperation sinkOperation) {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        RecordingConnectorContext ctx = contextWithStorage();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
+        table.updateProperties().set(modeProperty, "merge-on-read").commit();
+        String boundMetadataIdentity = provider.getWriteMetadataIdentity(session, tableHandle);
+
+        table.updateProperties().set(modeProperty, "copy-on-write").commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planWrite(session, new WriteHandle(tableHandle)
+                        .boundWriteMetadataIdentity(boundMetadataIdentity)
+                        .writeOperation(sinkOperation)));
+        Assertions.assertTrue(ex.getMessage().contains("write metadata changed"),
+                "row-level mode changes must invalidate the generation that admitted the statement");
+    }
+
+    @Test
     public void writeMetadataIdentityChangesWithFormatVersion() {
         InMemoryCatalog catalog = freshCatalog();
         Table table = unpartitionedUnsortedTable(catalog);

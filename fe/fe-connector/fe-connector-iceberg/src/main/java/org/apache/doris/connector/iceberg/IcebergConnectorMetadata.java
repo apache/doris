@@ -111,6 +111,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // Internal sentinel property carrying a tag/branch ref name from resolveTimeTravel to applySnapshot (the
     // typed ConnectorMvccSnapshot has snapshotId/schemaId carriers but no ref field). NOT a BE scan option.
     static final String REF_PROPERTY = "iceberg.scan.ref";
+    private static final String EMPTY_PARTITION_STYLE_PROPERTY = "iceberg.empty.partition.style";
 
     // Iceberg v3 row-lineage hidden columns. Local literal copies of the Doris-side constants — the
     // connector cannot import fe-core. Column names mirror IcebergUtils.ICEBERG_ROW_ID_COL /
@@ -1896,12 +1897,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     private ConnectorMvccPartitionView buildMvccPartitionViewUncached(
             ConnectorSession session, IcebergTableHandle iceHandle) {
-        Table table = resolveTableForRead(session, iceHandle);
         if (iceHandle.isResolvedEmptySnapshot()) {
-            // Data rows and partition freshness must describe the same query-begin generation; a concurrent
-            // first append may already be visible through this live Table object but not through the empty pin.
-            return IcebergPartitionUtils.buildResolvedEmptyMvccPartitionView(table);
+            // Data rows, partition style and freshness must describe one query-begin generation; neither a first
+            // append nor metadata-only spec evolution may be observed through the live table after this pin.
+            return IcebergPartitionUtils.buildResolvedEmptyMvccPartitionView(
+                    iceHandle.getResolvedEmptyPartitionStyle());
         }
+        Table table = resolveTableForRead(session, iceHandle);
         return IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId(),
                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }
@@ -1948,6 +1950,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isResolvedEmptySnapshot()) {
+            // LIST metadata must preserve the same empty generation as the scan even for non-RANGE specs.
+            return Collections.emptyList();
+        }
         try {
             // PERF-06 cache A: memoize the BUILT partition-info list keyed by (db, table, snapshotId, schemaId).
             // The lookup sits INSIDE executeAuthenticated (a miss runs the remote build under the auth scope; a hit
@@ -2014,8 +2020,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache != null
                 ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
                 : loadLatestSnapshotPin(session, iceHandle);
-        return Optional.of(
-                ConnectorMvccSnapshot.builder().snapshotId(pin.snapshotId).schemaId(pin.schemaId).build());
+        ConnectorMvccSnapshot.Builder snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(pin.snapshotId).schemaId(pin.schemaId);
+        if (pin.snapshotId < 0) {
+            snapshot.property(EMPTY_PARTITION_STYLE_PROPERTY, pin.emptyPartitionStyle.name());
+        }
+        return Optional.of(snapshot.build());
     }
 
     /**
@@ -2027,8 +2037,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, IcebergTableHandle iceHandle) {
         Table table = loadTable(session, iceHandle);
         Snapshot current = table.currentSnapshot();
+        ConnectorMvccPartitionView.Style emptyPartitionStyle = IcebergPartitionUtils.isValidRelatedTable(table)
+                ? ConnectorMvccPartitionView.Style.RANGE
+                : ConnectorMvccPartitionView.Style.UNPARTITIONED;
         return new IcebergLatestSnapshotCache.CachedSnapshot(
-                current == null ? -1L : current.snapshotId(), table.schema().schemaId());
+                current == null ? -1L : current.snapshotId(), table.schema().schemaId(), emptyPartitionStyle);
     }
 
     /**
@@ -2150,7 +2163,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         String ref = snapshot.getProperties().get(REF_PROPERTY);
         long snapshotId = snapshot.getSnapshotId();
-        return iceHandle.withSnapshot(snapshotId, ref, snapshot.getSchemaId());
+        ConnectorMvccPartitionView.Style emptyPartitionStyle = ConnectorMvccPartitionView.Style.valueOf(
+                snapshot.getProperties().getOrDefault(EMPTY_PARTITION_STYLE_PROPERTY,
+                        ConnectorMvccPartitionView.Style.UNPARTITIONED.name()));
+        return iceHandle.withSnapshot(snapshotId, ref, snapshot.getSchemaId(), emptyPartitionStyle);
     }
 
     /**

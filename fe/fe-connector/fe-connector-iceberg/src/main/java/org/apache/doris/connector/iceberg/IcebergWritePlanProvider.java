@@ -475,7 +475,20 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 appendMetadataToken(identity, field.transform());
             }
         }
+        // Admission reads these properties before physical planning, while UPDATE is later encoded as MERGE.
+        // Fence all three contracts so a property-only refresh cannot open an unsupported RowDelta path.
+        appendMetadataToken(identity, "row-level-modes");
+        appendMetadataToken(identity, normalizedMode(table, TableProperties.DELETE_MODE,
+                TableProperties.DELETE_MODE_DEFAULT));
+        appendMetadataToken(identity, normalizedMode(table, TableProperties.UPDATE_MODE,
+                TableProperties.UPDATE_MODE_DEFAULT));
+        appendMetadataToken(identity, normalizedMode(table, TableProperties.MERGE_MODE,
+                TableProperties.MERGE_MODE_DEFAULT));
         return identity.toString();
+    }
+
+    private static String normalizedMode(Table table, String property, String defaultMode) {
+        return table.properties().getOrDefault(property, defaultMode).toLowerCase(Locale.ROOT);
     }
 
     private static Object tableUuid(Table table) {
