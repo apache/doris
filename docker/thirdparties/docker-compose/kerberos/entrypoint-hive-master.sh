@@ -151,7 +151,13 @@ wait_for_port "${HOST}" "${HMS_PORT}" "Hive Metastore"
 # releases the pipeline on DORIS_KERBEROS_READY, so anything published later
 # would race the suites. A failure here aborts the container (set -e) instead of
 # handing out an environment that is silently missing hdfs_db / ali_db.
-if [[ "${enablePaimonHms:-false}" == "true" ]]; then
+#
+# Both kerberos containers run this entrypoint with the same rendered env
+# switch, but the fixture and its mounts (sql/, paimon_data/, auxlib/) belong to
+# kerberos1 only - its metastore (9583) is the one the suite talks to. Gate on
+# the container role, not on the mounts, so a broken mount on kerberos1 still
+# fails loudly while kerberos2 skips deterministically.
+if [[ "${enablePaimonHms:-false}" == "true" && "${HOST:-}" == "hadoop-master" ]]; then
     report_stage "load-paimon-hms"
     export KRB5CCNAME=FILE:/tmp/hive-admin.ccache
     kinit -kt /data/keytabs/hive.keytab "${HIVE_PRINCIPAL}"
