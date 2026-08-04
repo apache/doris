@@ -463,6 +463,36 @@ TEST(ExprZonemapFilterTest, FloatingPointNanBloomProbeIsConservative) {
                Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN()));
 }
 
+TEST(ExprZonemapFilterTest, FloatingPointSignedZeroBloomProbeChecksBothEncodings) {
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    const auto check_type = [&]<PrimitiveType Type>(
+                                    const DataTypePtr& type,
+                                    typename PrimitiveTypeTraits<Type>::CppType stored_value,
+                                    typename PrimitiveTypeTraits<Type>::CppType predicate_value) {
+        auto bloom_filter = std::make_unique<segment_v2::BlockSplitBloomFilter>();
+        ASSERT_TRUE(bloom_filter->init(segment_v2::BloomFilter::MINIMUM_BYTES).ok());
+        bloom_filter->add_bytes(reinterpret_cast<const char*>(&stored_value), sizeof(stored_value));
+        ASSERT_FALSE(bloom_filter->test_bytes(reinterpret_cast<const char*>(&predicate_value),
+                                              sizeof(predicate_value)));
+
+        auto slot = make_slot(0, type);
+        const auto field = Field::create_field<Type>(predicate_value);
+        auto literal = std::make_shared<VLiteral>(create_texpr_node_from(field, Type, 0, 0));
+        auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
+        EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+                  equals.evaluate_bloom_filter(bloom_ctx, {slot, literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+                  expr_zonemap::eval_in_bloom_filter(bloom_ctx, slot, false, {field}));
+    };
+
+    const auto float_type = std::make_shared<DataTypeFloat32>();
+    check_type.template operator()<TYPE_FLOAT>(float_type, -0.0F, 0.0F);
+    check_type.template operator()<TYPE_FLOAT>(float_type, 0.0F, -0.0F);
+    const auto double_type = std::make_shared<DataTypeFloat64>();
+    check_type.template operator()<TYPE_DOUBLE>(double_type, -0.0, 0.0);
+    check_type.template operator()<TYPE_DOUBLE>(double_type, 0.0, -0.0);
+}
+
 TEST(ExprZonemapFilterTest, DefaultFunctionForwardsDictionaryAndBloomEvaluation) {
     auto type = int_type();
     auto slot = make_slot(0, type);

@@ -38,6 +38,7 @@
 #include <sys/types.h>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -1781,6 +1782,37 @@ TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
 
     EXPECT_TRUE(eq_pred.evaluate_and(&stat));
     EXPECT_EQ(1, loader_calls);
+}
+
+TEST_F(ParquetExprTest, floating_point_bloom_filter_preserves_doris_equality) {
+    const auto check_type = []<PrimitiveType Type>(
+                                    typename PrimitiveTypeTraits<Type>::CppType stored_value,
+                                    typename PrimitiveTypeTraits<Type>::CppType predicate_value) {
+        ParquetBlockSplitBloomFilter bloom_filter;
+        ASSERT_TRUE(bloom_filter.init(256, segment_v2::HashStrategyPB::XX_HASH_64).ok());
+        bloom_filter.add_bytes(reinterpret_cast<const char*>(&stored_value), sizeof(stored_value));
+        ASSERT_FALSE(bloom_filter.test_bytes(reinterpret_cast<const char*>(&predicate_value),
+                                             sizeof(predicate_value)));
+
+        ComparisonPredicateBase<Type, PredicateType::EQ> eq_pred(
+                0, "", Field::create_field<Type>(predicate_value));
+        EXPECT_TRUE(eq_pred.evaluate_and(&bloom_filter));
+
+        auto set = std::make_shared<HybridSet<Type>>(false);
+        set->insert(&predicate_value);
+        InListPredicateBase<Type, PredicateType::IN_LIST, 1> in_pred(0, "", set, false);
+        EXPECT_TRUE(in_pred.evaluate_and(&bloom_filter));
+    };
+
+    check_type.template operator()<TYPE_FLOAT>(-0.0F, 0.0F);
+    check_type.template operator()<TYPE_FLOAT>(0.0F, -0.0F);
+    check_type.template operator()<TYPE_DOUBLE>(-0.0, 0.0);
+    check_type.template operator()<TYPE_DOUBLE>(0.0, -0.0);
+    check_type.template operator()<TYPE_FLOAT>(std::bit_cast<float>(uint32_t {0x7fc00001U}),
+                                               std::bit_cast<float>(uint32_t {0x7fc00002U}));
+    check_type.template operator()<TYPE_DOUBLE>(
+            std::bit_cast<double>(uint64_t {0x7ff8000000000001ULL}),
+            std::bit_cast<double>(uint64_t {0x7ff8000000000002ULL}));
 }
 
 TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) {

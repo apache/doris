@@ -352,11 +352,9 @@ public:
                 // BIGINT -> hash as int64
                 return test_bytes(_value);
             } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
-                // FLOAT -> hash as float
-                return test_bytes(_value);
+                return bf->test_floating_point(_value);
             } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
-                // DOUBLE -> hash as double
-                return test_bytes(_value);
+                return bf->test_floating_point(_value);
             } else if constexpr (is_string_type(Type)) {
                 // VARCHAR/STRING -> hash bytes
                 return bf->test_bytes(_value.data(), _value.size());
