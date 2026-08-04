@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -426,6 +427,40 @@ TEST(ExprZonemapFilterTest, ComparisonDictionarySupportsTypedRangesWhileBloomUse
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               greater.evaluate_dictionary_filter(string_dictionary,
                                                  {string_slot, make_string_literal("delta")}));
+}
+
+TEST(ExprZonemapFilterTest, FloatingPointNanBloomProbeIsConservative) {
+    auto bloom_filter = std::make_unique<segment_v2::BlockSplitBloomFilter>();
+    ASSERT_TRUE(bloom_filter->init(segment_v2::BloomFilter::MINIMUM_BYTES).ok());
+    const double finite_value = 1.0;
+    bloom_filter->add_bytes(reinterpret_cast<const char*>(&finite_value), sizeof(finite_value));
+
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    const auto check_type = [&](const DataTypePtr& type, Field nan_field) {
+        auto slot = make_slot(0, type);
+        auto literal = std::make_shared<VLiteral>(create_texpr_node_from(
+                nan_field, remove_nullable(type)->get_primitive_type(), 0, 0));
+        auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
+
+        EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+                  equals.evaluate_bloom_filter(bloom_ctx, {slot, literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+                  expr_zonemap::eval_in_bloom_filter(bloom_ctx, slot, false, {nan_field}));
+
+        const auto primitive_type = remove_nullable(type)->get_primitive_type();
+        const Field absent_finite = primitive_type == TYPE_FLOAT
+                                            ? Field::create_field<TYPE_FLOAT>(2.0F)
+                                            : Field::create_field<TYPE_DOUBLE>(2.0);
+        auto finite_literal = std::make_shared<VLiteral>(
+                create_texpr_node_from(absent_finite, primitive_type, 0, 0));
+        EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+                  equals.evaluate_bloom_filter(bloom_ctx, {slot, finite_literal}));
+    };
+
+    check_type(std::make_shared<DataTypeFloat32>(),
+               Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN()));
+    check_type(std::make_shared<DataTypeFloat64>(),
+               Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN()));
 }
 
 TEST(ExprZonemapFilterTest, DefaultFunctionForwardsDictionaryAndBloomEvaluation) {

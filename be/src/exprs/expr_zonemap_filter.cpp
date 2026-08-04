@@ -18,6 +18,7 @@
 #include "exprs/expr_zonemap_filter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <set>
 #include <utility>
 
@@ -83,11 +84,19 @@ bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slo
     }
     case TYPE_FLOAT: {
         const float typed_value = value.get<TYPE_FLOAT>();
+        // Doris equates all NaN payloads, but Parquet Bloom hashes their physical bits, so a
+        // negative raw-byte probe cannot prove that an equivalent NaN is absent.
+        if (std::isnan(typed_value)) {
+            return true;
+        }
         return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
                                                     sizeof(typed_value));
     }
     case TYPE_DOUBLE: {
         const double typed_value = value.get<TYPE_DOUBLE>();
+        if (std::isnan(typed_value)) {
+            return true;
+        }
         return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
                                                     sizeof(typed_value));
     }
