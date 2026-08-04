@@ -48,6 +48,7 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.system.SystemTableLoader;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -86,7 +87,8 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         }
 
         PaimonExternalCatalog paimonExternalCatalog = (PaimonExternalCatalog) dorisCatalog;
-        this.hadoopProps = paimonExternalCatalog.getCatalogProperty().getHadoopProperties();
+        // Keep TVF-specific Kerberos entries isolated from the catalog's shared immutable snapshot.
+        this.hadoopProps = new HashMap<>(paimonExternalCatalog.getCatalogProperty().getHadoopProperties());
         appendHMSKerberosProps(hadoopProps, paimonExternalCatalog);
         this.hadoopAuthenticator = paimonExternalCatalog.getExecutionAuthenticator();
 
