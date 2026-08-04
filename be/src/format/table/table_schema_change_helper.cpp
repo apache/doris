@@ -247,11 +247,7 @@ bool find_iceberg_parquet_field_idx(const schema::external::TField& table_field,
         return true;
     }
 
-    // A partially-ID'd file may still contain an independent legacy scalar/subtree with no IDs.
-    // Its authoritative name mapping cannot interfere with descendant-ID matching elsewhere.
-    return find_file_field_idx_by_name_mapping(table_field, file_column_name_idx_map,
-                                               file_column_idx) &&
-           !parquet_subtree_has_field_id(parquet_fields_schema[*file_column_idx]);
+    return false;
 }
 
 bool find_iceberg_orc_field_idx(const schema::external::TField& table_field,
@@ -280,9 +276,7 @@ bool find_iceberg_orc_field_idx(const schema::external::TField& table_field,
         *file_field_idx = *wrapper;
         return true;
     }
-    return find_file_field_idx_by_name_mapping(table_field, file_column_name_idx_map,
-                                               file_field_idx) &&
-           !orc_subtree_has_field_id(orc_root->getSubtype(*file_field_idx), field_id_attribute_key);
+    return false;
 }
 
 bool parquet_fields_all_have_field_ids(const std::vector<FieldSchema>& fields) {
@@ -800,7 +794,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
     }
 
     std::map<std::string, size_t> file_column_name_idx_map;
-    if (!use_field_id || use_current_iceberg_semantics) {
+    if (!use_field_id) {
         file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_fields_schema);
     }
 
@@ -909,7 +903,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         }
 
         std::map<std::string, size_t> file_column_name_idx_map;
-        if (!use_field_id || use_current_iceberg_semantics) {
+        if (!use_field_id) {
             file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_field.children);
         }
 
@@ -1090,7 +1084,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
     }
 
     std::map<std::string, size_t> file_column_name_idx_map;
-    if (!use_field_id || use_current_iceberg_semantics) {
+    if (!use_field_id) {
         file_column_name_idx_map = build_lowercase_orc_field_name_idx_map(orc_root);
     }
 
