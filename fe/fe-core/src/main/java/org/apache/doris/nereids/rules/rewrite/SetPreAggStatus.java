@@ -123,8 +123,17 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                     if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
                         // Eager composition hit the depth/width limit (e.g. deep
                         // xN = x(N-1) + x(N-1) chains expand width exponentially).
-                        // Keep the raw producer so the query still plans.
+                        // Keep the raw producer so the query still plans, but mark
+                        // the expression unresolved: the raw producer still
+                        // references intermediate aliases (not base columns), so a
+                        // later replace is top-down short-circuit and never expands
+                        // them. Without the flag, an aggregate over such an alias
+                        // would have an empty local slot intersection and be
+                        // whitelisted as an other-table MAX/MIN, wrongly turning
+                        // this scan ON (e.g. a SUM-origin chain whose value differs
+                        // between raw and merged duplicate full keys).
                         resolvedProducer = entry.getValue();
+                        hasUnresolvedExpression = true;
                     } else {
                         throw e;
                     }
