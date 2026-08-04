@@ -1216,15 +1216,10 @@ Status IcebergTableReader::_find_equality_delete_data_field(
             data_field = format::find_column_by_name(*table_field, *candidates);
         } else {
             DORIS_CHECK(table_field->has_identifier_field_id());
-            const int32_t field_id = table_field->get_identifier_field_id();
-            const auto candidate = std::ranges::find_if(
-                    *candidates, [field_id](const format::ColumnDefinition& field) {
-                        return field.has_identifier_field_id() &&
-                               field.get_identifier_field_id() == field_id;
-                    });
-            if (candidate != candidates->end()) {
-                data_field = &*candidate;
-            }
+            data_field = format::find_column_by_field_id(
+                    *table_field, *candidates,
+                    supports_iceberg_scan_semantics_v1(_scan_params) &&
+                            _format == FileFormat::PARQUET);
         }
         if (data_field == nullptr && mapping_mode() == format::TableColumnMappingMode::BY_NAME &&
             index + 1 == table_path.size() && !table_field->has_name_mapping) {

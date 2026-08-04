@@ -146,10 +146,19 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
+        // Check the branch capability before resolving the branch-specific writer schema. Otherwise,
+        // an unsupported connector can fail while resolving a branch instead of reporting the
+        // INSERT OVERWRITE capability error.
+        if (branchName.isPresent() && !pluginConnectorSupportsWriteBranch(targetTableIf)) {
+            throw new AnalysisException(
+                    "Only support insert overwrite into iceberg table's branch");
+        }
         ctx.getStatementContext().setIsInsert(true);
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
+        InsertUtils.pinConnectorWriteSchema(
+                ctx.getStatementContext(), targetTableIf, originLogicalQuery, branchName);
         this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
             originLogicalQuery, (targetTableIf instanceof RemoteDorisExternalTable)
                         ? ((RemoteDorisExternalTable) targetTableIf).getOlapTable() : targetTableIf,
@@ -211,14 +220,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         } else {
             // Do not create temp partition on FE
             partitionNames = new ArrayList<>();
-        }
-
-        // check branch: only iceberg supports INSERT OVERWRITE into a named branch. An iceberg table is
-        // plugin-driven, so admit it via the connector's supportsWriteBranch() capability — without which
-        // the branch would be silently dropped and the overwrite would land on the table's default ref.
-        if (branchName.isPresent() && !pluginConnectorSupportsWriteBranch(targetTable)) {
-            throw new AnalysisException(
-                    "Only support insert overwrite into iceberg table's branch");
         }
 
         AbstractInsertOverwriteManager insertOverwriteManager = (targetTable instanceof RemoteOlapTable)
@@ -349,7 +350,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
             ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
-                Optional.of(insertCtx), Optional.empty(), false, Optional.empty());
+                Optional.of(insertCtx), Optional.empty(), false, branchName);
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -446,7 +447,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
-        return InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery());
+        return InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery(), branchName);
     }
 
     @Override

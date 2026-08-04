@@ -22,7 +22,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -277,6 +279,27 @@ public class InsertUtilsTest {
         Assertions.assertInstanceOf(UnboundAlias.class, expression);
         Assertions.assertEquals("35", expression.child(0).toSql(),
                 "a connector SQL-only write default must not be normalized to NULL");
+    }
+
+    @Test
+    public void pinConnectorWriteSchemaUsesTargetBranchAndKeepsPinnedSchema() {
+        StatementContext statementContext = new StatementContext();
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(17L);
+        UnboundConnectorTableSink<?> sink = Mockito.mock(UnboundConnectorTableSink.class);
+        Column branchColumn = new Column("v", PrimitiveType.INT, true);
+        branchColumn.setConnectorDefaultValueSql("35");
+        Optional<String> branchName = Optional.of("old_defaults");
+        Mockito.when(table.resolveWriteColumns(branchName))
+                .thenReturn(Optional.of(ImmutableList.of(branchColumn)));
+
+        InsertUtils.pinConnectorWriteSchema(statementContext, table, sink, branchName);
+        InsertUtils.pinConnectorWriteSchema(statementContext, table, sink, branchName);
+
+        Assertions.assertSame(branchColumn,
+                statementContext.getConnectorWriteSchema(17L).orElseThrow().get(0));
+        Assertions.assertEquals("35", InsertUtils.generateDefaultExpression(branchColumn).child(0).toSql());
+        Mockito.verify(table, Mockito.times(1)).resolveWriteColumns(branchName);
     }
 
     @Test

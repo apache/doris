@@ -172,6 +172,11 @@ const Field* find_partition_value(const ColumnDefinition& table_column,
 // used by TableColumnMapper's BY_NAME mode.
 const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column,
                                             const std::vector<ColumnDefinition>& file_schema);
+// Apply BY_FIELD_ID matching and, when requested, retain a unique ID-less complex wrapper that
+// contains a descendant selected by Iceberg field ID.
+const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
+                                                const std::vector<ColumnDefinition>& file_schema,
+                                                bool allow_idless_complex_wrapper_projection);
 
 // Generic mapping layer from table schema to file schema.
 // Iceberg uses BY_FIELD_ID. Plain by-name formats can reuse this component as well, so keep this

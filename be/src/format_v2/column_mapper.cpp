@@ -263,6 +263,31 @@ const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column
     return matcher_for_mode(TableColumnMappingMode::BY_NAME).find(table_column, file_schema);
 }
 
+const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
+                                                const std::vector<ColumnDefinition>& file_schema,
+                                                bool allow_idless_complex_wrapper_projection) {
+    const auto* matched =
+            matcher_for_mode(TableColumnMappingMode::BY_FIELD_ID).find(table_column, file_schema);
+    if (matched != nullptr || !allow_idless_complex_wrapper_projection ||
+        table_column.children.empty()) {
+        return matched;
+    }
+    const ColumnDefinition* wrapper = nullptr;
+    for (const auto& candidate : file_schema) {
+        if (candidate.has_identifier_field_id() || candidate.children.empty() ||
+            !has_shared_descendant_field_id(table_column, candidate)) {
+            continue;
+        }
+        if (wrapper != nullptr) {
+            return nullptr;
+        }
+        wrapper = &candidate;
+    }
+    // Iceberg Parquet's PruneColumns retains an ID-less complex wrapper when a nested field ID is
+    // selected. Descendant IDs, not aliases, identify that wrapper; ambiguity remains unmapped.
+    return wrapper;
+}
+
 const Field* find_partition_value(const ColumnDefinition& table_column,
                                   const std::map<std::string, Field>& partition_values) {
     const auto find_by_name = [&](const std::string& name) -> const Field* {
@@ -2368,25 +2393,11 @@ const ColumnDefinition* TableColumnMapper::_find_file_field(
         });
         return field_it == file_schema.end() ? nullptr : &*field_it;
     }
-    const auto* matched = matcher_for_mode(_options.mode).find(table_column, file_schema);
-    if (matched != nullptr || _options.mode != TableColumnMappingMode::BY_FIELD_ID ||
-        !_options.allow_idless_complex_wrapper_projection || table_column.children.empty()) {
-        return matched;
+    if (_options.mode == TableColumnMappingMode::BY_FIELD_ID) {
+        return find_column_by_field_id(table_column, file_schema,
+                                       _options.allow_idless_complex_wrapper_projection);
     }
-    const ColumnDefinition* wrapper = nullptr;
-    for (const auto& candidate : file_schema) {
-        if (candidate.has_identifier_field_id() || candidate.children.empty() ||
-            !has_shared_descendant_field_id(table_column, candidate)) {
-            continue;
-        }
-        if (wrapper != nullptr) {
-            return nullptr;
-        }
-        wrapper = &candidate;
-    }
-    // Iceberg Parquet's PruneColumns retains an ID-less complex wrapper when a nested field ID is
-    // selected. Descendant IDs, not aliases, identify that wrapper; ambiguity remains unmapped.
-    return wrapper;
+    return matcher_for_mode(_options.mode).find(table_column, file_schema);
 }
 
 Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_column,

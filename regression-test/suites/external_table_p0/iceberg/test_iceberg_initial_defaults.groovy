@@ -596,4 +596,48 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
                 "Spark did not read Doris UPDATE/MERGE default row: ${expectedRow}\n" +
                         sparkUpdateMergeVerification)
     }
+
+    // Pin a branch while default_int still has write-default 35, then evolve only the main schema
+    // to 36. INSERT OVERWRITE performs its first VALUES(DEFAULT) normalization before constructing
+    // the inner INSERT command, so both that first pass and the writer must use the same target-ref
+    // schema. The branch check also proves the inner command does not silently fall back to main.
+    String oldDefaultsBranch = "before_default_int_36"
+    tableNames.each { String format, String currentTable ->
+        sql """ALTER TABLE ${currentTable} CREATE BRANCH ${oldDefaultsBranch}"""
+    }
+    runInSparkContainer(
+            "java -cp \"/mnt/scripts/java:/opt/spark/jars/*\" " +
+                    "CreateIcebergInitialDefaultFixtures set-int-write-default " +
+                    "${namespace} ${parquetTable} ${orcTable} 36",
+            300)
+    sql """REFRESH CATALOG ${mappedCatalog}"""
+    sql """switch ${mappedCatalog}"""
+    sql """use ${namespace}"""
+
+    tableNames.each { String format, String currentTable ->
+        sql """
+            INSERT OVERWRITE TABLE ${currentTable}@branch(${oldDefaultsBranch})
+                (id, default_int) VALUES (14, DEFAULT)
+        """
+        "order_qt_${format}_branch_overwrite_default" """
+            SELECT id, default_int
+            FROM ${currentTable}@branch(${oldDefaultsBranch})
+            ORDER BY id
+        """
+
+        sql """
+            INSERT OVERWRITE TABLE ${currentTable}
+                (id, default_int) VALUES (15, DEFAULT)
+        """
+        "order_qt_${format}_main_overwrite_default" """
+            SELECT id, default_int
+            FROM ${currentTable}
+            ORDER BY id
+        """
+        "order_qt_${format}_branch_after_main_overwrite" """
+            SELECT id, default_int
+            FROM ${currentTable}@branch(${oldDefaultsBranch})
+            ORDER BY id
+        """
+    }
 }

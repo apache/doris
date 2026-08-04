@@ -719,16 +719,18 @@ void write_nested_equality_parquet_file(
         const std::vector<int32_t>& values, const std::vector<bool>& parent_nulls,
         bool parent_optional = true, const std::string& child_name = "existing",
         int32_t child_id = 2, const std::string& parent_name = "payload",
-        bool write_field_ids = true) {
+        bool write_field_ids = true, bool parent_has_field_id = true) {
     ASSERT_TRUE(ids.empty() || ids.size() == values.size());
     auto child_field = arrow::field(child_name, arrow::int32(), false);
     auto payload_field = arrow::field(parent_name, arrow::struct_({child_field}), parent_optional);
     if (write_field_ids) {
         child_field = child_field->WithMetadata(
                 arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(child_id)}));
-        payload_field =
-                arrow::field(parent_name, arrow::struct_({child_field}), parent_optional)
-                        ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"1"}));
+        payload_field = arrow::field(parent_name, arrow::struct_({child_field}), parent_optional);
+        if (parent_has_field_id) {
+            payload_field = payload_field->WithMetadata(
+                    arrow::key_value_metadata({"PARQUET:field_id"}, {"1"}));
+        }
     }
     std::vector<std::shared_ptr<arrow::Field>> fields;
     std::vector<std::shared_ptr<arrow::Array>> arrays;
@@ -2999,6 +3001,50 @@ TEST(IcebergV2ReaderTest, IcebergIdlessNestedEqualityKeyUsesAliasPathAndDeleteLe
         run_case(file_format, false);
         run_case(file_format, true);
     }
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteResolvesFieldIdThroughIdlessWrapper) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_v2_equality_key_through_idless_wrapper";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_nested_equality_parquet_file(file_path, {1, 2, 3}, {5, 7, 9}, {false, false, false}, true,
+                                       "legacy_key", 2, "legacy_payload", true, false);
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 2, 7, "legacy_key");
+
+    auto current_payload = external_struct_schema_field(
+            "current_payload", 1,
+            {external_schema_field("current_key", 2, {}, std::nullopt,
+                                   external_primitive_type(TPrimitiveType::INT))});
+    std::vector<schema::external::TSchema> history = {
+            external_schema(100, {external_schema_field("id", 0), std::move(current_payload)})};
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info(std::move(history));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {2})}, 3));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
 }
 
 // Keep the shared Parquet/ORC reader setup together so both V2 paths assert identical semantics.

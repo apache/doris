@@ -371,7 +371,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             Optional<CascadesContext> analyzeContext = Optional.of(
                     CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
             );
-            pinConnectorWriteSchema(ctx.getStatementContext(), targetTableIf);
+            InsertUtils.pinConnectorWriteSchema(
+                    ctx.getStatementContext(), targetTableIf, originLogicalQuery, branchName);
             if (!(this instanceof InsertIntoDictionaryCommand)) {
                 // process inline table (default values, empty values)
                 if (needNormalizePlan) {
@@ -393,18 +394,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         } finally {
             targetTableIf.readUnlock();
         }
-    }
-
-    private void pinConnectorWriteSchema(StatementContext statementContext, TableIf targetTableIf) {
-        if (!(targetTableIf instanceof PluginDrivenExternalTable)
-                || !(originLogicalQuery instanceof UnboundConnectorTableSink)
-                || ((UnboundConnectorTableSink<?>) originLogicalQuery).isRewrite()) {
-            return;
-        }
-        PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) targetTableIf;
-        targetTable.resolveWriteColumns(branchName)
-                .ifPresent(columns -> statementContext.setConnectorWriteSchema(
-                        targetTableIf.getId(), columns));
     }
 
     // we should select the factory type first, but we can not initial InsertExecutor at this time,
@@ -707,7 +696,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
-        Plan plan = InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery());
+        Plan plan = InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery(), branchName);
         if (cte.isPresent()) {
             plan = cte.get().withChildren(plan);
         }

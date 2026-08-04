@@ -32,6 +32,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
@@ -484,6 +485,20 @@ public class InsertUtils {
         return table.getBaseSchema(full);
     }
 
+    static void pinConnectorWriteSchema(StatementContext statementContext, TableIf targetTableIf,
+            LogicalPlan logicalQuery, Optional<String> branchName) {
+        if (!(targetTableIf instanceof PluginDrivenExternalTable)
+                || !(logicalQuery instanceof UnboundConnectorTableSink)
+                || ((UnboundConnectorTableSink<?>) logicalQuery).isRewrite()
+                || statementContext.getConnectorWriteSchema(targetTableIf.getId()).isPresent()) {
+            return;
+        }
+        PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) targetTableIf;
+        targetTable.resolveWriteColumns(branchName)
+                .ifPresent(columns -> statementContext.setConnectorWriteSchema(
+                        targetTableIf.getId(), columns));
+    }
+
     static Column resolveExplicitConnectorWriteColumn(TableIf table, String name) {
         Column column = connectorWriteSchema(table, true).stream()
                 .filter(candidate -> candidate.getName().equalsIgnoreCase(name))
@@ -676,8 +691,16 @@ public class InsertUtils {
      */
     public static Plan getPlanForExplain(
             ConnectContext ctx, Optional<CascadesContext> analyzeContext, LogicalPlan logicalQuery) {
+        return getPlanForExplain(ctx, analyzeContext, logicalQuery, Optional.empty());
+    }
+
+    /** Normalize an INSERT plan for EXPLAIN against the connector writer schema of its target ref. */
+    public static Plan getPlanForExplain(ConnectContext ctx, Optional<CascadesContext> analyzeContext,
+            LogicalPlan logicalQuery, Optional<String> branchName) {
+        TableIf targetTable = InsertUtils.getTargetTable(logicalQuery, ctx);
+        pinConnectorWriteSchema(ctx.getStatementContext(), targetTable, logicalQuery, branchName);
         return InsertUtils.normalizePlan(
-            logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx), analyzeContext, Optional.empty());
+                logicalQuery, targetTable, analyzeContext, Optional.empty());
     }
 
     /** supportFastInsertIntoValues */

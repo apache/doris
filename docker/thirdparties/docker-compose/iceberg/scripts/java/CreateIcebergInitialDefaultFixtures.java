@@ -36,9 +36,10 @@ import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.DateTimeUtil;
 
-/** Adds Iceberg V3 initial-default fixtures to tables whose old-schema files already exist. */
+/** Adds and evolves Iceberg V3 default-value fixtures used by Doris regression tests. */
 public final class CreateIcebergInitialDefaultFixtures {
     private static final String CATALOG_NAME = "demo";
+    private static final String SET_INT_WRITE_DEFAULT = "set-int-write-default";
     private static final String MISSING_STRUCT_COLUMN = "missing_struct_col";
     private static final String MISSING_LIST_COLUMN = "missing_list_col";
     private static final String MISSING_MAP_COLUMN = "missing_map_col";
@@ -47,9 +48,19 @@ public final class CreateIcebergInitialDefaultFixtures {
     }
 
     public static void main(String[] args) {
+        if (args.length == 5 && SET_INT_WRITE_DEFAULT.equals(args[0])) {
+            Catalog catalog = loadCatalog();
+            int writeDefault = Integer.parseInt(args[4]);
+            updateIntWriteDefault(catalog, TableIdentifier.of(args[1], args[2]), writeDefault);
+            updateIntWriteDefault(catalog, TableIdentifier.of(args[1], args[3]), writeDefault);
+            return;
+        }
         if (args.length != 3) {
             throw new IllegalArgumentException(
-                    "Usage: CreateIcebergInitialDefaultFixtures <namespace> <parquet-table> <orc-table>");
+                    "Usage: CreateIcebergInitialDefaultFixtures "
+                            + "<namespace> <parquet-table> <orc-table> | "
+                            + SET_INT_WRITE_DEFAULT
+                            + " <namespace> <parquet-table> <orc-table> <value>");
         }
 
         Catalog catalog = loadCatalog();
@@ -114,6 +125,20 @@ public final class CreateIcebergInitialDefaultFixtures {
         verifyDefaults(table.schema(), addedDefaults);
         verifyMissingComplexParentDefaults(table.schema());
         System.out.println("Created initial-default fixture: " + identifier);
+    }
+
+    private static void updateIntWriteDefault(
+            Catalog catalog, TableIdentifier identifier, int writeDefault) {
+        Table table = catalog.loadTable(identifier);
+        table.updateSchema()
+                .updateColumnDefault("default_int", Literal.of(writeDefault))
+                .commit();
+        Types.NestedField field = catalog.loadTable(identifier).schema().findField("default_int");
+        if (field == null || !Objects.equals(writeDefault, field.writeDefault())) {
+            throw new IllegalStateException(
+                    "Unexpected write-default for " + identifier + ": "
+                            + (field == null ? "missing field" : field.writeDefault()));
+        }
     }
 
     private static void addMissingComplexColumns(
