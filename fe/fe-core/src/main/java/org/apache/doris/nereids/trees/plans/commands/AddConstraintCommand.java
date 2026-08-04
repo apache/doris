@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -99,16 +100,23 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
                     extractColumnsAndTable(ctx, constraint.toDistributionProject());
             Preconditions.checkState(table.getId() == distributionColumnsAndTable.second.getId(),
                     "determinant and distribution columns must belong to the same table");
-            Preconditions.checkState(table instanceof OlapTable,
-                    "distribution mapping constraint requires an OLAP table");
-            OlapTable olapTable = (OlapTable) table;
-            olapTable.writeLockOrDdlException();
+            DatabaseIf<? extends TableIf> database = table.getDatabase();
+            database.readLock();
             try {
-                olapTable.checkNormalStateForAlter();
-                addConstraintAndInvalidate(tableNameInfo, table, new DistributionMappingConstraint(
-                        name, constraint.getMappingId(), columns, distributionColumnsAndTable.first));
+                TableIf currentTable = database.getTableOrDdlException(tableNameInfo.getTbl());
+                Preconditions.checkState(currentTable instanceof OlapTable,
+                        "distribution mapping constraint requires an OLAP table");
+                OlapTable olapTable = (OlapTable) currentTable;
+                olapTable.writeLockOrDdlException();
+                try {
+                    olapTable.checkNormalStateForAlter();
+                    addConstraintAndInvalidate(tableNameInfo, currentTable, new DistributionMappingConstraint(
+                            name, constraint.getMappingId(), columns, distributionColumnsAndTable.first));
+                } finally {
+                    olapTable.writeUnlock();
+                }
             } finally {
-                olapTable.writeUnlock();
+                database.readUnlock();
             }
         } else {
             throw new AnalysisException("Unsupported constraint type: " + constraint);

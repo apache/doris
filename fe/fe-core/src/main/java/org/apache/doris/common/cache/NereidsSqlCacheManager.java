@@ -90,6 +90,8 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * NereidsSqlCacheManager
@@ -99,6 +101,9 @@ public class NereidsSqlCacheManager {
     // key: <ctl.db>:<user>:<sql>
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
+    // Always fence cache publication on metadata invalidation, regardless of session optimization switches.
+    private final AtomicLong invalidationEpoch = new AtomicLong();
+    private final ReentrantReadWriteLock publicationLock = new ReentrantReadWriteLock();
 
     public NereidsSqlCacheManager() {
         sqlCaches = buildSqlCaches(
@@ -133,32 +138,48 @@ public class NereidsSqlCacheManager {
     }
 
     private void invalidateAboutTable(long tableId, FullTableName invalidateTableName) {
-        Set<String> invalidateKeys = new LinkedHashSet<>();
+        publicationLock.writeLock().lock();
+        try {
+            invalidationEpoch.incrementAndGet();
+            Set<String> invalidateKeys = new LinkedHashSet<>();
 
-        for (Entry<String, SqlCacheContext> kv : sqlCaches.asMap().entrySet()) {
-            String key = kv.getKey();
-            SqlCacheContext context = kv.getValue();
-            for (Entry<FullTableName, TableVersion> nameToVersion : context.getUsedTables().entrySet()) {
-                FullTableName tableName = nameToVersion.getKey();
-                TableVersion tableVersion = nameToVersion.getValue();
-                if (tableId >= 0 && tableVersion.id == tableId) {
-                    invalidateKeys.add(key);
-                    break;
-                }
-                if (tableName.equals(invalidateTableName)) {
-                    invalidateKeys.add(key);
-                    break;
+            for (Entry<String, SqlCacheContext> kv : sqlCaches.asMap().entrySet()) {
+                String key = kv.getKey();
+                SqlCacheContext context = kv.getValue();
+                for (Entry<FullTableName, TableVersion> nameToVersion : context.getUsedTables().entrySet()) {
+                    FullTableName tableName = nameToVersion.getKey();
+                    TableVersion tableVersion = nameToVersion.getValue();
+                    if (tableId >= 0 && tableVersion.id == tableId) {
+                        invalidateKeys.add(key);
+                        break;
+                    }
+                    if (tableName.equals(invalidateTableName)) {
+                        invalidateKeys.add(key);
+                        break;
+                    }
                 }
             }
-        }
 
-        for (String invalidateKey : invalidateKeys) {
-            sqlCaches.invalidate(invalidateKey);
+            for (String invalidateKey : invalidateKeys) {
+                sqlCaches.invalidate(invalidateKey);
+            }
+        } finally {
+            publicationLock.writeLock().unlock();
         }
     }
 
     public void invalidateAll() {
-        sqlCaches.invalidateAll();
+        publicationLock.writeLock().lock();
+        try {
+            invalidationEpoch.incrementAndGet();
+            sqlCaches.invalidateAll();
+        } finally {
+            publicationLock.writeLock().unlock();
+        }
+    }
+
+    public long getInvalidationEpoch() {
+        return invalidationEpoch.get();
     }
 
     public static synchronized void updateConfig() {
@@ -175,9 +196,14 @@ public class NereidsSqlCacheManager {
                 Config.sql_cache_manage_num,
                 Config.expire_sql_cache_in_fe_second
         );
-        sqlCaches.putAll(sqlCacheManager.sqlCaches.asMap());
-        sqlCaches.cleanUp();
-        sqlCacheManager.sqlCaches = sqlCaches;
+        sqlCacheManager.publicationLock.writeLock().lock();
+        try {
+            sqlCaches.putAll(sqlCacheManager.sqlCaches.asMap());
+            sqlCaches.cleanUp();
+            sqlCacheManager.sqlCaches = sqlCaches;
+        } finally {
+            sqlCacheManager.publicationLock.writeLock().unlock();
+        }
     }
 
     private static Cache<String, SqlCacheContext> buildSqlCaches(int sqlCacheNum, long expireAfterAccessSeconds) {
@@ -219,10 +245,10 @@ public class NereidsSqlCacheManager {
                 ? generateCacheKey(connectContext, normalizeSql(sql))
                 : generateCacheKey(connectContext,
                         DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable)));
-        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable) != null
+        if (sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable) != null
                 && sqlCacheContext.getResultSetInFe().isPresent()) {
             sqlCacheContext.setAffectQueryResultVariables(sessionVariable);
-            sqlCaches.put(key, sqlCacheContext);
+            putIfEpochUnchanged(key, sqlCacheContext);
         }
     }
 
@@ -254,7 +280,7 @@ public class NereidsSqlCacheManager {
                 : generateCacheKey(connectContext,
                         DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable))
                 );
-        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable) != null) {
+        if (sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable) != null) {
             SqlCache cache = (SqlCache) analyzer.getCache();
             sqlCacheContext.setSumOfPartitionNum(cache.getSumOfPartitionNum());
             sqlCacheContext.setLatestPartitionId(cache.getLatestId());
@@ -272,7 +298,19 @@ public class NereidsSqlCacheManager {
                 return;
             }
 
-            sqlCaches.put(key, sqlCacheContext);
+            putIfEpochUnchanged(key, sqlCacheContext);
+        }
+    }
+
+    private void putIfEpochUnchanged(String key, SqlCacheContext sqlCacheContext) {
+        publicationLock.readLock().lock();
+        try {
+            if (sqlCacheContext.getCacheInvalidationEpoch() == invalidationEpoch.get()
+                    && sqlCaches.getIfPresent(key) == null) {
+                sqlCaches.put(key, sqlCacheContext);
+            }
+        } finally {
+            publicationLock.readLock().unlock();
         }
     }
 
@@ -297,6 +335,10 @@ public class NereidsSqlCacheManager {
         } catch (Throwable t) {
             LOG.warn("syncJournalIfNeeded failed", t);
             return invalidateCache(key);
+        }
+        sqlCacheContext = sqlCaches.getIfPresent(key);
+        if (sqlCacheContext == null) {
+            return Optional.empty();
         }
 
         // LOG.info("Total size: " + GraphLayout.parseInstance(sqlCacheContext).totalSize());
@@ -347,6 +389,9 @@ public class NereidsSqlCacheManager {
 
             if (!tryLockTables(connectContext, env, sqlCacheContext)) {
                 return invalidateCache(key);
+            }
+            if (sqlCaches.getIfPresent(key) != sqlCacheContext) {
+                return Optional.empty();
             }
 
             // check table and view and their columns authority

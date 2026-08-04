@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -30,6 +31,7 @@ import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
@@ -475,6 +477,54 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         executeSql("drop table if exists t_orig force");
         executeSql("drop table if exists t_repl force");
         executeSql("drop table if exists t_ref force");
+    }
+
+    @Test
+    void distributionMappingDropUsesCurrentTableAfterSwap() throws Exception {
+        createTable("create table mapping_swap_a (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties('replication_num'='1')");
+        createTable("create table mapping_swap_b (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties('replication_num'='1')");
+        addConstraint("alter table mapping_swap_a add constraint mapping_a "
+                + "colocate mapping swap_mapping_a (k2) determines distribution key (k1) not enforced");
+        addConstraint("alter table mapping_swap_b add constraint mapping_b "
+                + "colocate mapping swap_mapping_b (k2) determines distribution key (k1) not enforced");
+
+        OlapTable originalA = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("mapping_swap_a");
+        OlapTable originalB = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("mapping_swap_b");
+        executeSql("alter table mapping_swap_a replace with table mapping_swap_b "
+                + "properties('swap'='true')");
+
+        OlapTable currentA = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("mapping_swap_a");
+        OlapTable currentB = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("mapping_swap_b");
+        Assertions.assertEquals(originalB.getId(), currentA.getId());
+        Assertions.assertEquals(originalA.getId(), currentB.getId());
+
+        SqlCacheContext cacheA = new SqlCacheContext(new UserIdentity("admin", "127.0.0.1"));
+        cacheA.addUsedTable(currentA);
+        SqlCacheContext cacheB = new SqlCacheContext(new UserIdentity("admin", "127.0.0.1"));
+        cacheB.addUsedTable(currentB);
+        Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().put("mapping_swap_a_cache", cacheA);
+        Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().put("mapping_swap_b_cache", cacheB);
+
+        dropConstraint("alter table mapping_swap_a drop constraint mapping_b");
+
+        Assertions.assertTrue(getConstraintMgr().getDistributionMappingConstraints(currentA).isEmpty());
+        Assertions.assertEquals(1, getConstraintMgr().getDistributionMappingConstraints(currentB).size());
+        Assertions.assertNull(Env.getCurrentEnv().getSqlCacheManager()
+                .getSqlCaches().getIfPresent("mapping_swap_a_cache"));
+        Assertions.assertNotNull(Env.getCurrentEnv().getSqlCacheManager()
+                .getSqlCaches().getIfPresent("mapping_swap_b_cache"));
+
+        dropConstraint("alter table mapping_swap_b drop constraint mapping_a");
+        executeSql("drop table mapping_swap_a force");
+        executeSql("drop table mapping_swap_b force");
     }
 
     @Test

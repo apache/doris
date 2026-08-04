@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -30,8 +31,15 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class SqlCacheTest extends TestWithFeService {
     @Override
@@ -97,5 +105,72 @@ public class SqlCacheTest extends TestWithFeService {
         sqlCacheManager.invalidateAboutTable(TableNameInfoUtils.fromTableOrNull(table));
 
         Assertions.assertNull(sqlCacheManager.getSqlCaches().getIfPresent("mapping_constraint_cache"));
+    }
+
+    @Test
+    public void testReplayInvalidationRevokesLookupValue() throws Exception {
+        connectContext.getSessionVariable().setEnableSqlCache(true);
+        NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+        sqlCacheManager.invalidateAll();
+        String sql = "select 300";
+        prepareFeCacheContext(sql);
+        sqlCacheManager.tryAddFeSqlCache(connectContext, sql);
+        Assertions.assertEquals(1, sqlCacheManager.getSqlCaches().asMap().size());
+
+        try (MockedStatic<StmtExecutor> stmtExecutor = Mockito.mockStatic(StmtExecutor.class)) {
+            stmtExecutor.when(() -> StmtExecutor.syncJournalIfNeeded(connectContext))
+                    .thenAnswer(invocation -> {
+                        sqlCacheManager.invalidateAll();
+                        return null;
+                    });
+            Assertions.assertFalse(sqlCacheManager.tryParseSql(connectContext, sql).isPresent());
+        }
+    }
+
+    @Test
+    public void testInvalidationEpochRejectsLateCachePublication() throws Exception {
+        connectContext.getSessionVariable().setEnableSqlCache(true);
+        NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+        sqlCacheManager.invalidateAll();
+        String sql = "select 400";
+        prepareFeCacheContext(sql);
+
+        CountDownLatch publicationReady = new CountDownLatch(1);
+        CountDownLatch invalidationFinished = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> publication = executor.submit(() -> {
+                publicationReady.countDown();
+                Assertions.assertTrue(invalidationFinished.await(30, TimeUnit.SECONDS));
+                sqlCacheManager.tryAddFeSqlCache(connectContext, sql);
+                return null;
+            });
+            Future<?> invalidation = executor.submit(() -> {
+                Assertions.assertTrue(publicationReady.await(30, TimeUnit.SECONDS));
+                try {
+                    sqlCacheManager.invalidateAll();
+                } finally {
+                    invalidationFinished.countDown();
+                }
+                return null;
+            });
+            publication.get(30, TimeUnit.SECONDS);
+            invalidation.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+        Assertions.assertTrue(sqlCacheManager.getSqlCaches().asMap().isEmpty());
+
+        prepareFeCacheContext(sql);
+        sqlCacheManager.tryAddFeSqlCache(connectContext, sql);
+        Assertions.assertEquals(1, sqlCacheManager.getSqlCaches().asMap().size());
+    }
+
+    private void prepareFeCacheContext(String sql) {
+        StatementContext statementContext =
+                new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().get();
+        sqlCacheContext.setResultSetInFe(Mockito.mock(ResultSet.class));
     }
 }

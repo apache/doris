@@ -107,8 +107,15 @@ public class SqlCacheContext {
 
     private Map<String, String> externalCatalogConfigs = Maps.newConcurrentMap();
 
+    private final long cacheInvalidationEpoch;
+
     /** SqlCacheContext */
     public SqlCacheContext(UserIdentity userIdentity) {
+        this(userIdentity, -1L);
+    }
+
+    /** SqlCacheContext with the invalidation epoch observed before planning starts. */
+    public SqlCacheContext(UserIdentity userIdentity, long cacheInvalidationEpoch) {
         if (userIdentity == null) {
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
@@ -119,6 +126,11 @@ public class SqlCacheContext {
             userIdentity = new UserIdentity(Auth.ROOT_USER, "%");
         }
         this.userIdentity = userIdentity;
+        this.cacheInvalidationEpoch = cacheInvalidationEpoch;
+    }
+
+    public long getCacheInvalidationEpoch() {
+        return cacheInvalidationEpoch;
     }
 
     public String getPhysicalPlan() {

@@ -362,8 +362,10 @@ public class StatementContext implements Closeable {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
                 // cannot set the queryId here because the queryId for the current query is set
                 // in the subsequent steps.
+                Env env = connectContext.getEnv();
                 this.sqlCacheContext = new SqlCacheContext(
-                        connectContext.getCurrentUserIdentity());
+                        connectContext.getCurrentUserIdentity(),
+                        env == null ? 0L : env.getSqlCacheManager().getInvalidationEpoch());
                 if (originStatement != null) {
                     this.sqlCacheContext.setOriginSql(originStatement.originStmt);
                 }

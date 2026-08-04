@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -78,26 +79,49 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
                     + "falling back to name-based lookup: {}", name, e.getMessage());
             tableNameInfo = extractTableNameFromPlan(ctx);
         }
+        Constraint constraint;
+        List<MTMV> dependentMtmvs;
+        if (table instanceof OlapTable) {
+            DatabaseIf<? extends TableIf> database = table.getDatabase();
+            database.readLock();
+            try {
+                TableIf currentTable = database.getTableOrDdlException(tableNameInfo.getTbl());
+                constraint = getConstraintOrThrow(tableNameInfo);
+                dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
+                if (constraint instanceof DistributionMappingConstraint) {
+                    if (!(currentTable instanceof OlapTable)) {
+                        throw new AnalysisException("Distribution mapping constraint requires an OLAP table");
+                    }
+                    OlapTable olapTable = (OlapTable) currentTable;
+                    olapTable.writeLockOrDdlException();
+                    try {
+                        Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+                        Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(currentTable);
+                    } finally {
+                        olapTable.writeUnlock();
+                    }
+                } else {
+                    Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+                }
+            } finally {
+                database.readUnlock();
+            }
+        } else {
+            constraint = getConstraintOrThrow(tableNameInfo);
+            dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
+            Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+        }
+        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
+    }
+
+    private Constraint getConstraintOrThrow(TableNameInfo tableNameInfo) {
         Constraint constraint = Env.getCurrentEnv().getConstraintManager().getConstraint(tableNameInfo, name);
         if (constraint == null) {
             throw new AnalysisException(
                     String.format("Unknown constraint %s on table %s.", name, tableNameInfo));
         }
-        List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-        if (constraint instanceof DistributionMappingConstraint && table instanceof OlapTable) {
-            OlapTable olapTable = (OlapTable) table;
-            olapTable.writeLockOrDdlException();
-            try {
-                Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
-                Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
-            } finally {
-                olapTable.writeUnlock();
-            }
-        } else {
-            Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
-        }
-        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
-                String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
+        return constraint;
     }
 
     private TableNameInfo extractTableNameFromPlan(ConnectContext ctx) {
