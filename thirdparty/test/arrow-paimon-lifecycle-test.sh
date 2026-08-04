@@ -149,6 +149,7 @@ exercise_generic_recovery_dispatch() {
     local external_thirdparty_dir="${generic}/external-thirdparty"
     local args_file="${generic}/build-args.txt"
     local output_file="${generic}/build-output.txt"
+    local external_builder_called="${generic}/external-builder-called"
     local status
     local flag
     local parallel
@@ -172,7 +173,8 @@ exercise_generic_recovery_dispatch() {
         # RECOVERY_ARGS_FILE is expanded when the generated builder runs.
         # shellcheck disable=SC2016
         printf '%s\n' 'printf "%s\n" "$*" >"${RECOVERY_ARGS_FILE:?}"'
-        printf '%s\n' 'exit 73'
+        # shellcheck disable=SC2016
+        printf '%s\n' 'exit "${RECOVERY_EXIT_STATUS:-73}"'
     } >"${thirdparty_dir}/build-thirdparty.sh"
 
     if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
@@ -199,12 +201,35 @@ exercise_generic_recovery_dispatch() {
         "${package1}" == "arrow" && "${package2}" == "paimon_cpp" && -z "${extra}" ]] ||
         fail "generic clean recovery dispatched the wrong build package set"
 
+    if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
+        RECOVERY_EXIT_STATUS=0 bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then
+        fail "generic recovery accepted artifacts that failed current-checkout validation"
+    fi
+    grep -Fq "Rebuilt Arrow/Paimon artifacts do not match this checkout's selected inputs" \
+        "${output_file}" || fail "generic recovery did not validate artifacts after its builder returned"
+
     if DORIS_THIRDPARTY="${external_thirdparty_dir}" \
         bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then
         fail "generic recovery accepted an invalid install-only thirdparty prefix"
     fi
     grep -Fq "is an install-only or incomplete prefix" "${output_file}" ||
         fail "generic recovery did not explain how to refresh an install-only prebuilt"
+
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        # EXTERNAL_BUILDER_CALLED is expanded when the generated builder runs.
+        # shellcheck disable=SC2016
+        printf '%s\n' 'touch "${EXTERNAL_BUILDER_CALLED:?}"'
+    } >"${external_thirdparty_dir}/build-thirdparty.sh"
+    if DORIS_THIRDPARTY="${external_thirdparty_dir}" \
+        EXTERNAL_BUILDER_CALLED="${external_builder_called}" \
+        bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then
+        fail "generic recovery accepted an external thirdparty source tree"
+    fi
+    grep -Fq "Cannot rebuild thirdparty libraries with an external source tree" "${output_file}" ||
+        fail "generic recovery did not reject an external thirdparty source tree"
+    [[ ! -e "${external_builder_called}" ]] ||
+        fail "generic recovery invoked an external thirdparty builder"
 }
 
 exercise_generic_recovery_dispatch
