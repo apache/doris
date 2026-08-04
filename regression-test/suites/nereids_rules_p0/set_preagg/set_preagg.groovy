@@ -33,6 +33,8 @@ suite("set_preagg") {
         drop table if exists preagg_asof_l;
         drop table if exists preagg_asof_r;
         drop table if exists preagg_g;
+        drop table if exists preagg_own_l;
+        drop table if exists preagg_own_r;
 
         create table preagg_t1(
             k1 int null,
@@ -122,16 +124,30 @@ suite("set_preagg") {
         properties("replication_num" = "1");
         create table preagg_asof_r(
             grp int null,
-            ts datetime null,
+            ts datetime MIN,
             v9 bigint MAX
         )
-        aggregate key (grp, ts)
+        aggregate key (grp)
         distributed BY hash(grp) buckets 1
         properties("replication_num" = "1");
         create table preagg_g(
             k1 int null,
             v7 bigint SUM,
             v9 bigint MAX
+        )
+        aggregate key (k1)
+        distributed BY hash(k1) buckets 1
+        properties("replication_num" = "1");
+        create table preagg_own_l(
+            k1 int null,
+            v7 bigint SUM
+        )
+        aggregate key (k1)
+        distributed BY hash(k1) buckets 1
+        properties("replication_num" = "1");
+        create table preagg_own_r(
+            k1 int null,
+            v7 bigint SUM
         )
         aggregate key (k1)
         distributed BY hash(k1) buckets 1
@@ -160,13 +176,27 @@ suite("set_preagg") {
         insert into preagg_f_r values (1, 2000, 2000);
         insert into preagg_f_r values (-1, 500, 500);
         insert into preagg_f_r values (-1, 600, 600);
-        insert into preagg_asof_l values (1,'2020-01-01 00:00:00'),(2,'2020-01-01 00:00:00');
-        insert into preagg_asof_r values (1,'2020-01-01 00:00:00',100);
-        insert into preagg_asof_r values (1,'2020-01-01 00:00:00',200);
+        insert into preagg_asof_l values (1,'2020-01-01 00:15:00'),(2,'2020-01-01 00:00:00');
+        insert into preagg_asof_r values (1,'2020-01-01 00:10:00',100);
+        insert into preagg_asof_r values (1,'2020-01-01 00:20:00',200);
         insert into preagg_asof_r values (2,'2020-01-01 00:00:00',300);
         insert into preagg_g values (1, -2, 10);
         insert into preagg_g values (1, 3, 20);
+        insert into preagg_own_l values (1, 10);
+        insert into preagg_own_l values (1, 20);
+        insert into preagg_own_l values (0, 5);
+        insert into preagg_own_l values (0, 7);
+        insert into preagg_own_r values (1, 100);
+        insert into preagg_own_r values (1, 200);
+        insert into preagg_own_r values (0, 50);
+        insert into preagg_own_r values (0, 80);
     """
+
+    // preagg_own_l/preagg_own_r: full keys k1=1 and k1=0 are each loaded twice
+    // in separate rowsets, so PREAGG ON would expose duplicate full-key partial
+    // rows. preagg_own_l's k1=0 row makes t.a = abs(0) = 0, exercising the ELSE
+    // branch (r.v7) in test_b; preagg_own_r's repeated keys make its own ON/OFF
+    // status observable through join fan-out as well.
 
     explain {
         sql("""
@@ -957,51 +987,55 @@ suite("set_preagg") {
     // value column would be evaluated once per partial row and double-counted.
     // -------------------------------------------------------------------------
 
-    // Test A: derived-key fan-out. t has two different keys k1=1 and k1=-1 that
-    // both map to the same derived key a=abs(k1)=1; r.v7 is a foreign value
-    // used in the IF return. t must stay OFF (aggSlots intersection keeps only
-    // local key k1 → key-only path → sum is not distinct), so each logical row
-    // of t joins every r row with r.k1 = a and counts r.v7 once. With the
-    // one-time dataset: a=1 (3 t-rows) × r.k1=1 (2 r-rows, v7=50,60) plus
-    // a=2 (1 t-row) × r.k1=2 (1 r-row, v7=70) → 3*(50+60)+70 = 400. If t were
-    // wrongly ON, its rows would fan out under join.
-    // r has local v7 and foreign key condition → ON is safe.
+    // Test A: derived-key fan-out with repeated full aggregate keys. preagg_own_l
+    // loads k1=1 twice (v7=10,20) and k1=0 twice (v7=5,7) in separate rowsets, so
+    // if preagg_own_l were wrongly ON, its duplicate full-key partial rows would
+    // fan out under the join and double-count the foreign r.v7 in the IF return.
+    // Correct (l OFF, merged): t has a=1 (k1=1 merged v7=30) and a=0 (k1=0 merged
+    // v7=12). r is legitimately ON, exposing its own partials k1=1 {100,200} and
+    // k1=0 {50,80}: a=1 joins both → 100+200=300; a=0 joins both but if(0>0,...)=0
+    // → total 300. If l were wrongly ON, a=1 would appear twice and join both r
+    // partials → 300*2=600, breaking the oracle.
     explain {
         sql("""
             select sum(if(t.a > 0, r.v7, 0))
-            from (select abs(k1) as a from preagg_t1) t
-            inner join preagg_t2 r on t.a = r.k1;
+            from (select abs(k1) as a from preagg_own_l) t
+            inner join preagg_own_r r on t.a = r.k1;
         """)
-        notContains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: ON"
+        notContains "(preagg_own_l), PREAGGREGATION: ON"
+        contains "(preagg_own_r), PREAGGREGATION: ON"
     }
     order_qt_test_a """
         select sum(if(t.a > 0, r.v7, 0)) as res
-        from (select abs(k1) as a from preagg_t1) t
-        inner join preagg_t2 r on t.a = r.k1;
+        from (select abs(k1) as a from preagg_own_l) t
+        inner join preagg_own_r r on t.a = r.k1;
     """
 
-    // Test B: foreign value in IF return on BOTH sides — ownership check must
+    // Test B: foreign value in the IF return on BOTH sides — ownership check must
     // turn both scans OFF:
     //   sum(if(t.a > 0, t.v7, r.v7))
-    //   - for scan t: return r.v7 is foreign → t OFF
+    //   - for scan l: return r.v7 is foreign → l OFF
     //   - for scan r: return t.v7 is foreign → r OFF
-    // With both OFF, storage merges by key and the logical result is exact.
-    // With the one-time dataset: a=1 (3 t-rows, v7=10,20,30) × r.k1=1 (2 rows)
-    // → 2*(10+20+30)=120, plus a=2 (t.v7=40) × r.k1=2 → 40, total 160.
+    // preagg_own_l's k1=0 row gives t.a = 0, so the ELSE branch (r.v7) is actually
+    // evaluated, and both tables carry repeated full keys so a wrongly-ON scan
+    // exposes partial rows and changes the oracle. Correct (both OFF, merged):
+    // l = {a=1(v7=30), a=0(v7=12)}, r = {k1=1→300, k1=0→130};
+    // a=1 → if(1>0,30,300)=30, a=0 → if(0>0,12,130)=130 → total 160.
+    // If l were wrongly ON: a=1 and a=0 each appear twice → 10+20+130+130=290.
+    // If r were wrongly ON: r partials fan out → 30+30+50+80=190.
     explain {
         sql("""
             select sum(if(t.a > 0, t.v7, r.v7))
-            from (select abs(k1) as a, v7 from preagg_t1) t
-            inner join preagg_t2 r on t.a = r.k1;
+            from (select abs(k1) as a, v7 from preagg_own_l) t
+            inner join preagg_own_r r on t.a = r.k1;
         """)
-        notContains "(preagg_t1), PREAGGREGATION: ON"
-        notContains "(preagg_t2), PREAGGREGATION: ON"
+        notContains "(preagg_own_l), PREAGGREGATION: ON"
+        notContains "(preagg_own_r), PREAGGREGATION: ON"
     }
     order_qt_test_b """
         select sum(if(t.a > 0, t.v7, r.v7)) as res
-        from (select abs(k1) as a, v7 from preagg_t1) t
-        inner join preagg_t2 r on t.a = r.k1;
+        from (select abs(k1) as a, v7 from preagg_own_l) t
+        inner join preagg_own_r r on t.a = r.k1;
     """
 
     // Positive MAX join case: MAX is idempotent (max(x, x) = x), so a foreign
@@ -1067,12 +1101,16 @@ suite("set_preagg") {
 
     // Negative ASOF join selected-side: r.v9 is a direct correctly typed MAX
     // column, but ASOF's one-row selection does not commute with pre-agg ON.
-    // preagg_asof_r holds the same full key (grp=1, ts) in two loads with
-    // v9=100 and v9=200; storage MAX merges to 200. If r were ON, ASOF would
-    // see two equal-time rows and could pick the 100 partial before the upper
-    // MAX runs, returning 100 instead of 200. The query is restricted to
-    // l.grp = 1 so the result (200 when correctly merged) actually observes
-    // the stale-selected-row regression. The selected side must stay OFF.
+    // preagg_asof_r loads the same full key grp=1 twice with (ts=00:10, v9=100)
+    // and (ts=00:20, v9=200); ts is a MIN value column, so storage merge yields
+    // (ts=00:10, v9=200) — the merged row carries the earliest ts but the max
+    // v9. With r OFF the probe l.ts=00:15 matches the merged row and returns
+    // 200. If r were wrongly ON, ASOF sees the two partials and (MATCH
+    // l.ts >= r.ts) deterministically picks the largest r.ts <= 00:15, i.e. the
+    // 00:10 partial with v9=100, returning 100. The merged MAX is 200 while the
+    // selected-side partial would be 100, so the oracle distinguishes a faulty
+    // PREAGG ON from the correct merged result (unlike equal-ts data, where
+    // ASOF could pick the 200 partial and the oracle would pass either way).
     explain {
         sql("""
             select max(if(l.grp > 0, r.v9, 0))
@@ -1144,6 +1182,26 @@ suite("set_preagg") {
     order_qt_test_c """
         select max(if(k1 > 0, v9, 0))
         from (select k1, v9, assert_true(v7 > 0, 'bad') as checked from preagg_g) t
+    """
+
+    // Slotless volatile retained non-movable outputs (e.g.
+    // assert_true(random() >= 0, 'bad')) have no input slots, so the value-slot
+    // fence misses them, and the volatility checks only cover agg/filter/join/
+    // grouping expressions. Pre-agg ON would evaluate random() once per raw
+    // partial row (preagg_g loads (1,-2,10) and (1,3,20) in separate rowsets)
+    // instead of once per merged row — a different evaluation cardinality — so
+    // preagg_g must stay OFF. random() >= 0 always holds, so the assert never
+    // fires and the query still returns 20.
+    explain {
+        sql("""
+            select max(if(k1 > 0, v9, 0))
+            from (select k1, v9, assert_true(random() >= 0, 'bad') as checked from preagg_g) t
+        """)
+        notContains "(preagg_g), PREAGGREGATION: ON"
+    }
+    order_qt_test_f """
+        select max(if(k1 > 0, v9, 0))
+        from (select k1, v9, assert_true(random() >= 0, 'bad') as checked from preagg_g) t
     """
 
     // Exercise the literal acceptance in KeyAndValueSlotsAggChecker.visitMax:

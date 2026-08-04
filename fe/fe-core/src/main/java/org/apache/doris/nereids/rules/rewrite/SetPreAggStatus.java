@@ -438,7 +438,20 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             // Retained non-movable project expressions (e.g. assert_true) must
             // run on storage-merged rows: with pre-agg ON they would be evaluated
             // on raw partial rows. Keep any scan whose value columns they read OFF.
+            //
+            // Slotless volatile retained outputs (e.g. assert_true(random() > 0.5))
+            // have no input slots, so the value-slot fence above misses them, and
+            // the volatility checks below only cover agg/filter/join/grouping
+            // expressions. PREAGG ON would then evaluate the volatile expression
+            // once per raw partial row instead of once per storage-merged row —
+            // a different evaluation cardinality that can change its result — so
+            // keep the scan OFF here as well.
             for (Expression retained : context.retainedNonMovableExpressions) {
+                if (retained.containsVolatileExpression()) {
+                    return PreAggStatus.off(String.format(
+                            "retained non-movable expression %s contains volatile expression",
+                            retained));
+                }
                 if (!Sets.intersection(retained.getInputSlots(), valueSlots).isEmpty()) {
                     return PreAggStatus.off(String.format(
                             "retained non-movable expression %s references non-key column %s",
