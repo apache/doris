@@ -25,6 +25,7 @@ import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.data.variant.Variant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.LocalZonedTimestampType;
@@ -196,6 +197,20 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public byte[] getBytes() {
         return record.getBinary(idx);
+    }
+
+    @Override
+    public byte[] getVariantMetadata() {
+        return getVariant().metadata();
+    }
+
+    @Override
+    public byte[] getVariantValue() {
+        return getVariant().value();
+    }
+
+    private Variant getVariant() {
+        return record.getVariant(idx);
     }
 
     @Override

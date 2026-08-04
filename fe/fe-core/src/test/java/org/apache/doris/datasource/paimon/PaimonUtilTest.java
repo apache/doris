@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -95,6 +96,15 @@ public class PaimonUtilTest {
         Assert.assertTrue(type1.isVarchar());
         Assert.assertEquals(32, type1.getLength());
         Assert.assertEquals(14, type2.getLength());
+    }
+
+    @Test
+    public void testVariantMapsToComputeV2() {
+        Type type = PaimonUtil.paimonTypeToDorisType(
+                new org.apache.paimon.types.VariantType(), true, true);
+
+        Assert.assertTrue(type.isVariantType());
+        Assert.assertTrue(((VariantType) type).isComputeV2());
     }
 
     @Test
