@@ -251,7 +251,7 @@ TEST_F(WorkloadGroupManagerTest, query_exceed) {
 //                    query_ctx->get_mem_tracker()->consumption() + query_it->reserve_size_)
 TEST_F(WorkloadGroupManagerTest, wg_exceed1) {
     auto wg = _wg_manager->get_or_create_workload_group({});
-    auto query_context = _generate_on_query(wg);
+    auto query_context = _generate_on_query(wg, 1024L * 1024 * 128, true);
 
     query_context->query_mem_tracker()->consume(1024L * 1024 * 1024 * 4);
     _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L,
@@ -509,7 +509,7 @@ TEST_F(WorkloadGroupManagerTest, overcommit) {
     auto wg = _wg_manager->get_or_create_workload_group(wg_info);
     EXPECT_EQ(wg->id(), wg_info.id);
 
-    auto query_context = _generate_on_query(wg);
+    auto query_context = _generate_on_query(wg, 1024L * 1024 * 128, true);
 
     _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L * 1024 * 1024,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
