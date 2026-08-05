@@ -1138,11 +1138,15 @@ if (NOT MAKE_TEST)
     file(GLOB KUROMOJI_IPADIC_SRC_FILES CONFIGURE_DEPENDS
          "${KUROMOJI_IPADIC_SRC}/*.csv"
          "${KUROMOJI_IPADIC_SRC}/*.def")
+    get_filename_component(KUROMOJI_LIBJVM_DIR "${LIB_JVM}" DIRECTORY)
     add_custom_command(
         OUTPUT "${KUROMOJI_DICT_OUT}/system.bin" "${KUROMOJI_DICT_OUT}/matrix.bin"
                "${KUROMOJI_DICT_OUT}/chardef.bin" "${KUROMOJI_DICT_OUT}/unkdict.bin"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${KUROMOJI_DICT_OUT}"
-        COMMAND $<TARGET_FILE:kuromoji_build_dict> "${KUROMOJI_IPADIC_SRC}" "${KUROMOJI_DICT_OUT}"
+        COMMAND ${CMAKE_COMMAND} -E env
+                --modify "DYLD_LIBRARY_PATH=path_list_prepend:${KUROMOJI_LIBJVM_DIR}"
+                --modify "LD_LIBRARY_PATH=path_list_prepend:${KUROMOJI_LIBJVM_DIR}"
+                $<TARGET_FILE:kuromoji_build_dict> "${KUROMOJI_IPADIC_SRC}" "${KUROMOJI_DICT_OUT}"
         DEPENDS kuromoji_build_dict ${KUROMOJI_IPADIC_SRC_FILES}
         COMMENT "Generating kuromoji IPADIC dictionary from ${KUROMOJI_IPADIC_SRC}"
         VERBATIM)
