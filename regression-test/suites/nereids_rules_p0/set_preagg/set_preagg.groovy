@@ -124,10 +124,10 @@ suite("set_preagg") {
         properties("replication_num" = "1");
         create table preagg_asof_r(
             grp int null,
-            ts datetime MIN,
-            v9 bigint MAX
+            ts datetime null,
+            v7 bigint SUM
         )
-        aggregate key (grp)
+        aggregate key (grp, ts)
         distributed BY hash(grp) buckets 1
         properties("replication_num" = "1");
         create table preagg_g(
@@ -177,8 +177,8 @@ suite("set_preagg") {
         insert into preagg_f_r values (-1, 500, 500);
         insert into preagg_f_r values (-1, 600, 600);
         insert into preagg_asof_l values (1,'2020-01-01 00:15:00'),(2,'2020-01-01 00:00:00');
-        insert into preagg_asof_r values (1,'2020-01-01 00:10:00',100);
-        insert into preagg_asof_r values (1,'2020-01-01 00:20:00',200);
+        insert into preagg_asof_r values (1,'2020-01-01 00:00:00',100);
+        insert into preagg_asof_r values (1,'2020-01-01 00:00:00',200);
         insert into preagg_asof_r values (2,'2020-01-01 00:00:00',300);
         insert into preagg_g values (1, -2, 10);
         insert into preagg_g values (1, 3, 20);
@@ -1099,30 +1099,29 @@ suite("set_preagg") {
         select signbit(max(if(k1 > 0, cast(v as float), cast(0 as float)))) from preagg_t5;
     """
 
-    // Negative ASOF join selected-side: r.v9 is a direct correctly typed MAX
-    // column, but ASOF's one-row selection does not commute with pre-agg ON.
-    // preagg_asof_r loads the same full key grp=1 twice with (ts=00:10, v9=100)
-    // and (ts=00:20, v9=200); ts is a MIN value column, so storage merge yields
-    // (ts=00:10, v9=200) — the merged row carries the earliest ts but the max
-    // v9. With r OFF the probe l.ts=00:15 matches the merged row and returns
-    // 200. If r were wrongly ON, ASOF sees the two partials and (MATCH
-    // l.ts >= r.ts) deterministically picks the largest r.ts <= 00:15, i.e. the
-    // 00:10 partial with v9=100, returning 100. The merged MAX is 200 while the
-    // selected-side partial would be 100, so the oracle distinguishes a faulty
-    // PREAGG ON from the correct merged result (unlike equal-ts data, where
-    // ASOF could pick the 200 partial and the oracle would pass either way).
+    // Negative ASOF join selected-side: r.v7 is a direct correctly typed SUM
+    // column and ts is an aggregate key, so the match condition references only
+    // key columns — the pre-existing join-value check cannot keep r OFF. Only
+    // the ASOF-specific fence (asofSelectedSideRelationIds) forces the selected
+    // side OFF. preagg_asof_r loads the SAME full key (grp=1, ts=00:00) twice
+    // with v7=100 and v7=200 in separate rowsets; storage SUM merges to 300.
+    // With r OFF the probe l.ts=00:15 matches the merged row and returns 300.
+    // If r were wrongly ON, ASOF sees the two identical partials (ts=00:00
+    // both) and may pick either 100 or 200 — never 300 — so the oracle
+    // distinguishes a faulty ON from the correct merged result, and the
+    // ASOF-specific OFF reason pins the mechanism under test.
     explain {
         sql("""
-            select max(if(l.grp > 0, r.v9, 0))
+            select sum(if(l.grp > 0, r.v7, 0))
             from preagg_asof_l l asof left join preagg_asof_r r
                 MATCH_CONDITION(l.ts >= r.ts) on l.grp = r.grp
             where l.grp = 1;
         """)
-        contains "(preagg_asof_l), PREAGGREGATION: ON"
-        notContains "(preagg_asof_r), PREAGGREGATION: ON"
+        notContains "(preagg_asof_l), PREAGGREGATION: ON"
+        contains "(preagg_asof_r), PREAGGREGATION: OFF. Reason: can't turn preAgg on because the scan is the selected side of an ASOF join"
     }
     order_qt_q37 """
-        select max(if(l.grp > 0, r.v9, 0))
+        select sum(if(l.grp > 0, r.v7, 0))
         from preagg_asof_l l asof left join preagg_asof_r r
             MATCH_CONDITION(l.ts >= r.ts) on l.grp = r.grp
         where l.grp = 1;
