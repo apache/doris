@@ -82,6 +82,7 @@ jobs:
             'maven'
             'node'
             'llvm@16'
+            'bash'
           )
           brew install "${cellars[@]}" || true
 
@@ -95,7 +96,9 @@ jobs:
           # which is required by the current BE test link. Rebuild only this
           # dependency when the archived file is absent.
           if [[ ! -f thirdparty/installed/lib/libevent_openssl.a ]]; then
-            ./thirdparty/build-thirdparty.sh -j "$(nproc)" libevent
+            homebrew_bash="$(brew --prefix bash)/bin"
+            export PATH="${homebrew_bash}:${PATH}"
+            bash ./thirdparty/build-thirdparty.sh -j "$(nproc)" libevent
           fi
 
           export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
