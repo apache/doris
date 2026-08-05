@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -30,6 +32,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -37,6 +40,7 @@ import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
@@ -157,13 +161,19 @@ public class ExecuteCommandTest {
         Mockito.when(executor.getContext()).thenReturn(connectContext);
 
         Hint retainedHint = new Hint("Distribute");
+        PlannerHook retainedHook = Mockito.mock(PlannerHook.class);
         statementContext.addHint(retainedHint);
+        statementContext.addPlannerHook(retainedHook);
         statementContext.setForceRecordTmpPlan(true);
         AtomicInteger executionCount = new AtomicInteger();
         Mockito.doAnswer(invocation -> {
             Assertions.assertTrue(statementContext.getTableUsedPartitionNameMap().isEmpty());
             Assertions.assertTrue(statementContext.getCommonTableIdToRelationIdMap().isEmpty());
             Assertions.assertTrue(statementContext.getMvCanRewritePartitionsMap().isEmpty());
+            Assertions.assertTrue(statementContext.getCandidateMTMVs().isEmpty());
+            Assertions.assertTrue(statementContext.getCandidateMVs().isEmpty());
+            Assertions.assertTrue(statementContext.getMtmvRelatedTables().isEmpty());
+            Assertions.assertEquals(Collections.singleton(retainedHook), statementContext.getPlannerHooks());
             Assertions.assertEquals(0, statementContext.getMaterializedViewRewriteDuration());
             Assertions.assertEquals(Collections.singletonList(retainedHint), statementContext.getHints());
             Assertions.assertTrue(statementContext.getTmpPlanForMvRewrite().isEmpty());
@@ -339,11 +349,16 @@ public class ExecuteCommandTest {
     }
 
     private void populateMaterializedViewState(StatementContext statementContext, LogicalPlan logicalPlan) {
+        MTMV candidateMTMV = Mockito.mock(MTMV.class);
         statementContext.getTableUsedPartitionNameMap().put(Collections.singletonList("table"),
                 Pair.of(new RelationId(1), Collections.singleton("partition")));
         statementContext.getCommonTableIdToRelationIdMap().put(1, 1);
         statementContext.getMvCanRewritePartitionsMap().put(Mockito.mock(BaseTableInfo.class),
                 Collections.singleton(Mockito.mock(Partition.class)));
+        statementContext.getCandidateMTMVs().add(candidateMTMV);
+        statementContext.getCandidateMVs().add(Mockito.mock(MaterializedIndexMeta.class));
+        statementContext.getMtmvRelatedTables().put(Collections.singletonList("mv"), candidateMTMV);
+        statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
         statementContext.addMaterializedViewRewriteDuration(1);
         statementContext.addHint(Mockito.mock(UseMvHint.class));
         statementContext.addTmpPlanForMvRewrite(logicalPlan);
