@@ -175,11 +175,20 @@ public class CatalogFactory {
             }
         }
 
-        // set some default properties if missing when creating catalog.
-        // both replaying the creating logic will call this method.
-        catalog.setDefaultPropsIfMissing(isReplay);
+        return finishCatalogCreation(catalog, isReplay);
+    }
 
-        if (!isReplay) {
+    static ExternalCatalog finishCatalogCreation(ExternalCatalog catalog, boolean isReplay) throws DdlException {
+        // Set some default properties if missing when creating catalog.
+        // Both replaying the creating logic will call this method.
+        if (isReplay) {
+            catalog.setDefaultPropsIfMissing(true);
+            return catalog;
+        }
+
+        boolean creationFinished = false;
+        try {
+            catalog.setDefaultPropsIfMissing(false);
             catalog.checkWhenCreating();
             // This will check if the customized access controller can be created successfully.
             // If failed, it will throw exception and the catalog will not be created.
@@ -189,9 +198,12 @@ public class CatalogFactory {
                 LOG.warn("Failed to init access controller", e);
                 throw new DdlException("Failed to init access controller: " + e.getMessage());
             }
+            creationFinished = true;
+            return catalog;
+        } finally {
+            if (!creationFinished) {
+                catalog.onCreateFailure();
+            }
         }
-        return catalog;
     }
 }
-
-

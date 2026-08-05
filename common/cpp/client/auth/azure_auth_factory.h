@@ -39,9 +39,9 @@ struct AzureCredentialOptions {
 };
 
 struct AzureClientBuildResult {
-    std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> container_client;
-    std::shared_ptr<Azure::Storage::StorageSharedKeyCredential> shared_key_credential;
-    std::string error;
+    std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> container_client {};
+    std::shared_ptr<Azure::Storage::StorageSharedKeyCredential> shared_key_credential {};
+    std::string error {};
 
     explicit operator bool() const { return container_client != nullptr; }
 };

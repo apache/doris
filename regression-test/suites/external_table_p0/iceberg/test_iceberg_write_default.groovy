@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// WHY: an iceberg column WRITE default (v3) must be surfaced by the read path — parseSchema reads
-// Types.NestedField.writeDefault() into the FE Column default — so that DESCRIBE shows it and an INSERT
-// that omits the column applies it. Before the fix parseSchema hardcoded the default to null, so after a
-// schema refresh the write default silently vanished (DESC showed no default, omitted INSERT wrote NULL).
+// WHY: an Iceberg write default belongs to a request-scoped writer schema. Cached catalog Columns must not
+// expose it through DESCRIBE/SHOW CREATE, while INSERT analysis still needs it to fill omitted columns.
 suite("test_iceberg_write_default", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -61,17 +59,17 @@ suite("test_iceberg_write_default", "p0,external") {
         // default) via updateSchema.addColumn(name, type, doc, literal).
         sql """ ALTER TABLE ${tbl} ADD COLUMN c INT DEFAULT 42 """
 
-        // Force a fresh schema load so DESC / INSERT exercise parseSchema reading writeDefault (not any
-        // in-memory schema retained from the ALTER).
+        // Force a fresh schema load so DESC and INSERT exercise the cached/read schema versus the
+        // request-scoped writer schema.
         sql """refresh catalog ${catalog_name}"""
         sql """use ${db}"""
 
-        // 1) Read path: DESC must surface the write default on column c.
+        // 1) Read path: DESC must not expose the connector-only write default.
         def descRows = sql """desc ${tbl}"""
         def cRow = descRows.find { it[0].toString().equalsIgnoreCase("c") }
         assertTrue(cRow != null, "column c must exist in DESC: " + descRows.toString())
-        assertTrue(cRow.toString().contains("42"),
-                "DESC must show column c write default 42, got: " + cRow.toString())
+        assertFalse(cRow.toString().contains("42"),
+                "DESC must not show connector write default 42, got: " + cRow.toString())
 
         // 2) INSERT with column c omitted must apply the write default.
         sql """ INSERT INTO ${tbl} (id) VALUES (1) """

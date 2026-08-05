@@ -64,6 +64,7 @@ header:
     # the file an administrator edits in plugins/connector/<dir>/. Matched by name
     # rather than by a **/*.conf.template glob, so a new one is a deliberate entry
     # here rather than something a wildcard silently absorbs.
+    - "fe/fe-connector/fe-connector-adbc/src/main/resources/adbc.conf.template"
     - "fe/fe-connector/fe-connector-hive/src/main/resources/hms.conf.template"
     - "fe/fe-connector/fe-connector-iceberg/src/main/resources/iceberg.conf.template"
     - "fe/fe-connector/fe-connector-jdbc/src/main/resources/jdbc.conf.template"

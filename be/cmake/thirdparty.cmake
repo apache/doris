@@ -109,6 +109,7 @@ add_thirdparty(arrow_flight LIB64)
 add_thirdparty(arrow_flight_sql LIB64)
 add_thirdparty(arrow_dataset LIB64)
 add_thirdparty(arrow_acero LIB64)
+add_thirdparty(adbc_driver_manager LIB64)
 add_thirdparty(parquet LIB64)
 # liblance_c.a contains compiler_builtins cbrt symbols. Place libm before it
 # so the final linker resolves C math symbols from the system library first.

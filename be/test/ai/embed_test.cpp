@@ -26,11 +26,13 @@
 #include <string>
 #include <vector>
 
+#include "core/column/column_const.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_number.h"
 #include "core/value/jsonb_value.h"
 #include "cpp/client/obj_storage_client.h"
 #include "exprs/function/ai/ai_adapter.h"
+#include "exprs/function/simple_function_factory.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -145,6 +147,25 @@ static ColumnString::MutablePtr create_jsonb_column(const std::vector<std::strin
     return column;
 }
 
+static ColumnPtr create_nullable_jsonb_column(const std::vector<std::string>& json_rows,
+                                              const std::vector<UInt8>& null_map) {
+    EXPECT_EQ(json_rows.size(), null_map.size());
+    auto column = ColumnString::create();
+    auto null_column = ColumnUInt8::create();
+    for (size_t i = 0; i < json_rows.size(); ++i) {
+        if (null_map[i]) {
+            column->insert_default();
+        } else {
+            JsonBinaryValue jsonb_value;
+            Status st = jsonb_value.from_json_string(json_rows[i]);
+            EXPECT_TRUE(st.ok()) << st.to_string();
+            column->insert_data(jsonb_value.value(), jsonb_value.size());
+        }
+        null_column->insert_value(null_map[i]);
+    }
+    return ColumnNullable::create(std::move(column), std::move(null_column));
+}
+
 static void assert_mock_embedding_column(const ColumnArray& col_array, size_t row_count) {
     const auto& offsets = col_array.get_offsets();
     ASSERT_EQ(offsets.size(), row_count);
@@ -162,6 +183,39 @@ static void assert_mock_embedding_column(const ColumnArray& col_array, size_t ro
     }
 }
 
+static void assert_mock_nullable_embedding_column(const IColumn& column,
+                                                  const std::vector<UInt8>& expected_null_map) {
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+    ASSERT_EQ(nullable_column.size(), expected_null_map.size());
+
+    const auto& col_array = assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
+    const auto& offsets = col_array.get_offsets();
+    const auto& nested_nullable_col = assert_cast<const ColumnNullable&>(col_array.get_data());
+    const auto& nested_col =
+            assert_cast<const ColumnFloat32&>(*nested_nullable_col.get_nested_column_ptr());
+
+    size_t expected_offset = 0;
+    for (size_t row = 0; row < expected_null_map.size(); ++row) {
+        ASSERT_EQ(nullable_column.is_null_at(row), expected_null_map[row] != 0);
+        if (expected_null_map[row]) {
+            ASSERT_EQ(offsets[row], expected_offset);
+            continue;
+        }
+
+        expected_offset += 5;
+        ASSERT_EQ(offsets[row], expected_offset);
+        for (size_t i = 0; i < 5; ++i) {
+            ASSERT_FLOAT_EQ(nested_col.get_element(expected_offset - 5 + i), static_cast<float>(i));
+        }
+    }
+    ASSERT_EQ(nested_col.size(), expected_offset);
+}
+
+static FunctionBasePtr get_embed_function(const Block& block, const DataTypePtr& return_type) {
+    return SimpleFunctionFactory::instance().get_function(
+            "embed", block.get_columns_with_type_and_name(), return_type);
+}
+
 TEST(EMBED_TEST, embed_function_build_test) {
     FunctionEmbed function;
 
@@ -177,7 +231,7 @@ TEST(EMBED_TEST, embed_function_build_test) {
 
     ColumnNumbers arguments = {0, 1};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt({block.get_by_position(arguments[1]).column}, 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt, "this is a test prompt");
@@ -291,6 +345,133 @@ TEST(EMBED_TEST, embed_function_multimodal_direct_url) {
     assert_mock_embedding_column(col_array, file_json_rows.size());
 }
 
+TEST(EMBED_TEST, embed_function_partial_null_through_framework) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources(5, "mock_resource");
+    std::vector<std::string> texts = {"", "text-a", "", "text-c", ""};
+    std::vector<UInt8> null_map = {1, 0, 1, 0, 1};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_nullable_column<DataTypeString>(texts, null_map);
+    auto return_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())));
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), make_nullable(std::make_shared<DataTypeString>()), "text"});
+
+    auto function = get_embed_function(block, return_type);
+    ASSERT_NE(function, nullptr);
+    EXPECT_TRUE(function->get_return_type()->equals(*return_type));
+
+    block.insert({nullptr, return_type, "result"});
+    const size_t result_idx = 2;
+    MockAdapter::clear_embedding_inputs_for_test();
+    Status exec_status = function->execute(ctx.get(), block, {0, 1}, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    EXPECT_THAT(MockAdapter::get_embedding_inputs_for_test(),
+                ::testing::ElementsAre("text-a", "text-c"));
+    assert_mock_nullable_embedding_column(*block.get_by_position(result_idx).column, null_map);
+}
+
+TEST(EMBED_TEST, embed_function_multimodal_partial_null_through_framework) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources(5, "mock_resource");
+    std::vector<std::string> file_json_rows = {
+            "", R"({"content_type":"image/png","uri":"https://example.com/a.png"})", "",
+            R"({"content_type":"video/mp4","uri":"https://example.com/b.mp4"})", ""};
+    std::vector<UInt8> null_map = {1, 0, 1, 0, 1};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_file = create_nullable_jsonb_column(file_json_rows, null_map);
+    auto return_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())));
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_file), make_nullable(std::make_shared<DataTypeJsonb>()), "file"});
+
+    auto function = get_embed_function(block, return_type);
+    ASSERT_NE(function, nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+    const size_t result_idx = 2;
+    Status exec_status =
+            function->execute(ctx.get(), block, {0, 1}, result_idx, file_json_rows.size());
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    assert_mock_nullable_embedding_column(*block.get_by_position(result_idx).column, null_map);
+}
+
+TEST(EMBED_TEST, embed_function_all_null_const_nullable_through_framework) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    constexpr size_t row_count = 5;
+    std::vector<std::string> resources(row_count, "mock_resource");
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto nullable_text =
+            ColumnHelper::create_nullable_column<DataTypeString>({""}, std::vector<UInt8> {1});
+    auto col_text = ColumnConst::create(std::move(nullable_text), row_count);
+    auto return_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())));
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), make_nullable(std::make_shared<DataTypeString>()), "text"});
+
+    auto function = get_embed_function(block, return_type);
+    ASSERT_NE(function, nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+    const size_t result_idx = 2;
+    Status exec_status = function->execute(ctx.get(), block, {0, 1}, result_idx, row_count);
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& result_column = block.get_by_position(result_idx).column;
+    ASSERT_TRUE(is_column_const(*result_column));
+    EXPECT_TRUE(result_column->only_null());
+    ColumnPtr full_result = result_column->convert_to_full_column_if_const();
+    assert_mock_nullable_embedding_column(*full_result, std::vector<UInt8>(row_count, 1));
+}
+
+TEST(EMBED_TEST, embed_function_null_rows_across_batches_through_framework) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_embed_max_batch_size(2);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    std::vector<std::string> texts = {"", "text-a", "", "text-b", "", "text-c",
+                                      "", "text-d", "", "text-e", ""};
+    std::vector<UInt8> null_map = {1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+    std::vector<std::string> resources(texts.size(), "mock_resource");
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_nullable_column<DataTypeString>(texts, null_map);
+    auto return_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())));
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), make_nullable(std::make_shared<DataTypeString>()), "text"});
+
+    auto function = get_embed_function(block, return_type);
+    ASSERT_NE(function, nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+    const size_t result_idx = 2;
+    Status exec_status = function->execute(ctx.get(), block, {0, 1}, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    assert_mock_nullable_embedding_column(*block.get_by_position(result_idx).column, null_map);
+}
+
 TEST(EMBED_TEST, embed_function_multimodal_batch_request) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
@@ -321,8 +502,8 @@ TEST(EMBED_TEST, embed_function_multimodal_batch_request) {
     ColumnNumbers arguments = {0, 1};
     size_t result_idx = 2;
     FunctionEmbed embed_func;
-    Status exec_status = embed_func.execute_with_adapter(ctx.get(), block, arguments, result_idx,
-                                                         file_json_rows.size(), config, adapter);
+    Status exec_status = embed_func.execute(ctx.get(), block, arguments, result_idx,
+                                            file_json_rows.size(), config, adapter);
 
     ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
     EXPECT_THAT(counting_adapter->batch_sizes, ::testing::ElementsAre(3));
@@ -367,8 +548,8 @@ TEST(EMBED_TEST, embed_function_multimodal_batch_split_by_session_variable) {
     ColumnNumbers arguments = {0, 1};
     size_t result_idx = 2;
     FunctionEmbed embed_func;
-    Status exec_status = embed_func.execute_with_adapter(ctx.get(), block, arguments, result_idx,
-                                                         file_json_rows.size(), config, adapter);
+    Status exec_status = embed_func.execute(ctx.get(), block, arguments, result_idx,
+                                            file_json_rows.size(), config, adapter);
 
     ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
     EXPECT_THAT(counting_adapter->batch_sizes, ::testing::ElementsAre(2, 1));
@@ -410,8 +591,8 @@ TEST(EMBED_TEST, embed_function_text_batch_split_by_session_variable) {
     ColumnNumbers arguments = {0, 1};
     size_t result_idx = 2;
     FunctionEmbed embed_func;
-    Status exec_status = embed_func.execute_with_adapter(ctx.get(), block, arguments, result_idx,
-                                                         texts.size(), config, adapter);
+    Status exec_status = embed_func.execute(ctx.get(), block, arguments, result_idx, texts.size(),
+                                            config, adapter);
 
     ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
     EXPECT_THAT(counting_adapter->batch_sizes, ::testing::ElementsAre(2, 1));

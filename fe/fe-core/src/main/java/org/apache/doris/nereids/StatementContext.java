@@ -246,6 +246,10 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, Pair<String, Map<String, String>>> viewInfos = Maps.newHashMap();
     // save insert into schema to avoid schema changed between two read locks
     private final List<Column> insertTargetSchema = new ArrayList<>();
+    // Execution-scoped connector writer schemas. These are resolved before DEFAULT/omitted-column expansion,
+    // intentionally separate from the cached table schema used by DESCRIBE/SHOW CREATE, and cleared together
+    // with the connector statement scope when a prepared StatementContext starts its next execution.
+    private final Map<Long, List<Column>> connectorWriteSchemas = new HashMap<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be
@@ -449,6 +453,14 @@ public class StatementContext implements Closeable {
 
     public List<Column> getInsertTargetSchema() {
         return insertTargetSchema;
+    }
+
+    public void setConnectorWriteSchema(long tableId, List<Column> columns) {
+        connectorWriteSchemas.put(tableId, ImmutableList.copyOf(columns));
+    }
+
+    public Optional<List<Column>> getConnectorWriteSchema(long tableId) {
+        return Optional.ofNullable(connectorWriteSchemas.get(tableId));
     }
 
     public void setTables(Map<List<String>, TableIf> tables) {
@@ -673,16 +685,17 @@ public class StatementContext implements Closeable {
      * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
      * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
-     * this is called at the start of each, so a prior execution's / attempt's cached tables and closeable state
-     * are released (closeAll is idempotent — a no-op if the query-finish callback already closed it) and never
-     * leak into the next. Callers invoke this only after the prior execution/attempt has finished (no off-thread
-     * pump still running), so close-before-drop is safe.
+     * this is called at the start of each, so a prior execution's / attempt's cached tables, pinned connector
+     * writer schema, and closeable state are released (closeAll is idempotent — a no-op if the query-finish
+     * callback already closed it) and never leak into the next. Callers invoke this only after the prior
+     * execution/attempt has finished (no off-thread pump still running), so close-before-drop is safe.
      */
     public synchronized void resetConnectorStatementScope() {
         if (this.connectorStatementScope != null) {
             this.connectorStatementScope.closeAll();
         }
         this.connectorStatementScope = null;
+        this.connectorWriteSchemas.clear();
     }
 
     /**

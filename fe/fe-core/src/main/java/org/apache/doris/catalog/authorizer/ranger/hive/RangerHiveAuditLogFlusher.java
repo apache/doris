@@ -17,12 +17,13 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.TimerTask;
 
-@Slf4j
 public class RangerHiveAuditLogFlusher extends TimerTask {
+    private static final Logger LOG = LoggerFactory.getLogger(RangerHiveAuditLogFlusher.class);
     private RangerHiveAuditHandler auditHandler;
 
     public RangerHiveAuditLogFlusher(RangerHiveAuditHandler auditHandler) {
@@ -31,14 +32,12 @@ public class RangerHiveAuditLogFlusher extends TimerTask {
 
     @Override
     public void run() {
-        while (true) {
+        try {
             this.auditHandler.flushAudit();
-
-            try {
-                Thread.sleep(20000);
-            } catch (InterruptedException e) {
-                log.info("error ", e);
-            }
+        } catch (Throwable t) {
+            // ScheduledThreadPoolExecutor suppresses every later fixed-rate invocation when one run escapes with
+            // an exception. Keep the periodic flusher alive; RangerHiveAuditHandler retains undelivered events.
+            LOG.warn("Failed to flush Ranger Hive audit events; will retry on the next tick", t);
         }
     }
 }

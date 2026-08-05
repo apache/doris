@@ -87,6 +87,18 @@ std::string build_azure_tls_debug_suffix(std::string_view error_message,
     return fmt::format(", {}", tls_debug_context);
 }
 
+static ObjectStorageResponse make_azure_std_exception_response(const std::exception& e,
+                                                               const ObjectStoragePathOptions& opts,
+                                                               std::string_view tls_debug_context) {
+    auto msg = fmt::format("Azure request failed because {}, path msg {}{}", e.what(),
+                           wrap_object_storage_path_msg(opts),
+                           build_azure_tls_debug_suffix(e.what(), tls_debug_context));
+    LOG(WARNING) << msg;
+    return {.status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+            .http_code = 0,
+            .request_id = ""};
+}
+
 template <typename Func>
 ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOptions& opts,
                                            std::string_view tls_debug_context) {
@@ -104,14 +116,8 @@ ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOption
         return {.status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
                 .http_code = static_cast<int>(e.StatusCode),
                 .request_id = std::move(e.RequestId)};
-    } catch (std::exception& e) {
-        auto msg = fmt::format("Azure request failed because {}, path msg {}{}", e.what(),
-                               wrap_object_storage_path_msg(opts),
-                               build_azure_tls_debug_suffix(e.what(), tls_debug_context));
-        LOG(WARNING) << msg;
-        return {.status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
-                .http_code = 0,
-                .request_id = ""};
+    } catch (const std::exception& e) {
+        return make_azure_std_exception_response(e, opts, tls_debug_context);
     }
     return ObjectStorageResponse::OK();
 }
@@ -231,6 +237,8 @@ ObjectStorageUploadResponse AzureObjStorageBackend::upload_part(
             },
         };
         // clang-format on
+    } catch (const std::exception& e) {
+        return {.resp = make_azure_std_exception_response(e, opts, _config.tls_debug_context)};
     }
     return ObjectStorageUploadResponse {.resp = ObjectStorageResponse::OK()};
 }
@@ -282,6 +290,8 @@ ObjectStorageHeadResponse AzureObjStorageBackend::head_object(
                          .http_code = static_cast<int>(e.StatusCode),
                          .request_id = std::move(e.RequestId)},
         };
+    } catch (const std::exception& e) {
+        return {.resp = make_azure_std_exception_response(e, opts, _config.tls_debug_context)};
     }
 }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -70,6 +71,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileAttributes;
@@ -1446,6 +1448,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .limit(sourceLimit)
                 .requiredPartitions(requiredPartitions)
                 .countPushdown(countPushdown)
+                // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
+                // connector whose planning has a side effect on the source (ADBC: asking the driver to
+                // partition a query EXECUTES it) needs to know the plan is only going to be shown.
+                // Connectors that just list files are unaffected: they never read this.
+                .explainOnly(isExplainOnly())
                 .build();
         List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
                 () -> scanProvider.planScan(connectorSession, request));
@@ -1531,6 +1538,21 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         }
         return splits.subList(0, index);
+    }
+
+    /**
+     * Whether the statement being planned is an {@code EXPLAIN}, so this plan will be shown and never run.
+     *
+     * <p>Read from the executor's parsed statement, which {@code ExplainCommand} marks before it plans. Any
+     * path without a live executor answers false, which is the safe way round: a connector then plans what
+     * it would have planned anyway.</p>
+     */
+    private static boolean isExplainOnly() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || ctx.getExecutor() == null || ctx.getExecutor().getParsedStmt() == null) {
+            return false;
+        }
+        return ctx.getExecutor().getParsedStmt().isExplain();
     }
 
     /**
@@ -1909,6 +1931,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
+        String requiredSemantics =
+                getOrLoadScanNodeProperties().get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS);
+        if (requiredSemantics != null) {
+            for (Backend backend : backendPolicy.getBackends()) {
+                if (backend.isSmoothUpgradeSrc()) {
+                    throw new UserException(requiredSemantics + " are unavailable while backend "
+                            + backend.getId() + " is a smooth upgrade source");
+                }
+            }
+        }
         super.createScanRangeLocations();
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         // Prune BEFORE delegating: "the connector took ALL the filtering" is only true of the pruned set, and
@@ -2062,7 +2094,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     /**
      * Maps a file format name string to the corresponding TFileFormatType.
      */
-    private static TFileFormatType mapFileFormatType(String format) {
+    /** Package-visible and static so the mapping is unit-testable without a planner. */
+    static TFileFormatType mapFileFormatType(String format) {
         switch (format.toLowerCase()) {
             case "parquet":
                 return TFileFormatType.FORMAT_PARQUET;
@@ -2080,6 +2113,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 return TFileFormatType.FORMAT_AVRO;
             case "es_http":
                 return TFileFormatType.FORMAT_ES_HTTP;
+            case "arrow":
+                // A connector whose reader hands BE Arrow record batches rather than a file (adbc, and the
+                // remote_doris scan node already outside this switch). Without this the format falls to
+                // FORMAT_JNI below and BE never enters the Arrow reader path.
+                return TFileFormatType.FORMAT_ARROW;
             default:
                 return TFileFormatType.FORMAT_JNI;
         }
@@ -2144,7 +2182,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 String name = slot.getColumn().getName();
                 ConnectorColumnHandle ch = allHandles.get(name);
                 if (ch != null) {
-                    selected.add(ch);
+                    selected.add(withProjectedFieldIds(ch, slot));
                 } else if (pinnedNames.contains(name)) {
                     throw new UserException("Column '" + name + "' of table "
                             + getTargetTable().getName() + " resolves in the pinned time-travel schema"
@@ -2154,6 +2192,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         }
         return selected;
+    }
+
+    static ConnectorColumnHandle withProjectedFieldIds(
+            ConnectorColumnHandle handle, SlotDescriptor slot) {
+        Set<Integer> projectedFieldIds = new HashSet<>();
+        for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
+            for (String component : accessPath.getPath()) {
+                if (component.chars().allMatch(Character::isDigit)) {
+                    projectedFieldIds.add(Integer.parseInt(component));
+                }
+            }
+        }
+        return projectedFieldIds.isEmpty()
+                ? handle : handle.withProjectedFieldIds(projectedFieldIds);
     }
 
     /**
