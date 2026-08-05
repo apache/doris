@@ -29,10 +29,10 @@ concurrency:
 jobs:
   run-ut:
     name: BE UT (macOS)
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           submodules: recursive
@@ -44,6 +44,7 @@ jobs:
         with:
           filters: |
             be_changes:
+              - '.github/workflows/be-ut-mac.yml'
               - 'be/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
