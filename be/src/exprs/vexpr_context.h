@@ -91,16 +91,6 @@ public:
         return _index_iterators[column_id].get();
     }
 
-    segment_v2::IndexIterator* get_inverted_index_iterator_by_id(ColumnId column_id) const {
-        if (column_id >= _index_iterators.size()) {
-            return nullptr;
-        }
-        if (!_index_iterators[column_id]) {
-            return nullptr;
-        }
-        return _index_iterators[column_id].get();
-    }
-
     const IndexFieldNameAndTypePair* get_storage_name_and_type_by_column_id(
             int column_index) const {
         if (column_index < 0 || column_index >= _col_ids.size()) {
@@ -111,22 +101,6 @@ public:
             return nullptr;
         }
         return &_storage_name_and_type[column_id];
-    }
-
-    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_id(ColumnId column_id) const {
-        if (column_id >= _storage_name_and_type.size()) {
-            return nullptr;
-        }
-        return &_storage_name_and_type[column_id];
-    }
-
-    int column_index_by_id(ColumnId column_id) const {
-        for (int i = 0; i < _col_ids.size(); ++i) {
-            if (_col_ids[i] == column_id) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     bool get_column_id(int column_index, ColumnId* column_id) const {
