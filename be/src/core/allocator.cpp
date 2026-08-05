@@ -395,22 +395,30 @@ void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
         /// BTW, it's not possible to change alignment while doing realloc.
         return buf;
     }
-    memory_check(new_size);
-    // Realloc can do 2 possible things:
-    // - expand existing memory region
-    // - allocate new memory block and free the old one
-    // Because we don't know which option will be picked we need to make sure there is enough
-    // memory for all options.
-    consume_memory(new_size);
-
     if (!use_mmap ||
         (old_size < doris::config::mmap_threshold && new_size < doris::config::mmap_threshold &&
          alignment <= MALLOC_MIN_ALIGNMENT)) {
+        // Malloc/mmap realloc paths overwhelmingly resolve in-place (tcmalloc/jemalloc
+        // grow the existing region without copying physical pages). Tracking the
+        // net delta avoids a transient double-count of old_size, which would trip
+        // mem_limit checks on the boundary in queries without spill fallback and
+        // surface as a spurious MEM_LIMIT_EXCEEDED. If realloc internally falls
+        // back to alloc+copy+free, the tracker is briefly under-counted by
+        // old_size for the duration of the copy; that window is bounded by a
+        // single memcpy and self-corrects immediately after.
+        const bool grow = new_size > old_size;
+        const size_t delta = grow ? (new_size - old_size) : (old_size - new_size);
+        if (grow) {
+            memory_check(delta);
+            consume_memory(delta);
+        }
         remove_address_sanitizers(buf, old_size);
         /// Resize malloc'd memory region with no special alignment requirement.
         void* new_buf = MemoryAllocator::realloc(buf, new_size);
         if (nullptr == new_buf) {
-            release_memory(new_size);
+            if (grow) {
+                release_memory(delta);
+            }
             throw_bad_alloc(
                     fmt::format("Allocator: Cannot realloc from {} to {}.", old_size, new_size));
         }
@@ -418,7 +426,9 @@ void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
         add_address_sanitizers(new_buf, new_size);
 
         buf = new_buf;
-        release_memory(old_size);
+        if (!grow) {
+            release_memory(delta);
+        }
         if constexpr (clear_memory) {
             if (new_size > old_size) {
                 memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
@@ -427,15 +437,30 @@ void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
     } else if (old_size >= doris::config::mmap_threshold &&
                new_size >= doris::config::mmap_threshold) {
         /// Resize mmap'd memory region.
-        // On apple and freebsd self-implemented mremap used (common/mremap.h)
+        // Native Linux mremap (MREMAP_MAYMOVE) rewires page tables in place
+        // without duplicating physical pages, so the peak equals new_size and
+        // tracking the net delta is exact. On apple/freebsd there is no native
+        // mremap: common/mremap.h falls back to mmap(new)+memcpy+munmap(old),
+        // whose copy window peaks at old+new and is briefly under-counted by
+        // old_size here. Production is Linux-only, so we track the net delta.
+        const bool grow = new_size > old_size;
+        const size_t delta = grow ? (new_size - old_size) : (old_size - new_size);
+        if (grow) {
+            memory_check(delta);
+            consume_memory(delta);
+        }
         buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
                                 mmap_flags, -1, 0);
         if (MAP_FAILED == buf) {
-            release_memory(new_size);
+            if (grow) {
+                release_memory(delta);
+            }
             throw_bad_alloc(fmt::format("Allocator: Cannot mremap memory chunk from {} to {}.",
                                         old_size, new_size));
         }
-        release_memory(old_size);
+        if (!grow) {
+            release_memory(delta);
+        }
 
         /// No need for zero-fill, because mmap guarantees it.
 
@@ -447,14 +472,15 @@ void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
             }
         }
     } else {
-        // Big allocs that requires a copy.
+        // Big allocs that requires a copy. Inner alloc()/free() already track
+        // new_size and old_size respectively; the peak here is genuinely double
+        // for the copy window, and consumers of this path must tolerate it.
         void* new_buf = alloc(new_size, alignment);
         memcpy(new_buf, buf, std::min(old_size, new_size));
         add_address_sanitizers(new_buf, new_size);
         remove_address_sanitizers(buf, old_size);
         free(buf, old_size);
         buf = new_buf;
-        release_memory(old_size);
     }
 
     return buf;
