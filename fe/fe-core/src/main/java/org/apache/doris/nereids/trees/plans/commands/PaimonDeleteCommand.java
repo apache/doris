@@ -62,7 +62,7 @@ public class PaimonDeleteCommand extends Command implements ForwardWithSync, Exp
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         new InsertIntoTableCommand(buildPlan(ctx), Optional.empty(), Optional.empty(),
-                Optional.empty(), true, Optional.empty()).run(ctx, executor);
+                Optional.empty(), false, Optional.empty()).run(ctx, executor);
     }
 
     private LogicalPlan buildPlan(ConnectContext ctx) {

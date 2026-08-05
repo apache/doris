@@ -26,6 +26,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -42,7 +43,7 @@ import java.util.Optional;
  * Logical Paimon table sink for INSERT INTO paimon_table.
  */
 public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
-        implements Sink {
+        implements Sink, PropagateFuncDeps {
 
     private final PaimonExternalDatabase database;
     private final PaimonExternalTable targetTable;
