@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.adbc;
 
-import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
@@ -48,33 +47,18 @@ public class AdbcConnectorProvider implements ConnectorProvider {
     }
 
     /**
-     * Cheap presence checks only. Resolving {@code driver_url} to a path needs adbc.conf's
+     * Binds and validates every property this connector owns, by building the typed holder and throwing
+     * away the result: the checking is the point, and constructing it is how the checks are expressed.
+     * This guards ALTER as well as CREATE -- the SPI's default {@code validatePropertiesForUpdate} merges
+     * the change into the stored properties and calls this method with the candidate.
+     *
+     * <p>Cheap presence checks only. Resolving {@code driver_url} to a path needs adbc.conf's
      * {@code drivers_dir} and {@code driver_secure_path}, which arrive through the connector context
      * rather than the property map, so that half runs in {@code AdbcConnector#preCreateValidation}.
      */
     @Override
     public void validateProperties(Map<String, String> properties) {
-        AdbcConnectorProperties.require(properties, AdbcConnectorProperties.DRIVER_URL);
-        AdbcConnectorProperties.require(properties, AdbcConnectorProperties.URI);
-        // Parsed for its exceptions: an unreadable value has to fail here, at CREATE CATALOG, and not on
-        // the first query -- these two decide how a scan is planned, and a typo in either would otherwise
-        // change that silently.
-        AdbcConnectorProperties.partitionedReadMode(properties);
-        AdbcConnectorProperties.maxPartitions(properties);
-        checkMetaCacheProperties(properties);
-    }
-
-    /**
-     * The cache knobs, which {@code CacheSpec} otherwise reads leniently -- an unparseable ttl or capacity
-     * falls back to the default instead of failing. That is the wrong shape for a value an operator typed:
-     * the catalog would come up caching for a duration nobody chose, and nothing would say so. Bounds match
-     * the other connectors': ttl {@code >= -1} (-1 is "never expire"), capacity {@code >= 0} (0 disables).
-     */
-    private static void checkMetaCacheProperties(Map<String, String> properties) {
-        CacheSpec.PropertySpec spec = AdbcMetadataCache.propertySpec();
-        CacheSpec.checkBooleanProperty(properties.get(spec.getEnableKey()), spec.getEnableKey());
-        CacheSpec.checkLongProperty(properties.get(spec.getTtlKey()), -1L, spec.getTtlKey());
-        CacheSpec.checkLongProperty(properties.get(spec.getCapacityKey()), 0L, spec.getCapacityKey());
+        AdbcCatalogProperties.of(properties);
     }
 
     @Override
