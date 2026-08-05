@@ -52,6 +52,7 @@ import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
@@ -965,7 +966,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             });
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to create Iceberg table "
-                    + request.getDbName() + "." + request.getTableName() + ": " + e.getMessage(), e);
+                    + request.getDbName() + "." + request.getTableName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1158,7 +1160,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             });
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to add column " + column.getName() + " to Iceberg table "
-                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1177,7 +1180,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             });
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to add columns to Iceberg table "
-                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1192,7 +1196,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             });
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to drop column " + columnName + " from Iceberg table "
-                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1209,7 +1214,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to rename column " + oldName + " to " + newName
                     + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1255,7 +1260,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to modify column " + column.getName()
                     + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1299,7 +1304,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             });
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to reorder columns in Iceberg table "
-                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1345,7 +1351,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to add nested column " + path.getFullPath()
                     + " to Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1367,7 +1373,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to drop nested column " + path.getFullPath()
                     + " from Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1391,7 +1397,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to rename nested column " + path.getFullPath()
                     + " to " + newName + " in Iceberg table " + iceHandle.getDbName() + "."
-                    + iceHandle.getTableName() + ": " + e.getMessage(), e);
+                    + iceHandle.getTableName() + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1440,7 +1446,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to modify nested column " + path.getFullPath()
                     + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1462,7 +1468,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to modify comment for column " + path.getFullPath()
                     + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1485,7 +1491,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to create or replace branch " + branch.getName()
                     + " on Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1501,7 +1507,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to create or replace tag " + tag.getName()
                     + " on Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1517,7 +1523,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to drop branch " + branch.getName()
                     + " from Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1533,7 +1539,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to drop tag " + tag.getName()
                     + " from Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
-                    + ": " + e.getMessage(), e);
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1556,7 +1562,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             });
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to add partition field to Iceberg table "
-                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1572,7 +1579,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             });
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to drop partition field from Iceberg table "
-                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -1588,7 +1596,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             });
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to replace partition field in Iceberg table "
-                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
