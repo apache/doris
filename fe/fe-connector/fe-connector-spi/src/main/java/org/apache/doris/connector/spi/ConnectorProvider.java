@@ -22,6 +22,7 @@ import org.apache.doris.extension.spi.PluginFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -115,6 +116,28 @@ public interface ConnectorProvider extends PluginFactory {
                 ? new HashMap<>() : new HashMap<>(currentProperties);
         candidate.putAll(updatedProperties);
         validateProperties(candidate);
+    }
+
+    /**
+     * The JDBC driver jar URLs that the given catalog properties would make this connector load into the
+     * FE JVM — raw (not resolved to a full URL), alias-resolved, and flavor-aware, so a property that is
+     * dead config for the resolved flavor must not be reported. Default: none.
+     *
+     * <p><b>Why the engine asks.</b> Whether a driver jar location is allowed at all is an operator
+     * decision expressed in fe.conf ({@code jdbc_driver_secure_path}, {@code jdbc_driver_url_white_list}),
+     * so only the engine can apply it. On CREATE the engine applies it through
+     * {@link Connector#preCreateValidation}. ALTER CATALOG never reaches that hook — it validates through
+     * {@link #validatePropertiesForUpdate} alone — so without this declaration an operator's allow-list
+     * would be enforced at CREATE and then silently bypassable by a follow-up ALTER that repoints
+     * {@code driver_url} at any URL. Any connector that hands a property value to a class loader MUST
+     * declare it here.
+     *
+     * <p>This is only the operator-configurable gate. The mandatory, non-configurable rule
+     * ({@link JdbcDriverUrlSecurity}) is the connector's own responsibility and belongs in
+     * {@link #validateProperties}, which the engine runs on both CREATE and ALTER.
+     */
+    default List<String> driverUrlsToValidate(Map<String, String> properties) {
+        return Collections.emptyList();
     }
 
     /**

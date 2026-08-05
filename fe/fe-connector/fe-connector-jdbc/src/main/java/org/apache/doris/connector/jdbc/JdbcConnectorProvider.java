@@ -21,8 +21,10 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.JdbcDriverUrlSecurity;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -58,10 +60,10 @@ public class JdbcConnectorProvider implements ConnectorProvider {
             }
         }
 
-        // 1b. Mandatory, non-configurable driver_url security rule. checkProperties() runs this on
-        // both CREATE and ALTER CATALOG (both !isReplay), so a malicious driver_url cannot be
-        // introduced by either; metadata replay of existing catalogs is never affected.
-        JdbcDorisConnector.checkDriverUrlSecurityRule(resolve(properties, JdbcConnectorProperties.DRIVER_URL));
+        // 1b. Mandatory, non-configurable driver_url security rule, shared with the Iceberg/Paimon JDBC
+        // catalogs. checkProperties() runs this on both CREATE and ALTER CATALOG (both !isReplay), so a
+        // malicious driver_url cannot be introduced by either; metadata replay is never affected.
+        JdbcDriverUrlSecurity.check(resolve(properties, JdbcConnectorProperties.DRIVER_URL));
 
         // 2. Reject deprecated lower_case_table_names
         if (properties.containsKey(JdbcConnectorProperties.LOWER_CASE_TABLE_NAMES)
@@ -114,6 +116,18 @@ public class JdbcConnectorProvider implements ConnectorProvider {
                 throw new IllegalArgumentException(e.getMessage(), e);
             }
         }
+    }
+
+    /**
+     * A jdbc catalog always loads {@code driver_url} into the FE JVM, so it is always declared. See
+     * {@link ConnectorProvider#driverUrlsToValidate} for why the engine needs it (ALTER CATALOG does not
+     * reach {@code preCreateValidation}, where the operator's driver gate is applied on CREATE).
+     */
+    @Override
+    public List<String> driverUrlsToValidate(Map<String, String> properties) {
+        String driverUrl = resolve(properties, JdbcConnectorProperties.DRIVER_URL);
+        return driverUrl == null || driverUrl.isEmpty()
+                ? Collections.emptyList() : Collections.singletonList(driverUrl);
     }
 
     private static void checkBooleanProperty(Map<String, String> properties, String key) {
