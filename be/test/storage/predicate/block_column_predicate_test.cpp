@@ -1249,35 +1249,6 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     }
 }
 
-TEST_F(BlockColumnPredicateTest, floating_in_range_preserves_native_nan) {
-    const auto check_type = []<PrimitiveType Type>() {
-        using T = typename PrimitiveTypeTraits<Type>::CppType;
-        const T nan = std::numeric_limits<T>::quiet_NaN();
-        const T zero = T {0};
-
-        auto in_set = std::make_shared<HybridSet<Type>>(false);
-        in_set->insert(&nan);
-        InListPredicateBase<Type, PredicateType::IN_LIST, 0> in_predicate(0, "", in_set, false);
-
-        segment_v2::ZoneMap zone_map {.min_value = Field::create_field<Type>(T {100}),
-                                      .max_value = Field::create_field<Type>(nan),
-                                      .has_null = false,
-                                      .has_not_null = true,
-                                      .has_nan = true};
-        EXPECT_TRUE(in_predicate.evaluate_and(zone_map));
-
-        auto not_in_set = std::make_shared<HybridSet<Type>>(false);
-        not_in_set->insert(&zero);
-        not_in_set->insert(&nan);
-        InListPredicateBase<Type, PredicateType::NOT_IN_LIST, 0> not_in_predicate(0, "", not_in_set,
-                                                                                  false);
-        EXPECT_FALSE(not_in_predicate.evaluate_del(zone_map));
-    };
-
-    check_type.template operator()<TYPE_FLOAT>();
-    check_type.template operator()<TYPE_DOUBLE>();
-}
-
 // test timestamptz zonemap index
 TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
     cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
@@ -1860,8 +1831,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
                 return true;
             };
             stat.get_stat_func = &get_stat_func;
-            // Parquet min/max bounds omit NaNs, which can still satisfy Doris NE semantics.
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
         }
         {
             // 5 not belongs to [6, 7]
@@ -1963,8 +1933,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
                 return true;
             };
             stat.get_stat_func = &get_stat_func;
-            // Parquet min/max bounds omit NaNs, which can still satisfy Doris GE semantics.
-            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+            EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
         }
     }
     {

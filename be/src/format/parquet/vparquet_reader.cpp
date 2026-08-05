@@ -1253,10 +1253,6 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
             ZoneMapEvalContext ctx;
             ZoneMapEvalContext::SlotZoneMap slot_zone_map;
             slot_zone_map.data_type = slot->type();
-            const auto primitive_type =
-                    remove_nullable(stat->col_schema->data_type)->get_primitive_type();
-            slot_zone_map.floating_nan_count_unknown =
-                    primitive_type == TYPE_FLOAT || primitive_type == TYPE_DOUBLE;
             segment_v2::ZoneMap zone_map;
             zone_map.has_null = stat->has_null[page_id];
             zone_map.has_not_null = !stat->is_all_null[page_id];
@@ -1516,9 +1512,6 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         const auto& file_col_name =
                 _table_info_node_ptr->children_file_column_name(slot->col_name());
         const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
-        const auto primitive_type = remove_nullable(col_schema->data_type)->get_primitive_type();
-        slot_zone_map.floating_nan_count_unknown =
-                primitive_type == TYPE_FLOAT || primitive_type == TYPE_DOUBLE;
         int parquet_col_id = col_schema->physical_column_index;
         if (parquet_col_id < 0) {
             // Complex parent fields do not map to a physical Parquet column.

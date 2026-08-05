@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <cmath>
 #include <cstdint>
 #include <type_traits>
 
@@ -168,18 +167,6 @@ public:
         T min_value = min_field.template get<Type>();
         T max_value = max_field.template get<Type>();
 
-        if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
-            constexpr bool hidden_nan_can_match_non_nan =
-                    PT == PredicateType::NE || PT == PredicateType::GT || PT == PredicateType::GE;
-            constexpr bool hidden_nan_can_match_nan =
-                    PT == PredicateType::EQ || PT == PredicateType::GE;
-            // Parquet bounds omit NaNs, so only operators that cannot match a hidden NaN may prune.
-            if ((std::isnan(_value) && hidden_nan_can_match_nan) ||
-                (!std::isnan(_value) && hidden_nan_can_match_non_nan)) {
-                return true;
-            }
-        }
-
         if constexpr (PT == PredicateType::EQ) {
             return Compare::less_equal(min_value, _value) &&
                    Compare::greater_equal(max_value, _value);
@@ -212,9 +199,7 @@ public:
         }
 
         if constexpr (PT == PredicateType::EQ) {
-            // The legacy Parquet callback performs I/O, so apply value-specific capability first.
-            if (result && can_do_bloom_filter(false) &&
-                statistic->get_bloom_filter_func != nullptr &&
+            if (result && statistic->get_bloom_filter_func != nullptr &&
                 (*statistic->get_bloom_filter_func)(statistic, column_id())) {
                 if (!statistic->bloom_filter) {
                     return result;
@@ -345,11 +330,6 @@ public:
     }
 
     bool can_do_bloom_filter(bool ngram) const override {
-        if constexpr ((Type == PrimitiveType::TYPE_FLOAT || Type == PrimitiveType::TYPE_DOUBLE) &&
-                      PT == PredicateType::EQ) {
-            // NaN equality must remain a conservative match, so no Bloom payload can exclude it.
-            return !ngram && !std::isnan(_value);
-        }
         return PT == PredicateType::EQ && !ngram;
     }
 
@@ -372,9 +352,11 @@ public:
                 // BIGINT -> hash as int64
                 return test_bytes(_value);
             } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
-                return bf->test_floating_point(_value);
+                // FLOAT -> hash as float
+                return test_bytes(_value);
             } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
-                return bf->test_floating_point(_value);
+                // DOUBLE -> hash as double
+                return test_bytes(_value);
             } else if constexpr (is_string_type(Type)) {
                 // VARCHAR/STRING -> hash bytes
                 return bf->test_bytes(_value.data(), _value.size());
