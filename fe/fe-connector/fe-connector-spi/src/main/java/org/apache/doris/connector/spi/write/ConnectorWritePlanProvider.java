@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -40,6 +41,25 @@ import java.util.Set;
  * dispatches the resulting Thrift data sink to BE unchanged.</p>
  */
 public interface ConnectorWritePlanProvider {
+
+    /**
+     * Returns the statement-pinned data columns for a write target.
+     *
+     * <p>A connector whose remote schema can evolve concurrently may override this method to resolve the
+     * target schema once before analysis. The engine uses the returned columns for omitted-column and
+     * explicit-DEFAULT expansion and then keeps the same statement scope through sink planning and commit.
+     * {@link Optional#empty()} preserves the cached table-schema behavior for connectors that do not need
+     * request-scoped write metadata.</p>
+     *
+     * @param session the current session
+     * @param tableHandle the target table handle
+     * @param branchName the named write branch, if any
+     * @return pinned write columns, or empty to use the table's cached schema
+     */
+    default Optional<List<ConnectorColumn>> getWriteColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle, Optional<String> branchName) {
+        return Optional.empty();
+    }
 
     /**
      * Builds the data sink for the given bound write request.

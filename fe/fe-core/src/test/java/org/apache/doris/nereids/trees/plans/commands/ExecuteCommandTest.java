@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -40,7 +43,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -131,6 +137,52 @@ public class ExecuteCommandTest {
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
 
         Mockito.verify(executor).execute();
+    }
+
+    @Test
+    public void testPreparedConnectorUpdateRefreshesWriteDefaultEveryExecution() throws Exception {
+        // Prepared UPDATE reuses one StatementContext. Model connector metadata changing from default 1 to 2
+        // between executions: each planner callback pins the current schema only when no schema is already pinned,
+        // then expands DEFAULT(v) and writes the resulting value.
+        // MUTATION: resetConnectorStatementScope() not clearing connectorWriteSchemas makes execution two reuse
+        // default 1, so the written values become [1, 1] instead of [1, 2].
+        String sql = "update ext_catalog.db.t set v = default(v) where id = 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        Assertions.assertInstanceOf(UpdateCommand.class, logicalPlan);
+
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        long tableId = 7L;
+        AtomicInteger metadataDefault = new AtomicInteger(1);
+        List<String> writtenValues = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            if (!statementContext.getConnectorWriteSchema(tableId).isPresent()) {
+                Column column = new Column("v", ScalarType.createType(PrimitiveType.INT),
+                        false, null, String.valueOf(metadataDefault.get()), "");
+                statementContext.setConnectorWriteSchema(tableId, Collections.singletonList(column));
+            }
+            writtenValues.add(statementContext.getConnectorWriteSchema(tableId).get()
+                    .get(0).getDefaultValueSql());
+            return null;
+        }).when(executor).execute();
+
+        ExecuteCommand execute = new ExecuteCommand("stmt", prepareCommand, statementContext);
+        execute.run(connectContext, executor);
+        metadataDefault.set(2);
+        execute.run(connectContext, executor);
+
+        Assertions.assertEquals(Arrays.asList("1", "2"), writtenValues,
+                "each prepared UPDATE must write the default from its freshly resolved connector schema");
     }
 
     @Test

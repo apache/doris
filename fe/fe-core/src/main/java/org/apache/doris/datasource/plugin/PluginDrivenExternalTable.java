@@ -779,6 +779,36 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return ConnectorColumnConverter.convertColumns(fetchSyntheticWriteColumns());
     }
 
+    /**
+     * Resolves request-scoped data columns for write analysis. A connector may pin remote schema/default
+     * metadata here; an empty result tells the engine to keep using the cached table schema.
+     */
+    public Optional<List<Column>> resolveWriteColumns(Optional<String> branchName) {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
+        if (!handle.isPresent()) {
+            return Optional.empty();
+        }
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle.get());
+        if (provider == null) {
+            return Optional.empty();
+        }
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
+            return provider.getWriteColumns(session, handle.get(), branchName)
+                    .map(ConnectorColumnConverter::convertColumns);
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
     /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */
     private Map<String, String> rawTableProperties() {
         makeSureInitialized();

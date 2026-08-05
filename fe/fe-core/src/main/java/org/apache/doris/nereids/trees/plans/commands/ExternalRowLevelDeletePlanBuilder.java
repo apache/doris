@@ -103,7 +103,7 @@ public class ExternalRowLevelDeletePlanBuilder {
         LogicalExternalRowLevelDeleteSink<LogicalPlan> deleteSink = new LogicalExternalRowLevelDeleteSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
-                icebergTable.getBaseSchema(true),  // cols
+                ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable),  // cols
                 outputExprs,  // outputExprs
                 Optional.empty(),  // groupExpression
                 Optional.empty(),  // logicalProperties

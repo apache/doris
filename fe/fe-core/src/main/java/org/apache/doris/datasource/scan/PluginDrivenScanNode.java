@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -70,6 +71,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileAttributes;
@@ -1909,6 +1911,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
+        String requiredSemantics =
+                getOrLoadScanNodeProperties().get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS);
+        if (requiredSemantics != null) {
+            for (Backend backend : backendPolicy.getBackends()) {
+                if (backend.isSmoothUpgradeSrc()) {
+                    throw new UserException(requiredSemantics + " are unavailable while backend "
+                            + backend.getId() + " is a smooth upgrade source");
+                }
+            }
+        }
         super.createScanRangeLocations();
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         // Prune BEFORE delegating: "the connector took ALL the filtering" is only true of the pruned set, and
@@ -2144,7 +2156,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 String name = slot.getColumn().getName();
                 ConnectorColumnHandle ch = allHandles.get(name);
                 if (ch != null) {
-                    selected.add(ch);
+                    selected.add(withProjectedFieldIds(ch, slot));
                 } else if (pinnedNames.contains(name)) {
                     throw new UserException("Column '" + name + "' of table "
                             + getTargetTable().getName() + " resolves in the pinned time-travel schema"
@@ -2154,6 +2166,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         }
         return selected;
+    }
+
+    static ConnectorColumnHandle withProjectedFieldIds(
+            ConnectorColumnHandle handle, SlotDescriptor slot) {
+        Set<Integer> projectedFieldIds = new HashSet<>();
+        for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
+            for (String component : accessPath.getPath()) {
+                if (component.chars().allMatch(Character::isDigit)) {
+                    projectedFieldIds.add(Integer.parseInt(component));
+                }
+            }
+        }
+        return projectedFieldIds.isEmpty()
+                ? handle : handle.withProjectedFieldIds(projectedFieldIds);
     }
 
     /**

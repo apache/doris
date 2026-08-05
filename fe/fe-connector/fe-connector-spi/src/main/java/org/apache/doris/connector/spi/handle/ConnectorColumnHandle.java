@@ -18,12 +18,21 @@
 package org.apache.doris.connector.spi.handle;
 
 import java.io.Serializable;
+import java.util.Set;
 
 /**
  * Opaque column handle. Implementations must correctly implement
  * {@link #hashCode()} and {@link #equals(Object)}.
  */
 public interface ConnectorColumnHandle extends Serializable {
+
+    /**
+     * Returns a handle scoped to the stable field IDs that the engine actually projected below this
+     * top-level column. Connectors that do not use stable nested IDs keep the original opaque handle.
+     */
+    default ConnectorColumnHandle withProjectedFieldIds(Set<Integer> projectedFieldIds) {
+        return this;
+    }
 
     @Override
     int hashCode();

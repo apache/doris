@@ -80,6 +80,16 @@ public final class ScanNodePropertyKeys {
      */
     public static final String REMOTE_QUERY = "query";
 
+    /**
+     * Human-readable name of scan semantics that require every selected backend to be from the current
+     * generation. When present, the engine rejects scheduling while a smooth-upgrade source backend is still
+     * eligible. The value is used in the error message (for example, {@code Current Iceberg scan semantics}).
+     *
+     * <p>This is deliberately connector-neutral: the engine owns backend version state, while the connector
+     * alone knows whether the requested projection and table history require its new semantics.</p>
+     */
+    public static final String REQUIRED_CURRENT_BACKEND_SEMANTICS = "required_current_backend_semantics";
+
     // ------------------------------------------------------------------------
     // connector -> engine: text-family file attributes
     // ------------------------------------------------------------------------
