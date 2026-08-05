@@ -2230,6 +2230,27 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void backendOptionsResolveAPaddedDriverUrl() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("paimon.jdbc.driver_url", "  mysql.jar  ");
+        props.put("paimon.jdbc.driver_class", "  com.mysql.cj.jdbc.Driver  ");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(),
+                envContext(Collections.singletonMap("jdbc_drivers_dir", "/opt/drivers")));
+
+        Map<String, String> opts = provider.getBackendPaimonOptions();
+
+        // WHY: these two keys are what the BE turns into a real URL and a real Class.forName. Reading
+        // them from the bound jdbc properties (rather than re-scanning the raw map) means a padded value
+        // is trimmed before it is resolved -- otherwise BE gets "file:///opt/drivers/  mysql.jar  " and
+        // fails at load time with an error naming neither the property nor the padding.
+        // MUTATION: forwarding the raw value -> the resolved url keeps the spaces -> red.
+        Assertions.assertEquals("file:///opt/drivers/mysql.jar", opts.get("jdbc.driver_url"));
+        Assertions.assertEquals("com.mysql.cj.jdbc.Driver", opts.get("jdbc.driver_class"));
+    }
+
+    @Test
     public void backendOptionsPreserveSchemeBearingDriverUrl() {
         Map<String, String> props = new HashMap<>();
         props.put("paimon.catalog.type", "jdbc");

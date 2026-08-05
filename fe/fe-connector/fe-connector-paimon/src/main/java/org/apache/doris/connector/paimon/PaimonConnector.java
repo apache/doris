@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -510,8 +511,7 @@ public class PaimonConnector implements Connector {
         if (!PaimonConnectorProperties.JDBC.equals(PaimonCatalogFactory.resolveFlavor(properties))) {
             return;
         }
-        String driverUrl = PaimonCatalogFactory.firstNonBlank(
-                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
+        String driverUrl = PaimonJdbcMetaStoreProperties.of(properties).getDriverUrl();
         if (StringUtils.isNotBlank(driverUrl)) {
             validationContext.validateAndResolveDriverPath(driverUrl);
         }
@@ -526,14 +526,12 @@ public class PaimonConnector implements Connector {
      * against {@code ConnectorContext.getEnvironment()}.
      */
     private void maybeRegisterJdbcDriver() {
-        String driverUrl = PaimonCatalogFactory.firstNonBlank(
-                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
+        PaimonJdbcMetaStoreProperties jdbc = PaimonJdbcMetaStoreProperties.of(properties);
+        String driverUrl = jdbc.getDriverUrl();
         if (StringUtils.isBlank(driverUrl)) {
             return;
         }
-        String driverClass = PaimonCatalogFactory.firstNonBlank(
-                properties, PaimonConnectorProperties.JDBC_DRIVER_CLASS);
-        registerJdbcDriver(driverUrl, driverClass);
+        registerJdbcDriver(driverUrl, jdbc.getDriverClass());
         LOG.info("Using dynamic JDBC driver for Paimon JDBC catalog from: {}", driverUrl);
     }
 

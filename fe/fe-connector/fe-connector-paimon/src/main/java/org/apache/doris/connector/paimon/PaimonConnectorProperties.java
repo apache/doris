@@ -122,11 +122,14 @@ public final class PaimonConnectorProperties {
     static final String[] REST_URI = {"paimon.rest.uri", "uri"};
 
     // ---- JDBC flavor keys ----
-    public static final String[] JDBC_URI = {"uri", "paimon.jdbc.uri"};
-    public static final String[] JDBC_USER = {"paimon.jdbc.user", "jdbc.user"};
-    public static final String[] JDBC_PASSWORD = {"paimon.jdbc.password", "jdbc.password"};
-    public static final String[] JDBC_DRIVER_URL = {"paimon.jdbc.driver_url", "jdbc.driver_url"};
-    public static final String[] JDBC_DRIVER_CLASS = {"paimon.jdbc.driver_class", "jdbc.driver_class"};
+    // Kept for PaimonAliasResolutionParityTest only (see HMS_URI above); the aliases themselves live on
+    // PaimonJdbcMetaStoreProperties, which now supplies the jdbc catalog options, the FE driver
+    // registration and the BE-bound scan options alike.
+    static final String[] JDBC_URI = {"uri", "paimon.jdbc.uri"};
+    static final String[] JDBC_USER = {"paimon.jdbc.user", "jdbc.user"};
+    static final String[] JDBC_PASSWORD = {"paimon.jdbc.password", "jdbc.password"};
+    static final String[] JDBC_DRIVER_URL = {"paimon.jdbc.driver_url", "jdbc.driver_url"};
+    static final String[] JDBC_DRIVER_CLASS = {"paimon.jdbc.driver_class", "jdbc.driver_class"};
 
 
     private PaimonConnectorProperties() {

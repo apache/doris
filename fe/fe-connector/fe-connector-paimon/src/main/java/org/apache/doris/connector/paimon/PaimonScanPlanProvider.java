@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -47,6 +48,7 @@ import org.apache.doris.thrift.schema.external.TStructField;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
@@ -1737,16 +1739,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // BE reader accepts (PaimonJdbcDriverUtils reads both aliases): honor either alias and resolve
         // a bare jar name to a full file:// URL. Mirrors legacy
         // PaimonJdbcMetaStoreProperties.getBackendPaimonOptions (getFullDriverUrl + driver_class).
-        String driverUrl = PaimonCatalogFactory.firstNonBlank(
-                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
-        if (driverUrl != null) {
-            options.put("jdbc.driver_url", JdbcDriverSupport.resolveDriverUrl(driverUrl,
+        PaimonJdbcMetaStoreProperties jdbc = PaimonJdbcMetaStoreProperties.of(properties);
+        if (StringUtils.isNotBlank(jdbc.getDriverUrl())) {
+            options.put("jdbc.driver_url", JdbcDriverSupport.resolveDriverUrl(jdbc.getDriverUrl(),
                     PaimonConnectorProperties.configuredDriversDir(context),
                     PaimonConnectorProperties.configuredDorisHome(context)));
-            String driverClass = PaimonCatalogFactory.firstNonBlank(
-                    properties, PaimonConnectorProperties.JDBC_DRIVER_CLASS);
-            if (driverClass != null) {
-                options.put("jdbc.driver_class", driverClass);
+            if (StringUtils.isNotBlank(jdbc.getDriverClass())) {
+                options.put("jdbc.driver_class", jdbc.getDriverClass());
             }
         }
         return options;

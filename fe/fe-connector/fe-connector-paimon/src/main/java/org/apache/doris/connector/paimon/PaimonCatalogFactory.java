@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.metastore.MetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.hms.PaimonHmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.rest.PaimonRestMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -132,7 +133,7 @@ public final class PaimonCatalogFactory {
                 ((PaimonRestMetaStoreProperties) bound).toRestOptions().forEach(options::set);
                 break;
             case PaimonConnectorProperties.JDBC:
-                appendJdbcOptions(props, options);
+                appendJdbcOptions(props, options, (PaimonJdbcMetaStoreProperties) bound);
                 break;
             default:
                 // filesystem: nothing custom.
@@ -193,17 +194,12 @@ public final class PaimonCatalogFactory {
         return false;
     }
 
-    private static void appendJdbcOptions(Map<String, String> props, Options options) {
-        options.set(CatalogOptions.URI.key(), firstNonBlank(props, PaimonConnectorProperties.JDBC_URI));
-        String user = firstNonBlank(props, PaimonConnectorProperties.JDBC_USER);
-        if (StringUtils.isNotBlank(user)) {
-            options.set("jdbc.user", user);
-        }
-        String password = firstNonBlank(props, PaimonConnectorProperties.JDBC_PASSWORD);
-        if (StringUtils.isNotBlank(password)) {
-            options.set("jdbc.password", password);
-        }
-        // Pass through any raw jdbc.* key not already set (legacy appendRawJdbcCatalogOptions).
+    private static void appendJdbcOptions(Map<String, String> props, Options options,
+            PaimonJdbcMetaStoreProperties jdbc) {
+        jdbc.toCatalogOptions().forEach(options::set);
+        // Pass through any raw jdbc.* key not already set (legacy appendRawJdbcCatalogOptions). This is a
+        // wildcard forward of keys the holder does not model, so it stays a raw read -- and it runs after
+        // the bound keys so an alias-resolved user/password still wins.
         props.forEach((k, v) -> {
             if (k != null && k.startsWith(JDBC_PREFIX) && !options.keySet().contains(k)) {
                 options.set(k, v);
