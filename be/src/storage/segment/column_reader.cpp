@@ -2661,7 +2661,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
             opts.query_ctx.lock() != nullptr && opts.tablet_id > 0 &&
             _cached_remote_file_reader != nullptr &&
             _cached_remote_file_reader->file_cache() != nullptr &&
-            _cached_remote_file_reader->file_cache()->async_write_service() != nullptr;
+            _cached_remote_file_reader->file_cache()->async_write_manager() != nullptr;
     if (config::enable_low_cardinality_optimize &&
         opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
         _reader->encoding_info()->encoding() == DICT_ENCODING) {

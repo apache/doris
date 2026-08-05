@@ -29,7 +29,7 @@
 
 #include "common/atomic_shared_ptr.h"
 #include "common/status.h"
-#include "io/cache/async_cache_write_service.h"
+#include "io/cache/async_cache_write_manager.h"
 #include "io/io_common.h"
 #include "util/slice.h"
 

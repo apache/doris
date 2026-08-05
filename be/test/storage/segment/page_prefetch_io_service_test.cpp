@@ -930,11 +930,11 @@ TEST_F(PagePrefetchIOServiceTest, ConsumedPageWritesOnlyItsAssociatedValidComple
 
     coordinator.mark_page_consumed(range, 11);
     EXPECT_EQ(service.outstanding_tasks(), 0);
-    for (size_t attempt = 0; attempt < 500 && _cache->async_write_service()->pending_count() != 0;
+    for (size_t attempt = 0; attempt < 500 && _cache->async_write_manager()->pending_count() != 0;
          ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    ASSERT_EQ(_cache->async_write_service()->pending_count(), 0);
+    ASSERT_EQ(_cache->async_write_manager()->pending_count(), 0);
 
     io::ReadStatistics read_stats;
     io::CacheContext cache_context;

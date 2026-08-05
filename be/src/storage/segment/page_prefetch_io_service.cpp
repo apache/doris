@@ -755,15 +755,15 @@ PagePrefetchSubmitResult PagePrefetchIOService::try_submit(
         DORIS_CHECK(!io_ctx.remote_only_on_miss);
         auto* cache = reader->file_cache();
         DORIS_CHECK(cache != nullptr);
-        auto* async_write_service = cache->async_write_service();
-        DORIS_CHECK(async_write_service != nullptr);
+        auto* async_write_manager = cache->async_write_manager();
+        DORIS_CHECK(async_write_manager != nullptr);
         const auto cache_hash = reader->cache_hash();
         writeback_ctx = PagePrefetchWritebackContext {
                 .cache = cache,
                 .cache_hash = cache_hash,
                 .file_size = reader->size(),
                 .admission_ctx = io_ctx.admission_ctx,
-                .write_epoch = async_write_service->current_write_epoch(cache_hash),
+                .write_epoch = async_write_manager->current_write_epoch(cache_hash),
                 .remote_only_on_miss = io_ctx.remote_only_on_miss,
                 .query_ctx = query_ctx,
         };
@@ -1031,13 +1031,13 @@ void PagePrefetchIOService::_execute_writeback_copy(
     auto skip = [&request]() {
         request.range->mark_complete_block_writeback_skipped(request.complete_block_index);
     };
-    auto* async_write_service = writeback_ctx->cache->async_write_service();
-    DORIS_CHECK(async_write_service != nullptr);
+    auto* async_write_manager = writeback_ctx->cache->async_write_manager();
+    DORIS_CHECK(async_write_manager != nullptr);
     if (!accepting() || !config::enable_query_page_prefetch ||
         !config::enable_async_file_cache_write || writeback_ctx->remote_only_on_miss ||
         writeback_ctx->query_ctx->cancelled() ||
         !request.range->complete_block_writeback_eligible(request.complete_block_index) ||
-        !async_write_service->is_current_write_epoch(writeback_ctx->write_epoch)) {
+        !async_write_manager->is_current_write_epoch(writeback_ctx->write_epoch)) {
         skip();
         return;
     }
@@ -1053,7 +1053,7 @@ void PagePrefetchIOService::_execute_writeback_copy(
     if (!config::enable_query_page_prefetch || !config::enable_async_file_cache_write ||
         writeback_ctx->query_ctx->cancelled() ||
         !request.range->complete_block_writeback_eligible(request.complete_block_index) ||
-        !async_write_service->is_current_write_epoch(writeback_ctx->write_epoch)) {
+        !async_write_manager->is_current_write_epoch(writeback_ctx->write_epoch)) {
         skip();
         return;
     }
