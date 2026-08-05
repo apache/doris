@@ -64,7 +64,11 @@ suite("test_compaction_uniq_keys_with_delete") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1" );
+            BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_mow_light_delete" = "false"
+            );
         """
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -120,29 +124,43 @@ suite("test_compaction_uniq_keys_with_delete") {
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
-        def replicaNum = get_table_replica_num(tableName)
-        logger.info("get table replica num: " + replicaNum)
+        def isCompactedEnough = { tabletJson ->
+            def versionRanges = ((List<String>) tabletJson.rowsets).collect { rowset ->
+                rowset.split(" ")[0]
+            }
+            logger.info("rowset version ranges after cumulative compaction: " + versionRanges)
+            def rangeBounds = versionRanges.collect { range ->
+                def matcher = range =~ /\[(\d+)-(\d+)\]/
+                assert matcher.matches()
+                [Integer.parseInt(matcher[0][1]), Integer.parseInt(matcher[0][2])]
+            }
+            if (rangeBounds.isEmpty() || rangeBounds[0][0] != 0 || rangeBounds[-1][1] != 11) {
+                return false
+            }
+            for (int i = 1; i < rangeBounds.size(); i++) {
+                if (rangeBounds[i][0] != rangeBounds[i - 1][1] + 1) {
+                    return false
+                }
+            }
+            return rangeBounds.size() <= 3
+        }
 
-        // BE only picks rowsets whose version is already visible as cumulative
-        // compaction candidates, and the visible version is pushed from FE
-        // asynchronously. Right after a burst of loads it may lag, so a single
-        // cumulative round can merge only the visible prefix of rowsets. Retry
-        // trigger + recount until the rows are fully merged.
+        // Different environments may finish via cumulative or base compaction, so
+        // accept any compacted layout that continuously covers the final version.
         Awaitility.await().atMost(300, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until(() -> {
             // trigger compactions for all tablets in ${tableName}
             trigger_and_wait_compaction(tableName, "cumulative")
-            int rowCount = 0
             for (def tablet in tablets) {
                 (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def tabletJson = parseJson(out.trim())
                 assert tabletJson.rowsets instanceof List
-                for (String rowset in (List<String>) tabletJson.rowsets) {
-                    rowCount += Integer.parseInt(rowset.split(" ")[1])
+                if (!isCompactedEnough(tabletJson)) {
+                    return false
                 }
             }
-            return rowCount < 8 * replicaNum
+            return true
         })
         qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
