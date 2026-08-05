@@ -20,10 +20,12 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "common/metrics/metrics.h"
+#include "common/status.h"
 #include "exec/spill/spill_file.h"
 #include "storage/options.h"
 #include "util/threadpool.h"
@@ -119,12 +121,7 @@ public:
 
     Status init();
 
-    void stop() {
-        _stop_background_threads_latch.count_down();
-        if (_spill_gc_thread) {
-            _spill_gc_thread->join();
-        }
-    }
+    void stop();
 
     // Create SpillFile and register it
     // @param relative_path  Operator-formatted path under the spill root,
@@ -134,8 +131,12 @@ public:
     /// Get a unique ID for constructing spill file paths.
     uint64_t next_id() { return id_++; }
 
-    // Mark SpillFile for deletion; asynchronously delete spill files in the GC thread
+    // Delete SpillFile data synchronously.
     void delete_spill_file(SpillFileSPtr spill_file);
+
+    // Recursively delete a per-query spill directory during query teardown. Failed deletions are
+    // retained by the manager and retried by its GC and shutdown paths.
+    void delete_query_spill_directory(const std::string& query_id, SpillDataDir* data_dir);
 
     void gc(int32_t max_work_time_ms);
 
@@ -144,15 +145,25 @@ public:
     void update_spill_read_bytes(int64_t bytes) { _spill_read_bytes_counter->increment(bytes); }
 
 private:
+    struct PendingQuerySpillDirectory {
+        int failed_count {0};
+        std::string query_dir;
+    };
+
     void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
+    Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
+    void _retry_pending_query_spill_directories();
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;
+
+    std::mutex _pending_query_spill_directories_mutex;
+    std::vector<PendingQuerySpillDirectory> _pending_query_spill_directories;
 
     std::atomic_uint64_t id_ = 0;
 
