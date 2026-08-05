@@ -37,6 +37,7 @@
 #include "core/custom_allocator.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
+#include "util/cpu_info.h"
 #include "util/rle_encoding.h"
 #include "util/slice.h"
 
@@ -260,9 +261,24 @@ protected:
         constexpr size_t MIN_FRAGMENTED_RANGES = 8;
         constexpr size_t MAX_AVERAGE_RANGE_VALUES = 4;
         constexpr size_t MAX_DECODE_EXPANSION = 8;
-        return selection.ranges.size() >= MIN_FRAGMENTED_RANGES && selection.selected_values != 0 &&
-               selection.total_values / selection.selected_values <= MAX_DECODE_EXPANSION &&
-               selection.selected_values <= selection.ranges.size() * MAX_AVERAGE_RANGE_VALUES;
+        constexpr size_t RANGE_TRANSITION_EQUIVALENT_VALUES = 24;
+        if (selection.ranges.size() < MIN_FRAGMENTED_RANGES || selection.selected_values == 0 ||
+            selection.selected_values > selection.ranges.size() * MAX_AVERAGE_RANGE_VALUES) {
+            return false;
+        }
+        if (selection.total_values / selection.selected_values <= MAX_DECODE_EXPANSION) {
+            return true;
+        }
+        const size_t transition_threshold =
+                selection.total_values / RANGE_TRANSITION_EQUIVALENT_VALUES +
+                (selection.total_values % RANGE_TRANSITION_EQUIVALENT_VALUES != 0);
+        // Keep very sparse batches on range decode; a cache-resident full index batch wins only
+        // after repeated decoder transitions cost more than one sequential pass.
+        if (selection.ranges.size() < transition_threshold) {
+            return false;
+        }
+        const auto l2_cache_size = static_cast<size_t>(CpuInfo::get_l2_cache_size());
+        return selection.total_values <= l2_cache_size / sizeof(uint32_t);
     }
 
     Status _decode_fragmented_selection(const ParquetSelection& selection,
