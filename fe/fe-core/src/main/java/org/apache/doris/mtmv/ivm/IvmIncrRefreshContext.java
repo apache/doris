@@ -24,6 +24,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 import java.util.List;
 import java.util.Objects;
@@ -42,27 +43,31 @@ public class IvmIncrRefreshContext {
     private final boolean includeExhaustedStreams;
     private final String auditStmt;
     private final Consumer<String> queryIdConsumer;
+    private final Consumer<StmtExecutor> executorConsumer;
 
     public IvmIncrRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
             boolean includeExhaustedStreams) {
-        this(mtmv, connectContext, rewriteResult, includeExhaustedStreams, null, null);
+        this(mtmv, connectContext, rewriteResult, includeExhaustedStreams, null, null, null);
     }
 
     public IvmIncrRefreshContext(MTMV mtmv, ConnectContext connectContext,
-            String auditStmt, Consumer<String> queryIdConsumer) {
+            String auditStmt, Consumer<String> queryIdConsumer,
+            Consumer<StmtExecutor> executorConsumer) {
         this(mtmv, connectContext, null, false,
                 Objects.requireNonNull(auditStmt, "auditStmt can not be null"),
-                Objects.requireNonNull(queryIdConsumer, "queryIdConsumer can not be null"));
+                Objects.requireNonNull(queryIdConsumer, "queryIdConsumer can not be null"), executorConsumer);
     }
 
     private IvmIncrRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
-            boolean includeExhaustedStreams, String auditStmt, Consumer<String> queryIdConsumer) {
+            boolean includeExhaustedStreams, String auditStmt, Consumer<String> queryIdConsumer,
+            Consumer<StmtExecutor> executorConsumer) {
         this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
         this.rewriteResult = rewriteResult;
         this.includeExhaustedStreams = includeExhaustedStreams;
         this.auditStmt = auditStmt;
         this.queryIdConsumer = queryIdConsumer;
+        this.executorConsumer = executorConsumer;
     }
 
     public MTMV getMtmv() {
@@ -88,6 +93,10 @@ public class IvmIncrRefreshContext {
 
     public Consumer<String> getQueryIdConsumer() {
         return queryIdConsumer;
+    }
+
+    public Consumer<StmtExecutor> getExecutorConsumer() {
+        return executorConsumer;
     }
 
     static TableNameInfo toTableNameInfo(LogicalOlapScan scan) {

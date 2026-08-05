@@ -95,11 +95,14 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.awaitility.Awaitility;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -112,9 +115,13 @@ import java.util.function.Supplier;
  * InsertIntoTableCommand(Query())
  * ExplainCommand(Query())
  */
-public class InsertIntoTableCommand extends Command implements NeedAuditEncryption, ForwardWithSync, Explainable {
+public class InsertIntoTableCommand extends Command
+        implements NeedAuditEncryption, ForwardWithSync, Explainable, CancelableCommand {
 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
+
+    private final AtomicBoolean isCancelled = new AtomicBoolean(false);
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     private LogicalPlan originLogicalQuery;
     private Optional<LogicalPlan> logicalQuery;
@@ -224,7 +231,28 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        runInternal(ctx, executor);
+        isRunning.set(true);
+        try {
+            runInternal(ctx, executor);
+        } finally {
+            isRunning.set(false);
+        }
+    }
+
+    @Override
+    public void cancel() {
+        isCancelled.set(true);
+    }
+
+    @Override
+    public void waitNotRunning() {
+        long waitMaxTimeSecond = 10L;
+        try {
+            Awaitility.await().atMost(waitMaxTimeSecond, TimeUnit.SECONDS).untilFalse(isRunning);
+        } catch (Exception e) {
+            LOG.warn("waiting time exceeds {} second, stop wait, labelName: {}",
+                    waitMaxTimeSecond, labelName.orElse(""), e);
+        }
     }
 
     public void runWithUpdateInfo(ConnectContext ctx, StmtExecutor executor,
@@ -350,6 +378,12 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     continue;
                 }
                 if (insertExecutor.requiresTransaction()) {
+                    if (isCancelled.get()) {
+                        LOG.info("insert is cancelled before beginTransaction, queryId: {}",
+                                ctx.getQueryIdentifier());
+                        newestTargetTableIf.readUnlock();
+                        throw new IllegalStateException("insert is cancelled");
+                    }
                     insertExecutor.beginTransaction();
                     insertExecutor.finalizeSink(
                             buildResult.planner.getFragments().get(0), buildResult.dataSink,
@@ -701,6 +735,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     }
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (isCancelled.get()) {
+            LOG.info("insert is cancelled before execution, queryId: {}",
+                    ctx.getQueryIdentifier());
+            return;
+        }
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         // An empty Table Stream read still needs to commit its offset update atomically.
         if (!insertExecutor.requiresTransaction()) {
@@ -709,6 +748,18 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         if (insertExecutorListener != null) {
             insertExecutor.registerListener(insertExecutorListener);
         }
+        // Abort the transaction if cancellation arrives after execution but before commit.
+        insertExecutor.registerListener(new InsertExecutorListener() {
+            @Override
+            public void beforeComplete(AbstractInsertExecutor executor, StmtExecutor stmtExecutor, long jobId)
+                    throws Exception {
+                if (isCancelled.get()) {
+                    LOG.info("insert is cancelled before commit, queryId: {}",
+                            ctx.getQueryIdentifier());
+                    throw new IllegalStateException("insert is cancelled before commit");
+                }
+            }
+        });
         insertExecutor.executeSingleInsert(executor);
         LineageUtils.submitLineageEventIfNeeded(executor, lineagePlan, getLogicalQuery(), getClass());
     }

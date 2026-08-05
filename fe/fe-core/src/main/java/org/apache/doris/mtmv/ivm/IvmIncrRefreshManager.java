@@ -98,7 +98,7 @@ public class IvmIncrRefreshManager {
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.incremental(mtmv, false)));
         InsertIntoTableCommand command = buildInsertCommand(mtmv);
         MTMVPlanUtil.executeCommand(context.getConnectContext(), command,
-                statementContext, context.getAuditStmt());
+                statementContext, context.getAuditStmt(), context.getExecutorConsumer());
     }
 
     @VisibleForTesting
