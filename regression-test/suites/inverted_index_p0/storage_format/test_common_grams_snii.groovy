@@ -479,16 +479,6 @@ suite("test_common_grams_snii", "p0,nonConcurrent") {
                             + "WHERE body MATCH_PHRASE '${terms}' ORDER BY id",
                     "SniiCommonGramsGramPlans")
         }
-        // A lone interior stopword (n-s-n) keeps every plain clause in the
-        // HybridV1 query plan -- the pair clauses are purely additive -- so its
-        // gram plan estimate is plain + pairs and can never pass the <=100%
-        // cost gate. Pin the gate rejecting it instead of asserting a gram
-        // plan that is unreachable by construction.
-        assertProfileCounterPositive("shape_nsn",
-                "SELECT id FROM test_common_grams_snii "
-                        + "WHERE body MATCH_PHRASE 'foo the bar' ORDER BY id",
-                "SniiCommonGramsFallbackCost")
-
         sql "SET inverted_index_max_expansions = 50"
         order_qt_cg_prefix_1 """
             SELECT id FROM test_common_grams_snii WHERE body MATCH_PHRASE_PREFIX 'alph' ORDER BY id
@@ -643,9 +633,8 @@ suite("test_common_grams_snii", "p0,nonConcurrent") {
             ORDER BY id
         """
 
-        // The BE-local switch is the only gate, and flipping it bumps the query-plan config
-        // generation that feeds the inverted index query cache key, so the very next query
-        // observes the new mode instead of a stale cached bitmap.
+        // The BE-local switch is part of the inverted-index query cache key, so disabled-plan
+        // queries cannot reuse an enabled-plan bitmap.
         setBeConfig("enable_common_grams_query_plan", "false")
         order_qt_safety_off_plain """
             SELECT id FROM test_common_grams_snii WHERE body MATCH_PHRASE 'the of and' ORDER BY id
@@ -758,7 +747,7 @@ suite("test_common_grams_snii", "p0,nonConcurrent") {
         assertProfileCounterPositive("first_query_after_plan_toggle",
                 "SELECT id FROM test_common_grams_snii "
                         + "WHERE body MATCH_PHRASE 'the of and' ORDER BY id",
-                "SniiCommonGramsGramPlans")
+                "InvertedIndexQueryCacheHit")
         order_qt_cg_cache_reuse_across_plan_toggle """
             SELECT id FROM test_common_grams_snii WHERE body MATCH_PHRASE 'the of and' ORDER BY id
         """

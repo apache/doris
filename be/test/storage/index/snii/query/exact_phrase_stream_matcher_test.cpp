@@ -359,6 +359,7 @@ TEST(ExactPhraseStreamMatcherTest, RejectsRepeatedCursorIndices) {
     cursors.emplace_back(doc_positions({{43, {0, 1}}}));
     const std::array<size_t, 2> repeated_plan = {0, 0};
     const std::array<uint32_t, 2> offsets = {0, 1};
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH(static_cast<void>(validate_exact_phrase_stream_inputs(
                          std::span(cursors), std::span(repeated_plan), std::span(offsets))),
                  "");
