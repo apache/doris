@@ -70,7 +70,7 @@ public class AdbcConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new AdbcConnectorMetadata(getOrCreateClient(), schemaStrategy, props.getRaw(),
+        return new AdbcConnectorMetadata(getOrCreateClient(), schemaStrategy,
                 () -> dialectSelector.select(this::getOrCreateClient), metadataCache);
     }
 
