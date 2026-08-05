@@ -46,20 +46,31 @@ final class HiveWriteMetadataSnapshot {
     private final List<ConnectorColumn> dataColumns;
     private final List<ConnectorColumn> partitionColumns;
     private final String identity;
+    private final long notificationEventId;
 
-    private HiveWriteMetadataSnapshot(HmsTableInfo table, Map<String, String> defaults) {
+    private HiveWriteMetadataSnapshot(HmsTableInfo table, Map<String, String> defaults,
+            long notificationEventId) {
         this.table = table;
         this.dataColumns = Collections.unmodifiableList(buildDataColumns(table, defaults));
         this.partitionColumns = Collections.unmodifiableList(buildPartitionColumns(table));
         this.identity = buildIdentity();
+        this.notificationEventId = notificationEventId;
     }
 
     static HiveWriteMetadataSnapshot of(HmsTableInfo table, Map<String, String> defaults) {
         return new HiveWriteMetadataSnapshot(table,
-                defaults == null ? Collections.emptyMap() : defaults);
+                defaults == null ? Collections.emptyMap() : defaults, -1);
     }
 
     static HiveWriteMetadataSnapshot loadFresh(HmsClient client, String dbName, String tableName) {
+        long notificationEventId;
+        try {
+            // Capture the watermark before loading the table: a concurrent DDL after this point is then visible
+            // to commit-time event validation, including a same-shaped drop/recreate that has no HMS UUID.
+            notificationEventId = client.getCurrentNotificationEventId();
+        } catch (UnsupportedOperationException e) {
+            notificationEventId = -1;
+        }
         HmsTableInfo table = client.getTableFresh(dbName, tableName);
         Map<String, String> defaults;
         try {
@@ -68,7 +79,7 @@ final class HiveWriteMetadataSnapshot {
             // Some Hive versions cannot expose default constraints; match binding's empty-default fallback.
             defaults = Collections.emptyMap();
         }
-        return of(table, defaults);
+        return new HiveWriteMetadataSnapshot(table, defaults, notificationEventId);
     }
 
     HmsTableInfo getTable() {
@@ -85,6 +96,10 @@ final class HiveWriteMetadataSnapshot {
 
     String getIdentity() {
         return identity;
+    }
+
+    long getNotificationEventId() {
+        return notificationEventId;
     }
 
     private static List<ConnectorColumn> buildDataColumns(

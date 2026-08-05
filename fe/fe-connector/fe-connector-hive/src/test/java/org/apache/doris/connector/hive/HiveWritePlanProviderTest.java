@@ -24,6 +24,7 @@ import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -57,6 +58,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Pins {@link HiveWritePlanProvider#planWrite} for INSERT / INSERT OVERWRITE against legacy
@@ -130,6 +132,32 @@ public class HiveWritePlanProviderTest {
     }
 
     // ───────────────────────────── columns ─────────────────────────────
+
+    @Test
+    public void writeBindingPinsColumnsAndIdentityFromOneFreshGeneration() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        HmsTableInfo boundTable = tableBuilder()
+                .columns(Arrays.asList(col("a", "int"), col("b", "string")))
+                .build();
+        client.table = boundTable;
+        HiveWritePlanProvider provider = providerFor(client, new RecordingConnectorContext());
+        WriteSession session = new WriteSession(null, Collections.emptyMap(), new TestStatementScope());
+
+        List<ConnectorColumn> columns = provider.getWriteColumns(
+                session, new HiveTableHandle(DB, TBL, HiveTableType.HIVE), Optional.empty()).orElseThrow();
+        String identity = provider.getWriteMetadataIdentity(
+                session, new HiveTableHandle(DB, TBL, HiveTableType.HIVE));
+        client.table = tableBuilder()
+                .columns(Arrays.asList(col("b", "string"), col("a", "int")))
+                .build();
+
+        Assertions.assertEquals(Arrays.asList("a", "b"),
+                columns.stream().map(ConnectorColumn::getName).collect(java.util.stream.Collectors.toList()));
+        Assertions.assertEquals(HiveWriteMetadataSnapshot.of(boundTable, Collections.emptyMap()).getIdentity(),
+                identity);
+        Assertions.assertEquals(1, Collections.frequency(client.calls, "getTableFresh:" + DB + "." + TBL),
+                "columns and identity must share the same statement-pinned HMS generation");
+    }
 
     @Test
     public void planWriteEmitsRegularColumnsThenPartitionKeys() {
@@ -765,10 +793,17 @@ public class HiveWritePlanProviderTest {
     private static final class WriteSession implements ConnectorSession {
         private final ConnectorTransaction txn;
         private final Map<String, String> sessionProperties;
+        private final ConnectorStatementScope statementScope;
 
         WriteSession(ConnectorTransaction txn, Map<String, String> sessionProperties) {
+            this(txn, sessionProperties, ConnectorStatementScope.NONE);
+        }
+
+        WriteSession(ConnectorTransaction txn, Map<String, String> sessionProperties,
+                ConnectorStatementScope statementScope) {
             this.txn = txn;
             this.sessionProperties = sessionProperties;
+            this.statementScope = statementScope;
         }
 
         @Override
@@ -819,6 +854,21 @@ public class HiveWritePlanProviderTest {
         @Override
         public Map<String, String> getCatalogProperties() {
             return Collections.emptyMap();
+        }
+
+        @Override
+        public ConnectorStatementScope getStatementScope() {
+            return statementScope;
+        }
+    }
+
+    private static final class TestStatementScope implements ConnectorStatementScope {
+        private final Map<String, Object> values = new HashMap<>();
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+            return (T) values.computeIfAbsent(key, ignored -> loader.get());
         }
     }
 

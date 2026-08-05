@@ -360,6 +360,42 @@ public class ThriftHmsClientWriteAcidTest {
                 client.acquireSharedLock("q", 5L, "u", "db", "t", Collections.emptyList(), -1L));
     }
 
+    @Test
+    public void testExclusiveTableLockIsStandaloneAndExplicitlyReleased() {
+        RecordingClient fake = new RecordingClient()
+                .stub("lock", new LockResponse(9L, LockState.ACQUIRED));
+        ThriftHmsClient client = newClient(fake);
+
+        long lockId = client.acquireExclusiveTableLock("q", "u", "db", "t", 1000L);
+        client.heartbeatLock(lockId);
+        client.releaseLock(lockId);
+
+        LockRequest request = (LockRequest) argsOf(fake, "lock")[0];
+        LockComponent component = request.getComponent().get(0);
+        Assertions.assertEquals(9L, lockId);
+        Assertions.assertEquals(LockType.EXCLUSIVE, component.getType());
+        Assertions.assertEquals(DataOperationType.NO_TXN, component.getOperationType());
+        Assertions.assertFalse(component.isIsTransactional(),
+                "plain Hive publication must not masquerade as an ACID write lock");
+        Assertions.assertEquals(0L, argsOf(fake, "heartbeat")[0]);
+        Assertions.assertEquals(9L, argsOf(fake, "heartbeat")[1]);
+        Assertions.assertEquals(9L, argsOf(fake, "unlock")[0]);
+    }
+
+    @Test
+    public void testExclusiveTableLockTimeoutRemovesWaitingLock() {
+        RecordingClient fake = new RecordingClient()
+                .stub("lock", new LockResponse(10L, LockState.WAITING))
+                .stub("checkLock", new LockResponse(10L, LockState.WAITING));
+        ThriftHmsClient client = newClient(fake);
+
+        Assertions.assertThrows(HmsClientException.class,
+                () -> client.acquireExclusiveTableLock("q", "u", "db", "t", -1L));
+
+        Assertions.assertEquals(10L, argsOf(fake, "unlock")[0],
+                "a standalone waiting lock has no transaction owner to clean it up");
+    }
+
     // ---- harness --------------------------------------------------------------------------------
 
     private static ThriftHmsClient newClient(RecordingClient handler) {

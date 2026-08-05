@@ -19,6 +19,7 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
+import org.apache.doris.connector.hms.HmsNotificationEvent;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsPartitionStatistics;
 import org.apache.doris.connector.hms.HmsPartitionWithStatistics;
@@ -266,18 +267,47 @@ public class HiveConnectorTransactionTest {
         RecordingHmsClient client = new RecordingHmsClient();
         client.table = table(false, Collections.emptyMap(), 10,
                 Collections.singletonList(col("c1", "int")));
+        client.currentNotificationEventId = 10;
         HiveConnectorTransaction txn = newTxn(client);
         txn.beginWrite(null, DB, TBL, ctx(false));
         txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
                 Collections.singletonList("f1"), 100, 4)));
 
-        client.table = table(false, Collections.emptyMap(), 11,
+        // Recreate the table with every digest-visible field unchanged. Only the HMS event stream can
+        // distinguish this new object from the table whose schema and location were bound above.
+        client.table = table(false, Collections.emptyMap(), 10,
                 Collections.singletonList(col("c1", "int")));
+        client.notificationEvents = Arrays.asList(
+                event(11, "DROP_TABLE"), event(12, "CREATE_TABLE"));
+        client.currentNotificationEventId = 12;
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
         Assertions.assertTrue(ex.getMessage().contains("metadata changed"));
         Assertions.assertFalse(client.calls.contains("updateTableStatistics:" + DB + "." + TBL),
                 "a replacement must be detected before files or HMS statistics are published");
+    }
+
+    @Test
+    public void testCommitHoldsExclusiveTableLockThroughPublication() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap());
+        client.currentNotificationEventId = 10;
+        HiveConnectorTransaction txn = newTxn(client);
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                Collections.singletonList("f1"), 100, 4)));
+
+        txn.commit();
+
+        int acquired = client.calls.indexOf("acquireExclusiveTableLock:" + DB + "." + TBL);
+        int published = client.calls.indexOf("updateTableStatistics:" + DB + "." + TBL);
+        int released = client.calls.indexOf("releaseLock:77");
+        Assertions.assertTrue(acquired >= 0 && acquired < published && published < released,
+                "the commit fence must cover every file/HMS publication action; calls=" + client.calls);
+    }
+
+    private static HmsNotificationEvent event(long id, String type) {
+        return new HmsNotificationEvent(id, type, DB, TBL, "{}", "json-0.2", 0);
     }
 
     @Test
@@ -510,6 +540,8 @@ public class HiveConnectorTransactionTest {
         private HmsTableInfo table;
         private boolean partitionExistsResult;
         private List<HmsPartitionInfo> partitions = Collections.emptyList();
+        private long currentNotificationEventId;
+        private List<HmsNotificationEvent> notificationEvents = Collections.emptyList();
 
         @Override
         public List<String> listDatabases() {
@@ -590,6 +622,33 @@ public class HiveConnectorTransactionTest {
                 boolean deleteData) {
             calls.add("dropPartition:" + partitionValues + ":" + deleteData);
             return true;
+        }
+
+        @Override
+        public long getCurrentNotificationEventId() {
+            calls.add("getCurrentNotificationEventId:" + currentNotificationEventId);
+            return currentNotificationEventId;
+        }
+
+        @Override
+        public List<HmsNotificationEvent> getNextNotification(long lastEventId, int maxEvents) {
+            calls.add("getNextNotification:" + lastEventId);
+            return notificationEvents.stream()
+                    .filter(event -> event.getEventId() > lastEventId)
+                    .limit(maxEvents)
+                    .collect(Collectors.toList());
+        }
+
+        @Override
+        public long acquireExclusiveTableLock(String queryId, String user, String dbName,
+                String tableName, long timeoutMs) {
+            calls.add("acquireExclusiveTableLock:" + dbName + "." + tableName);
+            return 77;
+        }
+
+        @Override
+        public void releaseLock(long lockId) {
+            calls.add("releaseLock:" + lockId);
         }
 
         @Override

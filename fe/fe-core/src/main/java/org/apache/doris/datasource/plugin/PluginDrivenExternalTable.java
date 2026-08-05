@@ -780,8 +780,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .orElseGet(() -> new PluginDrivenSchemaCacheValue(
                         Collections.emptyList(), Collections.emptyList(), Collections.emptyList()));
         List<Column> baseSchema = value.getSchema();
+        String writeMetadataIdentity = value.getWriteMetadataIdentity();
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getStatementContext() != null) {
+            writeMetadataIdentity = ctx.getStatementContext()
+                    .getConnectorWriteMetadataIdentity(getId())
+                    .orElse(writeMetadataIdentity);
+        }
         return new WriteSchemaSnapshot(baseSchema, appendSyntheticWriteColumns(baseSchema),
-                value.getPartitionColumns(), value.getWriteMetadataIdentity());
+                value.getPartitionColumns(), writeMetadataIdentity);
     }
 
     /**
@@ -851,8 +858,17 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
-            return provider.getWriteColumns(session, handle.get(), branchName)
-                    .map(ConnectorColumnConverter::convertColumns);
+            Optional<List<ConnectorColumn>> connectorColumns =
+                    provider.getWriteColumns(session, handle.get(), branchName);
+            if (!connectorColumns.isPresent()) {
+                return Optional.empty();
+            }
+            String identity = provider.getWriteMetadataIdentity(session, handle.get());
+            ConnectContext ctx = ConnectContext.get();
+            if (identity != null && ctx != null && ctx.getStatementContext() != null) {
+                ctx.getStatementContext().setConnectorWriteMetadataIdentity(getId(), identity);
+            }
+            return connectorColumns.map(ConnectorColumnConverter::convertColumns);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }

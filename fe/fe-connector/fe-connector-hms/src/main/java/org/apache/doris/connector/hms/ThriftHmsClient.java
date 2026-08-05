@@ -539,6 +539,62 @@ public class ThriftHmsClient implements HmsClient {
     }
 
     @Override
+    public long acquireExclusiveTableLock(String queryId, String user, String dbName,
+            String tableName, long timeoutMs) {
+        LockComponentBuilder componentBuilder = new LockComponentBuilder();
+        componentBuilder.setExclusive();
+        componentBuilder.setOperationType(DataOperationType.NO_TXN);
+        componentBuilder.setDbName(dbName);
+        componentBuilder.setTableName(tableName);
+        componentBuilder.setIsTransactional(false);
+        LockRequest lockRequest = new LockRequestBuilder(queryId)
+                .setUser(user)
+                .addLockComponent(componentBuilder.build())
+                .build();
+        LockResponse response = execute(client -> client.lock(lockRequest));
+        long lockId = response.getLockid();
+        long start = System.currentTimeMillis();
+        try {
+            while (response.getState() == LockState.WAITING) {
+                if (System.currentTimeMillis() - start > timeoutMs) {
+                    throw new HmsClientException("acquire exclusive table lock timeout for query "
+                            + queryId + ", timeout(ms): " + timeoutMs);
+                }
+                response = execute(client -> client.checkLock(lockId));
+            }
+            if (response.getState() != LockState.ACQUIRED) {
+                throw new HmsClientException(
+                        "failed to acquire exclusive table lock, lock in state " + response.getState());
+            }
+            return lockId;
+        } catch (RuntimeException e) {
+            // A standalone WAITING lock is not owned by an ACID transaction, so it must be removed explicitly.
+            try {
+                releaseLock(lockId);
+            } catch (RuntimeException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
+            throw e;
+        }
+    }
+
+    @Override
+    public void releaseLock(long lockId) {
+        execute(client -> {
+            client.unlock(lockId);
+            return null;
+        });
+    }
+
+    @Override
+    public void heartbeatLock(long lockId) {
+        execute(client -> {
+            client.heartbeat(0, lockId);
+            return null;
+        });
+    }
+
+    @Override
     public long getCurrentNotificationEventId() {
         return execute(client -> {
             CurrentNotificationEventId id = client.getCurrentNotificationEventId();

@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
@@ -83,6 +84,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
     // DEFAULT_STAGING_BASE_DIR — connectors must not import fe-core).
     private static final String HIVE_STAGING_DIR = "hive.staging_dir";
     private static final String DEFAULT_STAGING_BASE_DIR = "/tmp/.doris_staging";
+    private static final String WRITE_METADATA_SCOPE_PREFIX = "hive-write-metadata:";
 
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
@@ -101,17 +103,33 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
 
         // One fresh table generation drives validation, transaction state, location resolution, and sink
         // assembly. Reloading in beginWrite would reopen a TOCTOU window after the schema fence.
-        HiveWriteMetadataSnapshot writeMetadata = loadWriteMetadata(tableHandle);
+        HiveWriteMetadataSnapshot writeMetadata = loadWriteMetadata(session, tableHandle);
         HmsTableInfo table = writeMetadata.getTable();
         validateBoundWriteMetadata(writeMetadata, handle);
         HiveWriteContext writeContext = buildWriteContext(session, tableHandle, table, handle);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext,
-                table, writeMetadata.getIdentity());
+                table, writeMetadata.getIdentity(), writeMetadata.getNotificationEventId());
 
         THiveTableSink sink = buildSink(session, tableHandle, table, handle, writeContext);
         TDataSink dataSink = new TDataSink(TDataSinkType.HIVE_TABLE_SINK);
         dataSink.setHiveTableSink(sink);
         return new ConnectorSinkPlan(dataSink);
+    }
+
+    @Override
+    public Optional<List<ConnectorColumn>> getWriteColumns(ConnectorSession session,
+            ConnectorTableHandle handle, Optional<String> branchName) {
+        HiveWriteMetadataSnapshot snapshot = loadWriteMetadata(session, (HiveTableHandle) handle);
+        List<ConnectorColumn> columns = new ArrayList<>(
+                snapshot.getDataColumns().size() + snapshot.getPartitionColumns().size());
+        columns.addAll(snapshot.getDataColumns());
+        columns.addAll(snapshot.getPartitionColumns());
+        return Optional.of(Collections.unmodifiableList(columns));
+    }
+
+    @Override
+    public String getWriteMetadataIdentity(ConnectorSession session, ConnectorTableHandle handle) {
+        return loadWriteMetadata(session, (HiveTableHandle) handle).getIdentity();
     }
 
     private static void validateBoundWriteMetadata(
@@ -404,7 +422,15 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         return result;
     }
 
-    private HiveWriteMetadataSnapshot loadWriteMetadata(HiveTableHandle tableHandle) {
+    private HiveWriteMetadataSnapshot loadWriteMetadata(
+            ConnectorSession session, HiveTableHandle tableHandle) {
+        String scopeKey = WRITE_METADATA_SCOPE_PREFIX + session.getCatalogId() + ":"
+                + tableHandle.getDbName() + "." + tableHandle.getTableName();
+        return session.getStatementScope().computeIfAbsent(scopeKey,
+                () -> loadWriteMetadataFresh(tableHandle));
+    }
+
+    private HiveWriteMetadataSnapshot loadWriteMetadataFresh(HiveTableHandle tableHandle) {
         try {
             return context.executeAuthenticated(() -> HiveWriteMetadataSnapshot.loadFresh(
                     hmsClient, tableHandle.getDbName(), tableHandle.getTableName()));
