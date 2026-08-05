@@ -1868,8 +1868,8 @@ TEST_F(ParquetExprTest, floating_nan_predicates_ignore_finite_only_parquet_range
             EXPECT_TRUE(predicate.evaluate_and(&stat));
             EXPECT_EQ(expected_bloom_loader_calls, bloom_loader_calls);
         };
-        check_footer(eq_pred, 1);
-        check_footer(in_pred, 1);
+        check_footer(eq_pred, 0);
+        check_footer(in_pred, 0);
         check_footer(ne_pred, 0);
         check_footer(gt_pred, 0);
         check_footer(ge_pred, 0);

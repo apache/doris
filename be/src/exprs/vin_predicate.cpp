@@ -221,7 +221,8 @@ ZoneMapFilterResult VInPredicate::evaluate_bloom_filter(const BloomFilterEvalCon
 }
 
 bool VInPredicate::can_evaluate_bloom_filter() const {
-    return _zonemap_materialized && !_is_not_in &&
+    // A NaN member forces conservative retention regardless of the remaining finite probes.
+    return _zonemap_materialized && !_is_not_in && !_seg_filter_contains_nan &&
            std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
 }
 
