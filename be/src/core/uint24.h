@@ -128,14 +128,9 @@ public:
         return 0;
     }
 
-    std::string to_string() const {
-        int value = *reinterpret_cast<const uint24_t*>(data);
-        int mday = value & 31;
-        int mon = value >> 5 & 15;
-        int year = value >> 9;
-
-        return fmt::format(FMT_COMPILE("{:04d}-{:02d}-{:02d}"), year, mon, mday);
-    }
+    // Defined in uint24.cpp: the FMT_COMPILE format machinery is expensive to
+    // instantiate and this header is included nearly everywhere.
+    std::string to_string() const;
 
     const uint8_t* get_data() const { return data; }
 
