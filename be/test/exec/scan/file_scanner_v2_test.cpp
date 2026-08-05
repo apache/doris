@@ -720,6 +720,14 @@ TEST(FileScannerV2Test, RealtimeCounterDeltasUseReaderBytesAsRemoteWithoutCacheS
     EXPECT_EQ(60, deltas.scan_bytes_from_remote_storage);
 }
 
+TEST(FileScannerV2Test, FileReadBytesProfilePublishesOnlyNewScannerDelta) {
+    int64_t reported = 0;
+    EXPECT_EQ(FileScannerV2::TEST_cumulative_profile_delta(100, &reported), 100);
+    EXPECT_EQ(FileScannerV2::TEST_cumulative_profile_delta(150, &reported), 50);
+    EXPECT_EQ(FileScannerV2::TEST_cumulative_profile_delta(150, &reported), 0);
+    EXPECT_EQ(reported, 150);
+}
+
 TEST(FileScannerV2Test, RealtimeCounterDeltasUseFileCacheDeltasWhenAvailable) {
     io::FileReaderStats file_reader_stats;
     io::FileCacheStatistics file_cache_statistics;

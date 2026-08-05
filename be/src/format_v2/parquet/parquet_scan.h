@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -44,6 +45,10 @@ class time_zone;
 namespace doris {
 class Block;
 class RuntimeState;
+
+namespace io {
+class MergeRangeFileReader;
+}
 
 namespace format {
 struct FileScanRequest;
@@ -251,6 +256,7 @@ private:
 
     Status skip_current_row_group_rows(int64_t rows);
     Status flush_pending_non_predicate_skip_rows();
+    Status activate_merge_ranges_for_columns(const std::vector<format::LocalColumnId>& column_ids);
 
     Status read_filter_columns(int64_t batch_rows, const format::FileScanRequest& request,
                                Block* file_block, SelectionVector* selection,
@@ -325,6 +331,11 @@ private:
     bool _current_predicate_prefetched = false;
     bool _current_non_predicate_prefetched = false;
     bool _current_merge_range_active = false;
+    io::MergeRangeFileReader* _current_merge_range_reader = nullptr;
+    std::map<format::LocalColumnId, std::vector<std::pair<size_t, size_t>>>
+            _current_merge_ranges_by_column;
+    std::set<format::LocalColumnId> _activated_merge_range_columns;
+    uint32_t _current_merge_range_stage = 0;
     ParquetPageSkipProfile _page_skip_profile;
     ParquetScanProfile _scan_profile;
     const ParquetProfile* _parquet_profile = nullptr;

@@ -164,7 +164,9 @@ struct ParquetFileContext {
     // sequential projected chunk ranges consumed by MergeRangeFileReader.
     bool set_native_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                                          size_t avg_io_size, RuntimeProfile* profile,
-                                         int64_t merge_read_slice_size);
+                                         int64_t merge_read_slice_size,
+                                         bool expose_ranges_immediately = true);
+    bool native_file_should_defer_merge_ranges() const;
     const io::FileReaderSPtr& native_data_file() const {
         return native_row_group_file != nullptr ? native_row_group_file : native_file;
     }
