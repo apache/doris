@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -42,6 +43,7 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import com.google.common.collect.Lists;
@@ -399,5 +401,86 @@ public class BrokerLoadJobTest {
         Assert.assertEquals(99, (int) Deencapsulation.getField(brokerLoadJob, "progress"));
         Assert.assertEquals(1, brokerLoadJob.getFinishTimestamp());
         Assert.assertEquals(JobState.LOADING, brokerLoadJob.getState());
+    }
+
+    @Test
+    public void testBeginTxnReusesAlreadyBegunTxn() throws Exception {
+        // A retried pending task must not begin a second txn for the same job (it would fail
+        // LabelAlreadyUsedException against the job's own txn).
+        GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        Deencapsulation.setField(brokerLoadJob, "transactionId", 12345L);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            brokerLoadJob.beginTxn();
+        }
+
+        Assert.assertEquals(12345L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+        Mockito.verifyNoInteractions(transactionMgr);
+    }
+
+    @Test
+    public void testBeginTxnAdoptsOwnPreparedTxn() throws Exception {
+        // First attempt registered the txn but threw before transactionId was assigned
+        // (e.g. edit log write failure); the retry gets LabelAlreadyUsedException for the job's
+        // OWN prepared txn and must adopt it instead of cancelling the job.
+        GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState preparedTxn = Mockito.mock(TransactionState.class);
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        Deencapsulation.setField(brokerLoadJob, "id", 1001L);
+        Deencapsulation.setField(brokerLoadJob, "dbId", 1L);
+        Deencapsulation.setField(brokerLoadJob, "label", "label_self_conflict");
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            Mockito.when(transactionMgr.beginTransaction(Mockito.anyLong(), Mockito.anyList(),
+                    Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.anyLong(), Mockito.anyLong()))
+                    .thenThrow(new LabelAlreadyUsedException("label_self_conflict"));
+            Mockito.when(transactionMgr.getTransactionIdByLabel(Mockito.anyLong(), Mockito.anyString(),
+                    Mockito.anyList())).thenReturn(777L);
+            Mockito.when(transactionMgr.getTransactionState(Mockito.anyLong(), Mockito.eq(777L)))
+                    .thenReturn(preparedTxn);
+            Mockito.when(preparedTxn.getCallbackId()).thenReturn(1001L);
+            Mockito.when(preparedTxn.getTransactionStatus()).thenReturn(TransactionStatus.PREPARE);
+
+            brokerLoadJob.beginTxn();
+        }
+
+        Assert.assertEquals(777L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+    }
+
+    @Test
+    public void testBeginTxnRethrowsForeignLabelConflict() throws Exception {
+        // The label belongs to some other job's txn: the original exception must propagate.
+        GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState foreignTxn = Mockito.mock(TransactionState.class);
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        Deencapsulation.setField(brokerLoadJob, "id", 1001L);
+        Deencapsulation.setField(brokerLoadJob, "dbId", 1L);
+        Deencapsulation.setField(brokerLoadJob, "label", "label_foreign");
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            Mockito.when(transactionMgr.beginTransaction(Mockito.anyLong(), Mockito.anyList(),
+                    Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.anyLong(), Mockito.anyLong()))
+                    .thenThrow(new LabelAlreadyUsedException("label_foreign"));
+            Mockito.when(transactionMgr.getTransactionIdByLabel(Mockito.anyLong(), Mockito.anyString(),
+                    Mockito.anyList())).thenReturn(888L);
+            Mockito.when(transactionMgr.getTransactionState(Mockito.anyLong(), Mockito.eq(888L)))
+                    .thenReturn(foreignTxn);
+            Mockito.when(foreignTxn.getCallbackId()).thenReturn(9999L);
+
+            try {
+                brokerLoadJob.beginTxn();
+                Assert.fail("expected LabelAlreadyUsedException");
+            } catch (LabelAlreadyUsedException expected) {
+                // expected
+            }
+        }
+
+        Assert.assertEquals(0L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
     }
 }
