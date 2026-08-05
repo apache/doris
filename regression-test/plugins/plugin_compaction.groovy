@@ -114,8 +114,14 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
-            } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")) {
+            } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")
+                    || status_lower.contains("e-808")) {
                 // ignore this tablet compaction.
+                // e-2000/e-2010: cumulative has no suitable version;
+                // e-808 (BE_NO_SUITABLE_VERSION): base compaction has nothing to merge on this
+                // replica (e.g. only [0-1]+[2-y] with an empty [0-1]) — a by-design no-op, the
+                // base analogue of e-2000. Replica layouts can legitimately diverge here when a
+                // lagging publish made an earlier cumulative trigger a no-op on one replica.
             } else if (ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }) {
                 // ignore this tablet compaction if the error is in the ignored_errors list
             } else {
