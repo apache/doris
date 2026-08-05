@@ -221,7 +221,22 @@ jobs:
 
           auth_prefix='oss://doris-community-ci/codex/auth.json.'
           auth_listing="$(mktemp "$RUNNER_TEMP/codex-auth-objects.XXXXXX")"
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls "$auth_prefix" -s > "$auth_listing"
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls "$auth_prefix" -s > "$auth_listing"; then
+            auth_failure_reason="Failed to list Codex review auth objects from OSS."
+            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+            echo "::error::$auth_failure_reason"
+            exit 1
+          fi
+
+          auth_candidates="$(mktemp "$RUNNER_TEMP/codex-auth-candidates.XXXXXX")"
+          awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' \
+            "$auth_listing" > "$auth_candidates"
+          if [ ! -s "$auth_candidates" ]; then
+            auth_failure_reason="No numbered Codex review auth objects were found in OSS."
+            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+            echo "::error::$auth_failure_reason"
+            exit 1
+          fi
 
           auth_object=""
           earliest_retry_after_epoch=""
@@ -256,9 +271,7 @@ jobs:
 
             auth_object="$candidate"
             break
-          done < <(
-            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' "$auth_listing" | shuf
-          )
+          done < <(shuf "$auth_candidates")
 
           if [ -z "$auth_object" ]; then
             retry_at="$(date -u -d "@$earliest_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
