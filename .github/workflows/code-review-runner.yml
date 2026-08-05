@@ -219,6 +219,10 @@ jobs:
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
+          auth_prefix='oss://doris-community-ci/codex/auth.json.'
+          auth_listing="$(mktemp "$RUNNER_TEMP/codex-auth-objects.XXXXXX")"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls "$auth_prefix" -s > "$auth_listing"
+
           auth_object=""
           earliest_retry_after_epoch=""
           now_epoch="$(date +%s)"
@@ -252,13 +256,9 @@ jobs:
 
             auth_object="$candidate"
             break
-          done < <(printf '%s\n' \
-            'oss://doris-community-ci/codex/auth.json.1' \
-            'oss://doris-community-ci/codex/auth.json.2' \
-            'oss://doris-community-ci/codex/auth.json.3' \
-            'oss://doris-community-ci/codex/auth.json.4' \
-            'oss://doris-community-ci/codex/auth.json.5' \
-            | shuf)
+          done < <(
+            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' "$auth_listing" | shuf
+          )
 
           if [ -z "$auth_object" ]; then
             retry_at="$(date -u -d "@$earliest_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
