@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
@@ -31,7 +32,10 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -39,6 +43,7 @@ import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+import mockit.Verifications;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -374,5 +379,93 @@ public class BrokerLoadJobTest {
         Assert.assertEquals(99, (int) Deencapsulation.getField(brokerLoadJob, "progress"));
         Assert.assertEquals(1, brokerLoadJob.getFinishTimestamp());
         Assert.assertEquals(JobState.LOADING, brokerLoadJob.getState());
+    }
+
+    @Test
+    public void testBeginTxnReusesAlreadyBegunTxn(@Mocked Env env,
+            @Injectable GlobalTransactionMgrIface transactionMgr) throws Exception {
+        // A retried pending task must not begin a second txn for the same job (it would fail
+        // LabelAlreadyUsedException against the job's own txn).
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        Deencapsulation.setField(brokerLoadJob, "transactionId", 12345L);
+        brokerLoadJob.beginTxn();
+        Assert.assertEquals(12345L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+        new Verifications() {
+            {
+                transactionMgr.beginTransaction(anyLong, (List<Long>) any, anyString, (TUniqueId) any,
+                        (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any,
+                        anyLong, anyLong);
+                times = 0;
+            }
+        };
+    }
+
+    @Test
+    public void testBeginTxnAdoptsOwnPreparedTxn(@Mocked Env env,
+            @Injectable GlobalTransactionMgrIface transactionMgr,
+            @Injectable TransactionState preparedTxn) throws Exception {
+        // First attempt registered the txn but threw before transactionId was assigned
+        // (e.g. edit log write failure); the retry gets LabelAlreadyUsedException for the job's
+        // OWN prepared txn and must adopt it instead of cancelling the job.
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        Deencapsulation.setField(brokerLoadJob, "id", 1001L);
+        Deencapsulation.setField(brokerLoadJob, "dbId", 1L);
+        Deencapsulation.setField(brokerLoadJob, "label", "label_self_conflict");
+        new Expectations() {
+            {
+                Env.getCurrentGlobalTransactionMgr();
+                minTimes = 0;
+                result = transactionMgr;
+                transactionMgr.beginTransaction(anyLong, (List<Long>) any, anyString, (TUniqueId) any,
+                        (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any,
+                        anyLong, anyLong);
+                result = new LabelAlreadyUsedException("label_self_conflict");
+                transactionMgr.getTransactionIdByLabel(anyLong, anyString, (List<TransactionStatus>) any);
+                result = 777L;
+                transactionMgr.getTransactionState(anyLong, 777L);
+                result = preparedTxn;
+                preparedTxn.getCallbackId();
+                result = 1001L;
+                preparedTxn.getTransactionStatus();
+                result = TransactionStatus.PREPARE;
+            }
+        };
+        brokerLoadJob.beginTxn();
+        Assert.assertEquals(777L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+    }
+
+    @Test
+    public void testBeginTxnRethrowsForeignLabelConflict(@Mocked Env env,
+            @Injectable GlobalTransactionMgrIface transactionMgr,
+            @Injectable TransactionState foreignTxn) throws Exception {
+        // The label belongs to some other job's txn: the original exception must propagate.
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        Deencapsulation.setField(brokerLoadJob, "id", 1001L);
+        Deencapsulation.setField(brokerLoadJob, "dbId", 1L);
+        Deencapsulation.setField(brokerLoadJob, "label", "label_foreign");
+        new Expectations() {
+            {
+                Env.getCurrentGlobalTransactionMgr();
+                minTimes = 0;
+                result = transactionMgr;
+                transactionMgr.beginTransaction(anyLong, (List<Long>) any, anyString, (TUniqueId) any,
+                        (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any,
+                        anyLong, anyLong);
+                result = new LabelAlreadyUsedException("label_foreign");
+                transactionMgr.getTransactionIdByLabel(anyLong, anyString, (List<TransactionStatus>) any);
+                result = 888L;
+                transactionMgr.getTransactionState(anyLong, 888L);
+                result = foreignTxn;
+                foreignTxn.getCallbackId();
+                result = 9999L;
+            }
+        };
+        try {
+            brokerLoadJob.beginTxn();
+            Assert.fail("expected LabelAlreadyUsedException");
+        } catch (LabelAlreadyUsedException expected) {
+            // expected
+        }
+        Assert.assertEquals(0L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
     }
 }
