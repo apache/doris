@@ -429,7 +429,9 @@ public class AnalysisManager implements Writable {
         }
         infoBuilder.setTableVersion(version);
         infoBuilder.setPriority(JobPriority.MANUAL);
-        infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
+        // Must not alias TableStatsMeta.partitionUpdateRows: it is cleared at the job terminal state.
+        infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null
+                : new ConcurrentHashMap<>(tableStatsStatus.partitionUpdateRows));
         infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
         return infoBuilder.build();
     }
@@ -548,6 +550,13 @@ public class AnalysisManager implements Writable {
                     if (MetricRepo.isInit) {
                         MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_JOB.increase(1L);
                     }
+                    // The job reached a terminal state: all tasks share the job's
+                    // partitionUpdateRows map, so clearing it here releases the memory
+                    // retained by every task record in the history at once. The success
+                    // path clears it inside updateTableStats.
+                    if (job.partitionUpdateRows != null) {
+                        job.partitionUpdateRows.clear();
+                    }
                 } else {
                     job.markFinished();
                     if (MetricRepo.isInit) {
@@ -567,22 +576,27 @@ public class AnalysisManager implements Writable {
 
     @VisibleForTesting
     public void updateTableStats(AnalysisInfo jobInfo) {
-        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
-        if (tableStats == null) {
-            updateTableStatsStatus(new TableStatsMeta(jobInfo.rowCount, jobInfo, tbl));
-        } else {
-            tableStats.update(jobInfo, tbl);
-            logCreateTableStats(tableStats);
-        }
-        if (jobInfo.jobColumns != null) {
-            jobInfo.jobColumns.clear();
-        }
-        if (jobInfo.partitionNames != null) {
-            jobInfo.partitionNames.clear();
-        }
-        if (jobInfo.partitionUpdateRows != null) {
-            jobInfo.partitionUpdateRows.clear();
+        // Clear the shared maps even when the stats update fails, so the job and all its
+        // task records release their memory once the job reaches a terminal state.
+        try {
+            TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
+            TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
+            if (tableStats == null) {
+                updateTableStatsStatus(new TableStatsMeta(jobInfo.rowCount, jobInfo, tbl));
+            } else {
+                tableStats.update(jobInfo, tbl);
+                logCreateTableStats(tableStats);
+            }
+        } finally {
+            if (jobInfo.jobColumns != null) {
+                jobInfo.jobColumns.clear();
+            }
+            if (jobInfo.partitionNames != null) {
+                jobInfo.partitionNames.clear();
+            }
+            if (jobInfo.partitionUpdateRows != null) {
+                jobInfo.partitionUpdateRows.clear();
+            }
         }
     }
 
@@ -992,10 +1006,16 @@ public class AnalysisManager implements Writable {
             return;
         }
         checkPriv(anyTask);
-        logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
+        AnalysisInfo job = analysisJobInfoMap.get(anyTask.getJobId());
+        logKilled(job);
         for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
             taskInfo.cancel();
             logKilled(taskInfo.info);
+        }
+        // The job reached a terminal state: all tasks share the job's partitionUpdateRows
+        // map, so clearing it here releases the memory retained by every task record.
+        if (job.partitionUpdateRows != null) {
+            job.partitionUpdateRows.clear();
         }
     }
 
