@@ -109,7 +109,8 @@ suite("regression_test_variant_doc_value", "p0"){
 
         // 2. type confilct cases
         def table_name = "type_conflict_resolution"
-        create_table table_name
+        // Keep conflicting values in one tablet so type resolution is deterministic.
+        create_table.call(table_name, "DUPLICATE", "1")
         sql """insert into ${table_name} values (1, '{"c" : "123"}');"""
         sql """insert into ${table_name} values (2, '{"c" : 123}');"""
         sql """insert into ${table_name} values (3, '{"cc" : [123.2]}');"""

@@ -36,6 +36,7 @@
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "runtime/exec_env.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/base_tablet.h"
 #include "util/slice.h"

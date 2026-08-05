@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorPassthroughSqlOps;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorPassthroughSqlOps;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

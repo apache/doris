@@ -30,25 +30,16 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
+/**
+ * Deserialize-only journal payload: {@code OP_INIT_EXTERNAL_DB} has been ignored on replay since 4.0 and
+ * nothing writes one any more ({@code EditLog#logInitExternalDb} has no callers). The class stays so that
+ * {@code JournalEntity} can still consume such an entry out of an old journal; its contents are discarded.
+ *
+ * <p>The former per-data-source {@code Type} enum is gone with it: its only other user was
+ * {@code ExternalDatabase#dbLogType}, a field that was assigned and never read.</p>
+ */
 @Data
 public class InitDatabaseLog implements Writable {
-    public enum Type {
-        HMS,
-        ICEBERG,
-        ES,
-        JDBC,
-        MAX_COMPUTE,
-        HUDI,
-        PAIMON,
-        LAKESOUL,
-        TEST,
-        INFO_SCHEMA_DB,
-        TRINO_CONNECTOR,
-        REMOTE_DORIS,
-        PLUGIN,
-        UNKNOWN;
-    }
-
     @SerializedName(value = "catalogId")
     private long catalogId;
 
@@ -76,9 +67,6 @@ public class InitDatabaseLog implements Writable {
     @SerializedName(value = "remoteTableNames")
     private List<String> remoteTableNames;
 
-    @SerializedName(value = "type")
-    private Type type;
-
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
 
@@ -92,7 +80,6 @@ public class InitDatabaseLog implements Writable {
         createTableIds = Lists.newArrayList();
         createTableNames = Lists.newArrayList();
         remoteTableNames = Lists.newArrayList();
-        type = Type.UNKNOWN;
     }
 
     public void addRefreshTable(long id, String remoteName) {

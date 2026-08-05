@@ -150,15 +150,15 @@ struct ColumnMapping {
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
-    // One-row constant owns variable-width payloads; Field<TYPE_VARBINARY> is only a borrowed
-    // StringView and cannot safely outlive the Base64 decode buffer used to construct it.
-    ColumnPtr initial_default_column;
 
     std::string debug_string() const;
 };
 
 struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
+    // Iceberg requires a missing required field to fail unless an initial default is present.
+    // Other table formats keep the existing missing-column behavior unless they opt in.
+    bool reject_missing_required_field = false;
     bool allow_idless_complex_wrapper_projection = false;
     bool enable_row_lineage_virtual_columns = false;
 
@@ -172,6 +172,11 @@ const Field* find_partition_value(const ColumnDefinition& table_column,
 // used by TableColumnMapper's BY_NAME mode.
 const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column,
                                             const std::vector<ColumnDefinition>& file_schema);
+// Apply BY_FIELD_ID matching and, when requested, retain a unique ID-less complex wrapper that
+// contains a descendant selected by Iceberg field ID.
+const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
+                                                const std::vector<ColumnDefinition>& file_schema,
+                                                bool allow_idless_complex_wrapper_projection);
 
 // Generic mapping layer from table schema to file schema.
 // Iceberg uses BY_FIELD_ID. Plain by-name formats can reuse this component as well, so keep this
@@ -193,10 +198,11 @@ public:
     // Convert a table-level scan request into a file-local scan request. table_filters preserve
     // row-level filtering semantics and are rewritten as file-local conjuncts. File-layer pruning
     // such as ZoneMap, dictionary, and bloom filter derives from those localized VExpr conjuncts.
-    virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
-                                       const std::vector<ColumnDefinition>& projected_columns,
-                                       FileScanRequest* file_request,
-                                       RuntimeState* runtime_state = nullptr);
+    virtual Status create_scan_request(
+            const std::vector<TableFilter>& table_filters,
+            const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
+            RuntimeState* runtime_state = nullptr,
+            const std::map<LocalColumnId, LocalIndex>* fixed_local_positions = nullptr);
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with

@@ -17,12 +17,13 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorValidationContext;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 
 import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
@@ -83,12 +84,12 @@ public class TrinoDorisConnector implements Connector {
     }
 
     @Override
-    public org.apache.doris.connector.api.ConnectorTestResult testConnection(ConnectorSession session) {
+    public org.apache.doris.connector.spi.ConnectorTestResult testConnection(ConnectorSession session) {
         ensureInitialized();
         if (trinoConnector != null) {
-            return org.apache.doris.connector.api.ConnectorTestResult.success();
+            return org.apache.doris.connector.spi.ConnectorTestResult.success();
         }
-        return org.apache.doris.connector.api.ConnectorTestResult.failure("Trino connector not initialized");
+        return org.apache.doris.connector.spi.ConnectorTestResult.failure("Trino connector not initialized");
     }
 
     @Override
@@ -164,9 +165,12 @@ public class TrinoDorisConnector implements Connector {
         }
 
         // 2. Initialize Trino plugin infrastructure (singleton).
-        // The plugin dir comes from the FE engine environment (fe-core reads fe.conf);
-        // this plugin's classloader cannot see FE Config directly.
-        String pluginDir = TrinoBootstrap.resolvePluginDir(properties, context.getEnvironment());
+        // The plugin dir is a deployment-level setting: this plugin's classloader cannot see FE Config
+        // directly, so it arrives either in this plugin's own trino-connector.conf or, for a deployment
+        // that has not moved to that file, from fe.conf through the engine environment.
+        String pluginDir = TrinoBootstrap.resolvePluginDir(properties,
+                ConnectorConf.get(context, TrinoConnectorProvider.CONF_PLUGIN_DIR,
+                        TrinoConnectorProvider.ENV_PLUGIN_DIR, null));
         TrinoBootstrap bootstrap = TrinoBootstrap.getInstance(pluginDir);
 
         // 3. Create Trino Connector + Session for this catalog

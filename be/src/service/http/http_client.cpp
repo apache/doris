@@ -27,6 +27,8 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "io/fs/local_file_system.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_headers.h"
 #include "util/security.h"

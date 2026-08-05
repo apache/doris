@@ -321,17 +321,10 @@ public class TrinoBootstrap {
     /**
      * Resolves the Trino plugin directory.
      *
-     * <p>This plugin runs in an isolated classloader and cannot read FE {@code Config}
-     * (it would see its own bundled copy holding default values). The FE config
-     * {@code trino_connector_plugin_dir} is therefore passed in through the engine
-     * environment map (see {@code DefaultConnectorContext}), mirroring how the JDBC
-     * connector receives {@code jdbc_drivers_dir}.
-     *
      * <p>Resolution order:
      * <ol>
      *   <li>the per-catalog {@code trino.plugin.dir} property, when set;</li>
-     *   <li>otherwise the FE config {@code trino_connector_plugin_dir} from the environment,
-     *       used verbatim (it defaults to {@code DORIS_HOME/plugins/trino_plugins}).</li>
+     *   <li>otherwise {@code configuredDir}, used verbatim.</li>
      * </ol>
      *
      * <p>Nothing else is consulted: the dir the config names is the dir the plugins are loaded
@@ -339,25 +332,27 @@ public class TrinoBootstrap {
      * {@code DORIS_HOME/plugins/connectors} when the config was left at its default, which forced
      * this class to duplicate the default as a literal just to tell "user set it" from "untouched".
      * That compatibility path was dropped deliberately — a deployment whose plugins still sit in a
-     * legacy dir must move them or point {@code trino_connector_plugin_dir} at them.
+     * legacy dir must move them or point the config at them.
      *
-     * @param properties  catalog properties (unstripped, may carry {@code trino.plugin.dir})
-     * @param environment engine environment from {@code ConnectorContext.getEnvironment()}
+     * @param properties   catalog properties (unstripped, may carry {@code trino.plugin.dir})
+     * @param configuredDir the deployment-level setting, already resolved by the caller from
+     *                      {@code plugin_dir} in the plugin's own conf or {@code trino_connector_plugin_dir}
+     *                      in fe.conf; null or empty means the engine delivered neither
      */
-    public static String resolvePluginDir(Map<String, String> properties, Map<String, String> environment) {
+    public static String resolvePluginDir(Map<String, String> properties, String configuredDir) {
         String explicitDir = properties.get("trino.plugin.dir");
         if (explicitDir != null && !explicitDir.isEmpty()) {
             return explicitDir;
         }
 
-        String configuredDir = environment.get("trino_connector_plugin_dir");
         if (configuredDir == null || configuredDir.isEmpty()) {
-            // DefaultConnectorContext always passes the FE config, which always holds a value. Absent
-            // means the engine failed to deliver it; guessing a dir here would surface as "catalog
-            // creates fine but every query fails", so fail where the cause is still visible.
+            // fe.conf always holds a value for this, and the engine always forwards it, so absent means
+            // the engine failed to deliver it. Guessing a dir here would surface as "catalog creates fine
+            // but every query fails", so fail where the cause is still visible.
             throw new IllegalStateException(
-                    "trino_connector_plugin_dir was not delivered through the engine environment; "
-                            + "cannot resolve the Trino plugin dir");
+                    "neither '" + TrinoConnectorProvider.CONF_PLUGIN_DIR + "' in "
+                            + TrinoConnectorProvider.TYPE + ".conf nor trino_connector_plugin_dir in "
+                            + "fe.conf was delivered; cannot resolve the Trino plugin dir");
         }
         return configuredDir;
     }

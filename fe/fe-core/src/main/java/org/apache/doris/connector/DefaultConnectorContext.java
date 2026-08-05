@@ -25,11 +25,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorHttpSecurityHook;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -572,6 +572,17 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         return uri.endsWith("/") ? uri : uri + "/";
     }
 
+    /**
+     * The fe.conf values forwarded to every connector.
+     *
+     * <p><b>Do not add to this.</b> A key here is an engine change per connector setting, and every one
+     * of them ties a connector's key name into fe-core. A connector that needs a deployment-level
+     * setting declares it in its own {@code <name>.conf} instead, which the engine reads generically —
+     * see {@code ConnectorContext.getConnectorConfig()} and {@code ConnectorConf.get}. What is left
+     * below is either shared by several connectors (the jdbc/hive metastore keys, kept as the fallback
+     * for deployments that have not moved to the per-plugin files) or not a connector setting at all
+     * ({@code doris_home}, {@code doris_version}).
+     */
     private static Map<String, String> buildEnvironment() {
         Map<String, String> env = new HashMap<>();
         String dorisHome = EnvUtils.getDorisHome();
@@ -581,7 +592,6 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         env.put("jdbc_drivers_dir", Config.jdbc_drivers_dir);
         env.put("force_sqlserver_jdbc_encrypt_false",
                 String.valueOf(Config.force_sqlserver_jdbc_encrypt_false));
-        env.put("jdbc_driver_secure_path", Config.jdbc_driver_secure_path);
         // HMS metastore client socket-timeout default (C4): the metastore-spi cannot read FE Config
         // (no fe-common dependency), so the FE-configured value is threaded through the environment and
         // applied by HmsMetaStoreProperties.toHiveConfOverrides when the user has not overridden it.

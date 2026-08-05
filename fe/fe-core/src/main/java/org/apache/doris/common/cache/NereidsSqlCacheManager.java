@@ -439,7 +439,6 @@ public class NereidsSqlCacheManager {
         for (Entry<FullTableName, TableVersion> scanTable : sqlCacheContext.getUsedTables().entrySet()) {
             TableVersion tableVersion = scanTable.getValue();
             if (tableVersion.type != TableType.OLAP && tableVersion.type != TableType.MATERIALIZED_VIEW
-                    && tableVersion.type != TableType.HMS_EXTERNAL_TABLE
                     && tableVersion.type != TableType.PLUGIN_EXTERNAL_TABLE) {
                 return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
             }

@@ -17,7 +17,8 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorConfFile;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.datasource.CatalogFactory;
@@ -32,14 +33,18 @@ import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -101,27 +106,62 @@ public class ConnectorPluginManager {
             new DirectoryPluginRuntimeManager<>();
     private final ClassLoadingPolicy classLoadingPolicy =
             new ClassLoadingPolicy(CONNECTOR_PARENT_FIRST_PREFIXES);
+    /**
+     * Each directory-loaded provider's own {@code <name>.conf}, read once at load and served back through
+     * {@link ConnectorContext#getConnectorConfig()}.
+     *
+     * <p>An {@link IdentityHashMap} because the key is the provider instance and lookup must not call
+     * {@code equals}/{@code hashCode} on plugin code — the same rule
+     * {@link DirectoryPluginRuntimeManager} follows by snapshotting {@code name()} once at load and never
+     * re-entering the plugin on a query path. Written only during startup, read when a catalog is built,
+     * so a synchronized wrapper is enough.
+     */
+    private final Map<ConnectorProvider, Map<String, String>> connectorConfigs =
+            Collections.synchronizedMap(new IdentityHashMap<>());
 
     /** Called at FE startup to load built-in providers from classpath. */
     public void loadBuiltins() {
-        ServiceLoader.load(ConnectorProvider.class)
-                .forEach(p -> {
-                    try {
-                        // Snapshot self-reported metadata before publishing the provider
-                        // so one throwing implementation is rejected cleanly instead of
-                        // aborting startup or being active without an inventory row.
-                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
-                    } catch (RuntimeException e) {
-                        LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
-                                p.getClass().getName(), e);
-                        return;
-                    }
-                    // Deliberately outside that catch: registerDiscovered's fail-loud
-                    // IllegalStateException reports a build error, not a "skip this one" condition.
-                    if (registerDiscovered(p, true)) {
-                        LOG.info("Registered built-in connector provider: {}", p.getType());
-                    }
-                });
+        loadBuiltins(ConnectorProvider.class.getClassLoader());
+    }
+
+    /** Classloader seam used to verify embedded/classpath providers with their own defining jars. */
+    void loadBuiltins(ClassLoader classLoader) {
+        Iterator<ServiceLoader.Provider<ConnectorProvider>> providers =
+                ServiceLoader.load(ConnectorProvider.class, classLoader).stream().iterator();
+        while (providers.hasNext()) {
+            ServiceLoader.Provider<ConnectorProvider> descriptor = providers.next();
+            Class<? extends ConnectorProvider> providerClass = descriptor.type();
+            String rejection = API_VERSION_GATE.rejectionReasonForClass(providerClass);
+            if (rejection != null) {
+                // Gate the descriptor before get(): an incompatible provider constructor may have
+                // side effects or link against an API that this FE must never execute.
+                LOG.warn("Skip built-in connector provider {}: {}", providerClass.getName(), rejection);
+                continue;
+            }
+            ConnectorProvider provider;
+            try {
+                provider = descriptor.get();
+            } catch (ServiceConfigurationError | RuntimeException e) {
+                LOG.warn("Skip built-in connector provider {}: construction failed",
+                        providerClass.getName(), e);
+                continue;
+            }
+            try {
+                // Snapshot self-reported metadata before publishing the provider
+                // so one throwing implementation is rejected cleanly instead of
+                // aborting startup or being active without an inventory row.
+                PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, provider);
+            } catch (RuntimeException e) {
+                LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
+                        providerClass.getName(), e);
+                continue;
+            }
+            // Deliberately outside that catch: registerDiscovered's fail-loud
+            // IllegalStateException reports a build error, not a "skip this one" condition.
+            if (registerDiscovered(provider, true)) {
+                LOG.info("Registered built-in connector provider: {}", provider.getType());
+            }
+        }
     }
 
     /**
@@ -236,6 +276,7 @@ public class ConnectorPluginManager {
             // information_schema.extensions never lists a connector the routing table cannot reach.
             if (registerDiscovered(handle.getFactory(), false)) {
                 PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
+                loadConnectorConfig(handle);
                 LOG.info("Loaded connector plugin: name={}, pluginDir={}, jarCount={}",
                         handle.getPluginName(), handle.getPluginDir(),
                         handle.getResolvedJars().size());
@@ -246,6 +287,34 @@ public class ConnectorPluginManager {
                 // FileSystemPluginManager's reject paths follow.
                 runtimeManager.discard(handle.getPluginName());
             }
+        }
+    }
+
+    /**
+     * Reads this plugin's own {@code <name>.conf}, if it ships one, so that
+     * {@link ConnectorContext#getConnectorConfig()} can serve it later.
+     *
+     * <p>Nothing here can keep the plugin from being registered. A conf file that cannot be read is
+     * reported and the connector proceeds without it: refusing the plugin would make the catalog type
+     * vanish entirely, and the only thing a user would then see is {@code CREATE CATALOG} answering
+     * "no provider supports type", which points nowhere near a bad file. Every setting reachable this way
+     * either has a default or a fe.conf fallback, so proceeding is a real degradation path, not a guess.
+     */
+    private void loadConnectorConfig(PluginHandle<ConnectorProvider> handle) {
+        Map<String, String> conf = Collections.emptyMap();
+        try {
+            conf = ConnectorConfFile.load(handle.getPluginDir(), handle.getPluginName());
+        } catch (IOException e) {
+            LOG.error("Failed to read connector plugin conf {} in {}; the connector starts without it "
+                            + "and falls back to fe.conf", ConnectorConfFile.fileName(handle.getPluginName()),
+                    handle.getPluginDir(), e);
+        }
+        connectorConfigs.put(handle.getFactory(), conf);
+        if (!conf.isEmpty()) {
+            // Key names only. A value here is administrator-supplied and may name a credential path or
+            // an internal host; the point of the line is to let an operator confirm the file was found.
+            LOG.info("Connector plugin conf loaded: name={}, file={}, keys={}", handle.getPluginName(),
+                    ConnectorConfFile.fileName(handle.getPluginName()), conf.keySet());
         }
     }
 
@@ -304,12 +373,33 @@ public class ConnectorPluginManager {
                 }
                 LOG.info("Creating connector via provider '{}' for catalogType='{}'",
                         provider.getType(), catalogType);
-                return provider.create(properties, context);
+                return provider.create(properties, withConnectorConfig(context, provider));
             }
         }
         LOG.debug("No ConnectorProvider supports catalogType='{}' (standaloneOnly={}). Registered: {}",
                 catalogType, standaloneOnly, providerNames());
         return null;
+    }
+
+    /**
+     * Attaches the chosen provider's plugin conf to the context handed to {@code create}.
+     *
+     * <p>It has to happen here rather than in the context itself: fe-core builds a
+     * {@link ConnectorContext} for a catalog before it knows which plugin will claim the type, so the
+     * conf can only be layered on once the provider is picked. Keeping it out of
+     * {@code DefaultConnectorContext} is also what keeps the engine's context free of any connector's
+     * key names.
+     *
+     * <p>A sibling connector ({@code ConnectorContext.createSiblingConnector}) comes back through this
+     * same method, so it is handed <em>its own</em> plugin's conf rather than inheriting the gateway's.
+     * That is the intent: the conf belongs to the plugin, not to the catalog.
+     *
+     * <p>An empty conf is not wrapped. The interface default already answers an empty map, and one fewer
+     * decorator is one fewer place a future {@link ConnectorContext} method can be lost in.
+     */
+    private ConnectorContext withConnectorConfig(ConnectorContext base, ConnectorProvider provider) {
+        Map<String, String> conf = connectorConfigs.get(provider);
+        return conf == null || conf.isEmpty() ? base : new ConnectorConfigContext(base, conf);
     }
 
     /**
@@ -364,6 +454,28 @@ public class ConnectorPluginManager {
             if (provider.supports(catalogType, properties)) {
                 provider.validateProperties(properties);
                 return;
+            }
+        }
+    }
+
+    /** Validates an ALTER candidate through the matching provider without mutating catalog state. */
+    public void validatePropertiesForUpdate(String catalogType,
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        for (ConnectorProvider provider : providers) {
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try {
+                // Directory providers may resolve validation helpers through TCCL, so selection and
+                // validation must run under the same plugin loader and never leak it to the FE caller.
+                thread.setContextClassLoader(provider.getClass().getClassLoader());
+                Map<String, String> matchProperties = currentProperties == null
+                        ? Collections.emptyMap() : currentProperties;
+                if (provider.supports(catalogType, matchProperties)) {
+                    provider.validatePropertiesForUpdate(currentProperties, updatedProperties);
+                    return;
+                }
+            } finally {
+                thread.setContextClassLoader(previous);
             }
         }
     }

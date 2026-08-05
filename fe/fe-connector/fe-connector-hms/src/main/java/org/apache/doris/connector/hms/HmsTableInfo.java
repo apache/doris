@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorColumn;
 
 import java.util.Collections;
 import java.util.List;

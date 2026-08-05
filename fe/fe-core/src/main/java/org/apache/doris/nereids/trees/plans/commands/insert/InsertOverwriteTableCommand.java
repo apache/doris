@@ -26,7 +26,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
-import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -146,10 +146,19 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
+        // Check the branch capability before resolving the branch-specific writer schema. Otherwise,
+        // an unsupported connector can fail while resolving a branch instead of reporting the
+        // INSERT OVERWRITE capability error.
+        if (branchName.isPresent() && !pluginConnectorSupportsWriteBranch(targetTableIf)) {
+            throw new AnalysisException(
+                    "Only support insert overwrite into iceberg table's branch");
+        }
         ctx.getStatementContext().setIsInsert(true);
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
+        InsertUtils.pinConnectorWriteSchema(
+                ctx.getStatementContext(), targetTableIf, originLogicalQuery, branchName);
         this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
             originLogicalQuery, (targetTableIf instanceof RemoteDorisExternalTable)
                         ? ((RemoteDorisExternalTable) targetTableIf).getOlapTable() : targetTableIf,
@@ -194,7 +203,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                             ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                             ((OlapTable) targetTable).getQualifiedDbName() + ": " + targetTable.getName());
                 }
-                ConnectContext.get().setSkipAuth(true);
             }
             partitionNames = ((UnboundTableSink<?>) logicalQuery).getPartitions();
             // If not specific partition to overwrite, means it's a command to overwrite the table.
@@ -213,14 +221,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             partitionNames = new ArrayList<>();
         }
 
-        // check branch: only iceberg supports INSERT OVERWRITE into a named branch. An iceberg table is
-        // plugin-driven, so admit it via the connector's supportsWriteBranch() capability — without which
-        // the branch would be silently dropped and the overwrite would land on the table's default ref.
-        if (branchName.isPresent() && !pluginConnectorSupportsWriteBranch(targetTable)) {
-            throw new AnalysisException(
-                    "Only support insert overwrite into iceberg table's branch");
-        }
-
         AbstractInsertOverwriteManager insertOverwriteManager = (targetTable instanceof RemoteOlapTable)
                 ? new RemoteInsertOverwriteManager(((RemoteOlapTable) targetTable).getCatalog())
                 : Env.getCurrentEnv().getInsertOverwriteManager();
@@ -228,6 +228,12 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         isRunning.set(true);
         long taskId = 0;
         try {
+            // OLAP overwrite runs its internal partition replacement with the auth check skipped.
+            // Set the flag here, inside the try, so the finally below always pairs the reset even if
+            // an earlier step (e.g. the @branch guard) throws before we get here.
+            if (physicalTableSink instanceof PhysicalOlapTableSink && targetTable instanceof OlapTable) {
+                ctx.setSkipAuth(true);
+            }
             if (isAutoDetectOverwrite(getLogicalQuery())) {
                 // taskId here is a group id. it contains all replace tasks made and registered in rpc process.
                 taskId = insertOverwriteManager.registerTaskGroup(targetTable);
@@ -349,7 +355,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
             ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
-                Optional.of(insertCtx), Optional.empty(), false, Optional.empty());
+                Optional.of(insertCtx), Optional.empty(), false, branchName);
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -446,7 +452,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
-        return InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery());
+        return InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery(), branchName);
     }
 
     @Override

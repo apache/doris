@@ -24,7 +24,9 @@ import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.RowFilterPolicy;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -42,17 +44,25 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class RangerHiveAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerHiveAccessController.class);
-    private static ScheduledThreadPoolExecutor logFlushTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+    private static final ScheduledThreadPoolExecutor LOG_FLUSH_TIMER = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "ranger-hive-audit-log-flusher-timer", true);
     private RangerHivePlugin hivePlugin;
     private RangerHiveAuditHandler auditHandler;
+    private ScheduledFuture<?> logFlushFuture;
+    // The manager can remove a controller while a query still holds its reference. Keep the plugin alive
+    // until that query completes, then prevent any later authorization from using the cleaned plugin.
+    private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
+    private boolean closed;
 
     public RangerHiveAccessController(Map<String, String> properties) {
         this(properties, null);
@@ -64,7 +74,41 @@ public class RangerHiveAccessController extends RangerAccessController {
         hivePlugin = new RangerHivePlugin(serviceName, rangerAuthContextListener);
         auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
         // start a timed log flusher
-        logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
+        logFlushFuture = LOG_FLUSH_TIMER.scheduleAtFixedRate(
+                new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public void close() {
+        lifecycleLock.writeLock().lock();
+        try {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            if (logFlushFuture != null) {
+                logFlushFuture.cancel(false);
+                logFlushFuture = null;
+            }
+            // flushAudit atomically drains the handler. This preserves events produced before close without
+            // racing the periodic flusher or re-emitting events it has already sent.
+            try {
+                auditHandler.flushAudit();
+            } catch (Throwable e) {
+                LOG.warn("Failed to flush Ranger Hive audit events while closing the access controller", e);
+            }
+            if (hivePlugin != null) {
+                try {
+                    hivePlugin.cleanup();
+                } catch (Throwable e) {
+                    LOG.warn("Failed to clean up Ranger Hive plugin", e);
+                } finally {
+                    hivePlugin = null;
+                }
+            }
+        } finally {
+            lifecycleLock.writeLock().unlock();
+        }
     }
 
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, HiveAccessType accessType) {
@@ -95,24 +139,40 @@ public class RangerHiveAccessController extends RangerAccessController {
 
     private void checkPrivileges(UserIdentity currentUser, HiveAccessType accessType,
             List<RangerHiveResource> hiveResources) throws AuthorizationException {
-        List<RangerAccessRequest> requests = new ArrayList<>();
-        for (RangerHiveResource resource : hiveResources) {
-            RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-            request.setResource(resource);
-            requests.add(request);
-        }
+        lifecycleLock.readLock().lock();
+        try {
+            if (closed) {
+                throw new AuthorizationException("Ranger Hive access controller has been closed");
+            }
+            List<RangerAccessRequest> requests = new ArrayList<>();
+            for (RangerHiveResource resource : hiveResources) {
+                RangerAccessRequestImpl request = createRequest(currentUser, accessType);
+                request.setResource(resource);
+                requests.add(request);
+            }
 
-        Collection<RangerAccessResult> results = hivePlugin.isAccessAllowed(requests, auditHandler);
-        checkRequestResults(results, accessType.name());
+            Collection<RangerAccessResult> results = hivePlugin.isAccessAllowed(requests, auditHandler);
+            checkRequestResults(results, accessType.name());
+        } finally {
+            lifecycleLock.readLock().unlock();
+        }
     }
 
     private boolean checkPrivilege(UserIdentity currentUser, HiveAccessType accessType,
             RangerHiveResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-        request.setResource(resource);
+        lifecycleLock.readLock().lock();
+        try {
+            if (closed) {
+                return false;
+            }
+            RangerAccessRequestImpl request = createRequest(currentUser, accessType);
+            request.setResource(resource);
 
-        RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
-        return checkRequestResult(request, result, accessType.name());
+            RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
+            return checkRequestResult(request, result, accessType.name());
+        } finally {
+            lifecycleLock.readLock().unlock();
+        }
     }
 
     private HiveAccessType convertToAccessType(PrivPredicate predicate) {
@@ -196,6 +256,28 @@ public class RangerHiveAccessController extends RangerAccessController {
         // Not support workload group privilege in ranger hive plugin.
         // So always return true to pass the check
         return true;
+    }
+
+    @Override
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+            String tbl) {
+        lifecycleLock.readLock().lock();
+        try {
+            return closed ? new ArrayList<>() : super.evalRowFilterPolicies(currentUser, ctl, db, tbl);
+        } finally {
+            lifecycleLock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+            String col) {
+        lifecycleLock.readLock().lock();
+        try {
+            return closed ? Optional.empty() : super.evalDataMaskPolicy(currentUser, ctl, db, tbl, col);
+        } finally {
+            lifecycleLock.readLock().unlock();
+        }
     }
 
     @Override

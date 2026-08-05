@@ -17,10 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -222,7 +222,7 @@ final class IcebergPartitionUtils {
      * renders {@code 1.5} and {@code valueToTree(new BigDecimal("10"))} renders {@code 1E+1} — the latter is a
      * JSON <i>syntax</i> change, not just lost scale. Legacy fe-core rendered these through Gson, which is
      * scale-exact, so without this the connector would diverge from master on DECIMAL-partitioned tables
-     * (verified empirically against gson 2.10.1 / jackson 2.16.0, design doc T0.1).
+     * (verified empirically against gson 2.10.1 / jackson 2.16.0).
      *
      * <p>MUST be a {@code copy()}: {@link JsonUtil#mapper()} is an iceberg-core process-wide static shared by
      * all iceberg REST/metadata serialization, and mutating its node factory would corrupt unrelated paths.
@@ -242,7 +242,7 @@ final class IcebergPartitionUtils {
      * they are not interchangeable. BE does not parse this as JSON at all — it feeds it to Doris's STRUCT text
      * serde, which requires a leading '{', splits on ':'/',' and lower-cases keys before matching field names.
      * Critically, {@code DataTypeNullableSerDe::from_string} SWALLOWS any parse error into a NULL partition and
-     * returns OK, so a wrong shape here is silent wrong data, never an error (design doc §2.2).
+     * returns OK, so a wrong shape here is silent wrong data, never an error.
      *
      * <p>Values are resolved BY ICEBERG PARTITION FIELD ID, never by position: the metadata table reassigns
      * partition field ids and rebuilds each spec via {@code BaseMetadataTable.transformSpec}, so a delete
@@ -252,7 +252,7 @@ final class IcebergPartitionUtils {
      *
      * <p>Deliberate, documented divergence from legacy: Gson drops null members (so an absent value yields
      * {@code {}}), Jackson renders {@code {"p":null}}. BE reaches the same NULL either way — the literal 4-byte
-     * {@code null} token and a missing key both hit {@code insert_default()} (design doc T0.1).
+     * {@code null} token and a missing key both hit {@code insert_default()}.
      *
      * @param outputPartitionFields the metadata table's {@code partition} struct fields, in output order
      * @param enableMappingVarbinary the catalog's {@code enable.mapping.varbinary}; when set, UUID maps to

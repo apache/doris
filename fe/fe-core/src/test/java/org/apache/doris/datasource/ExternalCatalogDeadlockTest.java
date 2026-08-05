@@ -32,12 +32,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class ExternalCatalogDeadlockTest {
+    private static final long DEADLOCK_DETECTION_TIMEOUT_SECONDS = 5;
+    private static final long LOADER_PERMISSION_TIMEOUT_SECONDS = 30;
 
     @Test
     public void testResetToUninitializedShouldNotDeadlockWithCacheLoader() throws Exception {
         DeadlockCatalog catalog = new DeadlockCatalog();
         CountDownLatch loaderEntered = new CountDownLatch(1);
         CountDownLatch allowLoaderToTouchCatalog = new CountDownLatch(1);
+        CountDownLatch refreshReady = new CountDownLatch(1);
         AtomicReference<Throwable> backgroundFailure = new AtomicReference<>();
 
         // The loader holds Caffeine's per-key lock before it calls back into the catalog.
@@ -53,7 +56,7 @@ public class ExternalCatalogDeadlockTest {
                 "deadlock-cache-loader");
         queryThread.setDaemon(true);
         queryThread.start();
-        Assertions.assertTrue(loaderEntered.await(5, TimeUnit.SECONDS));
+        Assertions.assertTrue(loaderEntered.await(DEADLOCK_DETECTION_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
         Thread refreshThread = new Thread(
                 () -> runQuietly(backgroundFailure, () -> {
@@ -62,11 +65,13 @@ public class ExternalCatalogDeadlockTest {
                         allowLoaderToTouchCatalog.countDown();
                         cache.invalidate("deadlock-key");
                     });
+                    refreshReady.countDown();
                     catalog.resetToUninitialized(true);
                 }),
                 "deadlock-catalog-refresh");
         refreshThread.setDaemon(true);
         refreshThread.start();
+        Assertions.assertTrue(refreshReady.await(DEADLOCK_DETECTION_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
         assertNoDeadlock(queryThread, refreshThread, backgroundFailure);
     }
@@ -74,8 +79,8 @@ public class ExternalCatalogDeadlockTest {
     private static void assertNoDeadlock(Thread queryThread, Thread refreshThread,
             AtomicReference<Throwable> backgroundFailure) throws Exception {
         long[] deadlockedThreads = waitForDeadlock(queryThread, refreshThread);
-        queryThread.join(TimeUnit.SECONDS.toMillis(5));
-        refreshThread.join(TimeUnit.SECONDS.toMillis(5));
+        queryThread.join(TimeUnit.SECONDS.toMillis(DEADLOCK_DETECTION_TIMEOUT_SECONDS));
+        refreshThread.join(TimeUnit.SECONDS.toMillis(DEADLOCK_DETECTION_TIMEOUT_SECONDS));
         Assertions.assertNull(backgroundFailure.get(), "unexpected background failure: " + backgroundFailure.get());
         Assertions.assertNull(deadlockedThreads,
                 String.format("detected deadlock between threads %s and %s",
@@ -85,7 +90,7 @@ public class ExternalCatalogDeadlockTest {
     }
 
     private static void awaitLatch(CountDownLatch latch) throws InterruptedException {
-        Assertions.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        Assertions.assertTrue(latch.await(LOADER_PERMISSION_TIMEOUT_SECONDS, TimeUnit.SECONDS));
     }
 
     private static void runQuietly(AtomicReference<Throwable> failure, ThrowingRunnable task) {
@@ -98,7 +103,7 @@ public class ExternalCatalogDeadlockTest {
 
     private static long[] waitForDeadlock(Thread queryThread, Thread refreshThread) throws InterruptedException {
         ThreadMXBean threadMxBean = ManagementFactory.getThreadMXBean();
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < DEADLOCK_DETECTION_TIMEOUT_SECONDS * 20; i++) {
             long[] deadlockedThreads = threadMxBean.findDeadlockedThreads();
             if (deadlockedThreads != null
                     && contains(deadlockedThreads, queryThread.getId())
@@ -132,7 +137,7 @@ public class ExternalCatalogDeadlockTest {
         }
 
         @Override
-        public void onClose() {
+        protected void closeResources() {
         }
 
         @Override

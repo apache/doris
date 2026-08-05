@@ -17,20 +17,20 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
 import org.apache.doris.connector.hms.HmsCreateTableRequest;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -110,6 +110,67 @@ public class HiveConnectorMetadataDdlTest {
         metadata(client, Collections.emptyMap(), Collections.emptyMap())
                 .createTable(session(), request().build());
         Assertions.assertEquals("orc", client.lastCreateTable.getFileFormat());
+    }
+
+    // ==================== createTable: the plugin's own hms.conf ====================
+
+    @Test
+    public void createTableFileFormatFromPluginConfBeatsFeConf() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        // WHY: the point of the plugin conf channel. An administrator who sets default_file_format in
+        // hms.conf must get it even though fe.conf still names the old value -- reverse the precedence
+        // and migrating a deployment to the new file silently does nothing.
+        Map<String, String> conf = Collections.singletonMap(
+                HiveConnectorProperties.CONF_DEFAULT_FILE_FORMAT, "parquet");
+        Map<String, String> env = Collections.singletonMap(
+                HiveConnectorProperties.ENV_HIVE_DEFAULT_FILE_FORMAT, "orc");
+
+        metadataWithConf(client, conf, env).createTable(session(), request().build());
+
+        Assertions.assertEquals("parquet", client.lastCreateTable.getFileFormat());
+    }
+
+    @Test
+    public void createTableUserFileFormatStillBeatsThePluginConf() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        // WHY: the new channel is deployment-level; it must not outrank a per-catalog CREATE TABLE
+        // property. Only the two deployment channels reordered relative to each other.
+        Map<String, String> conf = Collections.singletonMap(
+                HiveConnectorProperties.CONF_DEFAULT_FILE_FORMAT, "parquet");
+
+        metadataWithConf(client, conf, Collections.emptyMap()).createTable(session(),
+                request().properties(Collections.singletonMap("file_format", "orc")).build());
+
+        Assertions.assertEquals("orc", client.lastCreateTable.getFileFormat());
+    }
+
+    @Test
+    public void createTableBucketGateCanBeOpenedFromThePluginConfAlone() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        // WHY: the second migrated setting, and the one where getting the channel wrong is expensive --
+        // a deployment that opts in through hms.conf but is still gated by fe.conf's default 'false'
+        // would find bucketed creates rejected with no indication which file is in charge.
+        Map<String, String> conf = Collections.singletonMap(
+                HiveConnectorProperties.CONF_ENABLE_CREATE_BUCKET_TABLE, "true");
+        ConnectorBucketSpec bucket = new ConnectorBucketSpec(
+                Collections.singletonList("id"), 8, "doris_default");
+
+        metadataWithConf(client, conf, Collections.emptyMap())
+                .createTable(session(), request().bucketSpec(bucket).build());
+
+        Assertions.assertEquals(Collections.singletonList("id"), client.lastCreateTable.getBucketCols());
+        Assertions.assertEquals(8, client.lastCreateTable.getNumBuckets());
+    }
+
+    @Test
+    public void theConfTemplateIsNamedAfterTheProvider() {
+        // WHY: the engine reads <name>.conf, and this connector's name is "hms" while its plugin
+        // directory is "hive". A template under any other name deploys a file nothing ever opens --
+        // silently, with every setting in it ignored. Renaming getType() must break here.
+        String expected = new HiveConnectorProvider().name() + ".conf.template";
+        Assertions.assertNotNull(
+                HiveConnectorMetadataDdlTest.class.getClassLoader().getResource(expected),
+                "the plugin must ship " + expected + " on its classpath");
     }
 
     // ==================== createTable: transactional rejection ====================
@@ -366,6 +427,12 @@ public class HiveConnectorMetadataDdlTest {
     private static HiveConnectorMetadata metadata(RecordingHmsClient client,
             Map<String, String> catalogProps, Map<String, String> env) {
         return new HiveConnectorMetadata(client, catalogProps, new FakeConnectorContext(env));
+    }
+
+    private static HiveConnectorMetadata metadataWithConf(RecordingHmsClient client,
+            Map<String, String> conf, Map<String, String> env) {
+        return new HiveConnectorMetadata(client, Collections.emptyMap(),
+                new FakeConnectorContext("test_catalog", 0L, env, conf));
     }
 
     /**

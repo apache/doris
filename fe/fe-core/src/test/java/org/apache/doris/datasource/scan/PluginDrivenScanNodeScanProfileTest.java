@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.common.profile.RuntimeProfile;
-import org.apache.doris.connector.api.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

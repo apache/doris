@@ -33,6 +33,7 @@
 #include "exec/operator/operator.h"
 #include "exec/rowid_fetcher.h"
 #include "exec/scan/file_scanner.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 #include "util/pretty_printer.h"

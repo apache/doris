@@ -43,6 +43,7 @@
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -986,7 +987,7 @@ void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host " << replica.replica.host << ": "
                              << status.to_string();
-                return;
+                continue;
             }
         }
         std::string brpc_addr = get_host_port(host, replica.replica.brpc_port);

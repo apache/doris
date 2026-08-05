@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.iceberg.action;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.iceberg.rewrite.RewriteDataFilePlanner;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;

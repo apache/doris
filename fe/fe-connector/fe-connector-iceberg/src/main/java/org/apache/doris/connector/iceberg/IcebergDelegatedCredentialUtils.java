@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorDelegatedCredential;
+import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 

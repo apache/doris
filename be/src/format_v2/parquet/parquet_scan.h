@@ -188,6 +188,8 @@ public:
         _enable_strict_mode = enable_strict_mode;
     }
     void set_runtime_state(RuntimeState* runtime_state) { _runtime_state = runtime_state; }
+    void set_scan_request(std::shared_ptr<format::FileScanRequest> request);
+    void queue_scan_request(std::shared_ptr<format::FileScanRequest> request);
     // Release row-group readers before the owning RuntimeProfile is reported. Native readers
     // publish their accumulated page/decode statistics from their destructor.
     void close() { reset_current_row_group(); }
@@ -204,13 +206,13 @@ public:
 
     Status read_next_batch(ParquetFileContext& file_context,
                            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-                           const format::FileScanRequest& request, Block* file_block, size_t* rows,
-                           bool* eof);
+                           Block* file_block, size_t* rows, bool* eof);
 
 private:
     static constexpr size_t PROFILE_FLUSH_BATCH_INTERVAL = 16;
 
     void reset_current_row_group();
+    void activate_pending_scan_request_at_row_group_boundary();
     void flush_current_reader_profiles();
     bool finish_current_reader_batch_profiles();
     const detail::PredicateConjunctSchedule& predicate_conjunct_schedule(
@@ -310,6 +312,9 @@ private:
     SelectionVector _selection;
     std::vector<uint32_t> _read_column_positions_scratch;
     const format::FileScanRequest* _predicate_schedule_request = nullptr;
+    std::shared_ptr<format::FileScanRequest> _active_request;
+    std::shared_ptr<format::FileScanRequest> _pending_request;
+    bool _remaining_plans_need_replanning = false;
     detail::PredicateConjunctSchedule _predicate_schedule;
     std::vector<size_t> _predicate_positions_scratch;
     std::unordered_map<size_t, size_t> _predicate_indices_by_position_scratch;

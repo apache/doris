@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -106,6 +106,13 @@ public class PaimonTableHandle implements ConnectorTableHandle {
      * base this handle did not resolve.
      */
     private transient FileStoreTable sysBaseTable;
+
+    /**
+     * The exact relation generation resolved before the system wrapper was created. Unlike
+     * {@link #sysBaseTable}, this keeps decorators intact so validation and statistics observe the
+     * same policy-bearing handle that analysis accepted.
+     */
+    private transient Table systemTableSource;
 
     public PaimonTableHandle(String databaseName, String tableName,
             List<String> partitionKeys, List<String> primaryKeys) {
@@ -211,6 +218,7 @@ public class PaimonTableHandle implements ConnectorTableHandle {
                 partitionKeys, primaryKeys, sysTableName, forceJni, options, branchName);
         copy.paimonTable = this.paimonTable;
         copy.sysBaseTable = this.sysBaseTable;
+        copy.systemTableSource = this.systemTableSource;
         return copy;
     }
 
@@ -251,6 +259,16 @@ public class PaimonTableHandle implements ConnectorTableHandle {
     /** Sets the base table this system handle's wrapper was built over. See {@link #sysBaseTable}. */
     public void setSysBaseTable(FileStoreTable sysBaseTable) {
         this.sysBaseTable = sysBaseTable;
+    }
+
+    /** Returns the policy-bearing relation generation used to create this system handle. */
+    public Table getSystemTableSource() {
+        return systemTableSource;
+    }
+
+    /** Retains the policy-bearing relation generation used to create this system handle. */
+    public void setSystemTableSource(Table systemTableSource) {
+        this.systemTableSource = systemTableSource;
     }
 
     @Override

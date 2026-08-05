@@ -113,6 +113,17 @@ bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& qu
 bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                      bool is_load,
                                                      const TFileScanRangeParams& scan_params) {
+    // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
+    // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
+    // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
+    // with an undiagnosable NotSupported -- showing up in CI as a random failure. This is the same
+    // mechanism as is_transactional_hive below, pointed the other way. Loads are left alone: there
+    // is no ADBC load path, so widening the rule to cover them would only route them somewhere they
+    // still cannot run.
+    if (!is_load && scan_params.__isset.table_format_params &&
+        scan_params.table_format_params.table_format_type == "adbc") {
+        return true;
+    }
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";

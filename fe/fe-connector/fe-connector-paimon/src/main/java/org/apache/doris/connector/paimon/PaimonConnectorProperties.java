@@ -17,17 +17,61 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorConf;
+import org.apache.doris.connector.spi.ConnectorContext;
+
 /**
- * Property key constants for Paimon connector configuration.
- *
- * <p>Pure static-constant holder (no logic), mirroring the role of
- * {@code MCConnectorProperties}. Where a Doris-facing property accepts multiple
+ * Property key constants for Paimon connector configuration, plus the accessors that read this
+ * connector's deployment-level settings (same shape as {@code HiveConnectorProperties.getInt} /
+ * {@code JdbcConnectorProperties.getInt}). Where a Doris-facing property accepts multiple
  * aliases (matching the legacy fe-core {@code @ConnectorProperty(names = {...})}
  * declarations), the aliases are exposed as a {@code String[]} in alias-priority
  * order so {@link PaimonCatalogFactory} can resolve them with
  * {@code firstNonBlank}.
  */
 public final class PaimonConnectorProperties {
+
+    // -- Deployment-level settings, read from this plugin's own paimon.conf (named after
+    // ConnectorProvider.name()). Each falls back to the ENV_ name below it, which is the fe.conf key it
+    // used to live under and still works.
+    //
+    // Both are shared with other connectors at the fe.conf end -- one jdbc_drivers_dir and one
+    // hive_metastore_client_timeout_second serve jdbc, iceberg and paimon. A plugin conf cannot express
+    // that, so a deployment that moves to these files sets the value in each plugin's own conf. That is
+    // the accepted cost of a per-plugin file; the fe.conf keys stay as the shared fallback. --
+    public static final String CONF_DRIVERS_DIR = "drivers_dir";
+    public static final String CONF_METASTORE_CLIENT_TIMEOUT_SECOND = "metastore_client_timeout_second";
+
+    /** The fe.conf name of {@link #CONF_DRIVERS_DIR}, forwarded through the engine environment. */
+    public static final String ENV_JDBC_DRIVERS_DIR = "jdbc_drivers_dir";
+    /** The fe.conf name of {@link #CONF_METASTORE_CLIENT_TIMEOUT_SECOND}. */
+    public static final String ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND =
+            "hive_metastore_client_timeout_second";
+    /** Engine-wide, not this connector's: the FE install root. Stays in the engine environment. */
+    public static final String ENV_DORIS_HOME = "doris_home";
+    /** Legacy default when neither channel names a metastore client timeout. */
+    public static final String DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND = "10";
+
+    /**
+     * The directory a bare driver jar name resolves under, from this plugin's own {@code paimon.conf}
+     * or fe.conf's {@code jdbc_drivers_dir}. Null when neither names one — {@code JdbcDriverSupport}
+     * then falls back to {@code <doris_home>/plugins/jdbc_drivers}, as before.
+     *
+     * <p>Shared by the two call sites (FE driver registration in {@code PaimonConnector} and the
+     * BE-bound scan options in {@code PaimonScanPlanProvider}) so they cannot resolve a given
+     * {@code driver_url} differently — which is the same reason both delegate to
+     * {@code JdbcDriverSupport}. A null context is a direct-construction unit test, which has neither
+     * channel.
+     */
+    public static String configuredDriversDir(ConnectorContext context) {
+        return context == null ? null
+                : ConnectorConf.get(context, CONF_DRIVERS_DIR, ENV_JDBC_DRIVERS_DIR, null);
+    }
+
+    /** The FE install root. Engine-wide rather than this connector's, so it stays in the environment. */
+    public static String configuredDorisHome(ConnectorContext context) {
+        return context == null ? null : context.getEnvironment().get(ENV_DORIS_HOME);
+    }
 
     /** Paimon catalog backend type: filesystem, hms, rest, jdbc. */
     public static final String PAIMON_CATALOG_TYPE = "paimon.catalog.type";

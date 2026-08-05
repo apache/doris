@@ -51,7 +51,7 @@ header:
     - "fe/fe-core/src/test/resources/stageUtilTest.txt"
     # Recorded method-surface baseline; ConnectorMetadataSurfaceTest reads every
     # non-blank line as a method signature, so a header would break the test.
-    - "fe/fe-connector/fe-connector-api/src/test/resources/connector-metadata-methods.txt"
+    - "fe/fe-connector/fe-connector-spi/src/test/resources/connector-metadata-methods.txt"
     # Recorded plugin API surface baselines, one per plugin family. Same reason as
     # above: each *PluginSurfaceTest.readBaseline() adds every non-blank line to the
     # expected signature set, so a header would be read back as phantom signatures.
@@ -59,6 +59,17 @@ header:
     - "fe/fe-filesystem/fe-filesystem-spi/src/test/resources/filesystem-plugin-surface.txt"
     - "fe/fe-authentication/fe-authentication-spi/src/test/resources/authentication-plugin-surface.txt"
     - "fe/fe-core/src/test/resources/lineage-plugin-surface.txt"
+    # Connector plugin settings templates. build.sh seeds each connector's live
+    # <name>.conf from its template verbatim (cp -n), so the template's content IS
+    # the file an administrator edits in plugins/connector/<dir>/. Matched by name
+    # rather than by a **/*.conf.template glob, so a new one is a deliberate entry
+    # here rather than something a wildcard silently absorbs.
+    - "fe/fe-connector/fe-connector-adbc/src/main/resources/adbc.conf.template"
+    - "fe/fe-connector/fe-connector-hive/src/main/resources/hms.conf.template"
+    - "fe/fe-connector/fe-connector-iceberg/src/main/resources/iceberg.conf.template"
+    - "fe/fe-connector/fe-connector-jdbc/src/main/resources/jdbc.conf.template"
+    - "fe/fe-connector/fe-connector-paimon/src/main/resources/paimon.conf.template"
+    - "fe/fe-connector/fe-connector-trino/src/main/resources/trino-connector.conf.template"
     # Golden 4.1.3 upgrade fixtures, emitted by Gen413Fixtures running real 4.1.3
     # bytecode (see the sibling PROVENANCE.txt) and stamped "do not edit by hand".
     # These are the generator's only non-binary outputs -- its .bin files are skipped

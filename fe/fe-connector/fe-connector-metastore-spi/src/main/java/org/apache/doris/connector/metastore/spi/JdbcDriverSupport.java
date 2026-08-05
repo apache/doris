@@ -19,8 +19,6 @@ package org.apache.doris.connector.metastore.spi;
 
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Map;
-
 /**
  * Shared JDBC driver-url resolution. Only the PURE resolver lives here (a function of the raw
  * {@code driver_url} + the engine environment map). The live driver REGISTRATION
@@ -36,16 +34,23 @@ public final class JdbcDriverSupport {
     /**
      * Resolves a JDBC {@code driver_url} to a full, scheme-bearing URL string. A value already
      * carrying a scheme ({@code "://"}) is used as-is; an absolute path (starting with {@code "/"}) is
-     * returned unchanged; otherwise it is treated as a bare jar file name and resolved against the
-     * engine's configured {@code jdbc_drivers_dir} (defaulting to
-     * {@code $DORIS_HOME/plugins/jdbc_drivers}). Mirrors the minimal {@code JdbcResource.getFullDriverUrl}
-     * resolution (no file-existence / legacy old-dir / cloud-download handling), so the FE driver
-     * registration and the BE-bound options resolve a given {@code driver_url} identically.
+     * returned unchanged; otherwise it is treated as a bare jar file name and resolved against
+     * {@code driversDir} (defaulting to {@code $DORIS_HOME/plugins/jdbc_drivers}). Mirrors the minimal
+     * {@code JdbcResource.getFullDriverUrl} resolution (no file-existence / legacy old-dir /
+     * cloud-download handling), so the FE driver registration and the BE-bound options resolve a given
+     * {@code driver_url} identically.
      *
-     * @param driverUrl the raw driver_url; must be non-null and non-blank (the caller's responsibility)
-     * @param env       the engine environment map (e.g. {@code jdbc_drivers_dir}, {@code doris_home}); never null
+     * <p>Both directories are passed in rather than read from the engine environment here: which
+     * settings file a drivers directory comes from is the calling connector's business (its own
+     * {@code <name>.conf} first, then fe.conf's {@code jdbc_drivers_dir}), and this module is shared by
+     * connectors whose conf files differ. Same shape as
+     * {@code AbstractHmsMetaStoreProperties}, which likewise takes its default as a parameter.
+     *
+     * @param driverUrl  the raw driver_url; must be non-null and non-blank (the caller's responsibility)
+     * @param driversDir directory a bare jar name resolves under; blank falls back to the default below
+     * @param dorisHome  the FE install root, used only to build that default; blank means "."
      */
-    public static String resolveDriverUrl(String driverUrl, Map<String, String> env) {
+    public static String resolveDriverUrl(String driverUrl, String driversDir, String dorisHome) {
         if (driverUrl.contains("://")) {
             return driverUrl;
         }
@@ -53,11 +58,10 @@ public final class JdbcDriverSupport {
             // Absolute path, no scheme: legacy returns it as-is (no driversDir prepend).
             return driverUrl;
         }
-        String driversDir = env.get("jdbc_drivers_dir");
-        if (StringUtils.isBlank(driversDir)) {
-            String dorisHome = env.getOrDefault("doris_home", ".");
-            driversDir = dorisHome + "/plugins/jdbc_drivers";
+        String resolvedDir = driversDir;
+        if (StringUtils.isBlank(resolvedDir)) {
+            resolvedDir = (StringUtils.isBlank(dorisHome) ? "." : dorisHome) + "/plugins/jdbc_drivers";
         }
-        return "file://" + driversDir + "/" + driverUrl;
+        return "file://" + resolvedDir + "/" + driverUrl;
     }
 }

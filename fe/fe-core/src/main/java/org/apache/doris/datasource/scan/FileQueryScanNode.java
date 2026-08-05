@@ -77,7 +77,6 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -583,8 +582,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setFileType(fileSplit.getLocationType());
         rangeDesc.setPath(fileSplit.getPath().toStorageLocation().toString());
         if (fileSplit.getLocationType() == TFileType.FILE_HDFS) {
-            URI fileUri = fileSplit.getPath().getPath().toUri();
-            rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
+            // LocationPath already parsed scheme and authority into fsIdentifier, in exactly this
+            // "scheme://authority" shape; re-deriving it through hadoop's Path bought nothing. It also
+            // emitted the literal "hdfs://null" when a location carried no authority, where
+            // fsIdentifier yields "hdfs://".
+            rangeDesc.setFsName(fileSplit.getPath().getFsIdentifier());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
         return rangeDesc;

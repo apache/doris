@@ -310,6 +310,13 @@ public:
         return data->support_replace_column_null_data();
     }
 
+    bool try_replace_null_payload_with_default_without_cow() const override {
+        if (!IColumn::is_exclusive()) {
+            return false;
+        }
+        return data->try_replace_null_payload_with_default_without_cow();
+    }
+
     void finalize() override { data->finalize(); }
 
     void erase(size_t start, size_t length) override {

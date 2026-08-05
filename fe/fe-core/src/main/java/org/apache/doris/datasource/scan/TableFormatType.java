@@ -17,15 +17,14 @@
 
 package org.apache.doris.datasource.scan;
 
+/**
+ * The {@code TTableFormatFileDesc.table_format_type} values produced by fe-core itself.
+ *
+ * <p>A connector plugin names its own format string through {@code ConnectorScanRange#getTableFormatType()},
+ * which {@code PluginDrivenScanNode} forwards to BE verbatim, so no per-data-source constant belongs here.
+ * This enum is not persisted anywhere — it only builds the thrift string.</p>
+ */
 public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector"),
     TVF("tvf"),
     REMOTE_DORIS("remote_doris");
 

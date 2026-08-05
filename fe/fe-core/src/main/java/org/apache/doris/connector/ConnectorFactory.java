@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
@@ -143,6 +143,15 @@ public final class ConnectorFactory {
         ConnectorPluginManager mgr = pluginManager;
         if (mgr != null) {
             mgr.validateProperties(catalogType, properties);
+        }
+    }
+
+    /** Validates an ALTER candidate through the matching connector provider. */
+    public static void validatePropertiesForUpdate(String catalogType,
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr != null) {
+            mgr.validatePropertiesForUpdate(catalogType, currentProperties, updatedProperties);
         }
     }
 

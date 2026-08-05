@@ -6,16 +6,20 @@ benchmark system described in the design document.
 
 ## What exists today
 
-The benchmark binary registers three groups:
+The benchmark binary registers five groups:
 
 - `ParquetDecoder`: native page decoder benchmarks using in-memory encoded pages.
 - `ParquetKernel`: isolated SIMD-sensitive decode and predicate kernels.
+- `ParquetSelection`: isolated selection initialization and predicate compaction paths.
 - `ParquetReader`: local-file benchmarks that call the format V2 Parquet reader directly.
+- `FileScannerExpr`: expression lifecycle benchmarks for split-local clone, prepare, and open.
 
 The relevant files are:
 
 - `benchmark_parquet_decoder.hpp`: deterministic page construction and decoder registration.
+- `benchmark_parquet_selection.hpp`: selection initialization and compaction registration.
 - `benchmark_parquet_reader.hpp`: deterministic local Parquet fixtures and reader registration.
+- `benchmark_file_scanner_expr.hpp`: runtime-filter expression lifecycle registration.
 - `parquet_benchmark_scenarios.h`: scenario definitions and the selected matrix.
 - `README.md`: short human-oriented build and invocation examples.
 - `be/test/format_v2/parquet/parquet_benchmark_scenarios_test.cpp`: matrix invariants.
@@ -23,7 +27,8 @@ The relevant files are:
 Do not describe this suite as end-to-end SQL, `FileScannerV2`, remote I/O, V1/V2 comparison, or a
 cross-engine benchmark. The reader benchmark starts at `format::parquet::ParquetReader` and does
 not include FE planning, scanner scheduling, `TableReader`, client latency, or Runtime Profile
-collection.
+collection. `FileScannerExpr` isolates expression lifecycle work and likewise does not execute a
+scanner or read a file.
 
 ## Build and list cases
 
@@ -37,7 +42,10 @@ List all Parquet cases and verify the expected registration counts:
 
 ```shell
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -E '^Parquet(Decoder|Kernel|Reader)/'
+  | grep -E '^Parquet(Decoder|Kernel|Selection|Reader)/'
+
+be/output/lib/benchmark_test --benchmark_list_tests \
+  | grep '^FileScannerExpr/'
 
 be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetDecoder/'  # currently 228
@@ -46,7 +54,13 @@ be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetKernel/'   # currently 92
 
 be/output/lib/benchmark_test --benchmark_list_tests \
+  | grep -c '^ParquetSelection/' # currently 25
+
+be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetReader/'   # currently 167
+
+be/output/lib/benchmark_test --benchmark_list_tests \
+  | grep -c '^FileScannerExpr/' # currently 8
 ```
 
 When running the binary directly from `be/build_RELEASE/bin`, make sure the JVM and third-party
@@ -72,9 +86,21 @@ be/output/lib/benchmark_test \
   --benchmark_out_format=json
 
 be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetSelection/' \
+  --benchmark_min_time=0.001s \
+  --benchmark_out=parquet-selection-smoke.json \
+  --benchmark_out_format=json
+
+be/output/lib/benchmark_test \
   --benchmark_filter='^ParquetReader/' \
   --benchmark_min_time=0.001s \
   --benchmark_out=parquet-reader-smoke.json \
+  --benchmark_out_format=json
+
+be/output/lib/benchmark_test \
+  --benchmark_filter='^FileScannerExpr/' \
+  --benchmark_min_time=0.001s \
+  --benchmark_out=file-scanner-expr-smoke.json \
   --benchmark_out_format=json
 ```
 
@@ -127,6 +153,18 @@ rates with both placement patterns, 0% through 100% raw-predicate selectivities,
 50% nested parent-row selectivities with both placement patterns. Nested selection registers the
 legacy and fused implementations in the same binary and validates both against an independent
 source-level oracle before timing.
+
+`ParquetSelection` contains 25 cases that isolate the selection-vector work used by Parquet
+predicate evaluation. It measures identity initialization, one raw-row filter, and two successive
+filters. The filter matrix covers 0%, 1%, 10%, 50%, 90%, and 100% selectivity with clustered and
+alternating matches. These cases include `SelectionVector::resize()` in the timed region because
+initializing a new batch is part of the production predicate path.
+
+`FileScannerExpr` contains eight cases that clone, prepare, and open an already-prepared
+`VDirectInPredicate` with 128, 1,024, 8,192, or 65,536 integer set values. Each cardinality registers
+`impl_shared` and `impl_rematerialize` in the same binary. Set construction and the original
+fragment-level materialization are outside the timed region. The cases model the repeated
+split-local expression lifecycle only; they do not include scanner scheduling or file reads.
 
 `ParquetReader` deliberately uses a single-variable matrix rather than a Cartesian product. After
 deduplication it contains 167 cases covering:
@@ -302,10 +340,10 @@ be simulated by silently changing the local reader benchmark.
 
 ## Current validation record
 
-The current expected registration counts are 228 decoder, 92 kernel, and 167 reader cases. A smoke
-run is an execution record only, not a reviewed performance baseline, because repetitions, host
-isolation, warmups, cache control, `perf` data, variance, and before/after comparison are not
-collected.
+The current expected registration counts are 228 decoder, 92 kernel, 25 selection, 167 reader, and
+8 expression-lifecycle cases. A smoke run is an execution record only, not a reviewed performance
+baseline, because repetitions, host isolation, warmups, cache control, `perf` data, variance, and
+before/after comparison are not collected.
 
 ## Rules for extending the suite
 

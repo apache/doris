@@ -19,10 +19,12 @@ package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -31,6 +33,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Guards {@link PluginDrivenSysExternalTable#resolveScanPin}, the system table's own pin resolution.
@@ -111,6 +114,51 @@ public class PluginDrivenSysExternalTableScanPinTest {
         // dropping the memo) -> loadSnapshot runs twice -> red.
         Assertions.assertSame(first.get(), second.get(), "both consumers must see ONE resolution");
         Mockito.verify(source, Mockito.times(1)).loadSnapshot(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void statementScopedLoaderSeedsTheSystemTableMemo() {
+        PluginDrivenMvccExternalTable source = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        PluginDrivenSysExternalTable sysTable = sysTableOver(source);
+        TableScanParams sp = options("scan.mode", "latest");
+        MvccSnapshot statementPin = Mockito.mock(MvccSnapshot.class);
+        AtomicInteger statementLoads = new AtomicInteger();
+
+        Optional<MvccSnapshot> first = sysTable.resolveScanPin(
+                Optional.empty(), Optional.of(sp), () -> {
+                    statementLoads.incrementAndGet();
+                    return Optional.of(statementPin);
+                });
+        Optional<MvccSnapshot> second = sysTable.resolveScanPin(
+                Optional.empty(), Optional.of(options("scan.mode", "latest")));
+
+        Assertions.assertSame(statementPin, first.orElse(null));
+        Assertions.assertSame(statementPin, second.orElse(null));
+        Assertions.assertEquals(1, statementLoads.get());
+        Mockito.verify(source, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void rowCountUsesTheMemoizedSystemTablePin() {
+        long[] snapshotIds = {7L, -1L};
+        long[] expectedRows = {19L, 0L};
+        for (int i = 0; i < snapshotIds.length; i++) {
+            PluginDrivenMvccExternalTable source = Mockito.mock(PluginDrivenMvccExternalTable.class);
+            PluginDrivenSysExternalTable sysTable = sysTableOver(source);
+            PluginDrivenMvccSnapshot pin = Mockito.mock(PluginDrivenMvccSnapshot.class);
+            ConnectorMvccSnapshot connectorSnapshot = ConnectorMvccSnapshot.builder()
+                    .snapshotId(snapshotIds[i]).build();
+            Mockito.when(pin.getConnectorSnapshot()).thenReturn(connectorSnapshot);
+            Mockito.doReturn(expectedRows[i]).when(sysTable)
+                    .fetchRowCountAtSnapshot(connectorSnapshot);
+            sysTable.resolveScanPin(Optional.empty(),
+                    Optional.of(options("scan.snapshot-id", String.valueOf(snapshotIds[i]))),
+                    () -> Optional.of(pin));
+
+            Assertions.assertEquals(expectedRows[i], sysTable.getRowCount(),
+                    "positive and empty system pins must both use snapshot-aware statistics");
+            Mockito.verify(sysTable).fetchRowCountAtSnapshot(connectorSnapshot);
+        }
     }
 
     @Test
