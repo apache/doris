@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/be_mock_util.h"
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "exec/sort/sort_description.h"

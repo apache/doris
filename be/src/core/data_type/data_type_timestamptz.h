@@ -60,10 +60,7 @@ public:
         scalar_type->set_scale(_scale);
     }
 
-    void to_pb_column_meta(PColumnMeta* col_meta) const override {
-        DataTypeNumberBase<PrimitiveType::TYPE_TIMESTAMPTZ>::to_pb_column_meta(col_meta);
-        col_meta->mutable_decimal_param()->set_scale(_scale);
-    }
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     UInt32 get_scale() const override { return _scale; }
 

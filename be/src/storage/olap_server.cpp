@@ -58,6 +58,7 @@
 #include "load/memtable/memtable_flush_executor.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
+#include "service/backend_options.h"
 #include "storage/compaction/cold_data_compaction.h"
 #include "storage/compaction/compaction_permit_limiter.h"
 #include "storage/compaction/cumulative_compaction.h"
