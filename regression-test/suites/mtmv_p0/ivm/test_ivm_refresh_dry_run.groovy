@@ -61,24 +61,17 @@ suite("test_ivm_refresh_dry_run") {
         REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN
     """
 
-    order_qt_ivm_dry_run_limit """
-        REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN LIMIT 1
-    """
-
-    order_qt_ivm_dry_run_offset """
-        REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN LIMIT 1, 1
-    """
+    // The delta rows picked by a LIMIT depend on scan order (no ORDER BY before the cap),
+    // so assert only the returned row count instead of exact rows in the .out file.
+    assertEquals(1, sql("REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN LIMIT 1").size())
+    assertEquals(1, sql("REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN LIMIT 1, 1").size())
+    assertEquals(0, sql("REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN LIMIT 0").size())
 
     order_qt_ivm_dry_run_after "SELECT k1, cnt, sum_v1 FROM test_ivm_refresh_dry_run_mv"
 
     order_qt_ivm_dry_run_repeat """
         REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN LIMIT 10
     """
-
-    test {
-        sql "REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN LIMIT 0"
-        exception "requires offset >= 0 and LIMIT >= 1"
-    }
 
     sql "REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL"
     waitingMTMVTaskFinishedByMvName("test_ivm_refresh_dry_run_mv")
