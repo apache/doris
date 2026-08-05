@@ -2352,6 +2352,15 @@ std::string PipelineFragmentContext::_to_http_path(const std::string& file_name)
     return url.str();
 }
 
+void PipelineFragmentContext::_append_external_file_commit_data(
+        const ReportStatusRequest& req, TReportExecStatusParams* params) const {
+    // External-file cleanup remains BE-owned until the final report transfers commit metadata.
+    req.runtime_state->append_external_file_commit_data(params, req.done);
+    for (auto* rs : req.runtime_states) {
+        rs->append_external_file_commit_data(params, req.done);
+    }
+}
+
 void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& req) {
     DBUG_EXECUTE_IF("FragmentMgr::coordinator_callback.report_delay", {
         int random_seconds = req.status.is<ErrorCode::DATA_QUALITY_ERROR>() ? 8 : 2;
@@ -2515,10 +2524,7 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             }
         }
     }
-    req.runtime_state->append_external_file_commit_data(&params, req.done);
-    for (auto* rs : req.runtime_states) {
-        rs->append_external_file_commit_data(&params, req.done);
-    }
+    _append_external_file_commit_data(req, &params);
 
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());
