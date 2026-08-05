@@ -165,6 +165,8 @@ public class TabletScheduler extends MasterDaemon {
         }
         // if rebalancer can not get new task, then use diskRebalancer to get task
         this.diskRebalancer = new DiskRebalancer(infoService, invertedIndex, backendsWorkingSlots);
+        this.rebalancer.setSchedulerStat(stat);
+        this.diskRebalancer.setSchedulerStat(stat);
     }
 
     // for fe ut
