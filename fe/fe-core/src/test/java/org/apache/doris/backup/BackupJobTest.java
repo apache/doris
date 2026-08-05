@@ -26,6 +26,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -38,6 +39,7 @@ import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -625,12 +627,13 @@ public class BackupJobTest {
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         List<TableRefInfo> tableRefs = Lists.newArrayList();
+        PartitionNamesInfo partitionNames = new PartitionNamesInfo(false, Lists.newArrayList("p1", "p2"));
         tableRefs.add(
                 new TableRefInfo(
                         new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
                         null,
                         null,
-                        null,
+                        partitionNames,
                         new ArrayList<>(),
                         null,
                         null,
@@ -652,9 +655,26 @@ public class BackupJobTest {
         Assert.assertEquals(job.getCreateTime(), job2.getCreateTime());
         Assert.assertEquals(job.getType(), job2.getType());
         Assert.assertEquals(job.getCommitSeq(), job2.getCommitSeq());
+        Assert.assertTrue(job2.getInfo().get(4).contains(UnitTestUtil.TABLE_NAME));
+        Assert.assertTrue(job2.getInfo().get(4).contains("p1"));
+        Assert.assertTrue(job2.getInfo().get(4).contains("p2"));
 
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testDeserializeLegacyTableRefInfoNames() {
+        TableRefInfo tableRef = GsonUtils.GSON.fromJson(
+                "{\"n\":{\"ctl\":\"internal\",\"db\":\"db\",\"tbl\":\"tbl\"},"
+                        + "\"p\":{\"partitionNames\":[\"p1\",\"p2\"],\"isTemp\":false}}",
+                TableRefInfo.class);
+
+        Assert.assertEquals("internal", tableRef.getTableNameInfo().getCtl());
+        Assert.assertEquals("db", tableRef.getTableNameInfo().getDb());
+        Assert.assertEquals("tbl", tableRef.getTableNameInfo().getTbl());
+        Assert.assertEquals(Lists.newArrayList("p1", "p2"),
+                tableRef.getPartitionNamesInfo().getPartitionNames());
     }
 }

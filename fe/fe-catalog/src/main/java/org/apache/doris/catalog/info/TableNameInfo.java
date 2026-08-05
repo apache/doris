@@ -35,11 +35,11 @@ import java.util.stream.Stream;
  * table name info
  */
 public class TableNameInfo {
-    @SerializedName(value = "c")
+    @SerializedName(value = "c", alternate = {"ctl"})
     private String ctl;
-    @SerializedName(value = "t")
+    @SerializedName(value = "t", alternate = {"tbl"})
     private String tbl;
-    @SerializedName(value = "d")
+    @SerializedName(value = "d", alternate = {"db"})
     private String db;
 
     public TableNameInfo() {
