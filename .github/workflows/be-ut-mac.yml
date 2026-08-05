@@ -98,7 +98,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@18'
+            'llvm@20'
             'libomp'
           )
           brew install "${cellars[@]}" || true
@@ -158,7 +158,7 @@ jobs:
           export JAVA_HOME
           JAVA_HOME="$(/usr/libexec/java_home -v 17)"
 
-          LLVM_PREFIX="$(brew --prefix llvm@18)"
+          LLVM_PREFIX="$(brew --prefix llvm@20)"
           export PATH="${LLVM_PREFIX}/bin:${PATH}"
           export DORIS_CLANG_HOME="${LLVM_PREFIX}"
           export CC="${LLVM_PREFIX}/bin/clang"
