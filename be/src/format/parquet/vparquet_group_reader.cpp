@@ -645,7 +645,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                                                                 &result_filter, &can_filter_all));
             }
 
-            if (_lazy_read_ctx.resize_first_column) {
+            if (resize_first_column) {
                 // We have to clean the first column to insert right data.
                 block->clear_column_data(std::vector<uint32_t> {0});
             }
