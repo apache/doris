@@ -72,6 +72,8 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
     """))
 
     try {
+        // Paimon rejects empty field names, so E2E framing coverage uses supported
+        // delimiter-rich identifiers; empty-segment decoding remains unit-tested.
         spark_paimon_multi """
             create database if not exists paimon.${dbName};
             drop table if exists paimon.${dbName}.quoted_reader_options;
@@ -103,9 +105,6 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
             partitioned by (part)
             tblproperties ('scan.manifest.parallelism'='0');
             insert into paimon.${dbName}.unsafe_physical_manifest values (1, 10);
-            drop table if exists paimon.${dbName}.empty_identifier;
-            create table paimon.${dbName}.empty_identifier (`` string) using paimon;
-            insert into paimon.${dbName}.empty_identifier values ('empty-name');
         """
 
         sql "switch ${catalogName}"
@@ -129,7 +128,6 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
                 from quoted_reader_options
                 order by id
         """
-        qt_scanner_v1_empty_identifier "select * from empty_identifier"
         sql "set enable_file_scanner_v2=true"
         order_qt_scanner_v2_quoted_nested """
                 select id, `region,code`, `nested#value`.`hash#name`,
@@ -137,7 +135,6 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
                 from quoted_reader_options
                 order by id
         """
-        qt_scanner_v2_empty_identifier "select * from empty_identifier"
 
         // The safe catalog value must override the physical read.batch-size=0 value.
         order_qt_catalog_override_physical_batch "select * from unsafe_physical_batch order by id"
