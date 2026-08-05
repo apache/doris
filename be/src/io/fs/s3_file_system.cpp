@@ -318,10 +318,8 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         auto obj = std::move(*resp.results_);
         obj.file_path.erase(0, prefix.size());
         bool is_dir = obj.file_path.empty() || obj.file_path.back() == '/';
-        files->emplace_back(
-                FileInfo {.file_name = std::move(obj.file_path),
-                          .file_size = obj.size,
-                          .is_file = !is_dir});
+        files->emplace_back(FileInfo {
+                .file_name = std::move(obj.file_path), .file_size = obj.size, .is_file = !is_dir});
     }
 
     return Status::OK();
