@@ -26,7 +26,6 @@ suite("test_paimon_write_variant", "p0,external,paimon") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_catalog"
     String dbName = "test_pw_variant_db"
-    String root = '$'
 
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
@@ -63,6 +62,7 @@ suite("test_paimon_write_variant", "p0,external,paimon") {
             exception "set enable_variant_v2=true"
         }
         sql """SET enable_variant_v2 = true"""
+        sql """SET force_jni_scanner = true"""
 
         // JSON containers, JSON null and SQL NULL are different logical values.
         sql """
@@ -104,97 +104,53 @@ suite("test_paimon_write_variant", "p0,external,paimon") {
                 (20, 1, 'row-one'),
                 (21, 'row-two', 2)
         """
-        def heterogeneousRows = spark_paimon """
-            SELECT id, schema_of_variant(payload), schema_of_variant(secondary)
-            FROM paimon.${dbName}.t_variant_basic
+        order_qt_variant_heterogeneous """
+            SELECT id, payload, secondary
+            FROM t_variant_basic
             WHERE id IN (20, 21)
             ORDER BY id
         """
-        assertEquals(["20", "BIGINT", "STRING"],
-                heterogeneousRows[0].collect { value -> value.toString() })
-        assertEquals(["21", "STRING", "BIGINT"],
-                heterogeneousRows[1].collect { value -> value.toString() })
 
-        def objectRows = spark_paimon """
+        order_qt_variant_object """
             SELECT
-                variant_get(payload, '${root}.object.name', 'string'),
-                variant_get(payload, '${root}["object"]["address"].city', 'string'),
-                variant_get(payload, '${root}.array[0]', 'int'),
-                variant_get(payload, '${root}.array[1]', 'boolean'),
-                variant_get(payload, '${root}.emptyObject', 'string'),
-                variant_get(payload, '${root}.emptyArray', 'string'),
-                variant_get(payload, '${root}.unicode', 'string'),
-                variant_get(secondary, '${root}.second', 'int')
-            FROM paimon.${dbName}.t_variant_basic
+                CAST(payload['object']['name'] AS STRING),
+                CAST(payload['object']['address']['city'] AS STRING),
+                CAST(payload['array'][1] AS INT),
+                CAST(payload['array'][2] AS BOOLEAN),
+                CAST(payload['emptyObject'] AS STRING),
+                CAST(payload['emptyArray'] AS STRING),
+                CAST(payload['unicode'] AS STRING),
+                CAST(secondary['second'] AS INT)
+            FROM t_variant_basic
             WHERE id = 1
         """
-        assertEquals([
-                "doris", "Hangzhou", "1", "true", "{}", "[]", "中文😀", "2"
-        ], objectRows[0].collect { value -> value.toString() })
 
-        def nullRows = spark_paimon """
-            SELECT id, payload IS NULL,
-                   variant_get(payload, '${root}.missing', 'string') IS NULL
-            FROM paimon.${dbName}.t_variant_basic
+        order_qt_variant_nulls """
+            SELECT id, payload, payload IS NULL, payload['missing'] IS NULL
+            FROM t_variant_basic
             WHERE id IN (4, 5)
             ORDER BY id
         """
-        assertEquals(["4", "false", "true"],
-                nullRows[0].collect { value -> value.toString() })
-        assertEquals(["5", "true", "true"],
-                nullRows[1].collect { value -> value.toString() })
 
-        def scalarRows = spark_paimon """
-            SELECT
-                MAX(CASE WHEN id = 10
-                    THEN variant_get(payload, '${root}', 'boolean') END),
-                MAX(CASE WHEN id = 10
-                    THEN variant_get(secondary, '${root}', 'boolean') END),
-                MAX(CASE WHEN id = 11
-                    THEN variant_get(payload, '${root}', 'tinyint') END),
-                MAX(CASE WHEN id = 11
-                    THEN variant_get(secondary, '${root}', 'smallint') END),
-                MAX(CASE WHEN id = 12
-                    THEN variant_get(payload, '${root}', 'int') END),
-                MAX(CASE WHEN id = 12
-                    THEN variant_get(secondary, '${root}', 'bigint') END),
-                MAX(CASE WHEN id = 13
-                    THEN variant_get(payload, '${root}', 'float') END),
-                MAX(CASE WHEN id = 13
-                    THEN variant_get(secondary, '${root}', 'double') END),
-                MAX(CASE WHEN id = 14
-                    THEN variant_get(payload, '${root}', 'decimal(12,3)') END),
-                MAX(CASE WHEN id = 14
-                    THEN variant_get(secondary, '${root}', 'decimal(18,6)') END),
-                MAX(CASE WHEN id = 15
-                    THEN variant_get(payload, '${root}', 'string') END),
-                MAX(CASE WHEN id = 15
-                    THEN variant_get(secondary, '${root}', 'string') END),
-                MAX(CASE WHEN id = 16
-                    THEN variant_get(payload, '${root}', 'date') END),
-                MAX(CASE WHEN id = 16
-                    THEN variant_get(secondary, '${root}', 'timestamp_ntz') END),
-                MAX(CASE WHEN id = 17
-                    THEN LENGTH(variant_get(payload, '${root}', 'string')) END),
-                MAX(CASE WHEN id = 17
-                    THEN variant_get(secondary, '${root}.batch', 'string') END)
-            FROM paimon.${dbName}.t_variant_basic
+        order_qt_variant_scalars """
+            SELECT id, payload, secondary
+            FROM t_variant_basic
+            WHERE id BETWEEN 10 AND 16
+            ORDER BY id
         """
-        assertEquals([
-                "true", "false", "-128", "32767", "-2147483648", "9223372036854775807",
-                "1.25", "-2.5", "123456.789", "-0.000001", "plain-string", "中文😀",
-                "2024-02-29", "2024-02-29 12:34:56.123456",
-                String.valueOf("long-value-".length() * 4096), "large-string"
-        ], scalarRows[0].collect { value -> value.toString() })
 
-        // Refresh Doris metadata, then verify the external table through Paimon's Spark reader.
-        // Paimon's Doris JNI scan path does not yet expose binary Variant V2 values.
+        qt_variant_long_string """
+            SELECT LENGTH(CAST(payload AS STRING)), CAST(secondary['batch'] AS STRING)
+            FROM t_variant_basic
+            WHERE id = 17
+        """
+
+        // Refresh metadata and verify that all Doris-written rows remain readable through the
+        // Paimon JNI Variant reader.
         sql """REFRESH TABLE t_variant_basic"""
-        def rowCount = spark_paimon """
-            SELECT COUNT(*) FROM paimon.${dbName}.t_variant_basic
-        """
-        assertEquals("15", rowCount[0][0].toString())
+        qt_variant_row_count """SELECT COUNT(*) FROM t_variant_basic"""
     } finally {
+        sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
 }

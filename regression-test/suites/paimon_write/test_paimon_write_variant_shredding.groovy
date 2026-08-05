@@ -26,7 +26,6 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_shredding_catalog"
     String dbName = "test_pw_variant_shredding_db"
-    String root = '$'
     String shreddingSchema =
             '{"type":"ROW","fields":[{"name":"payload","type":{"type":"ROW","fields":[' +
             '{"name":"age","type":"INT"},' +
@@ -92,6 +91,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
         sql """SWITCH ${catalogName}"""
         sql """USE ${dbName}"""
         sql """SET enable_variant_v2 = true"""
+        sql """SET force_jni_scanner = true"""
     }
 
     def sparkValues = { rows ->
@@ -147,32 +147,21 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
                 (8, parse_to_variant('{"profile":{"name":"bob","scores":[30],"extra":"nested-kept"},"other":"root-kept"}'))
         """
 
-        // Paimon's reader must unshred typed and residual components back into one logical
-        // Variant. These assertions intentionally use the Paimon/Spark reader because Doris's
-        // Paimon JNI scan path does not expose Variant V2 yet.
-        def logicalRows = spark_paimon """
+        // Doris's Paimon reader must unshred typed and residual components back into one logical
+        // Variant value.
+        order_qt_variant_explicit_shredding """
             SELECT id,
-                   variant_get(payload, '${root}.age', 'string'),
-                   variant_get(payload, '${root}.city', 'string'),
-                   variant_get(payload, '${root}.active', 'boolean'),
-                   variant_get(payload, '${root}.profile.name', 'string'),
-                   variant_get(payload, '${root}.profile.scores[0]', 'int'),
-                   variant_get(payload, '${root}.profile.extra', 'string'),
-                   variant_get(payload, '${root}.other', 'string'),
+                   CAST(payload['age'] AS STRING),
+                   CAST(payload['city'] AS STRING),
+                   CAST(payload['active'] AS BOOLEAN),
+                   CAST(payload['profile']['name'] AS STRING),
+                   CAST(payload['profile']['scores'][1] AS INT),
+                   CAST(payload['profile']['extra'] AS STRING),
+                   CAST(payload['other'] AS STRING),
                    payload IS NULL
-            FROM paimon.${dbName}.t_variant_shredded
+            FROM t_variant_shredded
             ORDER BY id
         """
-        assertEquals([
-                ["1", "27", "Beijing", "true", "alice", "10", null, "kept", "false"],
-                ["2", "28", null, null, null, null, null, null, "false"],
-                ["3", "29", null, "true", null, null, null, null, "false"],
-                ["4", null, null, null, null, null, null, null, "false"],
-                ["5", null, null, null, null, null, null, null, "false"],
-                ["6", null, null, null, null, null, null, null, "false"],
-                ["7", null, null, null, null, null, null, null, "true"],
-                ["8", null, null, null, "bob", "30", "nested-kept", "root-kept", "false"]
-        ], sparkValues(logicalRows))
 
         def shreddedFiles = dataFiles("t_variant_shredded")
         assertTrue(!shreddedFiles.isEmpty())
@@ -245,21 +234,15 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
             assertTrue(rawPayloadType(filePath).contains("typed_value:struct"))
         }
 
-        def mixedRows = spark_paimon """
+        order_qt_variant_mixed_layout """
             SELECT id,
-                   variant_get(payload, '${root}.age', 'string'),
-                   variant_get(payload, '${root}.city', 'string'),
-                   variant_get(payload, '${root}.legacy', 'string'),
-                   variant_get(payload, '${root}.extra', 'string')
-            FROM paimon.${dbName}.t_variant_mixed
+                   CAST(payload['age'] AS STRING),
+                   CAST(payload['city'] AS STRING),
+                   CAST(payload['legacy'] AS STRING),
+                   CAST(payload['extra'] AS STRING)
+            FROM t_variant_mixed
             ORDER BY id
         """
-        assertEquals([
-                ["100", "100", "old", null, null],
-                ["101", null, null, "residual", null],
-                ["200", "200", "new", null, "kept"],
-                ["201", "201", null, null, null]
-        ], sparkValues(mixedRows))
 
         // Paimon 1.4 can infer one shredding schema per file writer. Doris still sends the same
         // logical value/metadata pair; the SDK buffers the rows, chooses typed fields, and writes
@@ -303,23 +286,18 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
 
         // Unshredding is a reader responsibility. It must use each file's physical schema and
         // combine typed fields with residual values into one logical Variant column.
-        def inferredRows = spark_paimon """
+        order_qt_variant_inferred_shredding """
             SELECT id,
-                   variant_get(payload, '${root}.age', 'int'),
-                   variant_get(payload, '${root}.profile.name', 'string'),
-                   variant_get(payload, '${root}.city', 'string'),
-                   variant_get(payload, '${root}.active', 'boolean'),
-                   variant_get(payload, '${root}.extra', 'string')
-            FROM paimon.${dbName}.t_variant_inferred
+                   CAST(payload['age'] AS INT),
+                   CAST(payload['profile']['name'] AS STRING),
+                   CAST(payload['city'] AS STRING),
+                   CAST(payload['active'] AS BOOLEAN),
+                   CAST(payload['extra'] AS STRING)
+            FROM t_variant_inferred
             ORDER BY id
         """
-        assertEquals([
-                ["300", "30", "alice", null, null, "first"],
-                ["301", "31", "bob", null, null, "second"],
-                ["400", null, null, "Hangzhou", "true", "third"],
-                ["401", null, null, "Shanghai", "false", "fourth"]
-        ], sparkValues(inferredRows))
     } finally {
+        sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
 }

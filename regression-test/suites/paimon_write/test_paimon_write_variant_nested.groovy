@@ -26,7 +26,6 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_nested_catalog"
     String dbName = "test_pw_variant_nested_db"
-    String root = '$'
 
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
@@ -72,6 +71,7 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon") {
     sql """SWITCH ${catalogName}"""
     sql """USE ${dbName}"""
     sql """SET enable_variant_v2 = true"""
+    sql """SET force_jni_scanner = true"""
 
     try {
         // ARRAY, MAP, STRUCT and multiple Variant columns in one Arrow batch.
@@ -108,39 +108,31 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon") {
                 (3, NULL, NULL, NULL, NULL, NULL)
         """
 
-        def nestedRows = spark_paimon """
+        order_qt_variant_nested_values """
             SELECT
-                variant_get(variants[0], '${root}.kind', 'string'),
-                variants[1] IS NULL,
-                variant_get(variants[1], '${root}', 'string') IS NULL,
-                variants[2] IS NULL,
-                variant_get(variants[3], '${root}', 'int'),
-                variant_get(variant_map['object'], '${root}.n', 'int'),
-                variant_map['sql_null'] IS NULL,
-                variant_get(variant_struct.payload, '${root}.kind', 'string'),
-                variant_get(first_payload, '${root}.column', 'string'),
-                variant_get(second_payload, '${root}[0]', 'string')
-            FROM paimon.${dbName}.t_variant_nested
+                CAST(variants[1]['kind'] AS STRING),
+                variants[2],
+                variants[3],
+                CAST(variants[4] AS INT),
+                CAST(variant_map['object']['n'] AS INT),
+                variant_map['json_null'],
+                variant_map['sql_null'],
+                CAST(variant_struct.payload['kind'] AS STRING),
+                CAST(first_payload['column'] AS STRING),
+                CAST(second_payload[1] AS STRING)
+            FROM t_variant_nested
             WHERE id = 1
         """
-        assertEquals([
-                "array-object", "false", "true", "true", "7", "2", "true",
-                "struct-object", "first", "second"
-        ], nestedRows[0].collect { value -> value.toString() })
 
-        def containerRows = spark_paimon """
+        order_qt_variant_nested_containers """
             SELECT id,
                    variants IS NULL, SIZE(variants),
                    variant_map IS NULL, SIZE(variant_map),
                    variant_struct IS NULL
-            FROM paimon.${dbName}.t_variant_nested
+            FROM t_variant_nested
             WHERE id IN (2, 3)
             ORDER BY id
         """
-        assertEquals(["2", "false", "0", "false", "0", "false"],
-                containerRows[0].collect { value -> value.toString() })
-        assertEquals(["3", "true", null, "true", null, "true"],
-                containerRows[1].collect { value -> value == null ? null : value.toString() })
 
         // Deep nesting is P0: STRUCT -> ARRAY -> MAP -> STRUCT -> VARIANT.
         sql """
@@ -178,34 +170,26 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon") {
                 )
         """
 
-        def deepRows = spark_paimon """
+        order_qt_variant_deep_value """
             SELECT id,
-                   deep.level1[0]['outer'].note,
-                   variant_get(
-                       deep.level1[0]['outer'].payload,
-                       '${root}.level2.level3.level4.value',
-                       'string')
-            FROM paimon.${dbName}.t_variant_deep
+                   deep.level1[1]['outer'].note,
+                   CAST(deep.level1[1]['outer'].payload['level2']['level3']['level4']['value']
+                        AS STRING)
+            FROM t_variant_deep
             WHERE id = 1
         """
-        assertEquals(["1", "depth-1", "deep-ok"],
-                deepRows[0].collect { value -> value.toString() })
 
-        def deepNullRows = spark_paimon """
-            SELECT deep.level1[0]['null-leaf'].payload IS NULL
-            FROM paimon.${dbName}.t_variant_deep
+        order_qt_variant_deep_null """
+            SELECT deep.level1[1]['null-leaf'].payload IS NULL
+            FROM t_variant_deep
             WHERE id = 2
         """
-        assertEquals(true, deepNullRows[0][0])
 
-        // Refreshing Doris metadata must not affect the externally committed data.
-        // The Paimon JNI scan path does not yet expose binary Variant V2 values.
+        // Refreshing metadata must not affect nested Variant reads.
         sql """REFRESH TABLE t_variant_deep"""
-        def deepCount = spark_paimon """
-            SELECT COUNT(*) FROM paimon.${dbName}.t_variant_deep
-        """
-        assertEquals("2", deepCount[0][0].toString())
+        qt_variant_deep_count """SELECT COUNT(*) FROM t_variant_deep"""
     } finally {
+        sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
 }

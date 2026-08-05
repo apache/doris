@@ -26,7 +26,6 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_errors_catalog"
     String dbName = "test_pw_variant_errors_db"
-    String root = '$'
 
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
@@ -91,6 +90,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon") {
         """
 
         sql """SET enable_variant_v2 = true"""
+        sql """SET force_jni_scanner = true"""
         test {
             sql """
                 INSERT INTO t_variant_error
@@ -115,22 +115,17 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon") {
                 (21, try_parse_to_variant('not-json')),
                 (22, CAST(CAST('{"typed":"string"}' AS STRING) AS VARIANT))
         """
-        def rows = spark_paimon """
+        // Invalid JSON is preserved as a Variant string unless the global
+        // throw-on-invalid-JSON option is enabled.
+        order_qt_variant_after_errors """
             SELECT id, payload IS NULL,
-                   variant_get(payload, '${root}.recovered', 'boolean')
-            FROM paimon.${dbName}.t_variant_error
+                   CAST(payload['recovered'] AS BOOLEAN),
+                   payload
+            FROM t_variant_error
             ORDER BY id
         """
-        assertEquals([
-                ["20", "false", "true"],
-                // Invalid JSON is preserved as a Variant string unless the global
-                // throw-on-invalid-JSON option is enabled.
-                ["21", "false", null],
-                ["22", "false", null]
-        ], rows.collect { row ->
-            row.collect { value -> value == null ? null : value.toString() }
-        })
     } finally {
+        sql """SET force_jni_scanner = false"""
         sql """DROP VIEW IF EXISTS internal.${dbName}.v_variant_v1"""
         sql """DROP VIEW IF EXISTS internal.${dbName}.v_variant_v1_nested"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""

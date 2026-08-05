@@ -26,7 +26,6 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_modes_catalog"
     String dbName = "test_pw_variant_modes_db"
-    String root = '$'
 
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
@@ -91,6 +90,7 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
     sql """SWITCH ${catalogName}"""
     sql """USE ${dbName}"""
     sql """SET enable_variant_v2 = true"""
+    sql """SET force_jni_scanner = true"""
 
     try {
         // Fixed-bucket primary-key table: later rows replace the same key.
@@ -104,18 +104,14 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
             INSERT INTO t_variant_pk VALUES
                 (1, parse_to_variant('{"state":"v3","n":100}'), 3)
         """
-        def pkRows = spark_paimon """
+        order_qt_variant_pk """
             SELECT id,
-                   variant_get(payload, '${root}.state', 'string'),
-                   variant_get(payload, '${root}.n', 'int'),
+                   CAST(payload['state'] AS STRING),
+                   CAST(payload['n'] AS INT),
                    version
-            FROM paimon.${dbName}.t_variant_pk
+            FROM t_variant_pk
             ORDER BY id
         """
-        assertEquals([
-                ["1", "v3", "100", "3"],
-                ["2", "stable", "2", "1"]
-        ], pkRows.collect { row -> row.collect { value -> value.toString() } })
 
         // Dynamic bucket routing with Variant values.
         sql """
@@ -124,15 +120,13 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
                    parse_to_variant(CONCAT('{"bucket":"dynamic","id":', number, '}'))
             FROM numbers("number" = "32")
         """
-        def dynamicRows = spark_paimon """
+        order_qt_variant_dynamic_bucket """
             SELECT COUNT(*),
-                   SUM(variant_get(payload, '${root}.id', 'int')),
-                   SUM(CASE WHEN id <> variant_get(payload, '${root}.id', 'int')
+                   SUM(CAST(payload['id'] AS INT)),
+                   SUM(CASE WHEN id <> CAST(payload['id'] AS INT)
                             THEN 1 ELSE 0 END)
-            FROM paimon.${dbName}.t_variant_dynamic_bucket
+            FROM t_variant_dynamic_bucket
         """
-        assertEquals(["32", "496", "0"],
-                dynamicRows[0].collect { value -> value.toString() })
 
         // Schema evolution: add Variant, write it, then add a normal column and continue writing.
         sql """INSERT INTO t_variant_schema VALUES (1, 'before')"""
@@ -146,29 +140,18 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
             INSERT INTO t_variant_schema (id, name, payload) VALUES
                 (3, 'after-normal-column', parse_to_variant('{"schema":"continued"}'))
         """
-        spark_paimon """REFRESH TABLE paimon.${dbName}.t_variant_schema"""
-        def schemaRows = spark_paimon """
+        sql """REFRESH TABLE t_variant_schema"""
+        order_qt_variant_schema_evolution """
             SELECT id, name,
-                   variant_get(payload, '${root}.schema', 'string'),
+                   CAST(payload['schema'] AS STRING),
                    note
-            FROM paimon.${dbName}.t_variant_schema
+            FROM t_variant_schema
             ORDER BY id
         """
-        assertEquals([
-                ["1", "before", null, null],
-                ["2", "after-add", "added", null],
-                ["3", "after-normal-column", "continued", "default-note"]
-        ], schemaRows.collect { row ->
-            row.collect { value -> value == null ? null : value.toString() }
-        })
 
         // Non-Variant Paimon writes remain unchanged while the session enables V2.
         sql """INSERT INTO t_non_variant VALUES (1, '{"plain":"string"}')"""
-        def nonVariantRows = spark_paimon """
-            SELECT id, payload FROM paimon.${dbName}.t_non_variant
-        """
-        assertEquals(["1", '{"plain":"string"}'],
-                nonVariantRows[0].collect { value -> value.toString() })
+        order_qt_non_variant """SELECT id, payload FROM t_non_variant ORDER BY id"""
 
         // Paimon's real NOT NULL schema is enforced by the SDK.
         test {
@@ -176,6 +159,7 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
             exception "Cannot write null to non-null column(payload)"
         }
     } finally {
+        sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
 }
