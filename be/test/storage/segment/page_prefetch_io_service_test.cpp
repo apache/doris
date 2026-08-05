@@ -43,6 +43,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/segment/file_cache_writeback_coordinator.h"
+#include "storage/segment/page_prefetcher.h"
 #include "testutil/mock/mock_query_context.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
@@ -481,6 +482,162 @@ TEST_F(PagePrefetchIOServiceTest, ReadsExactRangeWithWorkerOwnedContextAndBuffer
     EXPECT_EQ(query_context->resident_bytes(), 0);
     EXPECT_EQ(service.global_budget()->resident_bytes(), 0);
     EXPECT_EQ(service.mem_tracker()->consumption(), 0);
+    service.shutdown();
+}
+
+TEST_F(PagePrefetchIOServiceTest, PagePrefetcherTracksWindowConsumptionAndSkippedLookahead) {
+    create_cache("page_prefetcher_window_state");
+    create_pool(4);
+    PagePrefetchIOService service(_pool.get(), service_options());
+    auto reader = create_reader(open_remote_file());
+    TUniqueId query_id = make_query_id(211, 223);
+    io::FileCacheStatistics query_file_cache_stats;
+    io::FileReaderStats query_file_reader_stats;
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    auto query_context = service.get_or_create_query_context(query_id, runtime_query_context);
+    PagePrefetcher prefetcher({
+            .io_service = &service,
+            .reader = reader,
+            .query_context = query_context,
+            .io_context =
+                    make_safe_context(query_id, &query_file_cache_stats, &query_file_reader_stats),
+            .pages = {{.page_index = 0,
+                       .first_ordinal = 0,
+                       .last_ordinal = 9,
+                       .offset = 0,
+                       .size = 16},
+                      {.page_index = 1,
+                       .first_ordinal = 10,
+                       .last_ordinal = 19,
+                       .offset = 32,
+                       .size = 16},
+                      {.page_index = 2,
+                       .first_ordinal = 20,
+                       .last_ordinal = 29,
+                       .offset = 64,
+                       .size = 16}},
+            .file_size = reader->size(),
+            .options = {.window_pages = 2,
+                        .min_window_pages = 1,
+                        .max_window_pages = 2,
+                        .max_gap_bytes = 16,
+                        .max_range_bytes = 128,
+                        .max_pages_per_range = 4,
+                        .max_read_amplification_ratio = 2.0,
+                        .writeback_min_block_coverage = 0.5,
+                        .adaptive_window = false},
+            .page_cache_probe = [](const PageCandidate&) { return false; },
+    });
+
+    ASSERT_TRUE(prefetcher
+                        .prepare({.kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+                                  .first_ordinal = 0,
+                                  .ordinal_count = 10,
+                                  .is_forward = true})
+                        .ok());
+    _pool->wait();
+    auto first = prefetcher.acquire(0);
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(first->has_value());
+    EXPECT_EQ((*first)->data, Slice(std::string(16, '0')));
+    prefetcher.mark_consumed(0);
+
+    ASSERT_TRUE(prefetcher
+                        .prepare({.kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+                                  .first_ordinal = 20,
+                                  .ordinal_count = 10,
+                                  .is_forward = true})
+                        .ok());
+    auto skipped = prefetcher.acquire(1);
+    ASSERT_TRUE(skipped.has_value());
+    EXPECT_FALSE(skipped->has_value());
+    _pool->wait();
+    auto third = prefetcher.acquire(2);
+    ASSERT_TRUE(third.has_value());
+    ASSERT_TRUE(third->has_value());
+    EXPECT_EQ((*third)->data, Slice(std::string(16, '0')));
+    prefetcher.mark_consumed(2);
+
+    const auto& statistics = prefetcher.statistics();
+    EXPECT_EQ(statistics.candidate_pages, 3);
+    EXPECT_EQ(statistics.submitted_pages, 3);
+    EXPECT_EQ(statistics.consumed_pages, 2);
+    EXPECT_EQ(statistics.ready_hits, 2);
+    EXPECT_EQ(statistics.submitted_ranges, 2);
+    EXPECT_EQ(statistics.throttled_ranges, 0);
+    EXPECT_EQ(statistics.fallback_pages, 0);
+    EXPECT_EQ(statistics.requested_page_bytes, 48);
+    EXPECT_EQ(statistics.fetched_bytes, 64);
+    EXPECT_EQ(statistics.coalesced_gap_bytes, 16);
+    EXPECT_EQ(statistics.remote_bytes, 64);
+    service.shutdown();
+}
+
+TEST_F(PagePrefetchIOServiceTest, PagePrefetcherAdmissionRejectionFallsBackWithoutWaiting) {
+    create_cache("page_prefetcher_admission_fallback");
+    create_pool(4);
+    auto options = service_options();
+    options.query_limits.max_ranges = 1;
+    PagePrefetchIOService service(_pool.get(), options);
+    auto blocking_remote = std::make_shared<InspectingFileReader>(open_remote_file(), true, false);
+    auto reader = create_reader(blocking_remote);
+    TUniqueId query_id = make_query_id(227, 229);
+    io::FileCacheStatistics query_file_cache_stats;
+    io::FileReaderStats query_file_reader_stats;
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    auto query_context = service.get_or_create_query_context(query_id, runtime_query_context);
+    PagePrefetcher prefetcher({
+            .io_service = &service,
+            .reader = reader,
+            .query_context = query_context,
+            .io_context =
+                    make_safe_context(query_id, &query_file_cache_stats, &query_file_reader_stats),
+            .pages = {{.page_index = 0,
+                       .first_ordinal = 0,
+                       .last_ordinal = 9,
+                       .offset = 0,
+                       .size = 16},
+                      {.page_index = 1,
+                       .first_ordinal = 10,
+                       .last_ordinal = 19,
+                       .offset = 32,
+                       .size = 16}},
+            .file_size = reader->size(),
+            .options = {.window_pages = 1,
+                        .min_window_pages = 1,
+                        .max_window_pages = 1,
+                        .max_gap_bytes = 16,
+                        .max_range_bytes = 128,
+                        .max_pages_per_range = 1,
+                        .max_read_amplification_ratio = 2.0,
+                        .writeback_min_block_coverage = 0.5,
+                        .adaptive_window = false},
+            .page_cache_probe = [](const PageCandidate&) { return false; },
+    });
+
+    ASSERT_TRUE(prefetcher
+                        .prepare({.kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+                                  .first_ordinal = 0,
+                                  .ordinal_count = 1,
+                                  .is_forward = true})
+                        .ok());
+    ASSERT_TRUE(blocking_remote->wait_until_entered(std::chrono::seconds(5)));
+    const auto prepare_start = std::chrono::steady_clock::now();
+    ASSERT_TRUE(prefetcher
+                        .prepare({.kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+                                  .first_ordinal = 10,
+                                  .ordinal_count = 1,
+                                  .is_forward = true})
+                        .ok());
+    EXPECT_LT(std::chrono::steady_clock::now() - prepare_start, std::chrono::seconds(1));
+    auto fallback = prefetcher.acquire(1);
+    ASSERT_TRUE(fallback.has_value());
+    EXPECT_FALSE(fallback->has_value());
+    EXPECT_EQ(prefetcher.statistics().throttled_ranges, 1);
+    EXPECT_EQ(prefetcher.statistics().fallback_pages, 1);
+
+    blocking_remote->release();
+    _pool->wait();
     service.shutdown();
 }
 

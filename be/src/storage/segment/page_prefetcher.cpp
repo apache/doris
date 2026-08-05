@@ -18,10 +18,14 @@
 #include "storage/segment/page_prefetcher.h"
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/logging.h"
+#include "io/cache/cached_remote_file_reader.h"
+#include "storage/segment/file_cache_writeback_coordinator.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -291,6 +295,290 @@ Status FixedPagePrefetchWindow::select_rowids(const std::vector<PageCandidate>& 
     sort_by_file_offset(&result);
     *selected_pages = std::move(result);
     return Status::OK();
+}
+
+PagePrefetcher::PagePrefetcher(PagePrefetcherContext context)
+        : _io_service(context.io_service),
+          _reader(std::move(context.reader)),
+          _query_context(std::move(context.query_context)),
+          _io_context(std::move(context.io_context)),
+          _pages(std::move(context.pages)),
+          _file_size(context.file_size),
+          _options(context.options),
+          _page_cache_probe(std::move(context.page_cache_probe)) {
+    DORIS_CHECK(_io_service != nullptr);
+    DORIS_CHECK(_reader != nullptr);
+    DORIS_CHECK(_query_context != nullptr);
+    DORIS_CHECK(_file_size == _reader->size());
+    DORIS_CHECK(_options.window_pages > 0);
+    DORIS_CHECK(_options.min_window_pages > 0);
+    DORIS_CHECK(_options.min_window_pages <= _options.window_pages);
+    DORIS_CHECK(_options.window_pages <= _options.max_window_pages);
+    DORIS_CHECK(_options.max_gap_bytes > 0);
+    DORIS_CHECK(_options.max_range_bytes > 0);
+    DORIS_CHECK(_options.max_pages_per_range > 0);
+    DORIS_CHECK(_options.max_read_amplification_ratio >= 1.0);
+    DORIS_CHECK(_options.writeback_min_block_coverage > 0.0);
+    DORIS_CHECK(_options.writeback_min_block_coverage <= 1.0);
+}
+
+PagePrefetcher::~PagePrefetcher() {
+    cancel();
+}
+
+Status PagePrefetcher::prepare(const PagePrefetchRequest& request) {
+    if (!config::enable_query_page_prefetch || !config::enable_async_file_cache_write) {
+        return Status::OK();
+    }
+    if (_query_context->cancelled()) {
+        return Status::Cancelled("page prefetch query is cancelled");
+    }
+    if ((request.kind == PagePrefetchRequest::Kind::ORDINAL_RANGE && request.ordinal_count == 0) ||
+        (request.kind == PagePrefetchRequest::Kind::ROWIDS && request.rowid_count == 0)) {
+        return Status::OK();
+    }
+
+    if (request.kind == PagePrefetchRequest::Kind::ORDINAL_RANGE) {
+        size_t page_position = 0;
+        RETURN_IF_ERROR(find_page_for_ordinal(_pages, request.first_ordinal, &page_position));
+        mark_skipped_before(_pages[page_position].page_index, request.is_forward);
+    }
+
+    std::unordered_set<uint32_t> tracked_pages;
+    tracked_pages.reserve(_entries.size());
+    for (const auto& [page_index, entry] : _entries) {
+        static_cast<void>(entry);
+        tracked_pages.emplace(page_index);
+    }
+
+    std::vector<PageCandidate> selected_pages;
+    RETURN_IF_ERROR(_select_candidates(request, tracked_pages, &selected_pages));
+    _statistics.candidate_pages += selected_pages.size();
+
+    std::vector<PageCandidate> pages_to_submit;
+    pages_to_submit.reserve(selected_pages.size());
+    for (const auto& page : selected_pages) {
+        if (_page_cache_probe && _page_cache_probe(page)) {
+            const auto [iterator, inserted] = _entries.emplace(
+                    page.page_index, PageEntry {.range = nullptr,
+                                                .descriptor_index = 0,
+                                                .state = PageEntry::State::SKIPPED});
+            static_cast<void>(iterator);
+            DORIS_CHECK(inserted);
+            ++_statistics.page_cache_skipped_pages;
+        } else {
+            pages_to_submit.push_back(page);
+        }
+    }
+    if (pages_to_submit.empty()) {
+        return Status::OK();
+    }
+
+    PageFetchPlan plan;
+    Status plan_status;
+    const size_t block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    if (!_io_context.remote_only_on_miss && _options.max_range_bytes >= block_size) {
+        FileCacheWritebackCoordinator coordinator;
+        plan_status =
+                coordinator.plan_block_completion(pages_to_submit, _file_size, _options, &plan);
+    } else {
+        PageReadPlanner planner;
+        plan_status = planner.plan(pages_to_submit, _file_size, _options, &plan);
+    }
+    if (plan_status.is<ErrorCode::INVALID_ARGUMENT>()) {
+        for (const auto& page : pages_to_submit) {
+            _mark_fallback(page.page_index);
+        }
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(plan_status);
+
+    for (auto& range_spec : plan.ranges) {
+        const auto descriptors = range_spec.pages;
+        const size_t requested_page_bytes = range_spec.requested_page_bytes;
+        const size_t fetched_bytes = range_spec.size;
+        const size_t coalesced_gap_bytes = range_spec.coalesced_gap_bytes;
+        const size_t block_fill_bytes = range_spec.block_fill_bytes;
+        const size_t writeback_eligible_blocks = range_spec.complete_blocks.size();
+        auto submit = _io_service->try_submit(std::move(range_spec), _reader, _io_context,
+                                              _query_context);
+        if (submit.range == nullptr) {
+            for (const auto& descriptor : descriptors) {
+                _mark_fallback(descriptor.page_index);
+            }
+            if (submit.reject_reason == PagePrefetchRejectReason::QUERY_CANCELLED) {
+                ++_statistics.cancelled_ranges;
+                return Status::Cancelled("page prefetch query is cancelled");
+            }
+            ++_statistics.throttled_ranges;
+            continue;
+        }
+
+        ++_statistics.submitted_ranges;
+        _statistics.submitted_pages += descriptors.size();
+        _statistics.requested_page_bytes += requested_page_bytes;
+        _statistics.fetched_bytes += fetched_bytes;
+        _statistics.coalesced_gap_bytes += coalesced_gap_bytes;
+        _statistics.block_fill_bytes += block_fill_bytes;
+        _statistics.writeback_eligible_blocks += writeback_eligible_blocks;
+        for (size_t descriptor_index = 0; descriptor_index < descriptors.size();
+             ++descriptor_index) {
+            const auto [iterator, inserted] =
+                    _entries.emplace(descriptors[descriptor_index].page_index,
+                                     PageEntry {.range = submit.range,
+                                                .descriptor_index = descriptor_index,
+                                                .state = PageEntry::State::PLANNED});
+            static_cast<void>(iterator);
+            DORIS_CHECK(inserted);
+        }
+    }
+    return Status::OK();
+}
+
+Result<std::optional<PrefetchedPageSlice>> PagePrefetcher::acquire(uint32_t page_index) {
+    auto iterator = _entries.find(page_index);
+    if (iterator == _entries.end()) {
+        _mark_fallback(page_index);
+        return std::optional<PrefetchedPageSlice> {};
+    }
+    auto& entry = iterator->second;
+    if (entry.state != PageEntry::State::PLANNED) {
+        return std::optional<PrefetchedPageSlice> {};
+    }
+    DORIS_CHECK(entry.range != nullptr);
+
+    const bool ready_before_consume = entry.range->state() == PrefetchRange::State::READY;
+    const auto wait_start = std::chrono::steady_clock::now();
+    Status status = entry.range->wait_for_consume();
+    _statistics.wait_time_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                        std::chrono::steady_clock::now() - wait_start)
+                                        .count();
+    _merge_range_statistics(entry.range);
+    if (!status.ok()) {
+        entry.state = PageEntry::State::FALLBACK;
+        entry.range.reset();
+        ++_statistics.fallback_pages;
+        if (_query_context->cancelled()) {
+            return ResultError(Status::Cancelled("page prefetch query is cancelled"));
+        }
+        return std::optional<PrefetchedPageSlice> {};
+    }
+    if (ready_before_consume) {
+        ++_statistics.ready_hits;
+    }
+    return std::optional<PrefetchedPageSlice>(PrefetchedPageSlice {
+            .range = entry.range,
+            .descriptor_index = entry.descriptor_index,
+            .data = entry.range->page_slice(entry.descriptor_index),
+    });
+}
+
+void PagePrefetcher::mark_consumed(uint32_t page_index) {
+    auto iterator = _entries.find(page_index);
+    DORIS_CHECK(iterator != _entries.end());
+    auto& entry = iterator->second;
+    DORIS_CHECK(entry.state == PageEntry::State::PLANNED);
+    DORIS_CHECK(entry.range != nullptr);
+    FileCacheWritebackCoordinator(_io_service).mark_page_consumed(entry.range, page_index);
+    entry.state = PageEntry::State::CONSUMED;
+    entry.range.reset();
+    ++_statistics.consumed_pages;
+}
+
+void PagePrefetcher::mark_decode_failed(uint32_t page_index) {
+    auto iterator = _entries.find(page_index);
+    DORIS_CHECK(iterator != _entries.end());
+    auto& entry = iterator->second;
+    DORIS_CHECK(entry.state == PageEntry::State::PLANNED);
+    DORIS_CHECK(entry.range != nullptr);
+    FileCacheWritebackCoordinator(_io_service).invalidate_page(entry.range, page_index);
+    entry.state = PageEntry::State::FALLBACK;
+    entry.range.reset();
+    ++_statistics.fallback_pages;
+}
+
+void PagePrefetcher::mark_page_cache_hit(uint32_t page_index) {
+    auto iterator = _entries.find(page_index);
+    if (iterator == _entries.end() || iterator->second.state != PageEntry::State::PLANNED) {
+        return;
+    }
+    iterator->second.state = PageEntry::State::SKIPPED;
+    iterator->second.range.reset();
+    ++_statistics.page_cache_skipped_pages;
+}
+
+void PagePrefetcher::mark_skipped_before(uint32_t page_index, bool is_forward) {
+    for (auto& [tracked_page_index, entry] : _entries) {
+        const bool skipped =
+                is_forward ? tracked_page_index < page_index : tracked_page_index > page_index;
+        if (skipped && entry.state == PageEntry::State::PLANNED) {
+            entry.state = PageEntry::State::SKIPPED;
+            entry.range.reset();
+        }
+    }
+}
+
+void PagePrefetcher::cancel() {
+    std::unordered_set<PrefetchRange*> cancelled_ranges;
+    for (auto& [page_index, entry] : _entries) {
+        static_cast<void>(page_index);
+        if (entry.range != nullptr && cancelled_ranges.emplace(entry.range.get()).second) {
+            entry.range->request_cancel();
+        }
+        entry.range.reset();
+    }
+}
+
+Status PagePrefetcher::_select_candidates(const PagePrefetchRequest& request,
+                                          const std::unordered_set<uint32_t>& tracked_pages,
+                                          std::vector<PageCandidate>* selected_pages) {
+    DORIS_CHECK(selected_pages != nullptr);
+    FixedPagePrefetchWindow window;
+    if (request.kind == PagePrefetchRequest::Kind::ROWIDS) {
+        return window.select_rowids(_pages, _file_size, request.rowids, request.rowid_count,
+                                    tracked_pages, selected_pages);
+    }
+
+    size_t unconsumed_planned_pages = 0;
+    for (const auto& [page_index, entry] : _entries) {
+        static_cast<void>(page_index);
+        unconsumed_planned_pages += entry.state == PageEntry::State::PLANNED;
+    }
+    const size_t target_window_pages =
+            FixedPagePrefetchWindow::needs_refill(unconsumed_planned_pages, _options.window_pages)
+                    ? _options.window_pages
+                    : 1;
+    return window.select_ordinal_range(_pages, _file_size, request.first_ordinal,
+                                       request.ordinal_count, request.is_forward,
+                                       target_window_pages, tracked_pages, selected_pages);
+}
+
+void PagePrefetcher::_mark_fallback(uint32_t page_index) {
+    const auto [iterator, inserted] =
+            _entries.emplace(page_index, PageEntry {.range = nullptr,
+                                                    .descriptor_index = 0,
+                                                    .state = PageEntry::State::FALLBACK});
+    if (inserted) {
+        ++_statistics.fallback_pages;
+        return;
+    }
+    auto& entry = iterator->second;
+    if (entry.state == PageEntry::State::PLANNED) {
+        entry.state = PageEntry::State::FALLBACK;
+        entry.range.reset();
+        ++_statistics.fallback_pages;
+    }
+}
+
+void PagePrefetcher::_merge_range_statistics(const std::shared_ptr<PrefetchRange>& range) {
+    DORIS_CHECK(range != nullptr);
+    RangeReadStats range_statistics;
+    if (!range->take_read_stats_once(&range_statistics)) {
+        return;
+    }
+    _statistics.io_time_ns += range_statistics.remote_io_time_ns;
+    _statistics.cache_or_inflight_bytes += range_statistics.cache_or_inflight_bytes;
+    _statistics.remote_bytes += range_statistics.remote_bytes;
 }
 
 } // namespace doris::segment_v2
