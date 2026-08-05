@@ -92,7 +92,22 @@ class AdbcCatalogPropertiesTest {
         m.put(AdbcCatalogProperties.PARTITIONED_READ, "requird");
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> AdbcCatalogProperties.of(m));
-        Assertions.assertTrue(e.getMessage().contains("must be one of"));
+        // Falling back to AUTO on a typo would be the worst answer for the one mode that exists to stop
+        // a silent downgrade: 'requred' would quietly permit exactly what 'required' forbids.
+        Assertions.assertTrue(e.getMessage().contains("must be one of"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains(AdbcCatalogProperties.PARTITIONED_READ),
+                e.getMessage());
+    }
+
+    @Test
+    void everyPartitionedReadModeParsesFromItsLowercaseName() {
+        for (AdbcCatalogProperties.PartitionedReadMode mode
+                : AdbcCatalogProperties.PartitionedReadMode.values()) {
+            Map<String, String> m = minimal();
+            // Spelled the way a user writes it.
+            m.put(AdbcCatalogProperties.PARTITIONED_READ, mode.name().toLowerCase());
+            Assertions.assertEquals(mode, AdbcCatalogProperties.of(m).getPartitionedReadMode());
+        }
     }
 
     @Test
@@ -117,6 +132,22 @@ class AdbcCatalogPropertiesTest {
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> AdbcCatalogProperties.of(m));
         Assertions.assertTrue(e.getMessage().contains("at least 1"));
+    }
+
+    @Test
+    void maxPartitionsIsTrimmedAndCannotBeBelowOne() {
+        Map<String, String> raised = minimal();
+        raised.put(AdbcCatalogProperties.MAX_PARTITIONS, " 4096 ");
+        Assertions.assertEquals(4096, AdbcCatalogProperties.of(raised).getMaxPartitions());
+
+        for (String bad : new String[] {"0", "-1", "many"}) {
+            Map<String, String> m = minimal();
+            m.put(AdbcCatalogProperties.MAX_PARTITIONS, bad);
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> AdbcCatalogProperties.of(m), bad);
+            Assertions.assertTrue(e.getMessage().contains(AdbcCatalogProperties.MAX_PARTITIONS),
+                    e.getMessage());
+        }
     }
 
     @Test
@@ -152,5 +183,80 @@ class AdbcCatalogPropertiesTest {
         Map<String, String> m = minimal();
         m.put(AdbcMetadataCache.propertySpec().getTtlKey(), "not-a-number");
         Assertions.assertThrows(IllegalArgumentException.class, () -> AdbcCatalogProperties.of(m));
+    }
+
+    @Test
+    void driverOptionsCarryNoCredentials() {
+        // The prefix scan runs over the whole catalog map, which holds the password. A rule that let a
+        // non-prefixed key through would hand credentials to the driver under Doris's own property name.
+        Map<String, String> m = minimal();
+        m.put(AdbcCatalogProperties.PASSWORD, "secret-p");
+        Assertions.assertEquals(Map.of(), AdbcCatalogProperties.of(m).getDriverOptions());
+    }
+
+    // -- the CREATE / ALTER door -----------------------------------------------------------------------
+
+    /**
+     * {@code validateProperties} is the only thing standing between a typo and a catalog that plans every
+     * scan differently from what was asked, so what the holder refuses it must refuse too. Asserted
+     * through the provider rather than trusted from reading its one line: a body that stopped calling
+     * {@code of} would leave every test above green.
+     */
+    @Test
+    void theProviderDoorRefusesWhatTheHolderRefuses() {
+        AdbcConnectorProvider provider = new AdbcConnectorProvider();
+        Assertions.assertDoesNotThrow(() -> provider.validateProperties(minimal()));
+
+        for (String[] bad : new String[][] {
+                {AdbcCatalogProperties.PARTITIONED_READ, "yes"},
+                {AdbcCatalogProperties.MAX_PARTITIONS, "0"}}) {
+            Map<String, String> m = minimal();
+            m.put(bad[0], bad[1]);
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> provider.validateProperties(m));
+            Assertions.assertTrue(e.getMessage().contains(bad[0]), e.getMessage());
+        }
+
+        for (String required : new String[] {
+                AdbcCatalogProperties.DRIVER_URL, AdbcCatalogProperties.URI}) {
+            Map<String, String> missing = minimal();
+            missing.remove(required);
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> provider.validateProperties(missing));
+            Assertions.assertTrue(e.getMessage().contains(required), e.getMessage());
+
+            Map<String, String> blank = minimal();
+            blank.put(required, "   ");
+            IllegalArgumentException blankError = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> provider.validateProperties(blank));
+            Assertions.assertTrue(blankError.getMessage().contains(required), blankError.getMessage());
+        }
+    }
+
+    /**
+     * A cache knob is read through {@code CacheSpec}, which answers an unparseable value with the default
+     * rather than an error. Silently caching for ten minutes when the operator wrote {@code ttl-second=6O0}
+     * is exactly the kind of thing nobody notices until the metadata is wrong, so the value has to be
+     * refused where the operator is still looking at it.
+     */
+    @Test
+    void theProviderDoorRefusesUnreadableCacheSettings() {
+        AdbcConnectorProvider provider = new AdbcConnectorProvider();
+        for (String[] bad : new String[][] {
+                {"meta.cache.adbc.metadata.enable", "no"},
+                {"meta.cache.adbc.metadata.ttl-second", "6O0"},
+                {"meta.cache.adbc.metadata.ttl-second", "-2"},
+                {"meta.cache.adbc.metadata.capacity", "-1"}}) {
+            Map<String, String> m = minimal();
+            m.put(bad[0], bad[1]);
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> provider.validateProperties(m), bad[0] + "=" + bad[1]);
+            Assertions.assertTrue(e.getMessage().contains(bad[0]), e.getMessage());
+        }
+
+        // -1 is the framework's "never expire", not a typo.
+        Map<String, String> noExpiry = minimal();
+        noExpiry.put("meta.cache.adbc.metadata.ttl-second", "-1");
+        Assertions.assertDoesNotThrow(() -> provider.validateProperties(noExpiry));
     }
 }

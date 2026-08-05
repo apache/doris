@@ -69,7 +69,7 @@ public final class AdbcDriverPathResolver {
     public static Path resolve(String driverUrl, String driversDir, String securePath) {
         if (driverUrl == null || driverUrl.trim().isEmpty()) {
             throw new IllegalArgumentException("Required property '"
-                    + AdbcConnectorProperties.DRIVER_URL + "' is missing for an adbc catalog");
+                    + AdbcCatalogProperties.DRIVER_URL + "' is missing for an adbc catalog");
         }
         String raw = driverUrl.trim();
         Path candidate = toAbsolutePath(raw, driversDir);
@@ -83,7 +83,7 @@ public final class AdbcDriverPathResolver {
         if (schemeEnd > 0) {
             String scheme = raw.substring(0, schemeEnd);
             if (!"file".equalsIgnoreCase(scheme)) {
-                throw new IllegalArgumentException("Invalid '" + AdbcConnectorProperties.DRIVER_URL
+                throw new IllegalArgumentException("Invalid '" + AdbcCatalogProperties.DRIVER_URL
                         + "': scheme '" + scheme + "' is not supported, only a local file is."
                         + " An ADBC driver is not downloaded per node: FE and every BE must load the"
                         + " identical driver library, because partition descriptors are driver-private"
@@ -97,18 +97,18 @@ public final class AdbcDriverPathResolver {
             } catch (URISyntaxException e) {
                 // Fail closed: an unparsable URL must never be accepted, or the checks below would be
                 // validating a different string than the loader ends up using.
-                throw new IllegalArgumentException("Invalid '" + AdbcConnectorProperties.DRIVER_URL
+                throw new IllegalArgumentException("Invalid '" + AdbcCatalogProperties.DRIVER_URL
                         + "': " + raw, e);
             }
             String authority = uri.getRawAuthority();
             if ((authority != null && !authority.isEmpty())
                     || uri.getRawQuery() != null || uri.getRawFragment() != null) {
-                throw new IllegalArgumentException("Invalid '" + AdbcConnectorProperties.DRIVER_URL
+                throw new IllegalArgumentException("Invalid '" + AdbcCatalogProperties.DRIVER_URL
                         + "': a file:// URL must carry no authority, query or fragment (got: " + raw + ")");
             }
             String path = uri.getPath();
             if (path == null || path.isEmpty()) {
-                throw new IllegalArgumentException("Invalid '" + AdbcConnectorProperties.DRIVER_URL
+                throw new IllegalArgumentException("Invalid '" + AdbcCatalogProperties.DRIVER_URL
                         + "': no path in " + raw);
             }
             return Paths.get(path);
@@ -117,14 +117,14 @@ public final class AdbcDriverPathResolver {
             return Paths.get(raw);
         }
         if (!SAFE_DRIVER_FILE_NAME.matcher(raw).matches()) {
-            throw new IllegalArgumentException("Invalid '" + AdbcConnectorProperties.DRIVER_URL
+            throw new IllegalArgumentException("Invalid '" + AdbcCatalogProperties.DRIVER_URL
                     + "': a bare driver file name must match [A-Za-z0-9._-]+.so (got: " + raw + ")."
                     + " Use an absolute path or a file:// URL to reference a driver outside "
-                    + AdbcConnectorProperties.CONF_DRIVERS_DIR + " (adbc.conf)");
+                    + AdbcConf.CONF_DRIVERS_DIR + " (adbc.conf)");
         }
         if (driversDir == null || driversDir.trim().isEmpty()) {
             throw new IllegalArgumentException("Cannot resolve the bare driver file name '" + raw
-                    + "': " + AdbcConnectorProperties.CONF_DRIVERS_DIR
+                    + "': " + AdbcConf.CONF_DRIVERS_DIR
                     + " is not configured in adbc.conf and DORIS_HOME is unknown");
         }
         return Paths.get(driversDir.trim(), raw);
@@ -137,7 +137,7 @@ public final class AdbcDriverPathResolver {
     private static void rejectTraversal(String raw, Path candidate) {
         for (Path segment : candidate) {
             if ("..".equals(segment.toString())) {
-                throw new IllegalArgumentException("Invalid '" + AdbcConnectorProperties.DRIVER_URL
+                throw new IllegalArgumentException("Invalid '" + AdbcCatalogProperties.DRIVER_URL
                         + "': path traversal ('..') is not allowed: " + raw);
             }
         }
@@ -165,7 +165,7 @@ public final class AdbcDriverPathResolver {
             }
         }
         throw new IllegalArgumentException("Driver path does not match any path allowed by "
-                + AdbcConnectorProperties.CONF_DRIVER_SECURE_PATH + " in adbc.conf ("
+                + AdbcConf.CONF_DRIVER_SECURE_PATH + " in adbc.conf ("
                 + securePath + "): " + raw);
     }
 
@@ -182,7 +182,7 @@ public final class AdbcDriverPathResolver {
             return;
         }
         throw new IllegalArgumentException("ADBC driver library not found: " + driverPath
-                + " (from '" + AdbcConnectorProperties.DRIVER_URL + "' = " + driverUrl + ")."
+                + " (from '" + AdbcCatalogProperties.DRIVER_URL + "' = " + driverUrl + ")."
                 + " Doris does not ship ADBC drivers. Place the driver shared library at this path on the"
                 + " FE and at the matching path on EVERY BE -- the same file, because partition descriptors"
                 + " do not carry across driver builds. Drivers are published on the arrow-adbc GitHub"
@@ -211,8 +211,8 @@ public final class AdbcDriverPathResolver {
             return;
         }
         throw new IllegalArgumentException("The ADBC driver at " + driverPath + " has MD5 " + actual
-                + ", but '" + AdbcConnectorProperties.DRIVER_CHECKSUM + "' declares "
-                + declaredChecksum.trim() + " (from '" + AdbcConnectorProperties.DRIVER_URL + "' = "
+                + ", but '" + AdbcCatalogProperties.DRIVER_CHECKSUM + "' declares "
+                + declaredChecksum.trim() + " (from '" + AdbcCatalogProperties.DRIVER_URL + "' = "
                 + driverUrl + "). This FE is holding a different driver build from the one the catalog was"
                 + " written for; every BE must hold that same build too.");
     }
@@ -234,7 +234,7 @@ public final class AdbcDriverPathResolver {
             // Fail closed: a checksum that could not be computed has verified nothing, and treating that as
             // a pass would make the property quietly optional on exactly the nodes where reading fails.
             throw new IllegalArgumentException("Cannot compute the MD5 of the ADBC driver at " + driverPath
-                    + " (from '" + AdbcConnectorProperties.DRIVER_URL + "' = " + driverUrl + "): "
+                    + " (from '" + AdbcCatalogProperties.DRIVER_URL + "' = " + driverUrl + "): "
                     + e.getMessage(), e);
         }
     }
