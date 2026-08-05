@@ -48,6 +48,9 @@ public:
                                          const FormatOptions& options,
                                          const NullMap::value_type* null_map = nullptr) const final;
 
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
+
     template <typename IntDataType>
     Status from_int_batch(const typename IntDataType::ColumnType& int_col,
                           ColumnNullable& target_col) const;

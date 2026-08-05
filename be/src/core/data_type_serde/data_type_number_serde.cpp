@@ -18,6 +18,7 @@
 #include "core/data_type_serde/data_type_number_serde.h"
 
 #include <arrow/builder.h>
+#include <arrow/util/float16.h>
 
 #include <bit>
 #include <cmath>
@@ -42,13 +43,9 @@
 #include "exprs/function/cast/cast_to_basic_number_common.h"
 #include "exprs/function/cast/cast_to_boolean.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "storage/olap_common.h"
-#include "storage/types.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
-#include "util/mysql_global.h"
-#include "util/to_string.h"
 
 namespace doris {
 namespace {
@@ -247,6 +244,28 @@ Status read_integer_decoded_values(IColumn& column, const DecodedColumnView& vie
         return Status::NotSupported("Unsupported decoded logical integer bit width {} for {}",
                                     view.logical_integer_bit_width, column.get_name());
     }
+}
+
+template <PrimitiveType DorisType, typename ArrowArrayType>
+Status read_widened_arrow_integer_values(IColumn& column, const arrow::Array* arrow_array,
+                                         int64_t start, int64_t end) {
+    const auto* source = dynamic_cast<const ArrowArrayType*>(arrow_array);
+    if (source == nullptr) {
+        return Status::InvalidArgument("Expected a compatible Arrow numeric array for {}, got {}",
+                                       column.get_name(), arrow_array->type()->name());
+    }
+    if (config::enable_arrow_input_validation) {
+        check_arrow_fixed_width_buffer(*source, sizeof(typename ArrowArrayType::value_type));
+    }
+
+    auto& data =
+            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    for (int64_t row = start; row < end; ++row) {
+        using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+        data.push_back(source->IsNull(row) ? DorisCppType()
+                                           : static_cast<DorisCppType>(source->Value(row)));
+    }
+    return Status::OK();
 }
 
 template <typename DorisCppType, typename SourceType>
@@ -838,6 +857,51 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
             col_data.emplace_back(concrete_array->Value(bool_i));
         }
         return Status::OK();
+    }
+
+    if constexpr (T == TYPE_FLOAT) {
+        if (arrow_array->type_id() == arrow::Type::HALF_FLOAT) {
+            const auto* concrete_array = dynamic_cast<const arrow::HalfFloatArray*>(arrow_array);
+            if (concrete_array == nullptr) {
+                return Status::InvalidArgument("Expected Arrow HalfFloatArray, got {}",
+                                               arrow_array->type()->name());
+            }
+            if (config::enable_arrow_input_validation) {
+                check_arrow_fixed_width_buffer(*concrete_array,
+                                               sizeof(arrow::HalfFloatArray::value_type));
+            }
+            for (int64_t i = start; i < end; ++i) {
+                const auto value =
+                        concrete_array->IsNull(i)
+                                ? 0.0F
+                                : arrow::util::Float16::FromBits(concrete_array->Value(i))
+                                          .ToFloat();
+                col_data.emplace_back(value);
+            }
+            return Status::OK();
+        }
+    }
+
+    if constexpr (T == TYPE_SMALLINT) {
+        if (arrow_array->type_id() == arrow::Type::UINT8) {
+            return read_widened_arrow_integer_values<TYPE_SMALLINT, arrow::UInt8Array>(
+                    column, arrow_array, start, end);
+        }
+    } else if constexpr (T == TYPE_INT) {
+        if (arrow_array->type_id() == arrow::Type::UINT16) {
+            return read_widened_arrow_integer_values<TYPE_INT, arrow::UInt16Array>(
+                    column, arrow_array, start, end);
+        }
+    } else if constexpr (T == TYPE_BIGINT) {
+        if (arrow_array->type_id() == arrow::Type::UINT32) {
+            return read_widened_arrow_integer_values<TYPE_BIGINT, arrow::UInt32Array>(
+                    column, arrow_array, start, end);
+        }
+    } else if constexpr (T == TYPE_LARGEINT) {
+        if (arrow_array->type_id() == arrow::Type::UINT64) {
+            return read_widened_arrow_integer_values<TYPE_LARGEINT, arrow::UInt64Array>(
+                    column, arrow_array, start, end);
+        }
     }
 
     // only for largeint(int128) type

@@ -775,6 +775,14 @@ under the License.
             <artifactId>arrow-vector</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.lance</groupId>
+            <artifactId>lance-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.substrait</groupId>
+            <artifactId>core</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.hamcrest</groupId>
             <artifactId>hamcrest</artifactId>
         </dependency>

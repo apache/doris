@@ -114,6 +114,8 @@ const char* file_format_name(FileFormat format) {
         return "ARROW";
     case FileFormat::WAL:
         return "WAL";
+    case FileFormat::LANCE:
+        return "LANCE";
     }
     return "UNKNOWN";
 }

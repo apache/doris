@@ -80,6 +80,7 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
+#include "format_v2/table/lance_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -863,6 +864,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         constexpr size_t fetch_schema_batch_size = 4064;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
+        std::vector<std::string> col_names;
+        std::vector<DataTypePtr> col_types;
         switch (params.format_type) {
         case TFileFormatType::FORMAT_CSV_PLAIN:
         case TFileFormatType::FORMAT_CSV_GZ:
@@ -904,6 +907,33 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             reader = AvroJNIReader::create_unique(profile.get(), params, range, file_slots);
             break;
         }
+        case TFileFormatType::FORMAT_LANCE: {
+            auto lance_reader = std::make_unique<format::lance::LanceTableReader>();
+            st = lance_reader->fetch_schema(range, params, &col_names, &col_types);
+            if (!st.ok()) {
+                LOG(WARNING) << "fetch Lance table schema failed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+            DORIS_CHECK_EQ(col_names.size(), col_types.size());
+            result->set_column_nums(col_names.size());
+            for (const auto& col_name : col_names) {
+                result->add_column_names(col_name);
+            }
+            for (const auto& col_type : col_types) {
+                DORIS_CHECK(col_type != nullptr);
+                PTypeDesc* type_desc = result->add_column_types();
+                if (col_type->get_primitive_type() == INVALID_TYPE) {
+                    PTypeNode* node = type_desc->add_types();
+                    node->set_type(TTypeNodeType::SCALAR);
+                    node->mutable_scalar_type()->set_type(TPrimitiveType::UNSUPPORTED);
+                } else {
+                    col_type->to_protobuf(type_desc);
+                }
+            }
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
@@ -921,8 +951,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             st.to_protobuf(result->mutable_status());
             return;
         }
-        std::vector<std::string> col_names;
-        std::vector<DataTypePtr> col_types;
         st = reader->get_parsed_schema(&col_names, &col_types);
         if (!st.ok()) {
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;

@@ -92,6 +92,8 @@ std::string file_format_to_string(FileFormat format) {
         return "ARROW";
     case FileFormat::WAL:
         return "WAL";
+    case FileFormat::LANCE:
+        return "LANCE";
     }
     return "UNKNOWN";
 }

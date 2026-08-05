@@ -60,6 +60,7 @@
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
 #include "format_v2/table/iceberg_reader.h"
+#include "format_v2/table/lance_reader.h"
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table/remote_doris_reader.h"
 #include "format_v2/table_reader.h"
@@ -128,6 +129,10 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
 
 bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
     return table_format_name(range) == "remote_doris";
+}
+
+bool is_supported_lance_table_format(const TFileRangeDesc& range) {
+    return table_format_name(range) == "lance";
 }
 
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
@@ -343,6 +348,8 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
         return is_supported_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_ARROW) {
         return is_supported_arrow_table_format(range);
+    } else if (format_type == TFileFormatType::FORMAT_LANCE) {
+        return is_supported_lance_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
         return is_supported_jni_table_format(range);
     } else if (is_wal_format(format_type)) {
@@ -653,6 +660,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         } else {
             *reader = std::make_unique<format::iceberg::IcebergTableReader>();
         }
+    } else if (table_format == "lance") {
+        *reader = std::make_unique<format::lance::LanceTableReader>();
     } else if (table_format == "paimon") {
         *reader = std::make_unique<format::paimon::PaimonHybridReader>();
     } else if (table_format == "hudi") {
@@ -934,6 +943,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_WAL:
         *file_format = format::FileFormat::WAL;
+        return Status::OK();
+    case TFileFormatType::FORMAT_LANCE:
+        *file_format = format::FileFormat::LANCE;
         return Status::OK();
     default:
         return Status::NotSupported("FileScannerV2 does not support file format {}",

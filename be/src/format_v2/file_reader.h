@@ -58,6 +58,7 @@ enum class FileFormat {
     NATIVE,
     ARROW,
     WAL,
+    LANCE,
 };
 
 struct FileScanRequest {

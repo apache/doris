@@ -154,6 +154,7 @@ iceberg_rest_uri_port_gcs=19185
 iceberg_rest_uri_port_hdfs=19186
 iceberg_rest_hdfs_port=20020
 iceberg_minio_port=19001
+lance_rest_port=19102
 enableIcebergTest=true
 
 // polaris rest catalog config

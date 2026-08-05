@@ -52,6 +52,7 @@ public class MetastoreProperties extends ConnectionProperties {
         DATAPROC("dataproc"),
         FILE_SYSTEM("filesystem", "hadoop"),
         TRINO_CONNECTOR("trino-connector"),
+        LANCE("lance"),
         UNKNOWN();
 
         private final Set<String> aliases;
@@ -87,6 +88,7 @@ public class MetastoreProperties extends ConnectionProperties {
         register(Type.ICEBERG, new IcebergPropertiesFactory());
         register(Type.PAIMON, new PaimonPropertiesFactory());
         register(Type.TRINO_CONNECTOR, new TrinoConnectorPropertiesFactory());
+        register(Type.LANCE, props -> new MetastoreProperties(Type.LANCE, props));
     }
 
     public static void register(Type type, MetastorePropertiesFactory factory) {
