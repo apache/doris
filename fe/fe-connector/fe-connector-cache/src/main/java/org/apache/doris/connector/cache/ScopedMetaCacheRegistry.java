@@ -151,16 +151,12 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         Objects.requireNonNull(path, "path can not be null");
         while (true) {
             checkOpen();
-            List<ScopeNode> nodes = resolveOrCreate(path);
-            nodes.forEach(node -> {
-                node.activeLoads.incrementAndGet();
-                retainedActiveLoads.incrementAndGet(node.level.ordinal());
-            });
-            ScopeSnapshot snapshot = ScopeSnapshot.capture(path, nodes);
+            ScopeSnapshot snapshot = resolveOrCreateSnapshot(path);
+            retain(snapshot);
             if (snapshot.isCurrent(this)) {
                 return new ScopeLease(this, snapshot);
             }
-            release(nodes);
+            release(snapshot);
         }
     }
 
@@ -180,7 +176,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
 
     void unregister(CacheAddress address, Object versionedValue, ScopeSnapshot snapshot) {
         snapshot.leafState().entries.remove(address, versionedValue);
-        tryPrune(snapshot.nodes);
+        tryPrune(snapshot);
     }
 
     private ScopeState replaceState(ScopeNode node) {
@@ -193,28 +189,25 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         }
     }
 
-    private List<ScopeNode> resolveOrCreate(ScopePath path) {
-        List<ScopeNode> nodes = new ArrayList<>(path.level().ordinal() + 1);
+    private ScopeSnapshot resolveOrCreateSnapshot(ScopePath path) {
         ScopeNode catalogNode = root;
-        nodes.add(catalogNode);
         if (path.level() == ScopePath.Level.CATALOG) {
-            return nodes;
+            return ScopeSnapshot.capture(path, catalogNode, null, null, null);
         }
         ScopeState catalogState = catalogNode.current.get();
         ScopeNode dbNode = child(catalogNode, catalogState, path.database(), ScopePath.Level.DATABASE);
-        nodes.add(dbNode);
         if (path.level() == ScopePath.Level.DATABASE) {
-            return nodes;
+            return ScopeSnapshot.capture(path, catalogNode, dbNode, null, null);
         }
         ScopeState dbState = dbNode.current.get();
         ScopeNode tableNode = child(dbNode, dbState, path.table(), ScopePath.Level.TABLE);
-        nodes.add(tableNode);
         if (path.level() == ScopePath.Level.TABLE) {
-            return nodes;
+            return ScopeSnapshot.capture(path, catalogNode, dbNode, tableNode, null);
         }
         ScopeState tableState = tableNode.current.get();
-        nodes.add(child(tableNode, tableState, path.partition(), ScopePath.Level.PARTITION));
-        return nodes;
+        ScopeNode partitionNode = child(
+                tableNode, tableState, path.partition(), ScopePath.Level.PARTITION);
+        return ScopeSnapshot.capture(path, catalogNode, dbNode, tableNode, partitionNode);
     }
 
     private List<ScopeNode> resolveExisting(ScopePath path) {
@@ -268,30 +261,72 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
 
     private void cleanDetachedState(ScopeState state) {
         state.entries.forEach((address, value) -> {
-            address.removeExpected(value);
-            state.entries.remove(address, value);
+            if (state.entries.remove(address, value)) {
+                address.removeExpected(value);
+            }
         });
         state.children.values().forEach(child -> cleanDetachedState(child.current.get()));
         state.children.clear();
     }
 
-    private void release(List<ScopeNode> nodes) {
-        nodes.forEach(node -> {
-            int remaining = node.activeLoads.decrementAndGet();
-            int retainedRemaining = retainedActiveLoads.decrementAndGet(node.level.ordinal());
-            if (remaining < 0) {
-                throw new IllegalStateException("Scope active-load count became negative");
-            }
-            if (retainedRemaining < 0) {
-                throw new IllegalStateException("Retained scope active-load count became negative");
-            }
-        });
-        tryPrune(nodes);
+    private void retain(ScopeSnapshot snapshot) {
+        retain(snapshot.catalogNode);
+        if (snapshot.databaseNode != null) {
+            retain(snapshot.databaseNode);
+        }
+        if (snapshot.tableNode != null) {
+            retain(snapshot.tableNode);
+        }
+        if (snapshot.partitionNode != null) {
+            retain(snapshot.partitionNode);
+        }
+    }
+
+    private void retain(ScopeNode node) {
+        node.activeLoads.incrementAndGet();
+        retainedActiveLoads.incrementAndGet(node.level.ordinal());
+    }
+
+    private void release(ScopeSnapshot snapshot) {
+        release(snapshot.catalogNode);
+        if (snapshot.databaseNode != null) {
+            release(snapshot.databaseNode);
+        }
+        if (snapshot.tableNode != null) {
+            release(snapshot.tableNode);
+        }
+        if (snapshot.partitionNode != null) {
+            release(snapshot.partitionNode);
+        }
+        tryPrune(snapshot);
+    }
+
+    private void release(ScopeNode node) {
+        int remaining = node.activeLoads.decrementAndGet();
+        int retainedRemaining = retainedActiveLoads.decrementAndGet(node.level.ordinal());
+        if (remaining < 0) {
+            throw new IllegalStateException("Scope active-load count became negative");
+        }
+        if (retainedRemaining < 0) {
+            throw new IllegalStateException("Retained scope active-load count became negative");
+        }
     }
 
     private void tryPrune(List<ScopeNode> nodes) {
         for (int i = nodes.size() - 1; i > 0; i--) {
             tryPrune(nodes.get(i));
+        }
+    }
+
+    private void tryPrune(ScopeSnapshot snapshot) {
+        if (snapshot.partitionNode != null) {
+            tryPrune(snapshot.partitionNode);
+        }
+        if (snapshot.tableNode != null) {
+            tryPrune(snapshot.tableNode);
+        }
+        if (snapshot.databaseNode != null) {
+            tryPrune(snapshot.databaseNode);
         }
     }
 
@@ -389,44 +424,131 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         @Override
         public void close() {
             if (released.compareAndSet(false, true)) {
-                registry.release(snapshot.nodes);
+                registry.release(snapshot);
             }
         }
     }
 
     static final class ScopeSnapshot {
         private final ScopePath path;
-        private final List<ScopeNode> nodes;
-        private final List<ScopeState> states;
+        private final ScopeNode catalogNode;
+        private final ScopeState catalogState;
+        private final ScopeNode databaseNode;
+        private final ScopeState databaseState;
+        private final ScopeNode tableNode;
+        private final ScopeState tableState;
+        private final ScopeNode partitionNode;
+        private final ScopeState partitionState;
+        private final int generationHashCode;
 
-        private ScopeSnapshot(ScopePath path, List<ScopeNode> nodes, List<ScopeState> states) {
+        private ScopeSnapshot(
+                ScopePath path,
+                ScopeNode catalogNode,
+                ScopeState catalogState,
+                ScopeNode databaseNode,
+                ScopeState databaseState,
+                ScopeNode tableNode,
+                ScopeState tableState,
+                ScopeNode partitionNode,
+                ScopeState partitionState) {
             this.path = path;
-            this.nodes = Collections.unmodifiableList(new ArrayList<>(nodes));
-            this.states = Collections.unmodifiableList(states);
+            this.catalogNode = catalogNode;
+            this.catalogState = catalogState;
+            this.databaseNode = databaseNode;
+            this.databaseState = databaseState;
+            this.tableNode = tableNode;
+            this.tableState = tableState;
+            this.partitionNode = partitionNode;
+            this.partitionState = partitionState;
+            int hashCode = generationHashCode(1, catalogNode, catalogState);
+            if (databaseNode != null) {
+                hashCode = generationHashCode(hashCode, databaseNode, databaseState);
+            }
+            if (tableNode != null) {
+                hashCode = generationHashCode(hashCode, tableNode, tableState);
+            }
+            if (partitionNode != null) {
+                hashCode = generationHashCode(hashCode, partitionNode, partitionState);
+            }
+            this.generationHashCode = hashCode;
         }
 
-        static ScopeSnapshot capture(ScopePath path, List<ScopeNode> nodes) {
-            List<ScopeState> states = new ArrayList<>(nodes.size());
-            nodes.forEach(node -> states.add(node.current.get()));
-            return new ScopeSnapshot(path, nodes, states);
+        static ScopeSnapshot capture(
+                ScopePath path,
+                ScopeNode catalogNode,
+                ScopeNode databaseNode,
+                ScopeNode tableNode,
+                ScopeNode partitionNode) {
+            ScopeState catalogState = catalogNode.current.get();
+            ScopeState databaseState = databaseNode == null ? null : databaseNode.current.get();
+            ScopeState tableState = tableNode == null ? null : tableNode.current.get();
+            ScopeState partitionState = partitionNode == null ? null : partitionNode.current.get();
+            ScopeState leafState = partitionState != null
+                    ? partitionState
+                    : tableState != null ? tableState : databaseState != null ? databaseState : catalogState;
+            ScopeSnapshot currentSnapshot = leafState.scopeSnapshot;
+            if (currentSnapshot != null && currentSnapshot.matches(
+                    catalogNode,
+                    catalogState,
+                    databaseNode,
+                    databaseState,
+                    tableNode,
+                    tableState,
+                    partitionNode,
+                    partitionState)) {
+                return currentSnapshot;
+            }
+            synchronized (leafState) {
+                currentSnapshot = leafState.scopeSnapshot;
+                if (currentSnapshot == null || !currentSnapshot.matches(
+                        catalogNode,
+                        catalogState,
+                        databaseNode,
+                        databaseState,
+                        tableNode,
+                        tableState,
+                        partitionNode,
+                        partitionState)) {
+                    currentSnapshot = new ScopeSnapshot(
+                            path,
+                            catalogNode,
+                            catalogState,
+                            databaseNode,
+                            databaseState,
+                            tableNode,
+                            tableState,
+                            partitionNode,
+                            partitionState);
+                    leafState.scopeSnapshot = currentSnapshot;
+                }
+                return currentSnapshot;
+            }
         }
 
         boolean isCurrent(ScopedMetaCacheRegistry registry) {
-            if (registry.closed.get() || registry.root != nodes.get(0)
-                    || registry.root.current.get() != states.get(0)) {
+            if (registry.closed.get() || registry.root != catalogNode
+                    || catalogNode.current.get() != catalogState) {
                 return false;
             }
-            for (int i = 1; i < nodes.size(); i++) {
-                ScopeNode parent = nodes.get(i - 1);
-                ScopeNode node = nodes.get(i);
-                ScopeState parentState = states.get(i - 1);
-                if (parent.current.get() != parentState
-                        || parentState.children.get(node.childKey) != node
-                        || node.current.get() != states.get(i)) {
-                    return false;
-                }
+            if (databaseNode == null) {
+                return true;
             }
-            return true;
+            if (catalogState.children.get(databaseNode.childKey) != databaseNode
+                    || databaseNode.current.get() != databaseState) {
+                return false;
+            }
+            if (tableNode == null) {
+                return true;
+            }
+            if (databaseState.children.get(tableNode.childKey) != tableNode
+                    || tableNode.current.get() != tableState) {
+                return false;
+            }
+            if (partitionNode == null) {
+                return true;
+            }
+            return tableState.children.get(partitionNode.childKey) == partitionNode
+                    && partitionNode.current.get() == partitionState;
         }
 
         ScopePath path() {
@@ -434,32 +556,70 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         }
 
         ScopeNode leafNode() {
-            return nodes.get(nodes.size() - 1);
+            if (partitionNode != null) {
+                return partitionNode;
+            }
+            if (tableNode != null) {
+                return tableNode;
+            }
+            if (databaseNode != null) {
+                return databaseNode;
+            }
+            return catalogNode;
         }
 
         ScopeState leafState() {
-            return states.get(states.size() - 1);
+            if (partitionState != null) {
+                return partitionState;
+            }
+            if (tableState != null) {
+                return tableState;
+            }
+            if (databaseState != null) {
+                return databaseState;
+            }
+            return catalogState;
         }
 
         boolean sameGeneration(ScopeSnapshot other) {
-            if (nodes.size() != other.nodes.size()) {
-                return false;
-            }
-            for (int i = 0; i < nodes.size(); i++) {
-                if (nodes.get(i) != other.nodes.get(i) || states.get(i) != other.states.get(i)) {
-                    return false;
-                }
-            }
-            return true;
+            return matches(
+                    other.catalogNode,
+                    other.catalogState,
+                    other.databaseNode,
+                    other.databaseState,
+                    other.tableNode,
+                    other.tableState,
+                    other.partitionNode,
+                    other.partitionState);
         }
 
         int generationHashCode() {
-            int result = 1;
-            for (int i = 0; i < nodes.size(); i++) {
-                result = 31 * result + System.identityHashCode(nodes.get(i));
-                result = 31 * result + System.identityHashCode(states.get(i));
-            }
-            return result;
+            return generationHashCode;
+        }
+
+        private static int generationHashCode(
+                int currentHashCode, ScopeNode node, ScopeState state) {
+            int hashCode = 31 * currentHashCode + System.identityHashCode(node);
+            return 31 * hashCode + System.identityHashCode(state);
+        }
+
+        private boolean matches(
+                ScopeNode expectedCatalogNode,
+                ScopeState expectedCatalogState,
+                ScopeNode expectedDatabaseNode,
+                ScopeState expectedDatabaseState,
+                ScopeNode expectedTableNode,
+                ScopeState expectedTableState,
+                ScopeNode expectedPartitionNode,
+                ScopeState expectedPartitionState) {
+            return catalogNode == expectedCatalogNode
+                    && catalogState == expectedCatalogState
+                    && databaseNode == expectedDatabaseNode
+                    && databaseState == expectedDatabaseState
+                    && tableNode == expectedTableNode
+                    && tableState == expectedTableState
+                    && partitionNode == expectedPartitionNode
+                    && partitionState == expectedPartitionState;
         }
     }
 
@@ -518,6 +678,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         private final long generation;
         private final ConcurrentMap<Object, ScopeNode> children = new ConcurrentHashMap<>();
         private final ConcurrentMap<CacheAddress, Object> entries = new ConcurrentHashMap<>();
+        private volatile ScopeSnapshot scopeSnapshot;
 
         private ScopeState(long generation) {
             this.generation = generation;

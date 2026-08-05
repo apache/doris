@@ -170,9 +170,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         if (!versioned.scopeSnapshot.path().equals(path)) {
             return null;
         }
-        if (!versioned.committed.get()) {
-            return null;
-        }
         if (!versioned.isCurrent(registry, keyNodes)) {
             data.asMap().remove(key, versioned);
             return null;
@@ -279,10 +276,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, actualScope, false)) {
             synchronized (lease.keyNode) {
-                if (!handle.canStage(key)) {
-                    return false;
-                }
-                lease.keyNode.loadPublicationState.set(new Object());
                 VersionedValue<K, V> staged = newVersionedValue(lease, key, value);
                 afterBulkStage.run();
                 if (handle.tryCommit(key, lease, staged)) {
@@ -354,7 +347,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return null;
         }
         VersionedValue<K, V> versioned = newVersionedValue(lease, key, value);
-        versioned.committed.set(true);
         install(versioned, lease);
         if (!lease.isCurrent()) {
             data.asMap().remove(key, versioned);
@@ -381,12 +373,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         data.asMap().put(versioned.key, versioned);
     }
 
-    private boolean canStageBulk(BulkLoadHandle handle, Object rawKey) {
-        synchronized (bulkInvalidationLock) {
-            return isBulkKeyCurrent(handle, rawKey);
-        }
-    }
-
     private boolean tryCommitBulk(
             BulkLoadHandle handle,
             Object rawKey,
@@ -407,7 +393,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                         if (!lease.isCurrent()) {
                             return false;
                         }
-                        staged.committed.set(true);
+                        lease.keyNode.loadPublicationState.set(new Object());
                         install(staged, lease);
                         return true;
                     });
@@ -569,10 +555,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             }
         }
 
-        private boolean canStage(Object key) {
-            return owner.canStageBulk(this, key);
-        }
-
         private boolean tryCommit(
                 Object key, PublicationLease<?, ?> lease, VersionedValue<?, ?> staged) {
             return owner.tryCommitBulk(this, key, lease, staged);
@@ -674,7 +656,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final ScopeSnapshot scopeSnapshot;
         private final KeyNode<K, V> keyNode;
         private final KeyState keyState;
-        private final AtomicBoolean committed = new AtomicBoolean(false);
 
         private VersionedValue(
                 K key,
@@ -697,8 +678,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return scopeSnapshot.isCurrent(registry)
                     && currentKeyNodes.get(key) == keyNode
                     && keyNode.current.get() == keyState
-                    && keyNode.registration.get() == this
-                    && committed.get();
+                    && keyNode.registration.get() == this;
         }
     }
 
@@ -719,6 +699,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final KeyNode<?, ?> keyNode;
         private final KeyState keyState;
         private final Object loadPublicationState;
+        private final int hashCode;
 
         private LoadAddress(K key, ScopePath path, PublicationLease<K, ?> lease) {
             this.key = key;
@@ -727,6 +708,11 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             this.keyNode = lease.keyNode;
             this.keyState = lease.keyState;
             this.loadPublicationState = lease.loadPublicationState;
+            int addressHashCode = 31 * key.hashCode() + path.hashCode();
+            addressHashCode = 31 * addressHashCode + scopeSnapshot.generationHashCode();
+            addressHashCode = 31 * addressHashCode + System.identityHashCode(keyNode);
+            addressHashCode = 31 * addressHashCode + System.identityHashCode(keyState);
+            this.hashCode = 31 * addressHashCode + System.identityHashCode(loadPublicationState);
         }
 
         @Override
@@ -748,11 +734,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
         @Override
         public int hashCode() {
-            int result = 31 * key.hashCode() + path.hashCode();
-            result = 31 * result + scopeSnapshot.generationHashCode();
-            result = 31 * result + System.identityHashCode(keyNode);
-            result = 31 * result + System.identityHashCode(keyState);
-            return 31 * result + System.identityHashCode(loadPublicationState);
+            return hashCode;
         }
     }
 }
