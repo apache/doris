@@ -22,8 +22,8 @@ import org.apache.doris.connector.spi.ConnectorContext;
 
 /**
  * Property key constants for Paimon connector configuration, plus the accessors that read this
- * connector's deployment-level settings (same shape as {@code HiveConnectorProperties.getInt} /
- * {@code JdbcConnectorProperties.getInt}). Where a Doris-facing property accepts multiple
+ * connector's deployment-level settings (same shape as
+ * {@code HiveConnectorProperties.getInt}). Where a Doris-facing property accepts multiple
  * aliases (matching the legacy fe-core {@code @ConnectorProperty(names = {...})}
  * declarations), the aliases are exposed as a {@code String[]} in alias-priority
  * order so {@link PaimonCatalogFactory} can resolve them with

@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -153,34 +152,26 @@ public class JdbcUrlNormalizerTest {
         // trusted: an administrator who turns the override on in jdbc.conf must not be silently
         // overruled by fe.conf's default, and vice versa an untouched deployment must keep reading
         // fe.conf exactly as before.
-        Assertions.assertEquals("true", ConnectorConf.get(
-                context(Map.of(JdbcConnectorProperties.CONF_FORCE_SQLSERVER_ENCRYPT_FALSE, "true"),
-                        Map.of(JdbcConnectorProperties.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE, "false")),
-                JdbcConnectorProperties.CONF_FORCE_SQLSERVER_ENCRYPT_FALSE,
-                JdbcConnectorProperties.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE, "false"));
+        Assertions.assertTrue(JdbcConf.forceSqlServerEncryptFalse(
+                context(Map.of(JdbcConf.CONF_FORCE_SQLSERVER_ENCRYPT_FALSE, "true"),
+                        Map.of(JdbcConf.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE, "false"))));
 
-        Assertions.assertEquals("true", ConnectorConf.get(
-                context(Map.of(), Map.of(JdbcConnectorProperties.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE, "true")),
-                JdbcConnectorProperties.CONF_FORCE_SQLSERVER_ENCRYPT_FALSE,
-                JdbcConnectorProperties.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE, "false"));
+        Assertions.assertTrue(JdbcConf.forceSqlServerEncryptFalse(
+                context(Map.of(), Map.of(JdbcConf.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE, "true"))));
 
-        Assertions.assertEquals("false", ConnectorConf.get(context(Map.of(), Map.of()),
-                JdbcConnectorProperties.CONF_FORCE_SQLSERVER_ENCRYPT_FALSE,
-                JdbcConnectorProperties.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE, "false"));
+        Assertions.assertFalse(JdbcConf.forceSqlServerEncryptFalse(context(Map.of(), Map.of())));
     }
 
     @Test
     void theDriversDirIsReadFromThePluginConfFirstThenFeConf() {
-        Assertions.assertEquals("/from/plugin/conf", ConnectorConf.get(
-                context(Map.of(JdbcConnectorProperties.CONF_DRIVERS_DIR, "/from/plugin/conf"),
-                        Map.of(JdbcConnectorProperties.ENV_DRIVERS_DIR, "/from/fe/conf")),
-                JdbcConnectorProperties.CONF_DRIVERS_DIR,
-                JdbcConnectorProperties.ENV_DRIVERS_DIR, null));
+        // Through JdbcConf, which is what the connector calls: asserting on ConnectorConf.get with
+        // hand-passed keys would only prove what this test passed it.
+        Assertions.assertEquals("/from/plugin/conf", JdbcConf.driversDir(
+                context(Map.of(JdbcConf.CONF_DRIVERS_DIR, "/from/plugin/conf"),
+                        Map.of(JdbcConf.ENV_DRIVERS_DIR, "/from/fe/conf"))));
 
-        Assertions.assertEquals("/from/fe/conf", ConnectorConf.get(
-                context(Map.of(), Map.of(JdbcConnectorProperties.ENV_DRIVERS_DIR, "/from/fe/conf")),
-                JdbcConnectorProperties.CONF_DRIVERS_DIR,
-                JdbcConnectorProperties.ENV_DRIVERS_DIR, null));
+        Assertions.assertEquals("/from/fe/conf", JdbcConf.driversDir(
+                context(Map.of(), Map.of(JdbcConf.ENV_DRIVERS_DIR, "/from/fe/conf"))));
     }
 
     @Test
