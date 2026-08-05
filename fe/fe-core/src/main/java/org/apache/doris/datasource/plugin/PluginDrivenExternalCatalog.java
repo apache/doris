@@ -1513,21 +1513,29 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         try {
             context.close();
-        } catch (IOException e) {
+        } catch (Throwable e) {
             LOG.warn("Failed to close connector context filesystem for catalog {}", name, e);
         }
     }
 
     @Override
-    public void onClose() {
-        super.onClose();
-        if (connector != null) {
+    protected void closeResources() {
+        try {
+            super.closeResources();
+        } catch (Throwable e) {
+            LOG.warn("Failed to close common resources for plugin-driven catalog {}", name, e);
+        }
+
+        // Detach every stage before invoking external code. A throwing connector must not remain reachable
+        // for another close attempt or prevent the connector-context stage from running.
+        Connector connectorToClose = connector;
+        connector = null;
+        if (connectorToClose != null) {
             try {
-                connector.close();
-            } catch (IOException e) {
+                connectorToClose.close();
+            } catch (Throwable e) {
                 LOG.warn("Failed to close connector for catalog {}", name, e);
             }
-            connector = null;
         }
         // Close the shared context's cached engine FileSystem AFTER the connector(s) release their borrowed
         // reference to it. No-op when no FS was ever built (e.g. non-hive plugin catalogs never call

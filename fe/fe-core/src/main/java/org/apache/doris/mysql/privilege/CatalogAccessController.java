@@ -26,6 +26,9 @@ import java.util.Optional;
 import java.util.Set;
 
 public interface CatalogAccessController {
+    default void close() {
+    }
+
     // ==== Catalog ====
     default boolean checkCtlPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         if (hasGlobal) {
