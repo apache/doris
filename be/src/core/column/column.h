@@ -47,6 +47,7 @@ namespace doris {
 
 class Arena;
 class ColumnSorter;
+class HybridSorter;
 
 using EqualFlags = std::vector<uint8_t>;
 using EqualRange = std::pair<int, int>;
@@ -514,11 +515,10 @@ public:
     }
 
 #ifdef BE_TEST
+    // Defined in column.cpp: constructs a HybridSorter, which is only
+    // forward-declared here to keep exec/sort out of column.h's closure.
     void get_permutation_default(bool reverse, size_t limit, int nan_direction_hint,
-                                 Permutation& res) const {
-        HybridSorter sorter;
-        get_permutation(reverse, limit, nan_direction_hint, sorter, res);
-    }
+                                 Permutation& res) const;
 #endif
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
