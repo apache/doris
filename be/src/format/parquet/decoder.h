@@ -38,7 +38,6 @@
 #include "core/pod_array_fwd.h"
 #include "core/types.h"
 #include "format/parquet/parquet_common.h"
-#include "util/rle_encoding.h"
 #include "util/slice.h"
 
 namespace doris {
