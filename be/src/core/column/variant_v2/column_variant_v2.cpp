@@ -704,19 +704,7 @@ const ColumnVariantV2& ColumnVariantV2::serialization_column() const {
 
 void ColumnVariantV2::ensure_encoded() {
     if (_shredded) {
-        const ColumnVariantV2& materialized = _shredded->materialized_column();
-        DORIS_CHECK(!materialized.is_shredded())
-                << "shredded state materializer returned another shredded column";
-        // The shredded state may cache and share its canonical materialization across readers.
-        // Detach every mutable buffer before dropping that owner so later COW mutations stay legal.
-        _metadatas = materialized._metadatas->clone_resized(materialized._metadatas->size());
-        _meta_ids = materialized._meta_ids->clone_resized(materialized._meta_ids->size());
-        _values = materialized._values->clone_resized(materialized._values->size());
-        _typed = materialized._typed == nullptr
-                         ? nullptr
-                         : materialized._typed->clone_resized(materialized._typed->size());
-        _typed_type = materialized._typed_type;
-        _shredded.reset();
+        _replace_shredded_state_with(_shredded->materialized_column());
     }
     if (!_typed) {
         DCHECK(_typed_type == nullptr);
@@ -739,6 +727,12 @@ void ColumnVariantV2::ensure_encoded() {
     static_cast<IColumn::Ptr&>(_typed).reset();
     _typed_type.reset();
     _check_invariants();
+}
+
+void ColumnVariantV2::_ensure_serialized() {
+    if (_shredded) {
+        _replace_shredded_state_with(_shredded->serialized_column());
+    }
 }
 
 std::string ColumnVariantV2::get_name() const {
@@ -1129,10 +1123,12 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
         }
     }
     if (_shredded) {
-        ensure_encoded();
+        // A merging exchange can combine a local projected state with its remotely serialized
+        // peer. Use the wire representation so omitted roots are never requested from either side.
+        _ensure_serialized();
     }
     if (source._shredded) {
-        insert_range_from(source._shredded->materialized_column(), start, length);
+        insert_range_from(source.serialization_column(), start, length);
         return;
     }
 
@@ -1245,10 +1241,11 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
         }
     }
     if (_shredded) {
-        ensure_encoded();
+        // Indexed gathers have the same local/remote representation boundary as range gathers.
+        _ensure_serialized();
     }
     if (source._shredded) {
-        insert_indices_from(source._shredded->materialized_column(), indices_begin, indices_end);
+        insert_indices_from(source.serialization_column(), indices_begin, indices_end);
         return;
     }
 
@@ -1787,7 +1784,18 @@ MutableColumnPtr ColumnVariantV2::clone_resized(size_t new_size) const {
 
 void ColumnVariantV2::resize(size_t new_size) {
     const size_t old_size = size();
-    if (_shredded && new_size != old_size) {
+    if (_shredded && new_size < old_size) {
+        // LIMIT truncation only selects existing rows, so keep it physical: projected states may
+        // omit roots that cannot be reconstructed merely to reduce the row count.
+        if (new_size == 0) {
+            _shredded.reset();
+        } else {
+            _shredded = _shredded->select_range(0, new_size);
+        }
+        _check_invariants();
+        return;
+    }
+    if (_shredded && new_size > old_size) {
         ensure_encoded();
     }
     if (_typed) {
@@ -1843,6 +1851,25 @@ uint32_t ColumnVariantV2::_find_or_insert_metadata(StringRef metadata) {
     const auto id = static_cast<uint32_t>(metadatas.size());
     metadatas.insert_data(metadata.data, metadata.size);
     return id;
+}
+
+void ColumnVariantV2::_replace_shredded_state_with(const ColumnVariantV2& replacement) {
+    DORIS_CHECK(_shredded != nullptr) << "replacing shredded state requires a shredded destination";
+    DORIS_CHECK(!replacement.is_shredded())
+            << "shredded state replacement must be a non-shredded column";
+    DORIS_CHECK_EQ(replacement.size(), size())
+            << "shredded state replacement changed the row count";
+    // Format states cache and share materialized columns. Detach every mutable buffer before
+    // dropping the state owner so later COW mutations cannot modify a cached representation.
+    _metadatas = replacement._metadatas->clone_resized(replacement._metadatas->size());
+    _meta_ids = replacement._meta_ids->clone_resized(replacement._meta_ids->size());
+    _values = replacement._values->clone_resized(replacement._values->size());
+    _typed = replacement._typed == nullptr
+                     ? nullptr
+                     : replacement._typed->clone_resized(replacement._typed->size());
+    _typed_type = replacement._typed_type;
+    _shredded.reset();
+    _check_invariants();
 }
 
 void ColumnVariantV2::_adopt_state_from(ColumnVariantV2& replacement) {

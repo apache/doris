@@ -250,6 +250,8 @@ private:
     ColumnVariantV2(const ColumnVariantV2& other);
 
     uint32_t _find_or_insert_metadata(StringRef metadata);
+    void _replace_shredded_state_with(const ColumnVariantV2& replacement);
+    void _ensure_serialized();
     void _adopt_state_from(ColumnVariantV2& replacement);
     void _detach_metadata_for_write();
     void _check_invariants() const;

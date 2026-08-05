@@ -660,31 +660,51 @@ public class AppendVariantEqualityDelete {
         WHERE v['shared'] >= 20
         ORDER BY id
     """
-    sql "set enable_two_phase_read_opt=true"
-    sql "set topn_opt_limit_threshold=1024"
-    sql "set topn_lazy_materialization_threshold=-1"
-    // Keep only a mapper-eligible top-level path above forced two-phase TopN. The local row
-    // selection and the following exchange must both retain the projected shredded state.
+    // The stable snapshot contributes a genuinely shredded file, while the appended file uses
+    // the unshredded fallback. More than four rows qualify, forcing local TopN overshoot to be
+    // truncated after the merge exchange while the mapper-eligible projected path crosses the wire.
     explain {
         sql """
-            SELECT id, CAST(projected['shared'] AS INT)
+            SELECT id, CAST(projected['n'] AS INT)
             FROM (
                 SELECT id, v AS projected
-                FROM variant_multi_file
-                WHERE v['shared'] >= 20
+                FROM variant_page_pruning FOR VERSION AS OF ${mixedBeforeDeleteSnapshot}
+                WHERE CAST(v['n'] AS INT) > 3000
                 ORDER BY id DESC
                 LIMIT 4
             ) gathered
         """
-        contains "OPT TWO PHASE"
+        contains "VMERGING-EXCHANGE"
+        contains "inputSplitNum=2"
+        contains "all access paths: [v(2).n]"
     }
-    order_qt_variant_projected_remote_gather """
-        SELECT id,
-               CAST(projected['shared'] AS INT)
+    String projectedGatherToken =
+            "iceberg_variant_projected_remote_gather_" + UUID.randomUUID().toString()
+    List<List<Object>> projectedGatherRows = sql """
+        SELECT '${projectedGatherToken}', id, CAST(projected['n'] AS INT)
         FROM (
             SELECT id, v AS projected
-            FROM variant_multi_file
-            WHERE v['shared'] >= 20
+            FROM variant_page_pruning FOR VERSION AS OF ${mixedBeforeDeleteSnapshot}
+            WHERE CAST(v['n'] AS INT) > 3000
+            ORDER BY id DESC
+            LIMIT 4
+        ) gathered
+        ORDER BY id
+    """
+    assertEquals(4, projectedGatherRows.size())
+    String projectedGatherProfile = getProfileByToken(projectedGatherToken,
+            ["VariantLeafProjections", "VariantDirectLeafPathMisses"]).toString()
+    assertTrue(counterSum(projectedGatherProfile, "VariantLeafProjections") > 0,
+            "The projected TopN did not read a physical shredded Variant leaf")
+    assertTrue(counterSum(projectedGatherProfile, "VariantDirectLeafPathMisses") > 0,
+            "The projected TopN did not combine the unshredded fallback file")
+    order_qt_variant_projected_remote_gather """
+        SELECT id,
+               CAST(projected['n'] AS INT)
+        FROM (
+            SELECT id, v AS projected
+            FROM variant_page_pruning FOR VERSION AS OF ${mixedBeforeDeleteSnapshot}
+            WHERE CAST(v['n'] AS INT) > 3000
             ORDER BY id DESC
             LIMIT 4
         ) gathered
