@@ -1803,6 +1803,20 @@ DECLARE_Int64(segment_prefetch_thread_pool_thread_num_min);
 DECLARE_Int64(segment_prefetch_thread_pool_thread_num_max);
 
 DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
+DECLARE_mBool(enable_query_page_prefetch);
+DECLARE_mInt32(query_page_prefetch_window_pages);
+DECLARE_mInt32(query_page_prefetch_min_window_pages);
+DECLARE_mInt32(query_page_prefetch_max_window_pages);
+DECLARE_mInt64(query_page_prefetch_max_gap_bytes);
+DECLARE_mInt64(query_page_prefetch_max_range_bytes);
+DECLARE_mInt32(query_page_prefetch_max_pages_per_range);
+DECLARE_mDouble(query_page_prefetch_max_read_amplification_ratio);
+DECLARE_mInt32(query_page_prefetch_max_inflight_ranges_per_query);
+DECLARE_mInt32(query_page_prefetch_max_inflight_ranges);
+DECLARE_mInt64(query_page_prefetch_max_inflight_bytes_per_query);
+DECLARE_mInt64(query_page_prefetch_max_inflight_bytes_per_be);
+DECLARE_mDouble(query_page_prefetch_writeback_min_block_coverage);
+DECLARE_mBool(enable_query_page_prefetch_adaptive_window);
 // Enable segment file cache block prefetch for query
 DECLARE_mBool(enable_query_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for query

@@ -44,8 +44,7 @@ bool try_add_with_limit(std::atomic<size_t>* current, size_t amount, size_t limi
     DORIS_CHECK(amount > 0);
     size_t observed = current->load(std::memory_order_relaxed);
     while (true) {
-        DORIS_CHECK(observed <= limit);
-        if (amount > limit - observed) {
+        if (observed >= limit || amount > limit - observed) {
             return false;
         }
         if (current->compare_exchange_weak(observed, observed + amount,
@@ -71,16 +70,28 @@ bool weak_ptr_has_owner(const std::weak_ptr<T>& pointer) {
 } // namespace
 
 PagePrefetchGlobalBudget::PagePrefetchGlobalBudget(PagePrefetchBudgetLimits limits)
-        : _limits(limits) {
-    DORIS_CHECK(_limits.max_ranges > 0);
-    DORIS_CHECK(_limits.max_bytes > 0);
+        : _limits(std::make_shared<const PagePrefetchBudgetLimits>(limits)) {
+    DORIS_CHECK(limits.max_ranges > 0);
+    DORIS_CHECK(limits.max_bytes > 0);
+}
+
+void PagePrefetchGlobalBudget::update_limits(PagePrefetchBudgetLimits limits) {
+    DORIS_CHECK(limits.max_ranges > 0);
+    DORIS_CHECK(limits.max_bytes > 0);
+    _limits.store(std::make_shared<const PagePrefetchBudgetLimits>(limits),
+                  std::memory_order_release);
+}
+
+PagePrefetchBudgetLimits PagePrefetchGlobalBudget::limits() const {
+    return *_limits.load(std::memory_order_acquire);
 }
 
 PagePrefetchRejectReason PagePrefetchGlobalBudget::_try_reserve(size_t bytes, bool is_range) {
-    if (is_range && !try_add_with_limit(&_inflight_ranges, 1, _limits.max_ranges)) {
+    const auto limits = _limits.load(std::memory_order_acquire);
+    if (is_range && !try_add_with_limit(&_inflight_ranges, 1, limits->max_ranges)) {
         return PagePrefetchRejectReason::GLOBAL_RANGE_LIMIT;
     }
-    if (!try_add_with_limit(&_resident_bytes, bytes, _limits.max_bytes)) {
+    if (!try_add_with_limit(&_resident_bytes, bytes, limits->max_bytes)) {
         if (is_range) {
             release_counter(&_inflight_ranges, 1);
         }
@@ -100,9 +111,12 @@ void PagePrefetchGlobalBudget::_release(size_t bytes, bool release_range) {
 }
 
 PagePrefetchQueryContext::PagePrefetchQueryContext(PagePrefetchBudgetLimits limits)
-        : _query_id(), _query_ctx(), _tracks_runtime_query(false), _limits(limits) {
-    DORIS_CHECK(_limits.max_ranges > 0);
-    DORIS_CHECK(_limits.max_bytes > 0);
+        : _query_id(),
+          _query_ctx(),
+          _tracks_runtime_query(false),
+          _limits(std::make_shared<const PagePrefetchBudgetLimits>(limits)) {
+    DORIS_CHECK(limits.max_ranges > 0);
+    DORIS_CHECK(limits.max_bytes > 0);
 }
 
 PagePrefetchQueryContext::PagePrefetchQueryContext(TUniqueId query_id,
@@ -111,9 +125,20 @@ PagePrefetchQueryContext::PagePrefetchQueryContext(TUniqueId query_id,
         : _query_id(query_id),
           _query_ctx(std::move(query_ctx)),
           _tracks_runtime_query(weak_ptr_has_owner(_query_ctx)),
-          _limits(limits) {
-    DORIS_CHECK(_limits.max_ranges > 0);
-    DORIS_CHECK(_limits.max_bytes > 0);
+          _limits(std::make_shared<const PagePrefetchBudgetLimits>(limits)) {
+    DORIS_CHECK(limits.max_ranges > 0);
+    DORIS_CHECK(limits.max_bytes > 0);
+}
+
+void PagePrefetchQueryContext::update_limits(PagePrefetchBudgetLimits limits) {
+    DORIS_CHECK(limits.max_ranges > 0);
+    DORIS_CHECK(limits.max_bytes > 0);
+    _limits.store(std::make_shared<const PagePrefetchBudgetLimits>(limits),
+                  std::memory_order_release);
+}
+
+PagePrefetchBudgetLimits PagePrefetchQueryContext::limits() const {
+    return *_limits.load(std::memory_order_acquire);
 }
 
 bool PagePrefetchQueryContext::cancelled() const {
@@ -132,10 +157,11 @@ PagePrefetchRejectReason PagePrefetchQueryContext::_try_reserve(size_t bytes, bo
     if (cancelled()) {
         return PagePrefetchRejectReason::QUERY_CANCELLED;
     }
-    if (is_range && !try_add_with_limit(&_inflight_ranges, 1, _limits.max_ranges)) {
+    const auto limits = _limits.load(std::memory_order_acquire);
+    if (is_range && !try_add_with_limit(&_inflight_ranges, 1, limits->max_ranges)) {
         return PagePrefetchRejectReason::QUERY_RANGE_LIMIT;
     }
-    if (!try_add_with_limit(&_resident_bytes, bytes, _limits.max_bytes)) {
+    if (!try_add_with_limit(&_resident_bytes, bytes, limits->max_bytes)) {
         if (is_range) {
             release_counter(&_inflight_ranges, 1);
         }
@@ -591,15 +617,32 @@ void PagePrefetchSafeIOContext::_rebind_query_id() {
     io_ctx.query_id = query_id_value.has_value() ? &*query_id_value : nullptr;
 }
 
+Status validate_page_prefetch_io_service_options(const PagePrefetchIOServiceOptions& options) {
+    if (options.query_limits.max_ranges == 0 || options.global_limits.max_ranges == 0) {
+        return Status::InvalidArgument("page prefetch inflight range limits must be positive");
+    }
+    if (options.query_limits.max_bytes == 0 || options.global_limits.max_bytes == 0) {
+        return Status::InvalidArgument("page prefetch inflight byte limits must be positive");
+    }
+    if (options.query_limits.max_ranges > options.global_limits.max_ranges) {
+        return Status::InvalidArgument(
+                "page prefetch per-query range limit must not exceed the global limit");
+    }
+    if (options.query_limits.max_bytes > options.global_limits.max_bytes) {
+        return Status::InvalidArgument(
+                "page prefetch per-query byte limit must not exceed the global limit");
+    }
+    return Status::OK();
+}
+
 PagePrefetchIOService::PagePrefetchIOService(ThreadPool* pool, PagePrefetchIOServiceOptions options)
         : _pool(pool),
-          _options(options),
+          _options(std::make_shared<const PagePrefetchIOServiceOptions>(options)),
           _global_budget(std::make_shared<PagePrefetchGlobalBudget>(options.global_limits)),
           _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::CACHE,
                                                         "PagePrefetchBuffer")) {
     DORIS_CHECK(_pool != nullptr);
-    DORIS_CHECK(_options.query_limits.max_ranges > 0);
-    DORIS_CHECK(_options.query_limits.max_bytes > 0);
+    DORIS_CHECK(validate_page_prefetch_io_service_options(options).ok());
 }
 
 PagePrefetchIOService::~PagePrefetchIOService() {
@@ -618,8 +661,9 @@ std::shared_ptr<PagePrefetchQueryContext> PagePrefetchIOService::get_or_create_q
         _query_contexts.erase(existing);
     }
 
+    const auto options = _options.load(std::memory_order_acquire);
     auto context = std::make_shared<PagePrefetchQueryContext>(query_id, std::move(query_ctx),
-                                                              _options.query_limits);
+                                                              options->query_limits);
     if (accepting()) {
         _query_contexts.emplace(query_id, context);
     } else {
@@ -688,6 +732,27 @@ PagePrefetchSubmitResult PagePrefetchIOService::try_submit(
 
     result.range = std::move(range);
     return result;
+}
+
+Status PagePrefetchIOService::update_options(const PagePrefetchIOServiceOptions& options) {
+    RETURN_IF_ERROR(validate_page_prefetch_io_service_options(options));
+    auto next_options = std::make_shared<const PagePrefetchIOServiceOptions>(options);
+    std::lock_guard lock(_query_contexts_mutex);
+    _global_budget->update_limits(options.global_limits);
+    for (auto iterator = _query_contexts.begin(); iterator != _query_contexts.end();) {
+        if (auto context = iterator->second.lock()) {
+            context->update_limits(options.query_limits);
+            ++iterator;
+        } else {
+            iterator = _query_contexts.erase(iterator);
+        }
+    }
+    _options.store(std::move(next_options), std::memory_order_release);
+    return Status::OK();
+}
+
+PagePrefetchIOServiceOptions PagePrefetchIOService::options() const {
+    return *_options.load(std::memory_order_acquire);
 }
 
 void PagePrefetchIOService::shutdown() {

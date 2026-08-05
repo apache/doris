@@ -592,6 +592,64 @@ TEST_F(PagePrefetchIOServiceTest, ReadFailurePublishesStableErrorAndReleasesActi
     service.shutdown();
 }
 
+TEST_F(PagePrefetchIOServiceTest, DynamicLimitsRejectNewReservationsWithoutRevokingExistingOnes) {
+    create_pool(4);
+    PagePrefetchIOService service(_pool.get(), service_options());
+    const TUniqueId query_id = make_query_id(83, 89);
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    auto query_context = service.get_or_create_query_context(query_id, runtime_query_context);
+    PagePrefetchRejectReason reject_reason = PagePrefetchRejectReason::NONE;
+    auto existing = PagePrefetchReservation::try_reserve_writeback(
+            query_context, service.global_budget(), 4096, &reject_reason);
+    ASSERT_TRUE(existing.has_value());
+
+    const PagePrefetchIOServiceOptions reduced_options {
+            .query_limits = {.max_ranges = 2, .max_bytes = 2048},
+            .global_limits = {.max_ranges = 4, .max_bytes = 4096},
+    };
+    ASSERT_TRUE(service.update_options(reduced_options).ok());
+    EXPECT_EQ(service.options().query_limits.max_ranges, 2);
+    EXPECT_EQ(service.options().query_limits.max_bytes, 2048);
+    EXPECT_EQ(service.options().global_limits.max_ranges, 4);
+    EXPECT_EQ(service.options().global_limits.max_bytes, 4096);
+    EXPECT_EQ(query_context->limits().max_ranges, 2);
+    EXPECT_EQ(query_context->limits().max_bytes, 2048);
+    EXPECT_EQ(service.global_budget()->limits().max_ranges, 4);
+    EXPECT_EQ(service.global_budget()->limits().max_bytes, 4096);
+    EXPECT_EQ(query_context->resident_bytes(), 4096);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), 4096);
+
+    auto rejected = PagePrefetchReservation::try_reserve_writeback(
+            query_context, service.global_budget(), 1, &reject_reason);
+    EXPECT_FALSE(rejected.has_value());
+    EXPECT_EQ(reject_reason, PagePrefetchRejectReason::QUERY_BYTE_LIMIT);
+    EXPECT_EQ(query_context->resident_bytes(), 4096);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), 4096);
+
+    existing.reset();
+    auto accepted = PagePrefetchReservation::try_reserve_writeback(
+            query_context, service.global_budget(), 1024, &reject_reason);
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(reject_reason, PagePrefetchRejectReason::NONE);
+
+    const TUniqueId second_query_id = make_query_id(97, 101);
+    auto second_runtime_query_context = MockQueryContext::create(second_query_id);
+    auto second_query_context =
+            service.get_or_create_query_context(second_query_id, second_runtime_query_context);
+    EXPECT_EQ(second_query_context->limits().max_ranges, 2);
+    EXPECT_EQ(second_query_context->limits().max_bytes, 2048);
+
+    auto invalid_options = reduced_options;
+    invalid_options.query_limits.max_ranges = 5;
+    EXPECT_TRUE(service.update_options(invalid_options).is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_EQ(service.options().query_limits.max_ranges, 2);
+    EXPECT_EQ(query_context->limits().max_ranges, 2);
+    EXPECT_EQ(service.global_budget()->limits().max_ranges, 4);
+
+    accepted.reset();
+    service.shutdown();
+}
+
 TEST(PagePrefetchAdmissionTest, QueryRangeAndByteLimitsRollbackCompletely) {
     auto global = std::make_shared<PagePrefetchGlobalBudget>(kWideLimits);
     auto range_limited_query = std::make_shared<PagePrefetchQueryContext>(

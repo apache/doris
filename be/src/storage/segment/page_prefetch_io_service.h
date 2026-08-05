@@ -27,6 +27,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/atomic_shared_ptr.h"
 #include "common/status.h"
 #include "io/cache/async_cache_write_service.h"
 #include "io/io_common.h"
@@ -100,6 +101,8 @@ class PagePrefetchGlobalBudget {
 public:
     explicit PagePrefetchGlobalBudget(PagePrefetchBudgetLimits limits);
 
+    void update_limits(PagePrefetchBudgetLimits limits);
+    PagePrefetchBudgetLimits limits() const;
     size_t inflight_ranges() const { return _inflight_ranges.load(std::memory_order_relaxed); }
     size_t resident_bytes() const { return _resident_bytes.load(std::memory_order_relaxed); }
 
@@ -109,7 +112,7 @@ private:
     PagePrefetchRejectReason _try_reserve(size_t bytes, bool is_range);
     void _release(size_t bytes, bool release_range);
 
-    const PagePrefetchBudgetLimits _limits;
+    atomic_shared_ptr<const PagePrefetchBudgetLimits> _limits;
     std::atomic<size_t> _resident_bytes {0};
     std::atomic<size_t> _inflight_ranges {0};
 };
@@ -123,6 +126,8 @@ public:
     void register_range(const std::shared_ptr<PrefetchRange>& range);
     void cancel();
     bool cancelled() const;
+    void update_limits(PagePrefetchBudgetLimits limits);
+    PagePrefetchBudgetLimits limits() const;
     const TUniqueId& query_id() const { return _query_id; }
 
     size_t inflight_ranges() const { return _inflight_ranges.load(std::memory_order_relaxed); }
@@ -138,7 +143,7 @@ private:
     const TUniqueId _query_id;
     const std::weak_ptr<QueryContext> _query_ctx;
     const bool _tracks_runtime_query;
-    const PagePrefetchBudgetLimits _limits;
+    atomic_shared_ptr<const PagePrefetchBudgetLimits> _limits;
     std::atomic<size_t> _resident_bytes {0};
     std::atomic<size_t> _inflight_ranges {0};
     std::atomic<bool> _cancelled {false};
@@ -290,6 +295,8 @@ struct PagePrefetchIOServiceOptions {
     PagePrefetchBudgetLimits global_limits;
 };
 
+Status validate_page_prefetch_io_service_options(const PagePrefetchIOServiceOptions& options);
+
 /// Executes admitted exact-range reads on a shared thread pool. The pool is non-owning and must
 /// outlive this service; shutdown waits only for this service's tasks and never shuts down the pool.
 class PagePrefetchIOService {
@@ -303,6 +310,8 @@ public:
                                         std::shared_ptr<io::CachedRemoteFileReader> reader,
                                         PagePrefetchSafeIOContext io_ctx,
                                         std::shared_ptr<PagePrefetchQueryContext> query_ctx);
+    Status update_options(const PagePrefetchIOServiceOptions& options);
+    PagePrefetchIOServiceOptions options() const;
     void shutdown();
 
     bool accepting() const { return _accepting.load(std::memory_order_acquire); }
@@ -322,7 +331,7 @@ private:
                         const std::shared_ptr<PagePrefetchQueryContext>& query_ctx);
 
     ThreadPool* const _pool;
-    const PagePrefetchIOServiceOptions _options;
+    atomic_shared_ptr<const PagePrefetchIOServiceOptions> _options;
     const std::shared_ptr<PagePrefetchGlobalBudget> _global_budget;
     const std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     std::atomic<bool> _accepting {true};

@@ -1770,6 +1770,71 @@ DEFINE_Int64(segment_prefetch_thread_pool_thread_num_min, "32");
 DEFINE_Int64(segment_prefetch_thread_pool_thread_num_max, "2000");
 
 DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
+// Enable exact page prefetch and coalesced range reads for eligible queries.
+DEFINE_mBool(enable_query_page_prefetch, "false");
+DEFINE_mInt32(query_page_prefetch_window_pages, "16");
+DEFINE_mInt32(query_page_prefetch_min_window_pages, "1");
+DEFINE_mInt32(query_page_prefetch_max_window_pages, "64");
+DEFINE_mInt64(query_page_prefetch_max_gap_bytes, "65536");
+DEFINE_mInt64(query_page_prefetch_max_range_bytes, "4194304");
+DEFINE_mInt32(query_page_prefetch_max_pages_per_range, "32");
+DEFINE_mDouble(query_page_prefetch_max_read_amplification_ratio, "2.0");
+DEFINE_mInt32(query_page_prefetch_max_inflight_ranges_per_query, "16");
+DEFINE_mInt32(query_page_prefetch_max_inflight_ranges, "64");
+DEFINE_mInt64(query_page_prefetch_max_inflight_bytes_per_query, "67108864");
+DEFINE_mInt64(query_page_prefetch_max_inflight_bytes_per_be, "536870912");
+DEFINE_mDouble(query_page_prefetch_writeback_min_block_coverage, "0.5");
+DEFINE_mBool(enable_query_page_prefetch_adaptive_window, "false");
+
+DEFINE_Validator(query_page_prefetch_window_pages, [](int32_t value) {
+    return value > 0 &&
+           (query_page_prefetch_min_window_pages == 0 ||
+            query_page_prefetch_min_window_pages <= value) &&
+           (query_page_prefetch_max_window_pages == 0 ||
+            value <= query_page_prefetch_max_window_pages);
+});
+DEFINE_Validator(query_page_prefetch_min_window_pages, [](int32_t value) {
+    return value > 0 &&
+           (query_page_prefetch_window_pages == 0 || value <= query_page_prefetch_window_pages) &&
+           (query_page_prefetch_max_window_pages == 0 ||
+            value <= query_page_prefetch_max_window_pages);
+});
+DEFINE_Validator(query_page_prefetch_max_window_pages, [](int32_t value) {
+    return value > 0 &&
+           (query_page_prefetch_min_window_pages == 0 ||
+            query_page_prefetch_min_window_pages <= value) &&
+           (query_page_prefetch_window_pages == 0 || query_page_prefetch_window_pages <= value);
+});
+DEFINE_Validator(query_page_prefetch_max_gap_bytes, [](int64_t value) {
+    return value > 0 && (query_page_prefetch_max_range_bytes == 0 ||
+                         value < query_page_prefetch_max_range_bytes);
+});
+DEFINE_Validator(query_page_prefetch_max_range_bytes, [](int64_t value) {
+    return value > 0 && value >= file_cache_each_block_size &&
+           (query_page_prefetch_max_gap_bytes == 0 || query_page_prefetch_max_gap_bytes < value);
+});
+DEFINE_Validator(query_page_prefetch_max_pages_per_range, [](int32_t value) { return value > 0; });
+DEFINE_Validator(query_page_prefetch_max_read_amplification_ratio,
+                 [](double value) { return value >= 1.0; });
+DEFINE_Validator(query_page_prefetch_max_inflight_ranges_per_query, [](int32_t value) {
+    return value > 0 && (query_page_prefetch_max_inflight_ranges == 0 ||
+                         value <= query_page_prefetch_max_inflight_ranges);
+});
+DEFINE_Validator(query_page_prefetch_max_inflight_ranges, [](int32_t value) {
+    return value > 0 && (query_page_prefetch_max_inflight_ranges_per_query == 0 ||
+                         query_page_prefetch_max_inflight_ranges_per_query <= value);
+});
+DEFINE_Validator(query_page_prefetch_max_inflight_bytes_per_query, [](int64_t value) {
+    return value > 0 && (query_page_prefetch_max_inflight_bytes_per_be == 0 ||
+                         value <= query_page_prefetch_max_inflight_bytes_per_be);
+});
+DEFINE_Validator(query_page_prefetch_max_inflight_bytes_per_be, [](int64_t value) {
+    return value > 0 && (query_page_prefetch_max_inflight_bytes_per_query == 0 ||
+                         query_page_prefetch_max_inflight_bytes_per_query <= value);
+});
+DEFINE_Validator(query_page_prefetch_writeback_min_block_coverage,
+                 [](double value) { return value > 0.0 && value <= 1.0; });
+
 // Enable segment file cache block prefetch for query
 DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for query
