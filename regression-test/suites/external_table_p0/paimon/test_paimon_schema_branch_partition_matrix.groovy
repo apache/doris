@@ -92,15 +92,12 @@ suite("test_paimon_schema_branch_partition_matrix", "p0,external,paimon") {
             from ${branchTable}
             order by id
         """))
-        // Negative contract: Doris cannot initialize a Paimon branch with an independent schema.
-        test {
-            sql """
-                select id, branch_name, metric, branch_only
-                from ${branchTable}@branch(schema_branch)
-                order by id
-            """
-            exception "failed to initSchema"
-        }
+        // The branch schema is independent from main and must be loaded from the branch table.
+        qt_independent_branch_schema """
+            select id, branch_name, metric, branch_only
+            from ${branchTable}@branch(schema_branch)
+            order by id
+        """
         test {
             sql """select branch_only from ${branchTable}"""
             exception "Unknown column 'branch_only'"

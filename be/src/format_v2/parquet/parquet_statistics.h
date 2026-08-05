@@ -145,7 +145,7 @@ Status select_row_groups_by_metadata(
         ParquetMetadataProbeMode probe_mode = ParquetMetadataProbeMode::ALL);
 
 Status select_row_group_ranges_by_native_page_index(
-        const tparquet::FileMetaData& metadata,
+        const tparquet::FileMetaData& metadata, const tparquet::RowGroup& row_group,
         const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int64_t row_group_rows,

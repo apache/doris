@@ -45,7 +45,9 @@ public class IcebergDeleteSinkTest {
 
     @Test
     public void testBindDataSinkIncludesRewritableDeleteFileSetsForV3() throws Exception {
-        IcebergDeleteSink sink = new IcebergDeleteSink(mockIcebergExternalTable(3), new DeleteCommandContext());
+        IcebergExternalTable targetTable = mockIcebergExternalTable(3);
+        IcebergDeleteSink sink = new IcebergDeleteSink(
+                targetTable, targetTable.getIcebergTable(), new DeleteCommandContext());
         sink.setRewritableDeleteFileSets(Collections.singletonList(buildDeleteFileSet()));
 
         sink.bindDataSink(Optional.empty());
@@ -59,7 +61,9 @@ public class IcebergDeleteSinkTest {
 
     @Test
     public void testBindDataSinkSkipsRewritableDeleteFileSetsForV2() throws Exception {
-        IcebergDeleteSink sink = new IcebergDeleteSink(mockIcebergExternalTable(2), new DeleteCommandContext());
+        IcebergExternalTable targetTable = mockIcebergExternalTable(2);
+        IcebergDeleteSink sink = new IcebergDeleteSink(
+                targetTable, targetTable.getIcebergTable(), new DeleteCommandContext());
         sink.setRewritableDeleteFileSets(Collections.singletonList(buildDeleteFileSet()));
 
         sink.bindDataSink(Optional.empty());

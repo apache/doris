@@ -40,6 +40,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
+import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
@@ -369,11 +370,8 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         this.queryGlobals.setLoadZeroTolerance(false);
-        if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-        } else {
-            this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-        }
+        this.queryGlobals.setTimeZone(
+                TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
         this.queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
@@ -2641,6 +2639,11 @@ public class Coordinator implements CoordInterface {
         if (params.isSetMcCommitDatas()) {
             ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                 .updateMCCommitData(params.getMcCommitDatas());
+        }
+        if (params.isSetPaimonCommitMessages()) {
+            ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                    .getTxnById(txnId))
+                    .updateCommitMessages(params.getPaimonCommitMessages());
         }
 
         if (ctx.done) {

@@ -115,6 +115,18 @@ struct FileCacheProfileReporter {
     explicit FileCacheProfileReporter(
             RuntimeProfile* profile,
             const std::string& parent_counter = RuntimeProfile::ROOT_COUNTER);
+    // Cross-CG / Same-CG peer read counters
+    RuntimeProfile::Counter* num_cross_cg_peer_io_total = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_cross_cg_peer = nullptr;
+    RuntimeProfile::Counter* cross_cg_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* num_same_cg_peer_io_total = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_same_cg_peer = nullptr;
+    RuntimeProfile::Counter* same_cg_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* num_peer_race_peer_win = nullptr;
+    RuntimeProfile::Counter* num_peer_race_s3_win = nullptr;
+    RuntimeProfile::Counter* num_peer_lazy_fetch = nullptr;
+    RuntimeProfile::Counter* peer_lazy_fetch_timer = nullptr;
+
     void update(const FileCacheStatistics* statistics) const;
 };
 

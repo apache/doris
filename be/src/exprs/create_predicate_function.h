@@ -90,6 +90,7 @@ public:
     M(TYPE_DATEV2)            \
     M(TYPE_DATETIMEV2)        \
     M(TYPE_TIMESTAMPTZ)       \
+    M(TYPE_TIMEV2)            \
     M(TYPE_CHAR)              \
     M(TYPE_VARCHAR)           \
     M(TYPE_STRING)            \

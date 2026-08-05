@@ -22,14 +22,15 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
+#include "util/uid_util.h"
 
 namespace doris::format::paimon {
 namespace {
 
 constexpr std::string_view PAIMON_OPTION_PREFIX = "paimon.";
 constexpr std::string_view HADOOP_OPTION_PREFIX = "hadoop.";
-constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
-constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
+constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
+constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
 constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_io_tmp";
 
 const std::string* get_paimon_predicate(const TFileScanRangeParams* scan_params,
@@ -94,6 +95,12 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     (*params)["paimon_split"] = paimon_params.paimon_split;
     (*params)["paimon_predicate"] = *paimon_predicate;
     (*params)["serialized_table"] = _scan_params->serialized_table;
+    // if old Version FE not have set it, generate uuid in BE, so no need to compatible
+    (*params)["serialized_table_cache_key"] =
+            _scan_params->__isset.serialized_table_cache_key &&
+                            !_scan_params->serialized_table_cache_key.empty()
+                    ? _scan_params->serialized_table_cache_key
+                    : generate_uuid_string();
 
     if (_scan_params->__isset.paimon_options && !_scan_params->paimon_options.empty()) {
         for (const auto& kv : _scan_params->paimon_options) {

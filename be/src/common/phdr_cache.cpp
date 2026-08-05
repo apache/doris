@@ -251,13 +251,7 @@ extern "C"
     return iteratePHDRCache(callback, data, ip);
 }
 
-extern "C" {
-#ifdef ADDRESS_SANITIZER
-void __lsan_ignore_object(const void*);
-#else
-void __lsan_ignore_object(const void*) {} // NOLINT
-#endif
-}
+#include "util/debug/leak_annotations.h"
 
 void updatePHDRCache() {
     // Fill out ELF header cache for access without locking.
@@ -279,7 +273,7 @@ void updatePHDRCache() {
     phdr_cache.store(new_phdr_cache, std::memory_order_release);
 
     /// Memory is intentionally leaked.
-    __lsan_ignore_object(new_phdr_cache);
+    ANNOTATE_LEAKING_OBJECT_PTR(new_phdr_cache);
 }
 
 bool hasPHDRCache() {

@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 
 namespace doris {
@@ -125,6 +126,92 @@ TEST(AccessPathParserTest, IgnoresPrimitiveColumnsAndScannerVirtualColumns) {
             &rowid, std::vector<TColumnAccessPath> {data_access_path({"-1"})}, nullptr);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_TRUE(rowid.children.empty());
+}
+
+TEST(AccessPathParserTest, PreservesVariantObjectKeysForPhysicalShreddingProjection) {
+    auto variant = root_column(100, "v", std::make_shared<DataTypeVariantV2>());
+    auto status = AccessPathParser::build_nested_children(
+            &variant,
+            std::vector<TColumnAccessPath> {data_access_path({"100", "typed_col"}),
+                                            data_access_path({"100", "nested", "leaf"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(variant.variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"nested", "leaf"}, {"typed_col"}}));
+
+    status = AccessPathParser::build_nested_children(
+            &variant, std::vector<TColumnAccessPath> {data_access_path({"100"})}, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(variant.variant_access_paths.empty());
+
+    status = AccessPathParser::build_nested_children(
+            &variant,
+            std::vector<TColumnAccessPath> {data_access_path({"100", "typed_col"}),
+                                            data_access_path({})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(variant.variant_access_paths.empty());
+}
+
+TEST(AccessPathParserTest, SeparatesFinalAndPredicateComplexAccessPaths) {
+    auto variant = root_column(100, "v", std::make_shared<DataTypeVariantV2>());
+    auto status = AccessPathParser::build_nested_children(
+            &variant, std::vector<TColumnAccessPath> {data_access_path({"v"})},
+            std::vector<TColumnAccessPath> {data_access_path({"v", "n"})}, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(variant.variant_access_paths.empty());
+    ASSERT_TRUE(variant.has_predicate_access_paths);
+    EXPECT_EQ(variant.predicate_variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"n"}}));
+
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+    auto structure = root_column(101, "s", struct_type);
+    status = AccessPathParser::build_nested_children(
+            &structure, std::vector<TColumnAccessPath> {data_access_path({"s"})},
+            std::vector<TColumnAccessPath> {data_access_path({"s", "b"})}, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(structure.children.size(), 2);
+    ASSERT_TRUE(structure.has_predicate_access_paths);
+    ASSERT_EQ(structure.predicate_children.size(), 1);
+    EXPECT_EQ(structure.predicate_children[0].name, "b");
+}
+
+TEST(AccessPathParserTest, PreservesVariantPathsNestedInComplexColumns) {
+    auto variant_type = std::make_shared<DataTypeVariantV2>();
+
+    auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {variant_type}, Strings {"payload"});
+    auto structure = root_column(100, "s", struct_type);
+    auto status = AccessPathParser::build_nested_children(
+            &structure,
+            std::vector<TColumnAccessPath> {data_access_path({"s", "payload", "typed_col"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(structure.children.size(), 1);
+    EXPECT_EQ(structure.children[0].variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"typed_col"}}));
+
+    auto array = root_column(101, "items", std::make_shared<DataTypeArray>(variant_type));
+    status = AccessPathParser::build_nested_children(
+            &array, std::vector<TColumnAccessPath> {data_access_path({"items", "*", "kind"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(array.children.size(), 1);
+    EXPECT_EQ(array.children[0].variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"kind"}}));
+
+    auto map = root_column(
+            102, "attrs",
+            std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(), variant_type));
+    status = AccessPathParser::build_nested_children(
+            &map, std::vector<TColumnAccessPath> {data_access_path({"attrs", "*", "enabled"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto* value = find_child_by_name(map, "value");
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(value->variant_access_paths, (std::vector<std::vector<std::string>> {{"enabled"}}));
 }
 
 // Scenario: reject unsupported top-level inputs before recursive type parsing, including META

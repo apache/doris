@@ -105,8 +105,10 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
             ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
             for (int i = 0; i < arity(); i = i + 2) {
                 StringLikeLiteral nameLiteral = (StringLikeLiteral) child(i);
+                // A named struct has the same value-nullability contract as struct(...); keeping
+                // the field nullable here would reject safe casts into required target fields.
                 structFields.add(new StructField(nameLiteral.getStringValue(),
-                        children.get(i + 1).getDataType(), true, ""));
+                        children.get(i + 1).getDataType(), children.get(i + 1).nullable(), ""));
             }
             return FunctionSignature.ret(new StructType(structFields.build()))
                     .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new));

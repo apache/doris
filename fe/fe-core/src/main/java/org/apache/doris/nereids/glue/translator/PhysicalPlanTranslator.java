@@ -162,6 +162,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -221,6 +222,7 @@ import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.PaimonTableSink;
 import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
@@ -611,9 +613,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> outputExprs = Lists.newArrayList();
         icebergTableSink.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
+        IcebergTableSink sink = new IcebergTableSink(
+                (IcebergExternalTable) icebergTableSink.getTargetTable(),
+                icebergTableSink.getTargetIcebergTable());
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
+        return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalPaimonTableSink(PhysicalPaimonTableSink<? extends Plan> paimonTableSink,
+                                                      PlanTranslatorContext context) {
+        PlanFragment rootFragment = paimonTableSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        List<Expr> outputExprs = Lists.newArrayList();
+        paimonTableSink.getOutput().stream().map(Slot::getExprId)
+                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        PaimonTableSink sink = new PaimonTableSink(paimonTableSink.getWriteTarget());
+        sink.setCols(paimonTableSink.getCols());
+        rootFragment.setSink(sink);
+        sink.setOutputExprs(outputExprs);
+        if (paimonTableSink.requiresSingleWriter()) {
+            rootFragment.setForceSingleInstance();
+        }
         return rootFragment;
     }
 
@@ -635,6 +657,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
         IcebergDeleteSink sink = new IcebergDeleteSink(
                 (IcebergExternalTable) icebergDeleteSink.getTargetTable(),
+                icebergDeleteSink.getTargetIcebergTable(),
                 icebergDeleteSink.getDeleteContext());
         rootFragment.setSink(sink);
         return rootFragment;
@@ -664,7 +687,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputExprs(outputExprs);
         IcebergMergeSink sink = new IcebergMergeSink(
                 (IcebergExternalTable) icebergMergeSink.getTargetTable(),
-                icebergMergeSink.getDeleteContext());
+                icebergMergeSink.getTargetIcebergTable(),
+                icebergMergeSink.getDeleteContext(),
+                icebergMergeSink.isWritesDataFiles(),
+                icebergMergeSink.isRequireMergeCardinalityCheck());
         rootFragment.setSink(sink);
         return rootFragment;
     }
@@ -784,6 +810,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (scanNode instanceof FileQueryScanNode) {
             FileQueryScanNode fileQueryScanNode = (FileQueryScanNode) scanNode;
+            fileQueryScanNode.setRelationSnapshot(fileScan.getRelationSnapshot());
             fileScan.getTableSnapshot().ifPresent(fileQueryScanNode::setQueryTableSnapshot);
             fileScan.getScanParams().ifPresent(fileQueryScanNode::setScanParams);
         }
@@ -863,10 +890,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ScanNode scanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
                 hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable(),
                 directoryLister, context.getScanContext());
-        if (fileScan.getTableSnapshot().isPresent()) {
-            ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
-        }
+        // Split planning must reuse the timeline frozen during binding instead of resolving Hudi metadata again.
         HudiScanNode hudiScanNode = (HudiScanNode) scanNode;
+        hudiScanNode.setRelationSnapshot(hudiScan.getRelationSnapshot());
+        if (hudiScan.getTableSnapshot().isPresent()) {
+            hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
+        }
         hudiScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
@@ -25,6 +26,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -45,12 +47,14 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
+import org.apache.paimon.manifest.PartitionEntry;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
@@ -68,13 +72,16 @@ import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
+import org.apache.paimon.utils.InternalRowPartitionComputer;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.PartitionPathUtils;
 import org.apache.paimon.utils.Projection;
@@ -103,21 +110,12 @@ public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
     private static final Pattern DIGITAL_REGEX = Pattern.compile("\\d+");
-    private static final String PARTITION_LEGACY_NAME = "partition.legacy-name";
     private static final String SYS_TABLE_TYPE_AUDIT_LOG = "audit_log";
     private static final String SYS_TABLE_TYPE_BINLOG = "binlog";
     private static final String TABLE_READ_SEQUENCE_NUMBER_ENABLED = "table-read.sequence-number.enabled";
 
     public static boolean isDigitalString(String value) {
         return value != null && DIGITAL_REGEX.matcher(value).matches();
-    }
-
-    /**
-     * Extract the legacy partition name configuration from Paimon table options.
-     */
-    public static boolean isLegacyPartitionName(Table paimonTable) {
-        return Boolean.parseBoolean(
-                paimonTable.options().getOrDefault(PARTITION_LEGACY_NAME, "true"));
     }
 
     public static List<InternalRow> read(
@@ -150,58 +148,120 @@ public class PaimonUtil {
         return rows;
     }
 
-    public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-            List<Partition> paimonPartitions, boolean legacyPartitionName) {
+    public static PaimonPartitionInfo generatePartitionInfo(Table table, List<Column> partitionColumns,
+            List<PartitionEntry> partitionEntries) {
 
-        if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
+        if (CollectionUtils.isEmpty(partitionColumns) || partitionEntries.isEmpty()) {
             return PaimonPartitionInfo.EMPTY;
+        }
+
+        CoreOptions options = new CoreOptions(table.options());
+        RowType partitionType = table.rowType().project(table.partitionKeys());
+        if (partitionType.getFields().stream().anyMatch(field ->
+                field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE)) {
+            // This metadata is cached by table snapshot, but LTZ values are represented as
+            // session-local civil times in Doris. Caching those bounds would let one session
+            // reuse pruning metadata produced in another time zone. Keep scan correctness by
+            // delegating pruning to Paimon until this cache can carry a time-zone-independent
+            // typed representation.
+            return PaimonPartitionInfo.UNPRUNABLE;
+        }
+        InternalRowPartitionComputer partitionComputer = new InternalRowPartitionComputer(
+                options.partitionDefaultName(),
+                partitionType,
+                table.partitionKeys().toArray(new String[0]),
+                options.legacyPartitionName());
+        List<Type> types = partitionColumns.stream()
+                .map(Column::getType)
+                .collect(Collectors.toList());
+        List<PaimonPartitionCandidate> candidates = Lists.newArrayListWithExpectedSize(partitionEntries.size());
+        Map<String, Map<String, String>> displayNameToTypedSpec = Maps.newHashMap();
+
+        for (PartitionEntry partitionEntry : partitionEntries) {
+            Map<String, String> typedSpec = getPartitionInfoMap(
+                    table, partitionEntry.partition(), TimeUtils.getTimeZone().getID());
+            if (typedSpec == null) {
+                return PaimonPartitionInfo.UNPRUNABLE;
+            }
+
+            List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
+            LinkedHashMap<String, String> orderedTypedSpec = new LinkedHashMap<>();
+            for (Column partitionColumn : partitionColumns) {
+                String partitionColumnName = partitionColumn.getName();
+                Preconditions.checkState(typedSpec.containsKey(partitionColumnName),
+                        "Partition column not found in Paimon typed spec: " + partitionColumnName);
+                String partitionValue = typedSpec.get(partitionColumnName);
+                partitionValues.add(partitionValue);
+                orderedTypedSpec.put(partitionColumnName, partitionValue);
+            }
+
+            PartitionItem partitionItem;
+            try {
+                partitionItem = toListPartitionItem(partitionValues, types);
+            } catch (Exception e) {
+                LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
+                        partitionColumns, partitionValues, e);
+                return PaimonPartitionInfo.UNPRUNABLE;
+            }
+
+            LinkedHashMap<String, String> displaySpec;
+            try {
+                // Delegate display-name generation to Paimon so partition.default-name and
+                // partition.legacy-name exactly follow the table's physical partition naming.
+                // The canonical typed spec above remains the logical identity used for pruning.
+                displaySpec = partitionComputer.generatePartValues(partitionEntry.partition());
+            } catch (Exception e) {
+                LOG.warn("Failed to generate Paimon partition display name, table: {}, partition: {}",
+                        table.name(), orderedTypedSpec, e);
+                return PaimonPartitionInfo.UNPRUNABLE;
+            }
+            String partitionPath = PartitionPathUtils.generatePartitionPath(displaySpec);
+            String displayName = partitionPath.substring(0, partitionPath.length() - 1);
+            Map<String, String> previousTypedSpec = displayNameToTypedSpec.putIfAbsent(
+                    displayName, orderedTypedSpec);
+            if (previousTypedSpec != null) {
+                Preconditions.checkState(!previousTypedSpec.equals(orderedTypedSpec),
+                        "Duplicate typed Paimon partition: " + displayName);
+                // Doris partition metadata and downstream consumers such as MTMV require a
+                // stable one-to-one mapping between a partition name and its typed value.
+                // Paimon may map distinct values (for example null and blank strings) to the
+                // same physical partition name. A private suffix would only make the map key
+                // unique; it would be lost when consumers reconstruct a name from PartitionItem.
+                // Keep the complete mapping all-or-nothing and delegate pruning to Paimon.
+                LOG.warn("Ambiguous Paimon partition display name {}, typed specs: {} and {}; "
+                                + "disable Doris partition pruning",
+                        displayName, previousTypedSpec, orderedTypedSpec);
+                return PaimonPartitionInfo.UNPRUNABLE;
+            }
+            candidates.add(new PaimonPartitionCandidate(
+                    partitionEntry, orderedTypedSpec, partitionItem, displayName));
         }
 
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Partition> nameToPartition = Maps.newHashMap();
-        PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
-        List<Type> types = partitionColumns.stream()
-                .map(Column::getType)
-                .collect(Collectors.toList());
-
-        for (Partition partition : paimonPartitions) {
-            Map<String, String> spec = partition.spec();
-            // Paimon partition specs contain logical values, which may include path separators.
-            // Build partition values directly instead of parsing them as a Hive partition path.
-            List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
-            LinkedHashMap<String, String> orderedPartitionSpec = new LinkedHashMap<>();
-            for (Column partitionColumn : partitionColumns) {
-                String partitionColumnName = partitionColumn.getName();
-                String partitionValue = spec.get(partitionColumnName);
-                // When partition.legacy-name = true (default), Paimon stores DATE type as days since
-                // 1970-01-01 (epoch integer), so we need to convert the integer to a date string.
-                // When partition.legacy-name = false, the value is already a human read date string.
-                if (legacyPartitionName && partitionColumn.getType().isDateV2()) {
-                    partitionValue = DateTimeUtils.formatDate(Integer.parseInt(partitionValue));
-                }
-                partitionValues.add(partitionValue);
-                orderedPartitionSpec.put(partitionColumnName, partitionValue);
-            }
-            String partitionPath = PartitionPathUtils.generatePartitionPath(orderedPartitionSpec);
-            String partitionName = partitionPath.substring(0, partitionPath.length() - 1);
-            Partition previousPartition = nameToPartition.putIfAbsent(partitionName, partition);
-            Preconditions.checkState(previousPartition == null,
-                    "Duplicate Paimon partition name: " + partitionName);
-            PartitionItem partitionItem;
-            try {
-                // partition values return by paimon api, may have problem,
-                // to avoid affecting the query, we catch exceptions here
-                partitionItem = toListPartitionItem(partitionValues, types);
-            } catch (Exception e) {
-                LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
-                        partitionColumns, partition.spec(), e);
-                continue;
-            }
-            PartitionItem previousPartitionItem = nameToPartitionItem.putIfAbsent(partitionName, partitionItem);
-            Preconditions.checkState(previousPartitionItem == null,
-                    "Duplicate Paimon partition item name: " + partitionName);
+        for (PaimonPartitionCandidate candidate : candidates) {
+            PartitionEntry entry = candidate.partitionEntry;
+            Partition partition = new Partition(candidate.typedSpec, entry.recordCount(),
+                    entry.fileSizeInBytes(), entry.fileCount(), entry.lastFileCreationTime(), false);
+            nameToPartitionItem.put(candidate.displayName, candidate.partitionItem);
+            nameToPartition.put(candidate.displayName, partition);
         }
-        return partitionInfo;
+        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+    }
+
+    private static final class PaimonPartitionCandidate {
+        private final PartitionEntry partitionEntry;
+        private final Map<String, String> typedSpec;
+        private final PartitionItem partitionItem;
+        private final String displayName;
+
+        private PaimonPartitionCandidate(PartitionEntry partitionEntry, Map<String, String> typedSpec,
+                PartitionItem partitionItem, String displayName) {
+            this.partitionEntry = partitionEntry;
+            this.typedSpec = typedSpec;
+            this.partitionItem = partitionItem;
+            this.displayName = displayName;
+        }
     }
 
     public static ListPartitionItem toListPartitionItem(List<String> partitionValues, List<Type> types)
@@ -209,12 +269,8 @@ public class PaimonUtil {
         Preconditions.checkState(partitionValues.size() == types.size(), partitionValues + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
-            // null  will in partition 'null'
-            // "null" will in partition 'null'
-            // NULL  will in partition 'null'
-            // "NULL" will in partition 'NULL'
-            // values.add(new PartitionValue(partitionValue, "null".equals(partitionValue)));
-            values.add(new PartitionValue(partitionValue, false));
+            // Keep a typed null distinct from an empty string and the literal string "null".
+            values.add(new PartitionValue(partitionValue, partitionValue == null));
         }
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
         ListPartitionItem listPartitionItem = new ListPartitionItem(Lists.newArrayList(key));
@@ -287,6 +343,8 @@ public class PaimonUtil {
                     return ScalarType.createTimeStampTzType(tsScale);
                 }
                 return ScalarType.createDatetimeV2Type(tsScale);
+            case VARIANT:
+                return VariantType.COMPUTE_V2_INSTANCE;
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;
                 Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType(), enableVarbinaryMapping,
@@ -347,6 +405,39 @@ public class PaimonUtil {
     public static void updatePaimonColumnUniqueId(Column column, DataField field) {
         column.setUniqueId(field.id());
         updatePaimonColumnUniqueId(column, field.type());
+    }
+
+    public static void updatePaimonColumnMetadata(Column column, DataField field) {
+        updatePaimonColumnUniqueId(column, field);
+        updatePaimonColumnTimezone(column, field.type());
+    }
+
+    private static void updatePaimonColumnTimezone(Column column, DataType dataType) {
+        if (dataType.getTypeRoot() == org.apache.paimon.types.DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+            column.setWithTZExtraInfo();
+        }
+        List<Column> children = column.getChildren();
+        if (children == null) {
+            return;
+        }
+        switch (dataType.getTypeRoot()) {
+            case ARRAY:
+                updatePaimonColumnTimezone(children.get(0), ((ArrayType) dataType).getElementType());
+                break;
+            case MAP:
+                MapType mapType = (MapType) dataType;
+                updatePaimonColumnTimezone(children.get(0), mapType.getKeyType());
+                updatePaimonColumnTimezone(children.get(1), mapType.getValueType());
+                break;
+            case ROW:
+                RowType rowType = (RowType) dataType;
+                for (int idx = 0; idx < children.size(); idx++) {
+                    updatePaimonColumnTimezone(children.get(idx), rowType.getFields().get(idx).type());
+                }
+                break;
+            default:
+                break;
+        }
     }
 
     public static TField getSchemaInfo(DataType dataType, boolean enableVarbinaryMapping,
@@ -507,14 +598,18 @@ public class PaimonUtil {
             boolean enableTimestampTzMapping) {
         List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
         rowType.getFields().forEach(field -> {
-            resSchema.add(new Column(field.name(),
+            Column column = new Column(field.name(),
                     PaimonUtil.paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping),
                     primaryKeys.contains(field.name()),
                     null,
                     field.type().isNullable(),
                     field.description(),
                     true,
-                    field.id()));
+                    field.id());
+            // Schema selected by relation-local options must expose the same recursive metadata
+            // as the normal schema cache, otherwise nested predicates bind to different field IDs.
+            updatePaimonColumnMetadata(column, field);
+            resSchema.add(column);
         });
         return resSchema;
     }
@@ -613,8 +708,13 @@ public class PaimonUtil {
                 if (value == null) {
                     return null;
                 }
-                // Paimon timestamp is stored as Timestamp type in utc
-                return ((Timestamp) value).toLocalDateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                // Format through Doris' target type instead of translating between Paimon's
+                // timestamp text and Doris' partition-literal syntax by hand.
+                TimestampType timestampType = (TimestampType) type;
+                ScalarType dorisType = ScalarType.createDatetimeV2Type(
+                        Math.min(timestampType.getPrecision(), 6));
+                return new DateLiteral(((Timestamp) value).toLocalDateTime(), dorisType)
+                        .getStringValue();
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                 if (value == null) {
                     return null;

@@ -20,11 +20,16 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.GenericPartitionFieldSummary;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
@@ -37,6 +42,8 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -67,8 +74,70 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testSnapshotCacheFreezesSharedTableOperations() {
+        Schema originalSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Schema evolvedSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StringType.get()));
+        AtomicReference<TableMetadata> currentMetadata = new AtomicReference<>(
+                TableMetadata.newTableMetadata(originalSchema, PartitionSpec.unpartitioned(),
+                        "file:/tmp/iceberg-cache-table", Collections.emptyMap()));
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenAnswer(invocation -> currentMetadata.get());
+        Mockito.when(operations.io()).thenReturn(Mockito.mock(org.apache.iceberg.io.FileIO.class));
+        Mockito.when(operations.locationProvider())
+                .thenReturn(Mockito.mock(org.apache.iceberg.io.LocationProvider.class));
+        Table sharedTable = new BaseTable(operations, "table");
+
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, originalSchema.schemaId()),
+                Optional.empty(), sharedTable);
+        currentMetadata.set(TableMetadata.newTableMetadata(evolvedSchema, PartitionSpec.unpartitioned(),
+                "file:/tmp/iceberg-cache-table", Collections.emptyMap()));
+
+        Assert.assertEquals(2, sharedTable.schema().columns().size());
+        Assert.assertEquals(1, cacheValue.getIcebergTable().get().schema().columns().size());
+    }
+
+    @Test
+    public void testRetainedGenerationKeepsProjectionAtomic() {
+        Schema originalSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Schema evolvedSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StringType.get()));
+        TableMetadata originalMetadata = TableMetadata.newTableMetadata(
+                originalSchema, PartitionSpec.unpartitioned(),
+                "file:/tmp/iceberg-atomic-projection", Collections.emptyMap());
+        TableMetadata evolvedMetadata = TableMetadata.newTableMetadata(
+                evolvedSchema, PartitionSpec.unpartitioned(),
+                "file:/tmp/iceberg-atomic-projection",
+                Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING,
+                        "{\"type\":\"struct\",\"fields\":[{\"field-id\":2,\"names\":[\"payload\"]}]}"));
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(originalMetadata, evolvedMetadata);
+        Mockito.when(operations.io()).thenReturn(Mockito.mock(org.apache.iceberg.io.FileIO.class));
+        Mockito.when(operations.locationProvider())
+                .thenReturn(Mockito.mock(org.apache.iceberg.io.LocationProvider.class));
+        Table sharedTable = new BaseTable(operations, "table");
+
+        Table retainedTable = IcebergSnapshotCacheValue.retainTableGeneration(sharedTable);
+        IcebergSnapshot snapshot = IcebergUtils.getLatestIcebergSnapshot(retainedTable);
+        Optional<Map<Integer, List<String>>> nameMapping = IcebergUtils.getNameMapping(retainedTable);
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), snapshot, nameMapping, retainedTable);
+
+        Assert.assertEquals(originalSchema.schemaId(), snapshot.getSchemaId());
+        Assert.assertFalse(nameMapping.isPresent());
+        Assert.assertEquals(1, cacheValue.getIcebergTable().get().schema().columns().size());
+        Mockito.verify(operations, Mockito.times(1)).current();
+    }
+
     @Test
     public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
         Table table = Mockito.mock(Table.class);
@@ -89,6 +158,34 @@ public class IcebergUtilsTest {
         Assert.assertEquals(org.apache.iceberg.FileFormat.ORC, IcebergUtils.getFileFormat(table));
         // Do not call newScan planFiles()
         Mockito.verify(table, Mockito.never()).newScan();
+    }
+
+    @Test
+    public void testPartitionColumnsUseFrozenTableSpec() {
+        Schema frozenSchema = new Schema(17, Arrays.asList(
+                Types.NestedField.required(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "q", Types.IntegerType.get())));
+        Table frozenTable = Mockito.mock(Table.class);
+        Mockito.when(frozenTable.schema()).thenReturn(frozenSchema);
+        Mockito.when(frozenTable.schemas()).thenReturn(
+                Collections.singletonMap(frozenSchema.schemaId(), frozenSchema));
+        Mockito.when(frozenTable.spec()).thenReturn(PartitionSpec.builderFor(frozenSchema).identity("p").build());
+        Mockito.when(frozenTable.currentSnapshot()).thenReturn(Mockito.mock(Snapshot.class));
+
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(101L, frozenSchema.schemaId()),
+                Optional.empty(), frozenTable);
+
+        List<Column> partitionColumns = IcebergUtils.getIcebergPartitionColumns(
+                Optional.of(new IcebergMvccSnapshot(cacheValue)), dorisTable);
+
+        Assert.assertEquals(Collections.singletonList("p"), partitionColumns.stream()
+                .map(Column::getName).collect(java.util.stream.Collectors.toList()));
     }
 
     @Test
@@ -240,6 +337,45 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testParseSchemaPreservesTopLevelAndNestedComments() {
+        Schema schema = new Schema(Types.NestedField.optional(
+                1, "info", Types.StructType.of(
+                        Types.NestedField.optional(2, "value", Types.IntegerType.get(), "nested-comment")),
+                "top-level-comment"));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+
+        Assert.assertEquals("top-level-comment", columns.get(0).getComment());
+        Assert.assertTrue(columns.get(0).getType().toSql().contains("comment 'nested-comment'"));
+    }
+
+    @Test
+    public void testIcebergVariantUsesComputeV2Representation() {
+        Type type = IcebergUtils.icebergTypeToDorisType(
+                Types.VariantType.get(), false, false);
+
+        Assert.assertTrue(type instanceof org.apache.doris.catalog.VariantType);
+        Assert.assertTrue(((org.apache.doris.catalog.VariantType) type).isComputeV2());
+    }
+
+    @Test
+    public void testIcebergWriteRejectsRootAndNestedVariant() {
+        Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
+        for (Column column : ImmutableList.of(
+                new Column("payload", variant),
+                new Column("nested", new org.apache.doris.catalog.StructType(
+                        new ArrayList<>(ImmutableList.of(new StructField("payload", variant))))))) {
+            try {
+                IcebergUtils.validateWriteSchema(ImmutableList.of(column));
+                Assert.fail("Iceberg writes must be rejected until the writer supports Variant");
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("VARIANT"));
+                Assert.assertTrue(e.getMessage().contains("read-only"));
+            }
+        }
+    }
+
+    @Test
     public void testParseSchemaPreservesInitialDefault() {
         Schema schema = new Schema(
                 Types.NestedField.optional("added_column")
@@ -336,6 +472,35 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testGetCommonIdentityPartitionColumnsUsesSafeIntersection() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()),
+                Types.NestedField.required(3, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec oldSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("id")
+                .identity("Dt")
+                .build();
+        PartitionSpec currentSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(2)
+                .identity("Dt")
+                .day("ts")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(oldSpec.specId(), oldSpec);
+        specs.put(currentSpec.specId(), currentSpec);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(currentSpec);
+        Mockito.when(table.specs()).thenReturn(specs);
+
+        Assert.assertEquals(Collections.singletonList("Dt"),
+                IcebergUtils.getCommonIdentityPartitionColumns(table));
+    }
+
+    @Test
     public void testGetIdentityPartitionInfoMapReturnsIdentityColumnsOnly() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "Dt", Types.StringType.get()),
@@ -354,6 +519,36 @@ public class IcebergUtilsTest {
         Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
                 partitionData, partitionSpec, table, "UTC");
         Assert.assertEquals(Collections.singletonMap("Dt", "2025-01-01"), partitionInfoMap);
+    }
+
+    @Test
+    public void testMappedTypesAreExcludedFromPartitionMetadata() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Dt", Types.StringType.get()),
+                Types.NestedField.required(2, "uuid_col", Types.UUIDType.get()),
+                Types.NestedField.required(3, "ts_tz", Types.TimestampType.withZone()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("Dt")
+                .identity("uuid_col")
+                .identity("ts_tz")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "2026-08-03");
+        partitionData.set(1, UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+        partitionData.set(2, 0L);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(partitionSpec);
+        Mockito.when(table.specs()).thenReturn(Collections.singletonMap(partitionSpec.specId(), partitionSpec));
+
+        Assert.assertEquals(Collections.singletonList("Dt"),
+                IcebergUtils.getIdentityPartitionColumns(table, true, true));
+        Assert.assertEquals(Collections.singletonList("Dt"),
+                IcebergUtils.getCommonIdentityPartitionColumns(table, true, true));
+        Assert.assertEquals(Collections.singletonMap("Dt", "2026-08-03"),
+                IcebergUtils.getIdentityPartitionInfoMap(
+                        partitionData, partitionSpec, table, "Asia/Shanghai", true, true));
     }
 
     @Test

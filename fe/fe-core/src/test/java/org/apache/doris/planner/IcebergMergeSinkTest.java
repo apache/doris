@@ -47,7 +47,8 @@ public class IcebergMergeSinkTest {
 
     @Test
     public void testBindDataSinkIncludesRowLineageSchemaAndRewritableDeleteFileSetsForV3() throws Exception {
-        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(3), new DeleteCommandContext());
+        IcebergMergeSink sink = new IcebergMergeSink(
+                mockIcebergExternalTable(3), new DeleteCommandContext(), true);
         sink.setRewritableDeleteFileSets(Collections.singletonList(buildDeleteFileSet()));
 
         sink.bindDataSink(Optional.empty());
@@ -58,11 +59,14 @@ public class IcebergMergeSinkTest {
         Assertions.assertTrue(thriftSink.getSchemaJson().contains(
                 IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL));
         Assertions.assertEquals(1, thriftSink.getRewritableDeleteFileSetsSize());
+        Assertions.assertTrue(thriftSink.isSetRequireMergeCardinalityCheck());
+        Assertions.assertTrue(thriftSink.isRequireMergeCardinalityCheck());
     }
 
     @Test
     public void testBindDataSinkSkipsRewritableDeleteFileSetsAndRowLineageSchemaForV2() throws Exception {
-        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2), new DeleteCommandContext());
+        IcebergMergeSink sink = new IcebergMergeSink(
+                mockIcebergExternalTable(2), new DeleteCommandContext(), false);
         sink.setRewritableDeleteFileSets(Collections.singletonList(buildDeleteFileSet()));
 
         sink.bindDataSink(Optional.empty());
@@ -73,12 +77,26 @@ public class IcebergMergeSinkTest {
         Assertions.assertFalse(thriftSink.getSchemaJson().contains(IcebergUtils.ICEBERG_ROW_ID_COL));
         Assertions.assertFalse(thriftSink.getSchemaJson().contains(
                 IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL));
+        Assertions.assertTrue(thriftSink.isSetRequireMergeCardinalityCheck());
+        Assertions.assertFalse(thriftSink.isRequireMergeCardinalityCheck());
+    }
+
+    @Test
+    public void testBindDataSinkMarksDeleteOnlyMerge() throws Exception {
+        IcebergMergeSink sink = new IcebergMergeSink(
+                mockIcebergExternalTable(3), new DeleteCommandContext(), false, true);
+
+        sink.bindDataSink(Optional.empty());
+
+        TIcebergMergeSink thriftSink = sink.tDataSink.getIcebergMergeSink();
+        Assertions.assertTrue(thriftSink.isSetWritesDataFiles());
+        Assertions.assertFalse(thriftSink.isWritesDataFiles());
     }
 
     @Test
     public void testBindDataSinkDisablesColumnStatsWhenAllMetricsAreNone() throws Exception {
         IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, ImmutableMap.of(
-                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none")), new DeleteCommandContext());
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none")), new DeleteCommandContext(), false);
 
         sink.bindDataSink(Optional.empty());
 
@@ -92,7 +110,7 @@ public class IcebergMergeSinkTest {
         IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, ImmutableMap.of(
                 TableProperties.DEFAULT_WRITE_METRICS_MODE, "none",
                 TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "id", "counts")),
-                new DeleteCommandContext());
+                new DeleteCommandContext(), false);
 
         sink.bindDataSink(Optional.empty());
 
@@ -106,7 +124,7 @@ public class IcebergMergeSinkTest {
         IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(3, ImmutableMap.of(
                 TableProperties.DEFAULT_WRITE_METRICS_MODE, "counts",
                 TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "id", "none")),
-                new DeleteCommandContext());
+                new DeleteCommandContext(), false);
 
         sink.bindDataSink(Optional.empty());
 
@@ -123,7 +141,7 @@ public class IcebergMergeSinkTest {
                 TableProperties.DEFAULT_FILE_FORMAT, "orc",
                 TableProperties.DEFAULT_WRITE_METRICS_MODE, "none",
                 TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "items", "counts")),
-                new DeleteCommandContext());
+                new DeleteCommandContext(), false);
 
         sink.bindDataSink(Optional.empty());
 

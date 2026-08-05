@@ -80,6 +80,25 @@ public class IcebergSysExternalTable extends ExternalTable {
         return sysTableType;
     }
 
+    public boolean isPositionDeletesTable() {
+        return MetadataTableType.POSITION_DELETES.name().equalsIgnoreCase(sysTableType);
+    }
+
+    public boolean supportsSnapshotSelection() {
+        MetadataTableType tableType = MetadataTableType.from(sysTableType);
+        // Static metadata scans and ALL_* scans ignore a selected snapshot, so accepting one would
+        // only add failures for expired IDs without changing the rows returned.
+        return tableType != MetadataTableType.ALL_DATA_FILES
+                && tableType != MetadataTableType.ALL_DELETE_FILES
+                && tableType != MetadataTableType.ALL_FILES
+                && tableType != MetadataTableType.ALL_MANIFESTS
+                && tableType != MetadataTableType.ALL_ENTRIES
+                && tableType != MetadataTableType.HISTORY
+                && tableType != MetadataTableType.SNAPSHOTS
+                && tableType != MetadataTableType.REFS
+                && tableType != MetadataTableType.METADATA_LOG_ENTRIES;
+    }
+
     public Table getSysIcebergTable() {
         if (sysIcebergTable == null) {
             synchronized (this) {

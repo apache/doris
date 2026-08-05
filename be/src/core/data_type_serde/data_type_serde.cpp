@@ -718,6 +718,17 @@ Status DataTypeSerDe::read_column_from_parquet(IColumn& column, ParquetDecodeSou
     return Status::NotSupported("read_column_from_parquet is not supported for {}", get_name());
 }
 
+bool DataTypeSerDe::supports_parquet_raw_predicate(const ParquetDecodeContext& context) const {
+    return false;
+}
+
+Status DataTypeSerDe::read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                                 const ParquetDecodeContext& context,
+                                                 size_t num_values, bool enable_strict_mode,
+                                                 ParquetLogicalValueConsumer& consumer) const {
+    return Status::NotSupported("read_parquet_raw_predicate is not supported for {}", get_name());
+}
+
 Status DataTypeSerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
                                               const ParquetDecodeContext& context) const {
     return Status::NotSupported("read_parquet_dictionary is not supported for {}", get_name());

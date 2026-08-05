@@ -30,86 +30,11 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/vexpr.h"
-#include "format_v2/expr/cast.h"
 #include "gen_cpp/Exprs_types.h"
 
 namespace doris::format {
 
 namespace {
-
-static bool is_cast_expr(const VExprSPtr& expr) {
-    return dynamic_cast<const Cast*>(expr.get()) != nullptr;
-}
-
-static bool is_signed_integer_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-        return true;
-    default:
-        return false;
-    }
-}
-
-static int primitive_integer_width(PrimitiveType type) {
-    switch (type) {
-    case TYPE_TINYINT:
-        return 1;
-    case TYPE_SMALLINT:
-        return 2;
-    case TYPE_INT:
-        return 4;
-    case TYPE_BIGINT:
-        return 8;
-    case TYPE_LARGEINT:
-        return 16;
-    default:
-        return 0;
-    }
-}
-
-static bool is_decimal_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256:
-        return true;
-    default:
-        return false;
-    }
-}
-
-static bool is_order_preserving_safe_cast(const DataTypePtr& from_type,
-                                          const DataTypePtr& to_type) {
-    if (from_type == nullptr || to_type == nullptr) {
-        return false;
-    }
-    const auto from_nested_type = remove_nullable(from_type);
-    const auto to_nested_type = remove_nullable(to_type);
-    if (from_nested_type->equals(*to_nested_type)) {
-        return true;
-    }
-
-    const auto from_primitive_type = from_nested_type->get_primitive_type();
-    const auto to_primitive_type = to_nested_type->get_primitive_type();
-    if (is_signed_integer_type(from_primitive_type) && is_signed_integer_type(to_primitive_type)) {
-        return primitive_integer_width(to_primitive_type) >=
-               primitive_integer_width(from_primitive_type);
-    }
-    if (from_primitive_type == TYPE_FLOAT && to_primitive_type == TYPE_DOUBLE) {
-        return true;
-    }
-    if (is_decimal_type(from_primitive_type) && is_decimal_type(to_primitive_type)) {
-        return from_nested_type->get_scale() == to_nested_type->get_scale() &&
-               to_nested_type->get_precision() >= from_nested_type->get_precision();
-    }
-    return false;
-}
 
 static bool parse_struct_child_selector(const VExprSPtr& expr, StructChildSelector* selector) {
     DORIS_CHECK(selector != nullptr);
@@ -189,27 +114,6 @@ static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* 
     }
     path->selectors.push_back(std::move(selector));
     return true;
-}
-
-static bool extract_nested_struct_path_for_pruning(const VExprSPtr& expr, NestedStructPath* path) {
-    DORIS_CHECK(path != nullptr);
-    // Simple `ELEMENT_AT`
-    if (extract_nested_struct_path(expr, path)) {
-        return true;
-    }
-
-    // `ELEMENT_AT` with `CAST`
-    if (!is_cast_expr(expr) || expr->get_num_children() != 1) {
-        return false;
-    }
-    const auto& child = expr->children()[0];
-    if (!is_order_preserving_safe_cast(child->data_type(), expr->data_type())) {
-        return false;
-    }
-    // A safe widening cast is null-preserving and keeps the comparison ordering of the nested
-    // primitive leaf, so file-layer pruning can target the original leaf statistics. The row-level
-    // filter still evaluates the original cast expression after read.
-    return extract_nested_struct_path_for_pruning(child, path);
 }
 
 static const ColumnDefinition* resolve_file_child(const std::vector<ColumnDefinition>& children,
@@ -491,26 +395,6 @@ bool resolve_nested_struct_expr_for_file(const VExprSPtr& expr,
         return false;
     }
     return resolve_nested_struct_path_for_file(path, mappings, resolved, true);
-}
-
-// Collect nested struct leaf references that can be turned into file-reader projections. For
-// example, from `s.a > 1 AND element_at(s, 'b') = 2`, this records two paths rooted at `s`:
-// `s -> a` and `s -> b`. Non-struct expressions are traversed recursively, while a recognized
-// struct path is emitted once so the caller can merge it into the scan projection for that
-// top-level file column.
-void collect_nested_struct_paths(const VExprSPtr& expr, std::vector<NestedStructPath>* paths) {
-    DORIS_CHECK(paths != nullptr);
-    if (expr == nullptr) {
-        return;
-    }
-    NestedStructPath path;
-    if (extract_nested_struct_path_for_pruning(expr, &path)) {
-        paths->push_back(std::move(path));
-        return;
-    }
-    for (const auto& child : expr->children()) {
-        collect_nested_struct_paths(child, paths);
-    }
 }
 
 std::vector<const ColumnMapping*> present_child_mappings_in_file_order(

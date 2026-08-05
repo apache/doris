@@ -374,6 +374,8 @@ struct TQueryOptions {
 
   148: optional i32 min_scanners_concurrency = 1;
   149: optional i32 min_scan_scheduler_concurrency = 0; //deprecated
+  // Controls runtime-filter partition pruning for readers that honor this option.
+  // FileScannerV2 always enables safe partition pruning.
   150: optional bool enable_runtime_filter_partition_prune = true;
 
   // The minimum memory that an operator required to run.
@@ -496,10 +498,13 @@ struct TQueryOptions {
   219: optional i64 ann_index_candidate_rows_threshold = 0
   // Candidate row ratio threshold against segment rows. Existing default is 0.3.
   220: optional double ann_index_candidate_rows_percent_threshold = 0.3
-  // To control whether BE scan readers may apply expression-based ZoneMap pruning.
+
+  // Controls expression-based ZoneMap pruning for readers that honor this option.
+  // FileScannerV2 always enables safe expression ZoneMap pruning.
   224: optional bool enable_expr_zonemap_filter = true
 
   225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
+  226: optional bool enable_local_exchange_before_streaming_agg = false
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

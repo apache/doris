@@ -146,6 +146,8 @@ struct TScalarType {
     // Only set for VARIANT
     5: optional i32 variant_max_subcolumns_count = 0;
     6: optional bool variant_enable_doc_mode = false;
+    // Execution-only ColumnVariantV2 marker. Table metadata never sets this field.
+    7: optional bool variant_is_v2 = false;
 }
 
 // Represents a field in a STRUCT type.
@@ -687,6 +689,7 @@ struct TReplicaInfo {
     5: required TReplicaId replica_id
     6: optional bool is_alive
     7: optional i64 backend_id
+    8: optional string cloud_compute_group_id
 }
 
 struct TResourceInfo {

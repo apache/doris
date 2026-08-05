@@ -82,21 +82,35 @@ suite("test_iceberg_schema_dual_relation_matrix",
         sql """use ${dbName}"""
 
         // Scenario TC07-baseline: each historical relation resolves its own schema in isolation.
-        assertEquals([[1, "old-1", 10]], sql("""
+        qt_old_snapshot """
             select id, old_name, info.added
             from ${tableName} for version as of ${oldSnapshot}
             order by id
-        """))
-        assertEquals([[1, "old-1", 10], [2, "new-2", 20]], sql("""
+        """
+        qt_new_snapshot """
             select id, new_name, info.renamed
             from ${tableName} for version as of ${newSnapshot}
             order by id
-        """))
+        """
 
-        // Scenario TC07-join negative contract:
-        // two historical relations in one statement currently reuse the first schema.
-        test {
-            sql """
+        // Latest metadata must be restored even when a historical relation is bound first.
+        qt_historical_then_latest """
+                select h.id, h.old_name, l.new_name
+                from ${tableName} for version as of ${oldSnapshot} h
+                join ${tableName} l on h.id = l.id
+                order by h.id
+        """
+
+        // Binding the same pair in reverse order must preserve both relation-local schemas.
+        qt_latest_then_historical """
+                select l.id, l.new_name, h.old_name
+                from ${tableName} l
+                join ${tableName} for version as of ${oldSnapshot} h on l.id = h.id
+                order by l.id
+        """
+
+        // Scenario TC07-join: each historical relation keeps its own schema.
+        qt_historical_join """
                 select o.id, o.old_name, n.new_name
                 from (
                     select id, old_name
@@ -107,13 +121,10 @@ suite("test_iceberg_schema_dual_relation_matrix",
                     from ${tableName} for version as of ${newSnapshot}
                 ) n on o.id = n.id
                 order by o.id
-            """
-            exception "Unknown column 'new_name'"
-        }
+        """
 
         // Scenario TC07-reverse-join: binding must be independent of relation order.
-        test {
-            sql """
+        qt_reverse_historical_join """
                 select n.id, n.new_name, o.old_name
                 from (
                     select id, new_name
@@ -124,39 +135,30 @@ suite("test_iceberg_schema_dual_relation_matrix",
                     from ${tableName} for version as of ${oldSnapshot}
                 ) o on n.id = o.id
                 order by n.id
-            """
-            exception "Unknown column 'old_name'"
-        }
+        """
 
         // Scenario TC07-union: top-level historical schemas stay relation-local.
-        test {
-            sql """
+        qt_historical_union """
                 select id, old_name as name_value
                 from ${tableName} for version as of ${oldSnapshot}
                 union all
                 select id, new_name as name_value
                 from ${tableName} for version as of ${newSnapshot}
                 order by id, name_value
-            """
-            exception "Unknown column 'new_name'"
-        }
+        """
 
         // Scenario TC07-nested-union: nested field lookup is also relation-local.
-        test {
-            sql """
+        qt_nested_historical_union """
                 select id, info.added as nested_value
                 from ${tableName} for version as of ${oldSnapshot}
                 union all
                 select id, info.renamed as nested_value
                 from ${tableName} for version as of ${newSnapshot}
                 order by id, nested_value
-            """
-            exception "No such struct field 'renamed'"
-        }
+        """
 
         // Scenario TC07-CTE: CTE boundaries must not collapse snapshot schemas.
-        test {
-            sql """
+        qt_historical_cte """
                 with old_ref as (
                     select id, old_name
                     from ${tableName} for version as of ${oldSnapshot}
@@ -167,13 +169,10 @@ suite("test_iceberg_schema_dual_relation_matrix",
                 select old_ref.id, old_ref.old_name, new_ref.new_name
                 from old_ref join new_ref on old_ref.id = new_ref.id
                 order by old_ref.id
-            """
-            exception "Unknown column 'new_name'"
-        }
+        """
 
         // Scenario TC07-correlated-subquery: subqueries require an independent schema.
-        test {
-            sql """
+        qt_historical_correlated_subquery """
                 select o.id, o.old_name
                 from ${tableName} for version as of ${oldSnapshot} o
                 where exists (
@@ -182,9 +181,7 @@ suite("test_iceberg_schema_dual_relation_matrix",
                     where n.id = o.id and n.new_name is not null
                 )
                 order by o.id
-            """
-            exception "Unknown column 'new_name'"
-        }
+        """
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }

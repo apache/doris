@@ -36,7 +36,9 @@ import org.apache.paimon.types.DoubleType;
 import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
@@ -83,6 +85,10 @@ public class DorisToPaimonTypeVisitor extends DorisTypeVisitor<DataType> {
         PrimitiveType primitiveType = atomic.getPrimitiveType();
         if (primitiveType.equals(PrimitiveType.BOOLEAN)) {
             return new BooleanType();
+        } else if (primitiveType.equals(PrimitiveType.TINYINT)) {
+            return new TinyIntType();
+        } else if (primitiveType.equals(PrimitiveType.SMALLINT)) {
+            return new SmallIntType();
         } else if (primitiveType.equals(PrimitiveType.INT)) {
             return new IntType();
         } else if (primitiveType.equals(PrimitiveType.BIGINT)) {

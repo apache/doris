@@ -25,8 +25,10 @@ import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -60,6 +62,7 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.Table;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -157,7 +160,9 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
             String label = String.format("iceberg_update_merge_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
 
             IcebergMergeExecutor insertExecutor =
-                    new IcebergMergeExecutor(ctx, icebergTable, label, planner, emptyInsert, -1L);
+                    new IcebergMergeExecutor(ctx, icebergTable,
+                            ((PhysicalIcebergMergeSink<?>) physicalSink).getTargetIcebergTable(),
+                            label, planner, emptyInsert, -1L);
             insertExecutor.setConflictDetectionFilter(conflictFilter);
 
             if (insertExecutor.isEmptyInsert()) {
@@ -218,11 +223,19 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
 
     private LogicalPlan buildMergePlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                        List<EqualTo> assignments, IcebergExternalTable icebergTable) {
+        Optional<MvccSnapshot> targetSnapshot = ctx.getStatementContext()
+                .loadSnapshots(icebergTable, Optional.empty(), Optional.empty());
+        Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot.orElseThrow(
+                () -> new AnalysisException("Iceberg update target snapshot is not available")))
+                .getSnapshotCacheValue().getIcebergTable().orElseThrow(
+                        () -> new AnalysisException("Iceberg update target metadata is not available"));
+        // Use one retained schema for assignment binding, sink output, distribution, and commit.
+        List<Column> targetSchema = icebergTable.getBaseSchema(targetSnapshot, true);
         String tableName = tableAlias != null
                 ? tableAlias
                 : Util.getTempTableDisplayName(icebergTable.getName());
         LogicalPlan queryPlan = buildMergeProjectPlan(ctx, logicalQuery, assignments,
-                icebergTable.getBaseSchema(true), tableName);
+                targetSchema, tableName);
 
         List<NamedExpression> outputExprs;
         if (!IcebergNereidsUtils.hasUnboundPlan(queryPlan)) {
@@ -238,9 +251,12 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         return new LogicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
-                icebergTable.getBaseSchema(true),
+                targetIcebergTable,
+                targetSchema,
                 outputExprs,
                 deleteCtx,
+                true,
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 queryPlan);

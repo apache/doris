@@ -56,7 +56,11 @@ Status decode_parquet_date(int32_t encoded_date, DateV2Value<DateV2ValueType>* v
 class DateV2ParquetConsumer final : public ParquetFixedValueConsumer {
 public:
     explicit DateV2ParquetConsumer(IColumn& column, ParquetMaterializationState* state = nullptr)
-            : _data(assert_cast<ColumnDateV2&>(column).get_data()), _state(state) {}
+            : DateV2ParquetConsumer(assert_cast<ColumnDateV2&>(column).get_data(), state) {}
+
+    explicit DateV2ParquetConsumer(ColumnDateV2::Container& data,
+                                   ParquetMaterializationState* state = nullptr)
+            : _data(data), _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         DORIS_CHECK_EQ(value_width, sizeof(int32_t));
@@ -89,6 +93,37 @@ public:
     Status consume(const StringRef* values, size_t num_values) override {
         return Status::NotSupported("Binary Parquet values cannot be materialized as DATEV2");
     }
+};
+
+class DateV2PredicateParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    DateV2PredicateParquetConsumer(bool enable_strict_mode, ParquetLogicalValueConsumer& consumer,
+                                   ColumnDateV2::Container& logical_values,
+                                   IColumn::Filter& conversion_nulls)
+            : _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        DateV2ParquetConsumer converter(_logical_values, &state);
+        RETURN_IF_ERROR(converter.consume(values, num_values, value_width));
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(DateV2Value<DateV2ValueType>),
+                                 _conversion_nulls.data());
+    }
+
+private:
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    ColumnDateV2::Container& _logical_values;
+    IColumn::Filter& _conversion_nulls;
 };
 
 } // namespace
@@ -250,6 +285,24 @@ Status DataTypeDateV2SerDe::read_column_from_parquet(IColumn& column, ParquetDec
         state.dictionary_generation = source.dictionary_generation();
     }
     return state.materialize_dictionary(column, source, num_values);
+}
+
+bool DataTypeDateV2SerDe::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    return context.encoding != ParquetValueEncoding::DICTIONARY &&
+           context.physical_type == ParquetPhysicalType::INT32 &&
+           context.logical_type == ParquetLogicalType::DATE;
+}
+
+Status DataTypeDateV2SerDe::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if (!supports_parquet_raw_predicate(context)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for DATEV2");
+    }
+    DateV2PredicateParquetConsumer predicate_consumer(
+            enable_strict_mode, consumer, _parquet_predicate_values, _parquet_predicate_nulls);
+    return source.decode_fixed_values(num_values, predicate_consumer);
 }
 
 Status DataTypeDateV2SerDe::write_column_to_mysql_binary(const IColumn& column,

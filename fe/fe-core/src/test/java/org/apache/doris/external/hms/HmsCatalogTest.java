@@ -17,6 +17,8 @@
 
 package org.apache.doris.external.hms;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -33,6 +35,8 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.HMSSchemaCacheValue;
 import org.apache.doris.datasource.hive.HiveDlaTable;
+import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
@@ -380,12 +384,34 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
             }
         };
 
+        mockSnapshotAwareSchema(tbl, schema);
+        mockSnapshotAwareSchema(view1, schema);
+        mockSnapshotAwareSchema(view2, schema);
+        mockSnapshotAwareSchema(view3, schema);
+        mockSnapshotAwareSchema(view4, schema);
+
         db.addTableForTest(tbl);
         db.addTableForTest(view1);
         db.addTableForTest(view2);
         db.addTableForTest(view3);
         db.addTableForTest(view4);
         hmsCatalog.addDatabaseForTest(db);
+    }
+
+    private void mockSnapshotAwareSchema(HMSExternalTable table, List<Column> schema) {
+        // Binding pins both the snapshot and schema per relation, so HMS mocks must implement
+        // the same snapshot-aware contract as real tables instead of only the legacy overload.
+        new Expectations(table) {
+            {
+                table.loadSnapshot((Optional<TableSnapshot>) any, (Optional<TableScanParams>) any);
+                minTimes = 0;
+                result = new EmptyMvccSnapshot();
+
+                table.getFullSchema((Optional<MvccSnapshot>) any);
+                minTimes = 0;
+                result = schema;
+            }
+        };
     }
 
     @Test

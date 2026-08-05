@@ -32,6 +32,7 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -265,7 +266,46 @@ public class HudiUtils {
             timestamp = getLastTimeStamp(hmsTable);
         }
 
-        return new HudiMvccSnapshot(HudiUtils.getPartitionValues(tableSnapshot, hmsTable), timestamp);
+        return new HudiMvccSnapshot(getPartitionValuesAtInstant(tableSnapshot, hmsTable, timestamp), timestamp);
+    }
+
+    private static TablePartitionValues getPartitionValuesAtInstant(Optional<TableSnapshot> tableSnapshot,
+            HMSExternalTable hmsTable, long timestamp) {
+        if (timestamp <= 0 || tableSnapshot.filter(
+                snapshot -> snapshot.getType() == TableSnapshot.VersionType.VERSION).isPresent()) {
+            return new TablePartitionValues();
+        }
+
+        HudiExternalMetaCache hudiExternalMetaCache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .hudi(hmsTable.getCatalog().getId());
+        try {
+            // Partition metadata must use the same instant captured above; a latest-cache lookup
+            // could cross a refresh boundary and combine partitions from a newer generation.
+            return hmsTable.getCatalog().getExecutionAuthenticator().execute(() ->
+                    hudiExternalMetaCache.getSnapshotPartitionValues(
+                            hmsTable, Long.toString(timestamp), hmsTable.useHiveSyncPartition()));
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
+    /**
+     * Resolve the instant used for split and schema planning.
+     */
+    public static Optional<String> resolveQueryInstant(Optional<MvccSnapshot> relationSnapshot,
+            Optional<TableSnapshot> tableSnapshot, HoodieTimeline timeline) {
+        if (relationSnapshot.filter(HudiMvccSnapshot.class::isInstance).isPresent()) {
+            long timestamp = ((HudiMvccSnapshot) relationSnapshot.get()).getTimestamp();
+            // The pinned timestamp is authoritative even if the active timeline advances later.
+            return timestamp > 0 ? Optional.of(Long.toString(timestamp)) : Optional.empty();
+        }
+        if (tableSnapshot.isPresent()) {
+            return Optional.of(tableSnapshot.get().getValue().replaceAll("[-: ]", ""));
+        }
+        Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+        return snapshotInstant.isPresent()
+                ? Optional.of(snapshotInstant.get().requestedTime())
+                : Optional.empty();
     }
 
     public static long getLastTimeStamp(HMSExternalTable hmsTable) {

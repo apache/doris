@@ -261,6 +261,17 @@ struct ColumnDefinition {
     // Full table-schema identity subtree before access-path pruning. ID-less physical complex
     // wrappers must be discovered from this view without adding unrequested children to output.
     std::vector<ColumnDefinition> identity_children {};
+    // Logical object-key paths requested from a Variant column. An empty collection means the
+    // whole Variant is required; non-empty paths may be resolved to format-specific shredded
+    // physical children after the per-file schema is known.
+    std::vector<std::vector<std::string>> variant_access_paths {};
+    // Predicate access paths are kept separately from the final union projection. File Scanner V2
+    // can lower this smaller semantic tree to an eager predicate projection while deferring the
+    // final children until rows survive. The flag distinguishes no predicate metadata from a
+    // whole-root predicate, whose child/path collections are intentionally empty.
+    bool has_predicate_access_paths = false;
+    std::vector<ColumnDefinition> predicate_children {};
+    std::vector<std::vector<std::string>> predicate_variant_access_paths {};
     // Expression used to materialize missing/default/generated values when the column is not read
     // directly from the file.
     VExprContextSPtr default_expr = nullptr;
@@ -366,6 +377,19 @@ struct LocalColumnIndex {
     int32_t local_id() const { return index; }
     std::string debug_string() const;
 };
+
+inline bool same_local_column_index(const LocalColumnIndex& lhs, const LocalColumnIndex& rhs) {
+    if (lhs.index != rhs.index || lhs.project_all_children != rhs.project_all_children ||
+        lhs.children.size() != rhs.children.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < lhs.children.size(); ++i) {
+        if (!same_local_column_index(lhs.children[i], rhs.children[i])) {
+            return false;
+        }
+    }
+    return true;
+}
 
 inline bool is_full_projection(const LocalColumnIndex* projection) {
     return projection == nullptr || projection->project_all_children;

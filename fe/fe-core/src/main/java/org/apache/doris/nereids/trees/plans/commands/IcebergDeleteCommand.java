@@ -25,7 +25,9 @@ import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -55,6 +57,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import org.apache.iceberg.Table;
 
 import java.util.List;
 import java.util.Optional;
@@ -155,6 +158,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
                 IcebergDeleteExecutor deleteExecutor = new IcebergDeleteExecutor(
                         ctx,
                         icebergTable,
+                        ((PhysicalIcebergDeleteSink<?>) physicalSink).getTargetIcebergTable(),
                         label,
                         planner,
                         emptyInsert,
@@ -199,6 +203,12 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
      */
     private LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                          IcebergExternalTable icebergTable) {
+        Optional<MvccSnapshot> targetSnapshot = ctx.getStatementContext()
+                .loadSnapshots(icebergTable, Optional.empty(), Optional.empty());
+        Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot.orElseThrow(
+                () -> new AnalysisException("Iceberg delete target snapshot is not available")))
+                .getSnapshotCacheValue().getIcebergTable().orElseThrow(
+                        () -> new AnalysisException("Iceberg delete target metadata is not available"));
         LogicalPlan queryPlan = buildPositionDeletePlan(ctx, logicalQuery, icebergTable);
 
         // Convert output to NamedExpression list
@@ -217,7 +227,9 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         LogicalIcebergDeleteSink<LogicalPlan> deleteSink = new LogicalIcebergDeleteSink<>(
                 (IcebergExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
-                icebergTable.getBaseSchema(true),  // cols
+                // The sink schema and commit base must stay on the generation bound for the scan.
+                targetIcebergTable,
+                icebergTable.getBaseSchema(targetSnapshot, true),  // cols
                 outputExprs,  // outputExprs
                 deleteCtx,
                 Optional.empty(),  // groupExpression

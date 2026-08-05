@@ -351,10 +351,14 @@ public:
                             : std::max(48, CpuInfo::num_cores() * 2),
                     std::chrono::milliseconds(100), std::nullopt));
 
-            auto wrapped_scan_func = [this, task_handle, scan_func = scan_task.scan_func]() {
+            std::weak_ptr<TaskExecutor> task_executor = _task_executor;
+            auto wrapped_scan_func = [task_executor, task_handle,
+                                      scan_func = scan_task.scan_func]() {
                 bool result = scan_func();
                 if (result) {
-                    static_cast<void>(_task_executor->remove_task(task_handle));
+                    if (auto executor = task_executor.lock()) {
+                        static_cast<void>(executor->remove_task(task_handle));
+                    }
                 }
                 return result;
             };

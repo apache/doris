@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -271,6 +272,16 @@ public abstract class FileScanNode extends ExternalScanNode {
             Map<String, Expr> exprByName,
             TFileScanRangeParams params,
             boolean useVarcharAsNull) throws UserException {
+        setDefaultValueExprs(tbl, slotDescByName, exprByName, params, useVarcharAsNull,
+                desc.getTable().getFullSchema());
+    }
+
+    protected void setDefaultValueExprs(TableIf tbl,
+            Map<String, SlotDescriptor> slotDescByName,
+            Map<String, Expr> exprByName,
+            TFileScanRangeParams params,
+            boolean useVarcharAsNull,
+            List<Column> columns) throws UserException {
         Preconditions.checkNotNull(tbl);
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
@@ -280,7 +291,16 @@ public abstract class FileScanNode extends ExternalScanNode {
             nameToSlotDesc.put(slot.getColumn().getName(), slot);
         }
 
-        for (Column column : desc.getTable().getFullSchema()) {
+        // Build slot_id -> index map for required_slots to set default_value_expr inline.
+        Map<Integer, Integer> slotIdToRequiredIdx = Maps.newHashMap();
+        if (params.getRequiredSlots() != null) {
+            for (int i = 0; i < params.getRequiredSlots().size(); i++) {
+                TFileScanSlotInfo slotInfo = params.getRequiredSlots().get(i);
+                slotIdToRequiredIdx.put(slotInfo.getSlotId(), i);
+            }
+        }
+
+        for (Column column : columns) {
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {

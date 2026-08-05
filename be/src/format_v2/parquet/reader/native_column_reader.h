@@ -43,6 +43,7 @@ struct IOContext;
 namespace doris::format::parquet {
 
 class NativeParquetMetadata;
+struct VariantMaterializationNode;
 
 namespace detail {
 inline constexpr int64_t MAX_NATIVE_LAZY_SKIP_ROWS = std::numeric_limits<uint16_t>::max();
@@ -91,13 +92,20 @@ public:
     Status select_with_fixed_width_filter(const SelectionVector& selection, uint16_t selected_rows,
                                           int64_t batch_rows, const VExprSPtrs& conjuncts,
                                           int column_id, IColumn* projected_column,
-                                          IColumn::Filter* row_filter, bool* used_filter) override;
+                                          IColumn::Filter* row_filter, bool* used_filter,
+                                          DirectPredicateExecutionKind* execution_kind) override;
+    Status select_with_runtime_filter(const SelectionVector& selection, uint16_t selected_rows,
+                                      int64_t batch_rows, const VExprContextSPtrs& conjuncts,
+                                      int column_id, MutableColumnPtr* projected_column,
+                                      IColumn::Filter* row_filter, bool* used_filter) override;
     void flush_profile() override;
     bool crossed_page_since_last_batch() override;
     Result<MutableColumnPtr> dictionary_values() override;
 
 private:
-    NativeColumnReader(const ParquetColumnSchema& schema, DataTypePtr projected_type,
+    NativeColumnReader(const ParquetColumnSchema& schema, DataTypePtr logical_type,
+                       DataTypePtr native_type,
+                       std::unique_ptr<VariantMaterializationNode> variant_plan,
                        ParquetColumnReaderProfile profile);
 
     Status init(io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
@@ -115,7 +123,8 @@ private:
     Status read_with_fixed_width_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
                                         const VExprSPtrs& conjuncts, int column_id,
                                         IColumn* projected_column, IColumn::Filter* row_filter,
-                                        int64_t* rows_read, bool* used_filter);
+                                        int64_t* rows_read, bool* used_filter,
+                                        DirectPredicateExecutionKind* execution_kind);
     Status read_with_dictionary_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
                                        const IColumn::Filter& dictionary_filter,
                                        const IColumn* typed_dictionary, IColumn* projected_values,
@@ -136,6 +145,9 @@ private:
     const std::unordered_map<int, tparquet::OffsetIndex>* _offset_indexes = nullptr;
     std::shared_ptr<NativeSchemaNode> _schema_node;
     std::unique_ptr<native::ColumnReader> _native_reader;
+    DataTypePtr _native_type;
+    std::unique_ptr<VariantMaterializationNode> _variant_plan;
+    MutableColumnPtr _variant_physical_column;
     std::unique_ptr<RuntimeState> _page_cache_runtime_state;
     std::vector<RowRange> _selected_ranges;
     size_t _selected_range_idx = 0;

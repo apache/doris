@@ -3623,6 +3623,14 @@ TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
     array_subcolumn.finalize();
 }
 
+TEST(ColumnVariantNestedGroupTypeTest, nullable_array_element_is_recognized) {
+    EXPECT_TRUE(is_nested_group_type(ColumnVariant::NESTED_TYPE));
+
+    auto variant = std::make_shared<DataTypeVariant>(0, false);
+    EXPECT_TRUE(is_nested_group_type(variant));
+    EXPECT_FALSE(is_nested_group_type(make_nullable(variant)));
+}
+
 TEST_F(ColumnVariantTest, deserialize_mixed_array_elements) {
     ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
 

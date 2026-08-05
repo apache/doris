@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -36,6 +37,15 @@ namespace doris {
 
 class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
+
+    struct PruningState {
+        std::once_flag materialize_once;
+        Status materialization_status;
+        bool zonemap_materialized = false;
+        std::vector<Field> seg_filter_values;
+        Field seg_filter_min;
+        Field seg_filter_max;
+    };
 
 public:
     // `hybrid_set_values_match_child_type` tells whether values in `filter` can be interpreted with
@@ -90,22 +100,24 @@ public:
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
 
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        return expr_zonemap::eval_in_zonemap(ctx, get_child(0), false, _seg_filter_values,
-                                             _seg_filter_min, _seg_filter_max);
+        return expr_zonemap::eval_in_zonemap(
+                ctx, get_child(0), false, _pruning_state->seg_filter_values,
+                _pruning_state->seg_filter_min, _pruning_state->seg_filter_max);
     }
 
     bool can_evaluate_zonemap_filter() const override {
-        return _zonemap_materialized &&
+        return _pruning_state->zonemap_materialized &&
                std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
     }
 
     ZoneMapFilterResult evaluate_dictionary_filter(
             const DictionaryEvalContext& ctx) const override {
-        return expr_zonemap::eval_in_dictionary(ctx, get_child(0), false, _seg_filter_values);
+        return expr_zonemap::eval_in_dictionary(ctx, get_child(0), false,
+                                                _pruning_state->seg_filter_values);
     }
 
     bool can_evaluate_dictionary_filter() const override {
-        return _zonemap_materialized &&
+        return _pruning_state->zonemap_materialized &&
                std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
     }
 
@@ -147,10 +159,42 @@ public:
         return Status::OK();
     }
 
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override {
+        if (!_hybrid_set_values_match_child_type || data_type == nullptr || _filter == nullptr ||
+            get_num_children() != 1) {
+            return false;
+        }
+        const auto slot = std::dynamic_pointer_cast<VSlotRef>(get_child(0));
+        if (slot == nullptr || slot->column_id() != column_id || slot->data_type() == nullptr) {
+            return false;
+        }
+        return is_string_type(remove_nullable(data_type)->get_primitive_type()) &&
+               is_string_type(remove_nullable(slot->data_type())->get_primitive_type());
+    }
+
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override {
+        if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+            return Status::NotSupported("Direct IN predicate cannot evaluate raw binary values");
+        }
+        DORIS_CHECK(values != nullptr || num_values == 0);
+        DORIS_CHECK(matches != nullptr || num_values == 0);
+        // Probe immutable decoder slices directly; constructing ColumnString first would copy
+        // every rejected payload and defeat predicate-only late materialization.
+        _filter->find_batch_raw_binary(values, num_values, matches);
+        return Status::OK();
+    }
+
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
-        *cloned_expr = VDirectInPredicate::create_shared(clone_texpr_node(), _filter,
-                                                         _hybrid_set_values_match_child_type);
+        auto cloned = VDirectInPredicate::create_shared(clone_texpr_node(), _filter,
+                                                        _hybrid_set_values_match_child_type);
+        // Runtime-filter sets are immutable after publication, and file-local rewrites preserve
+        // the predicate's logical child type, so every split clone must reuse this materialization.
+        cloned->_pruning_state = _pruning_state;
+        *cloned_expr = std::move(cloned);
         return Status::OK();
     }
 
@@ -222,6 +266,7 @@ private:
             RETURN_RAW_FIXED_SIZE(TYPE_DATEV2);
             RETURN_RAW_FIXED_SIZE(TYPE_DATETIMEV2);
             RETURN_RAW_FIXED_SIZE(TYPE_TIMESTAMPTZ);
+            RETURN_RAW_FIXED_SIZE(TYPE_TIMEV2);
             RETURN_RAW_FIXED_SIZE(TYPE_DECIMAL32);
             RETURN_RAW_FIXED_SIZE(TYPE_DECIMAL64);
             RETURN_RAW_FIXED_SIZE(TYPE_DECIMALV2);
@@ -271,21 +316,27 @@ private:
     }
 
     Status _materialize_for_zonemap_filter() {
-        if (!_hybrid_set_values_match_child_type) {
-            _zonemap_materialized = false;
-            return Status::OK();
-        }
-        DORIS_CHECK(_filter != nullptr);
-        auto& filter = *_filter;
-        const auto& data_type = remove_nullable(get_child(0)->data_type());
-        expr_zonemap::InZonemapMaterializedSet materialized;
-        RETURN_IF_ERROR(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(filter, data_type,
-                                                                                &materialized));
-        _seg_filter_values = std::move(materialized.values);
-        _seg_filter_min = std::move(materialized.min_value);
-        _seg_filter_max = std::move(materialized.max_value);
-        _zonemap_materialized = true;
-        return Status::OK();
+        const auto pruning_state = _pruning_state;
+        std::call_once(pruning_state->materialize_once, [&] {
+            if (!_hybrid_set_values_match_child_type) {
+                return;
+            }
+            DORIS_CHECK(_filter != nullptr);
+            auto& filter = *_filter;
+            const auto& data_type = remove_nullable(get_child(0)->data_type());
+            expr_zonemap::InZonemapMaterializedSet materialized;
+            pruning_state->materialization_status =
+                    expr_zonemap::materialize_hybrid_set_for_zonemap_filter(filter, data_type,
+                                                                            &materialized);
+            if (!pruning_state->materialization_status.ok()) {
+                return;
+            }
+            pruning_state->seg_filter_values = std::move(materialized.values);
+            pruning_state->seg_filter_min = std::move(materialized.min_value);
+            pruning_state->seg_filter_max = std::move(materialized.max_value);
+            pruning_state->zonemap_materialized = true;
+        });
+        return pruning_state->materialization_status;
     }
 
     std::shared_ptr<HybridSetBase> _filter;
@@ -294,10 +345,7 @@ private:
     // literals for zonemap pruning or slot-IN rewrite.
     bool _hybrid_set_values_match_child_type = true;
     std::string _expr_name;
-    bool _zonemap_materialized = false;
-    std::vector<Field> _seg_filter_values;
-    Field _seg_filter_min;
-    Field _seg_filter_max;
+    std::shared_ptr<PruningState> _pruning_state = std::make_shared<PruningState>();
 };
 
 #include "common/compile_check_end.h"

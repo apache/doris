@@ -21,6 +21,12 @@ List only the Parquet cases:
 be/output/lib/benchmark_test --benchmark_list_tests | grep '^Parquet'
 ```
 
+List the split-local runtime-filter expression lifecycle cases:
+
+```shell
+be/output/lib/benchmark_test --benchmark_list_tests | grep '^FileScannerExpr/'
+```
+
 ## Decoder cases
 
 `ParquetDecoder` measures the native decoder with data generation and encoder setup outside the
@@ -39,18 +45,61 @@ be/output/lib/benchmark_test \
 
 ## SIMD kernel cases
 
-`ParquetKernel` isolates the five SIMD-sensitive stages from reader setup and virtual consumer
+`ParquetKernel` isolates seven decode and selection stages from reader setup and virtual consumer
 overhead: byte-stream-split transpose, delta prefix sum, numeric dictionary gather, nullable
-expansion, and raw predicate evaluation. It covers the applicable 4-byte and 8-byte integer and
-floating-point physical types, raw-predicate selectivities from 0% through 100%, and nullable
-rates from 0% through 90% with clustered and alternating placement. Dictionary gather uses 32-,
-4,096-, and 262,144-entry working sets to separate cache-resident and cache-miss-dominated
-behavior.
+expansion, nullable selection planning, raw predicate evaluation, and repeated-level sparse
+selection. It covers the applicable
+4-byte and 8-byte integer and floating-point physical types, raw-predicate selectivities from 0%
+through 100%, and nullable rates from 0% through 90% with clustered and alternating placement.
+Nested selection covers 1%, 10%, and 50% surviving parent rows with both placement patterns.
+Each nested-selection scenario registers both `impl_legacy` and `impl_fused`; both paths use the
+same source levels and are checked against an independent oracle before timing.
+Nullable selection planning registers legacy and fused pairs across five selectivities, five null
+rates, and independent clustered or alternating selection/null placement. Both implementations are
+checked for identical physical ranges and null maps before timing. The full matrix also acts as a
+negative control: production fusion is limited to batches with at least 1,024 rows, at least 10%
+NULLs, and fragmented definition-level runs; no-NULL, low-NULL, and clustered pages retain the
+legacy planner.
+Dictionary gather uses 32-, 4,096-, and 262,144-entry working sets to separate cache-resident and
+cache-miss-dominated behavior.
 
 ```shell
 be/output/lib/benchmark_test \
   --benchmark_filter='^ParquetKernel/(dictionary_gather|nullable_expand)/' \
   --benchmark_min_time=0.1s
+```
+
+For a reproducible nested-selection comparison, build once and run the two implementations from
+that same binary in ABBA order. Pin every command to the same otherwise-idle CPU:
+
+```shell
+taskset -c 8 be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetKernel/nested_selection/.*/impl_legacy$' \
+  --benchmark_min_time=1s --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true \
+  --benchmark_out=nested-legacy-a1.json --benchmark_out_format=json
+
+taskset -c 8 be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetKernel/nested_selection/.*/impl_fused$' \
+  --benchmark_min_time=1s --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true \
+  --benchmark_out=nested-fused-b1.json --benchmark_out_format=json
+
+# Repeat fused as B2, then legacy as A2, changing only --benchmark_out.
+```
+
+## Selection compaction cases
+
+`ParquetSelection` isolates the selection-vector paths used after raw and expression predicate
+evaluation. It covers implicit identity initialization, a filter indexed by source row, and a
+second compact filter applied after an earlier predicate has already made the selection sparse.
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetSelection/(resize_identity|row_filter|cascade_filter)/' \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true
 ```
 
 ## Local reader cases
@@ -91,3 +140,21 @@ be/output/lib/benchmark_test \
 Every result reports throughput plus `raw_rows`, `selected_rows`, `fixture_bytes`, `ns/raw_row`,
 and (when at least one row survives) `ns/selected_row`. Keep CPU frequency, build type, compiler,
 machine placement, and benchmark filters fixed when comparing two commits.
+
+## Runtime-filter expression lifecycle cases
+
+`FileScannerExpr` measures only the repeated deep-clone, prepare, and open work for an already
+prepared direct-IN runtime filter. Four cardinalities sweep 128 through 65,536 set values, with
+shared-state and forced-rematerialization implementations registered in the same binary. Set
+construction and the original fragment-level prepare/open are outside the timed region.
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^FileScannerExpr/direct_in_clone_prepare_open/' \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true
+```
+
+These cases do not execute `FileScannerV2`, schedule splits, or read Parquet files. They isolate the
+expression lifecycle visible in scanner profiles so it can be compared without I/O noise.

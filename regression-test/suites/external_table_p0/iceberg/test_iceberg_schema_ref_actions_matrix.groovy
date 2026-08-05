@@ -88,38 +88,38 @@ suite("test_iceberg_schema_ref_actions_matrix",
         String rollbackNewSnapshot = snapshots(rollbackTable).last()
         sql """alter table ${rollbackTable} create tag rollback_new"""
 
-        assertEquals([[1, "old-1", 10]], sql("""
+        qt_rollback_old_snapshot """
             select id, old_name, payload.old_child
             from ${rollbackTable} for version as of ${rollbackOldSnapshot}
             order by id
-        """))
-        assertEquals([[1, "old-1", 10], [2, "new-2", 20]], sql("""
+        """
+        qt_rollback_new_snapshot """
             select id, new_name, payload.new_child
             from ${rollbackTable} for version as of ${rollbackNewSnapshot}
             order by id
-        """))
+        """
 
         sql """
             alter table ${rollbackTable}
             execute rollback_to_snapshot('snapshot_id'='${rollbackOldSnapshot}')
         """
         sql """refresh table ${rollbackTable}"""
-        assertEquals([[1, "old-1", 10]], sql("""
+        qt_rollback_current_after_snapshot """
             select id, new_name, payload.new_child
             from ${rollbackTable}
             order by id
-        """))
+        """
         assertUnknownColumn("""select old_name from ${rollbackTable}""", "old_name")
-        assertEquals([[1, "old-1", 10]], sql("""
+        qt_rollback_old_tag """
             select id, old_name, payload.old_child
             from ${rollbackTable}@tag(rollback_old)
             order by id
-        """))
-        assertEquals([[1, "old-1", 10], [2, "new-2", 20]], sql("""
+        """
+        qt_rollback_new_tag """
             select id, new_name, payload.new_child
             from ${rollbackTable}@tag(rollback_new)
             order by id
-        """))
+        """
 
         // Scenario T16-cherrypick: append snapshot with the renamed schema can be replayed after rollback.
         sql """
@@ -127,16 +127,16 @@ suite("test_iceberg_schema_ref_actions_matrix",
             execute cherrypick_snapshot('snapshot_id'='${rollbackNewSnapshot}')
         """
         sql """refresh table ${rollbackTable}"""
-        assertEquals([[1, "old-1", 10], [2, "new-2", 20]], sql("""
+        qt_cherrypick_current """
             select id, new_name, payload.new_child
             from ${rollbackTable}
             order by id
-        """))
-        assertEquals([[1, "old-1", 10]], sql("""
+        """
+        qt_cherrypick_old_tag """
             select id, old_name, payload.old_child
             from ${rollbackTable}@tag(rollback_old)
             order by id
-        """))
+        """
 
         // Scenario T15-timestamp: timestamp rollback also keeps the latest current schema.
         String timestampTable = "rollback_timestamp_schema_timeline"
@@ -169,14 +169,14 @@ suite("test_iceberg_schema_ref_actions_matrix",
             execute rollback_to_timestamp('timestamp'='${rollbackTimestamp}')
         """
         sql """refresh table ${timestampTable}"""
-        assertEquals([[1, "old-1"]], sql("""
+        qt_timestamp_current """
             select id, new_name from ${timestampTable} order by id
-        """))
-        assertEquals([[1, "old-1"]], sql("""
+        """
+        qt_timestamp_old_snapshot """
             select id, old_name
             from ${timestampTable} for version as of ${timestampOldSnapshot}
             order by id
-        """))
+        """
 
         // Scenario T16-fast-forward: advance a pre-rename branch to the renamed main schema.
         String fastForwardTable = "fast_forward_schema_timeline"
@@ -190,28 +190,26 @@ suite("test_iceberg_schema_ref_actions_matrix",
             properties ('format-version'='2', 'write.format.default'='parquet')
         """
         sql """insert into ${fastForwardTable} values (1, 'old-1', 10)"""
+        String preRenameSnapshot = snapshots(fastForwardTable).last()
         sql """alter table ${fastForwardTable} create branch pre_rename_branch"""
         sql """alter table ${fastForwardTable} create tag pre_rename_tag"""
         sql """alter table ${fastForwardTable} rename column old_name new_name"""
         sql """alter table ${fastForwardTable} modify column metric bigint"""
         sql """insert into ${fastForwardTable} values (2, 'new-2', 6000000000)"""
 
-        // Scenario T08 negative contract: before fast-forward, branch reads use the latest rename schema.
-        test {
-            sql """
-                select id, old_name, metric
+        // Scenario T08: before fast-forward, the branch keeps old data under the current table schema.
+        qt_pre_fast_forward_branch """
+                select id, new_name, metric
                 from ${fastForwardTable}@branch(pre_rename_branch)
                 order by id
-            """
-            exception "Unknown column 'old_name'"
-        }
-        assertEquals([[1, "old-1", 10]], sql("""
+        """
+        qt_pre_fast_forward_tag """
             select id, old_name, metric
             from ${fastForwardTable}@tag(pre_rename_tag)
             order by id
-        """))
+        """
 
-        // Scenario T09 negative contract: a pre-rename branch write uses main's latest schema.
+        // Scenario T09: writes use the table's latest schema even when targeting an old branch.
         test {
             sql """
                 insert into ${fastForwardTable}@branch(pre_rename_branch)
@@ -220,21 +218,29 @@ suite("test_iceberg_schema_ref_actions_matrix",
             exception "Unknown column 'old_name'"
         }
 
+        // A historical source relation must not replace the latest schema used to bind the branch target.
+        sql """
+            explain insert into ${fastForwardTable}@branch(pre_rename_branch)
+            (id, new_name, metric)
+            select id, old_name, metric
+            from ${fastForwardTable} for version as of ${preRenameSnapshot}
+        """
+
         sql """
             alter table ${fastForwardTable}
             execute fast_forward('branch'='pre_rename_branch', 'to'='main')
         """
         sql """refresh table ${fastForwardTable}"""
-        assertEquals([[1, "old-1", 10L], [2, "new-2", 6000000000L]], sql("""
+        qt_post_fast_forward_branch """
             select id, new_name, metric
             from ${fastForwardTable}@branch(pre_rename_branch)
             order by id
-        """))
-        assertEquals([[1, "old-1", 10]], sql("""
+        """
+        qt_post_fast_forward_tag """
             select id, old_name, metric
             from ${fastForwardTable}@tag(pre_rename_tag)
             order by id
-        """))
+        """
     } finally {
         sql """drop database if exists ${dbName} force"""
         sql """drop catalog if exists ${catalogName}"""

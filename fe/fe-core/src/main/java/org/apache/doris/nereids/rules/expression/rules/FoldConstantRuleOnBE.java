@@ -309,12 +309,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
-            queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-            if (context.getSessionVariable().getTimeZone().equals("CST")) {
-                queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-            } else {
-                queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-            }
+            queryGlobals.setTimeZone(
+                    TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
 
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setBeExecVersion(Config.be_exec_version);

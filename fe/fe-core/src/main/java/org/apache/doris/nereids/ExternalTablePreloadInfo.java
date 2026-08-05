@@ -50,6 +50,7 @@ public class ExternalTablePreloadInfo {
     }
 
     public boolean shouldPreloadLatestSnapshot() {
-        return hasLatestOnlyRelation && !hasNonLatestRelation;
+        // A historical alias has independent scan state and must not cancel the latest alias warmup.
+        return hasLatestOnlyRelation;
     }
 }

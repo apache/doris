@@ -504,6 +504,7 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink.UnboundBlackholeSinkContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -1144,6 +1145,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1512,6 +1514,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
                 plan,
                 partitionSpec.isStaticPartition() ? partitionSpec.getStaticPartitionValues() : null);
+        if (branchName.isPresent() && sink instanceof UnboundIcebergTableSink) {
+            sink = ((UnboundIcebergTableSink<?>) sink).withBranchName(branchName);
+        }
         Optional<LogicalPlan> cte = Optional.empty();
         if (ctx.cte() != null) {
             cte = Optional.ofNullable(withCte(plan, ctx.cte()));
@@ -1631,9 +1636,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // PARTITION (col1='val1', col2='val2') - static partition
         if (ctx.partitionKeyValue() != null && !ctx.partitionKeyValue().isEmpty()) {
             Map<String, Expression> staticValues = Maps.newLinkedHashMap();
+            Set<String> staticColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             for (DorisParser.PartitionKeyValueContext kvCtx : ctx.partitionKeyValue()) {
                 String colName = kvCtx.identifier().getText();
-                if (staticValues.containsKey(colName)) {
+                if (!staticColumnNames.add(colName)) {
                     throw new AnalysisException("Duplicate partition column: " + colName);
                 }
                 Expression valueExpr = typedVisit(kvCtx.expression());
@@ -6937,6 +6943,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private TableRefInfo visitBaseTableRefContext(BaseTableRefContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
         TableScanParams scanParams = visitOptScanParamsContext(ctx.optScanParams());
+        if (scanParams != null) {
+            // Command table references do not consume relation scan parameters, so reject them
+            // at the parser boundary instead of silently changing the command's meaning.
+            throw new ParseException(scanParams.getParamType().toUpperCase(Locale.ROOT)
+                    + " scan params are only supported in query relations.", ctx);
+        }
         TableSnapshot tableSnapShot = visitTableSnapshotContext(ctx.tableSnapshot());
         PartitionNamesInfo partitionNameInfo = visitSpecifiedPartitionContext(ctx.specifiedPartition());
         List<Long> tabletIdList = visitTabletListContext(ctx.tabletList());

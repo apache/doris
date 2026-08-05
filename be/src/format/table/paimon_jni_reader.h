@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstddef>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -59,6 +60,12 @@ public:
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     Status init_reader();
+
+#ifdef BE_TEST
+    const std::map<std::string, std::string>& TEST_scanner_params() const {
+        return _jni_connector->TEST_scanner_params();
+    }
+#endif
 
 private:
     int64_t _remaining_table_level_row_count;

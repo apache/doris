@@ -20,36 +20,59 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryColumn;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.AppendOnlyFileStoreTable;
+import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.IntType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // CHECKSTYLE OFF
@@ -378,6 +401,55 @@ public class AnalysisManagerTest {
     }
 
     @Test
+    public void testManualAnalysisValidatesPaimonRowCountBeforePlanning() {
+        AtomicBoolean planningStarted = new AtomicBoolean(false);
+        FileStoreTable unsafeTable = new AppendOnlyFileStoreTable(
+                Mockito.mock(FileIO.class),
+                new Path("memory://manual_analysis_guard"),
+                new TableSchema(
+                        0,
+                        Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0,
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        ImmutableMap.of("scan.manifest.parallelism", "0"),
+                        null),
+                CatalogEnvironment.empty()) {
+            @Override
+            public ReadBuilder newReadBuilder() {
+                planningStarted.set(true);
+                return super.newReadBuilder();
+            }
+        };
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        PaimonExternalTable table = Mockito.spy(new TestPaimonExternalTable(catalog, database));
+        Mockito.doReturn(-1L).when(table).getRowCount();
+        Mockito.doReturn(Collections.emptySet()).when(table).getColumnIndexPairs(Mockito.any());
+        AnalyzeTableCommand command = mockAnalyzeCommand(AnalysisMethod.FULL, ScheduleType.ONCE);
+        Mockito.when(command.getTable()).thenReturn(table);
+        AnalysisManager manager = new AnalysisManager();
+        Env env = Mockito.mock(Env.class);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class);
+                MockedStatic<StatisticsUtil> statisticsUtil = Mockito.mockStatic(
+                        StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getNextId()).thenReturn(1L);
+            paimonUtils.when(() -> PaimonUtils.getPaimonTable(table)).thenReturn(unsafeTable);
+            statisticsUtil.when(() -> StatisticsUtil.isEmptyTable(table, AnalysisMethod.FULL)).thenReturn(false);
+
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> manager.buildAnalysisJobInfo(command));
+        }
+        Assertions.assertFalse(planningStarted.get());
+    }
+
+    @Test
     public void testAsyncDropStats() throws InterruptedException {
         AtomicInteger count = new AtomicInteger(0);
         new MockUp<AnalysisManager>() {
@@ -401,5 +473,40 @@ public class AnalysisManagerTest {
         System.out.println(count.get());
         Assertions.assertTrue(count.get() > 0);
         Assertions.assertTrue(count.get() <= 20);
+    }
+
+    private AnalyzeTableCommand mockAnalyzeCommand(AnalysisMethod analysisMethod, ScheduleType scheduleType) {
+        AnalyzeTableCommand command = Mockito.mock(AnalyzeTableCommand.class);
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.getId()).thenReturn(30001L);
+        Mockito.when(table.getColumnIndexPairs(Mockito.any())).thenReturn(Collections.emptySet());
+        Mockito.when(command.getTable()).thenReturn(table);
+        Mockito.when(command.getColumnNames()).thenReturn(Collections.emptySet());
+        Mockito.when(command.isPartitionOnly()).thenReturn(false);
+        Mockito.when(command.isSamplingPartition()).thenReturn(false);
+        Mockito.when(command.isStarPartition()).thenReturn(false);
+        Mockito.when(command.getPartitionCount()).thenReturn(0L);
+        Mockito.when(command.getSamplePercent()).thenReturn(0);
+        Mockito.when(command.getSampleRows()).thenReturn(100);
+        Mockito.when(command.getAnalysisType()).thenReturn(AnalysisType.FUNDAMENTALS);
+        Mockito.when(command.getAnalysisMethod()).thenReturn(analysisMethod);
+        Mockito.when(command.getScheduleType()).thenReturn(scheduleType);
+        Mockito.when(command.getCron()).thenReturn(null);
+        Mockito.when(command.getCatalogId()).thenReturn(10001L);
+        Mockito.when(command.getDbId()).thenReturn(20001L);
+        Mockito.when(command.getPartitionNames()).thenReturn(Collections.emptySet());
+        Mockito.when(command.forceFull()).thenReturn(false);
+        Mockito.when(command.usingSqlForExternalTable()).thenReturn(false);
+        return command;
+    }
+
+    private static class TestPaimonExternalTable extends PaimonExternalTable {
+        private TestPaimonExternalTable(PaimonExternalCatalog catalog, PaimonExternalDatabase database) {
+            super(30001L, "table", "table", catalog, database);
+        }
+
+        @Override
+        protected synchronized void makeSureInitialized() {
+        }
     }
 }

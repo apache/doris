@@ -177,6 +177,16 @@ size_t NeedUpdateLRUBlocks::shard_index(FileBlock* ptr) const {
     return std::hash<FileBlock*> {}(ptr)&kShardMask;
 }
 
+namespace {
+
+int64_t steady_clock_seconds() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+}
+
+} // namespace
+
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
         : _cache_base_path(cache_base_path),
@@ -408,6 +418,12 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                 _cache_base_path.c_str(), metric_prefix + "_produce");
         _lru_recorder_queue_consume_metrics[idx] = std::make_shared<bvar::Adder<size_t>>(
                 _cache_base_path.c_str(), metric_prefix + "_consume");
+        _lru_recorder_shadow_queue_element_count_metrics[idx] =
+                std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
+                                                       "file_cache_lru_recorder_" +
+                                                               cache_type_to_string(type) +
+                                                               "_shadow_queue_element_count",
+                                                       0);
     }
     _lru_recorder_log_replay_idle_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_lru_recorder_log_replay_idle");
@@ -1467,9 +1483,7 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
                                          const CacheContext& context, size_t offset, size_t size,
                                          std::lock_guard<std::mutex>& cache_lock,
                                          bool evict_in_advance) {
-    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
-                               std::chrono::steady_clock::now().time_since_epoch())
-                               .count();
+    int64_t cur_time = steady_clock_seconds();
     if (!try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock,
                                       evict_in_advance)) {
         auto& queue = get_queue(context.cache_type);
@@ -1679,6 +1693,17 @@ void LRUQueue::remove_all(std::lock_guard<std::mutex>& /* cache_lock */) {
     queue.clear();
     map.clear();
     cache_size = 0;
+}
+
+bool LRUQueue::pop_front(std::lock_guard<std::mutex>& /* cache_lock */) {
+    if (queue.empty()) {
+        return false;
+    }
+    auto queue_it = queue.begin();
+    cache_size -= queue_it->size;
+    map.erase(std::make_pair(queue_it->hash, queue_it->offset));
+    queue.erase(queue_it);
+    return true;
 }
 
 void LRUQueue::move_to_end(Iterator queue_it, std::lock_guard<std::mutex>& /* cache_lock */) {
@@ -2094,6 +2119,7 @@ void BlockFileCache::run_background_monitor() {
                         (double)_no_warmup_num_read_blocks_1h->get_value());
             }
         }
+        _lru_recorder->update_shadow_queue_element_count_metrics();
     }
 }
 
@@ -2403,6 +2429,19 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["disposable_queue_curr_elements"] =
             (double)_cur_disposable_queue_element_count_metrics->get_value();
 
+    stats["lru_recorder_index_shadow_queue_curr_elements"] =
+            (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::INDEX]
+                    ->get_value();
+    stats["lru_recorder_ttl_shadow_queue_curr_elements"] =
+            (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::TTL]
+                    ->get_value();
+    stats["lru_recorder_normal_shadow_queue_curr_elements"] =
+            (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::NORMAL]
+                    ->get_value();
+    stats["lru_recorder_disposable_shadow_queue_curr_elements"] =
+            (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
+                    ->get_value();
+
     stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
     stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
 
@@ -2443,6 +2482,18 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
     stats["disposable_queue_curr_size"] = (double)_disposable_queue.get_capacity_unsafe();
     stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
     stats["disposable_queue_curr_elements"] = (double)_disposable_queue.get_elements_num_unsafe();
+    stats["lru_recorder_index_shadow_queue_curr_elements"] =
+            (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::INDEX]
+                    ->get_value();
+    stats["lru_recorder_ttl_shadow_queue_curr_elements"] =
+            (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::TTL]
+                    ->get_value();
+    stats["lru_recorder_normal_shadow_queue_curr_elements"] =
+            (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::NORMAL]
+                    ->get_value();
+    stats["lru_recorder_disposable_shadow_queue_curr_elements"] =
+            (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
+                    ->get_value();
 
     stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
     stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;

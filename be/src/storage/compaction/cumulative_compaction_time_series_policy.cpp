@@ -155,9 +155,12 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     }
 
     // Condition 6: If there is a continuous set of empty rowsets, prioritize merging.
+    // This is reached via Tablet::suitable_for_compaction() -> _calc_cumulative_compaction_score(),
+    // which already holds a shared `_meta_lock`. Use the unlocked variant to avoid recursively
+    // re-acquiring the (writer-preferring) header lock, which would self-deadlock.
     std::vector<RowsetSharedPtr> input_rowsets;
     std::vector<RowsetSharedPtr> candidate_rowsets =
-            tablet->pick_candidate_rowsets_to_cumulative_compaction();
+            tablet->pick_candidate_rowsets_to_cumulative_compaction_unlocked();
     tablet->calc_consecutive_empty_rowsets(
             &input_rowsets, candidate_rowsets,
             tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());

@@ -33,7 +33,7 @@ import java.util.Objects;
 /**
  * expr is null predicate.
  */
-public class IsNull extends Expression implements UnaryExpression, AlwaysNotNullable {
+public class IsNull extends Expression implements UnaryExpression, AlwaysNotNullable, NullToNonNullFunction {
 
     public IsNull(Expression e) {
         super(ImmutableList.of(e));

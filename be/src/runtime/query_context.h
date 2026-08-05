@@ -325,7 +325,6 @@ private:
     void _init_query_mem_tracker();
 
     std::unordered_map<int, RuntimePredicate> _runtime_predicates;
-
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 

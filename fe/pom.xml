@@ -256,13 +256,13 @@ under the License.
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
-        <commons-configuration2.version>2.11.0</commons-configuration2.version>
+        <commons-configuration2.version>2.15.1</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
         <commons-net.version>3.13.0</commons-net.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
-        <commons-text.version>1.10.0</commons-text.version>
+        <commons-text.version>1.15.0</commons-text.version>
         <commons-math3.version>3.6.1</commons-math3.version>
         <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
@@ -284,6 +284,7 @@ under the License.
         <mqtt.version>1.2.5</mqtt.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
+        <resilience4j.version>2.4.0</resilience4j.version>
         <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
         <netty-all.version>4.2.15.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
@@ -297,8 +298,9 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
-        <cel.version>0.9.1-proto3</cel.version>
-        <protobuf.version>3.25.8</protobuf.version>
+        <!-- FE-only Arrow 19 startup POC: align protobuf runtime with Arrow Java 19's protobuf BOM. -->
+        <protobuf.version>4.33.4</protobuf.version>
+        <cel.version>0.12.0</cel.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -334,9 +336,8 @@ under the License.
         <iceberg.version>1.10.1</iceberg.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
-        <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
-         https://github.com/apache/doris/pull/51217-->
-        <arrow.version>17.0.0</arrow.version>
+        <!-- FE-only POC: validate whether Arrow Java 19.0.0 can compile before touching BE/C++ thirdparty. -->
+        <arrow.version>19.0.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
@@ -354,6 +355,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
+        <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
@@ -864,6 +866,11 @@ under the License.
                 <groupId>dev.cel</groupId>
                 <artifactId>cel</artifactId>
                 <version>${cel.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-ratelimiter</artifactId>
+                <version>${resilience4j.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
             <dependency>
@@ -1382,7 +1389,7 @@ under the License.
                 </exclusions>
             </dependency>
             <dependency>
-                <!-- This is a dependency chain: odps-sdk-core:0.53.2-public → credentials-java:0.3.12 → com.aliyun:tea:[1.1.14,2.0.0)-->
+                <!-- Keep tea pinned for Alibaba SDK dependency chains that allow com.aliyun:tea:[1.1.14,2.0.0). -->
                 <groupId>com.aliyun</groupId>
                 <artifactId>tea</artifactId>
                 <version>1.4.1</version>

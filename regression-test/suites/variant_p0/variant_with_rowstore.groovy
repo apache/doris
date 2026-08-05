@@ -44,7 +44,9 @@ suite("regression_test_variant_rowstore", "variant_type"){
     sql """insert into  ${table_name} select * from (select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
             union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
     sql "sync"
-    qt_sql "select * from ${table_name} order by k limit 10"
+    // Row-store and column-store Variant readers may emit different insignificant JSON spacing.
+    // Normalize it so this suite continues to verify that both paths preserve the same values.
+    qt_sql "select k, replace(cast(v as string), ', ', ',') from ${table_name} order by k limit 10"
 
 
     table_name = "multi_var_rs"
@@ -60,7 +62,8 @@ suite("regression_test_variant_rowstore", "variant_type"){
             properties("replication_num" = "1", "disable_auto_compaction" = "false", "store_row_column" = "true");
     """
     sql """insert into ${table_name} select k, cast(v as string), cast(v as string) from var_rowstore"""
-    qt_sql "select * from ${table_name} order by k limit 10"
+    qt_sql """select k, replace(cast(v as string), ', ', ','),
+            replace(cast(v1 as string), ', ', ',') from ${table_name} order by k limit 10"""
 
     // Parse url
     def user = context.config.jdbcUser

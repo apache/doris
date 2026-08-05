@@ -36,6 +36,15 @@ namespace doris::format::parquet {
 
 struct ParquetReaderScanState;
 
+namespace detail {
+bool variant_projection_is_fully_shredded(const tparquet::FileMetaData& metadata,
+                                          const ParquetColumnSchema& schema,
+                                          const format::LocalColumnIndex& projection);
+size_t finalize_variant_leaf_projection(const tparquet::FileMetaData& metadata,
+                                        const ParquetColumnSchema& schema,
+                                        format::LocalColumnIndex* projection);
+} // namespace detail
+
 // ============================================================================
 // ============================================================================
 //   init() -> get_schema() -> open(request) -> get_block() [loop] -> close()
@@ -59,6 +68,10 @@ public:
             format::TableColumnMapperOptions options) const override;
 
     Status open(std::shared_ptr<format::FileScanRequest> request) override;
+
+    bool supports_scan_request_refresh() const override { return true; }
+
+    Status queue_scan_request(std::shared_ptr<format::FileScanRequest> request) override;
 
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
 

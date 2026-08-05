@@ -36,7 +36,10 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "exec/common/util.hpp"
@@ -77,6 +80,8 @@ namespace {
 constexpr int kIcebergPositionDeleteContent = 1;
 constexpr int kIcebergDeletionVectorContent = 3;
 
+std::string table_format_name(const TFileRangeDesc& range);
+
 std::string table_format_name(const TFileRangeDesc& range) {
     return range.__isset.table_format_params ? range.table_format_params.table_format_type
                                              : "NotSet";
@@ -85,6 +90,26 @@ std::string table_format_name(const TFileRangeDesc& range) {
 TFileFormatType::type get_range_format_type(const TFileScanRangeParams& params,
                                             const TFileRangeDesc& range) {
     return range.__isset.format_type ? range.format_type : params.format_type;
+}
+
+bool contains_variant_type(const DataTypePtr& input) {
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
 }
 
 bool is_supported_table_format(const TFileRangeDesc& range) {
@@ -442,6 +467,12 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
         }
 
         {
+            if (_table_reader_rf_num != _applied_rf_num) {
+                VExprContextSPtrs refreshed_conjuncts;
+                RETURN_IF_ERROR(_build_table_conjuncts(&refreshed_conjuncts));
+                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(std::move(refreshed_conjuncts)));
+                _table_reader_rf_num = _applied_rf_num;
+            }
             if (_should_run_adaptive_batch_size()) {
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
@@ -485,6 +516,13 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
 Status FileScannerV2::_filter_output_block(Block* block) {
     return _contextualize_output_filter_status(Scanner::_filter_output_block(block),
                                                _get_current_format_type());
+}
+
+bool FileScannerV2::_can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const {
+    // A Variant access expression is evaluated above the file reader. Keep each file-local
+    // shredded schema intact until that projection turns complete and leaf-only states into a
+    // common logical result column.
+    return !_has_variant_projection;
 }
 
 Status FileScannerV2::_contextualize_output_filter_status(Status status,
@@ -549,6 +587,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         }
         COUNTER_UPDATE(_file_counter, 1);
         _has_prepared_split = true;
+        _table_reader_rf_num = _applied_rf_num;
         *eos = false;
         return Status::OK();
     }
@@ -637,12 +676,16 @@ Status FileScannerV2::_create_table_reader_for_format(
 
 Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
                                                   std::map<std::string, Field> partition_values) {
+    const auto format_type = get_range_format_type(*_params, range);
     format::FileFormat current_split_format;
-    RETURN_IF_ERROR(_to_file_format(get_range_format_type(*_params, range), &current_split_format));
+    RETURN_IF_ERROR(_to_file_format(format_type, &current_split_format));
     VExprContextSPtrs conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
     VExprContextSPtrs partition_prune_conjuncts;
-    if (_state->query_options().enable_runtime_filter_partition_prune) {
+    if (!partition_values.empty()) {
+        // A split without partition constants cannot be pruned here, so avoid cloning every
+        // conjunct solely for a consumer that must return immediately. FileScannerV2 otherwise
+        // keeps safe partition pruning enabled independently of the legacy session gate.
         RETURN_IF_ERROR(_build_table_conjuncts(&partition_prune_conjuncts));
     }
     RETURN_IF_ERROR(_table_reader->prepare_split({
@@ -759,6 +802,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
     _projected_columns.clear();
     _projected_columns.reserve(_params->required_slots.size());
     _need_global_rowid_column = false;
+    _has_variant_projection = false;
     format::ProjectedColumnBuildContext build_context {
             .scan_params = _params,
             .range = &_current_range,
@@ -776,6 +820,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
                                          slot_info.slot_id);
         }
         auto column = _build_table_column(it->second);
+        _has_variant_projection = _has_variant_projection || contains_variant_type(column.type);
         build_context.slot_desc = it->second;
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _need_global_rowid_column = true;

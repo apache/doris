@@ -1413,6 +1413,11 @@ TEST(MetaServiceHttpTest, GetStageTest) {
 TEST(MetaServiceHttpTest, GetTabletStatsTest) {
     HttpContext ctx(true);
     auto& meta_service = ctx.meta_service_;
+    auto expected_http_body = [](GetTabletStatsResponse response) {
+        // The HTTP handler bypasses MetaServiceProxy, so its text response has no actual_code.
+        response.mutable_status()->clear_actual_code();
+        return response.DebugString() + "\n";
+    };
 
     constexpr auto db_id = 1000, table_id = 10001, index_id = 10002, partition_id = 10003,
                    tablet_id = 10004;
@@ -1437,7 +1442,7 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
         idx->set_tablet_id(tablet_id);
         auto [status_code, content] = ctx.forward<std::string>("get_tablet_stats", req);
         ASSERT_EQ(status_code, 200);
-        ASSERT_EQ(content, res.DebugString() + "\n");
+        ASSERT_EQ(content, expected_http_body(res));
     }
 
     // Insert rowset
@@ -1504,7 +1509,7 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
         idx->set_tablet_id(tablet_id);
         auto [status_code, content] = ctx.forward<std::string>("get_tablet_stats", req);
         ASSERT_EQ(status_code, 200);
-        ASSERT_EQ(content, res.DebugString() + "\n");
+        ASSERT_EQ(content, expected_http_body(res));
     }
 }
 

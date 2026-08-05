@@ -17,8 +17,10 @@
 
 package org.apache.doris.common.jni.vec;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -61,6 +63,7 @@ public class ColumnType {
         IPV6(16),
         STRING(-1),
         VARBINARY(-1),
+        VARIANT(-1),
         ARRAY(-1),
         MAP(-1),
         STRUCT(-1);
@@ -153,6 +156,10 @@ public class ColumnType {
 
     public boolean isVarbinaryType() {
         return type == Type.BINARY || type == Type.VARBINARY;
+    }
+
+    public boolean isVariantType() {
+        return type == Type.VARIANT;
     }
 
     public boolean isComplexType() {
@@ -248,6 +255,10 @@ public class ColumnType {
             case VARCHAR:
                 // [const | nullMap | offsets | data ]
                 return 4;
+            case VARIANT:
+                // [const | nullMap | metadata count | metadata offsets | metadata bytes
+                //        | metadata ids | value offsets | value bytes]
+                return 8;
             default:
                 // [const | nullMap | data]
                 return 3;
@@ -277,6 +288,15 @@ public class ColumnType {
     }
 
     public static ColumnType parseType(String columnName, String hiveType) {
+        return parseType(columnName, hiveType, false);
+    }
+
+    public static ColumnType parseTypeWithEncodedStructFields(String columnName, String hiveType) {
+        return parseType(columnName, hiveType, true);
+    }
+
+    private static ColumnType parseType(String columnName, String hiveType, boolean encodedStructFields) {
+        String originalType = hiveType.trim();
         String lowerCaseType = hiveType.toLowerCase();
         Type type = Type.UNSUPPORTED;
         int length = -1;
@@ -332,6 +352,9 @@ public class ColumnType {
                 break;
             case "varbinary":
                 type = Type.VARBINARY;
+                break;
+            case "variant":
+                type = Type.VARIANT;
                 break;
             default:
                 if (lowerCaseType.startsWith("timestamptz")) {
@@ -397,7 +420,7 @@ public class ColumnType {
                     if (lowerCaseType.indexOf("<") == 5
                             && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
                         ColumnType nestedType = parseType("element",
-                                lowerCaseType.substring(6, lowerCaseType.length() - 1));
+                                originalType.substring(6, originalType.length() - 1), encodedStructFields);
                         ColumnType arrayType = new ColumnType(columnName, Type.ARRAY);
                         arrayType.setChildTypes(Collections.singletonList(nestedType));
                         return arrayType;
@@ -405,12 +428,13 @@ public class ColumnType {
                 } else if (lowerCaseType.startsWith("map")) {
                     if (lowerCaseType.indexOf("<") == 3
                             && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
-                        String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
+                        String keyValue = originalType.substring(4, originalType.length() - 1);
                         int index = findNextNestedField(keyValue);
                         if (index != keyValue.length() && index != 0) {
-                            ColumnType keyType = parseType("key", keyValue.substring(0, index).trim());
+                            ColumnType keyType = parseType(
+                                    "key", keyValue.substring(0, index).trim(), encodedStructFields);
                             ColumnType valueType =
-                                    parseType("value", keyValue.substring(index + 1).trim());
+                                    parseType("value", keyValue.substring(index + 1).trim(), encodedStructFields);
                             ColumnType mapType = new ColumnType(columnName, Type.MAP);
                             mapType.setChildTypes(Arrays.asList(keyType, valueType));
                             return mapType;
@@ -419,16 +443,31 @@ public class ColumnType {
                 } else if (lowerCaseType.startsWith("struct")) {
                     if (lowerCaseType.indexOf("<") == 6
                             && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
-                        String listFields = lowerCaseType.substring(7, lowerCaseType.length() - 1);
+                        String listFields = originalType.substring(7, originalType.length() - 1);
                         ArrayList<ColumnType> fields = new ArrayList<>();
                         ArrayList<String> names = new ArrayList<>();
                         while (listFields.length() > 0) {
                             int index = findNextNestedField(listFields);
                             int pivot = listFields.indexOf(':');
                             if (pivot > 0 && pivot < listFields.length() - 1) {
-                                fields.add(parseType(listFields.substring(0, pivot),
-                                        listFields.substring(pivot + 1, index)));
-                                names.add(listFields.substring(0, pivot));
+                                String fieldName = listFields.substring(0, pivot);
+                                if (encodedStructFields) {
+                                    if (!fieldName.startsWith("$")) {
+                                        throw new IllegalArgumentException(
+                                                "Encoded JNI struct field is missing its version marker");
+                                    }
+                                    // The encoded producer removes every grammar delimiter from
+                                    // names before parsing, then restores the exact UTF-8 spelling.
+                                    fieldName = new String(Base64.getDecoder().decode(fieldName.substring(1)),
+                                            StandardCharsets.UTF_8);
+                                } else {
+                                    // The public legacy grammar historically normalized STRUCT keys
+                                    // to lowercase; only the versioned Paimon payload preserves spelling.
+                                    fieldName = fieldName.toLowerCase();
+                                }
+                                fields.add(parseType(fieldName,
+                                        listFields.substring(pivot + 1, index), encodedStructFields));
+                                names.add(fieldName);
                                 listFields = listFields.substring(Math.min(index + 1, listFields.length()));
                             } else {
                                 break;

@@ -447,6 +447,12 @@ public class NestedColumnPruning implements CustomRewriter {
                     valuesChild.setAccessByPath(path, accessIndex + 1, pathType);
                     return;
                 }
+            } else if (this.type.isVariantType()) {
+                // Variant subpaths remain in the serialized access-path list. The static type
+                // tree only needs to retain the Variant terminal so its complex parent is pruned
+                // without discarding the path before BE can project a shredded leaf.
+                accessAll = true;
+                return;
             } else if (isRoot) {
                 children.get(path.get(accessIndex).toLowerCase()).setAccessByPath(path, accessIndex + 1, pathType);
                 return;

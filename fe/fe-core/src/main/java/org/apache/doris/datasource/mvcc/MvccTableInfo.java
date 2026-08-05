@@ -31,8 +31,15 @@ public class MvccTableInfo {
     private String tableName;
     private String dbName;
     private String ctlName;
+    // One statement may bind the same table through aliases with different relation selectors;
+    // their snapshots must remain distinct even though the catalog/db/table identity is identical.
+    private final String version;
 
     public MvccTableInfo(TableIf table) {
+        this(table, "");
+    }
+
+    public MvccTableInfo(TableIf table, String version) {
         java.util.Objects.requireNonNull(table, "table is null");
         DatabaseIf database = table.getDatabase();
         java.util.Objects.requireNonNull(database, "database is null");
@@ -41,6 +48,7 @@ public class MvccTableInfo {
         this.tableName = table.getName();
         this.dbName = database.getFullName();
         this.ctlName = catalog.getName();
+        this.version = version == null ? "" : version;
     }
 
     public String getTableName() {
@@ -55,6 +63,17 @@ public class MvccTableInfo {
         return ctlName;
     }
 
+    public String getVersion() {
+        return version;
+    }
+
+    public boolean isSameTable(MvccTableInfo other) {
+        return other != null
+                && Objects.equal(tableName, other.tableName)
+                && Objects.equal(dbName, other.dbName)
+                && Objects.equal(ctlName, other.ctlName);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -65,12 +84,13 @@ public class MvccTableInfo {
         }
         MvccTableInfo that = (MvccTableInfo) o;
         return Objects.equal(tableName, that.tableName) && Objects.equal(
-                dbName, that.dbName) && Objects.equal(ctlName, that.ctlName);
+                dbName, that.dbName) && Objects.equal(ctlName, that.ctlName)
+                && Objects.equal(version, that.version);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(tableName, dbName, ctlName);
+        return Objects.hashCode(tableName, dbName, ctlName, version);
     }
 
     @Override
@@ -79,6 +99,7 @@ public class MvccTableInfo {
                 + "tableName='" + tableName + '\''
                 + ", dbName='" + dbName + '\''
                 + ", ctlName='" + ctlName + '\''
+                + ", version='" + version + '\''
                 + '}';
     }
 }

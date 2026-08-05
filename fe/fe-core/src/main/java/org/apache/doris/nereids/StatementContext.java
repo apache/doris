@@ -263,6 +263,10 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> latestSnapshotFences = Maps.newHashMap();
+    private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> tableMetadataSnapshots = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
@@ -482,6 +486,8 @@ public class StatementContext implements Closeable {
         ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
                 id -> new ExternalTablePreloadInfo((ExternalTable) table));
         if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            // Preload runs before binding has resolved relation options to an exact snapshot. Treat
+            // every option-bearing relation as non-latest so warmup cannot pin another alias's state.
             preloadInfo.markNonLatestRelation();
         } else {
             preloadInfo.markLatestRelation();
@@ -930,15 +936,71 @@ public class StatementContext implements Closeable {
      * @param tableSnapshot table snapshot info
      * @param scanParams table scan params (e.g., branch/tag for Iceberg tables)
      */
-    public void loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
+    public Optional<MvccSnapshot> loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        if (specificTable instanceof MvccTable) {
-            MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
-            if (!snapshots.containsKey(mvccTableInfo)) {
-                snapshots.put(mvccTableInfo,
-                        ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
-            }
+        if (!(specificTable instanceof MvccTable)) {
+            return Optional.empty();
         }
+        MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable,
+                versionKeyOf(tableSnapshot, scanParams));
+        MvccSnapshot snapshot;
+        if (scanParams != null && scanParams.isPresent() && scanParams.get().isOptions()) {
+            // OPTIONS defines a relation-scoped projection, so aliases with the same selector
+            // reuse one handle while different selectors never overwrite each other.
+            snapshot = snapshots.get(mvccTableInfo);
+            if (snapshot == null) {
+                MvccTable mvccTable = (MvccTable) specificTable;
+                if (mvccTable.requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
+                    MvccTableInfo latestKey = new MvccTableInfo(specificTable);
+                    MvccSnapshot latestFence = latestSnapshotFences.computeIfAbsent(latestKey,
+                            key -> latestSnapshots.containsKey(key)
+                                    ? latestSnapshots.get(key) : mvccTable.loadLatestSnapshotFence());
+                    // Planning options still need separate projections, but their version selector
+                    // must come from one statement fence rather than separate live latest reads.
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams, Optional.of(latestFence));
+                } else {
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams);
+                }
+                snapshots.put(mvccTableInfo, snapshot);
+                scanParams.flatMap(TableScanParams::getResolvedMapParams)
+                        .ifPresent(params -> resolvedSnapshotScanParams.put(mvccTableInfo, params));
+            } else if (resolvedSnapshotScanParams.containsKey(mvccTableInfo)) {
+                // Snapshot de-duplication also de-duplicates dynamic option resolution. Seed later
+                // aliases so their scan phase consumes the selector used by the cached snapshot.
+                scanParams.get().reuseResolvedMapParams(resolvedSnapshotScanParams.get(mvccTableInfo));
+            }
+        } else if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            snapshot = ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams);
+        } else {
+            // Keep latest metadata separate: a historical relation may temporarily become the
+            // table-scoped snapshot, but it must not redefine what a later latest relation sees.
+            snapshot = latestSnapshots.computeIfAbsent(mvccTableInfo,
+                    key -> latestSnapshotFences.containsKey(key)
+                            ? ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams,
+                                    Optional.of(latestSnapshotFences.get(key)))
+                            : ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+            // A full latest projection is also a valid version fence. Recording it makes
+            // plain-first and options-first aliases pin the same statement version.
+            latestSnapshotFences.putIfAbsent(mvccTableInfo, snapshot);
+        }
+        snapshots.put(mvccTableInfo, snapshot);
+        tableMetadataSnapshots.putIfAbsent(new MvccTableInfo(specificTable), snapshot);
+        return Optional.of(snapshot);
+    }
+
+    /**
+     * Clear MVCC state retained by a prepared statement between executions. A snapshot fence belongs
+     * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
+     */
+    public void resetMvccSnapshots() {
+        snapshots.clear();
+        latestSnapshots.clear();
+        latestSnapshotFences.clear();
+        resolvedSnapshotScanParams.clear();
+        tableMetadataSnapshots.clear();
+        // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
+        // not suppress preloading after the next EXECUTE resets its snapshot generation.
+        externalMetadataPreloadResult = null;
     }
 
     /**
@@ -951,8 +1013,74 @@ public class StatementContext implements Closeable {
         if (!(tableIf instanceof MvccTable)) {
             return Optional.empty();
         }
-        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
-        return Optional.ofNullable(snapshots.get(mvccTableInfo));
+        MvccTableInfo defaultKey = new MvccTableInfo(tableIf);
+        MvccSnapshot defaultSnapshot = snapshots.get(defaultKey);
+        if (defaultSnapshot != null) {
+            return Optional.of(defaultSnapshot);
+        }
+        MvccSnapshot only = null;
+        for (Map.Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+            if (defaultKey.isSameTable(entry.getKey())) {
+                if (only != null) {
+                    return Optional.empty();
+                }
+                only = entry.getValue();
+            }
+        }
+        return Optional.ofNullable(only);
+    }
+
+    public Optional<MvccSnapshot> getSnapshot(TableIf tableIf, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(snapshots.get(
+                new MvccTableInfo(tableIf, versionKeyOf(tableSnapshot, scanParams))));
+    }
+
+    /**
+     * Return a validated statement projection for metadata consumers without relation identity.
+     */
+    public Optional<MvccSnapshot> getSnapshotForTableMetadata(TableIf tableIf) {
+        Optional<MvccSnapshot> unambiguous = getSnapshot(tableIf);
+        if (unambiguous.isPresent() || !(tableIf instanceof MvccTable)) {
+            return unambiguous;
+        }
+        // Descriptor serialization has no relation key. Reuse a validated statement projection
+        // instead of reopening a neutral handle after multiple OPTIONS aliases were bound.
+        return Optional.ofNullable(tableMetadataSnapshots.get(new MvccTableInfo(tableIf)));
+    }
+
+    private static String versionKeyOf(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        // Limit the backport to relation-scoped OPTIONS: branch-4.1's older Iceberg/Paimon
+        // time-travel paths still resolve their handles outside this map, while OPTIONS needs an
+        // exact content key shared by analysis and scan planning.
+        if (scanParams != null && scanParams.isPresent() && scanParams.get().isOptions()) {
+            TableScanParams params = scanParams.get();
+            StringBuilder key = new StringBuilder("p");
+            appendVersionKeyPart(key, params.getParamType());
+            Map<String, String> sortedParams = new TreeMap<>(params.getMapParams());
+            key.append('m').append(sortedParams.size()).append(':');
+            for (Map.Entry<String, String> entry : sortedParams.entrySet()) {
+                // Length prefixes preserve entry boundaries even when user values contain Map.toString()
+                // delimiters; sorting separately keeps semantically identical maps order-independent.
+                appendVersionKeyPart(key, entry.getKey());
+                appendVersionKeyPart(key, entry.getValue());
+            }
+            key.append('l').append(params.getListParams().size()).append(':');
+            for (String value : params.getListParams()) {
+                appendVersionKeyPart(key, value);
+            }
+            return key.toString();
+        }
+        return "";
+    }
+
+    private static void appendVersionKeyPart(StringBuilder key, Object value) {
+        String text = String.valueOf(value);
+        key.append(text.length()).append(':').append(text);
     }
 
     /**
@@ -962,6 +1090,9 @@ public class StatementContext implements Closeable {
      * @param snapshot      snapshot
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
+        // Injected snapshots are execution fences (for example MTMV refresh); an unqualified
+        // relation must reuse that fence instead of treating the latest-snapshot cache as empty.
+        latestSnapshots.put(mvccTableInfo, snapshot);
         snapshots.put(mvccTableInfo, snapshot);
     }
 

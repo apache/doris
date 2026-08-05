@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -24,14 +25,19 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Test for materialized view util
@@ -919,6 +925,19 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Plan analyzedPlan = nereidsPlanner.getAnalyzedPlan();
                             Assertions.assertFalse(MaterializedViewUtils.containTableQueryOperator(analyzedPlan));
                         });
+    }
+
+    @Test
+    public void containTableQueryOperatorWithFileScanParamsTest() {
+        LogicalFileScan fileScan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(fileScan.getTableSample()).thenReturn(Optional.empty());
+        Mockito.when(fileScan.getScanParams()).thenReturn(Optional.of(new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                Collections.emptyList())));
+
+        Assertions.assertTrue(MaterializedViewUtils.TableQueryOperatorChecker.INSTANCE
+                .visitLogicalRelation(fileScan, null));
     }
 
     @Test

@@ -190,14 +190,17 @@ public:
     // is a non-consuming fallback for nested and synthetic readers.
     virtual Status read_fixed_width_filter(const VExprSPtrs&, int, FilterMap&, size_t, IColumn*,
                                            IColumn::Filter* row_filter, size_t* read_rows,
-                                           bool* eof, bool* used_filter) {
+                                           bool* eof, bool* used_filter,
+                                           DirectPredicateExecutionKind* execution_kind) {
         DORIS_CHECK(row_filter != nullptr);
         DORIS_CHECK(read_rows != nullptr);
         DORIS_CHECK(eof != nullptr);
         DORIS_CHECK(used_filter != nullptr);
+        DORIS_CHECK(execution_kind != nullptr);
         row_filter->clear();
         *read_rows = 0;
         *used_filter = false;
+        *execution_kind = DirectPredicateExecutionKind::NONE;
         return Status::OK();
     }
 
@@ -306,7 +309,8 @@ public:
     Status read_fixed_width_filter(const VExprSPtrs& conjuncts, int column_id,
                                    FilterMap& filter_map, size_t batch_size,
                                    IColumn* projected_column, IColumn::Filter* row_filter,
-                                   size_t* read_rows, bool* eof, bool* used_filter) override;
+                                   size_t* read_rows, bool* eof, bool* used_filter,
+                                   DirectPredicateExecutionKind* execution_kind) override;
     Status read_dictionary_filter(const IColumn::Filter& dictionary_filter, FilterMap& filter_map,
                                   size_t batch_size, const IColumn* typed_dictionary,
                                   IColumn* projected_values, ColumnInt32* matched_dictionary_ids,
@@ -333,6 +337,7 @@ public:
 
 #ifdef BE_TEST
     void reserve_batch_scratch_for_test(size_t elements);
+    void reserve_level_scratch_for_test(size_t elements);
     size_t retained_batch_scratch_bytes_for_test() const;
     size_t dictionary_materialization_count_for_test() const {
         return _dictionary_materialization_count;
@@ -427,8 +432,10 @@ private:
     std::vector<uint16_t> _null_run_lengths;
     std::unordered_set<size_t> _ancestor_null_indices;
     std::vector<uint8_t> _nested_filter_map_data;
+    NullMap _fused_nullable_selection_nulls;
     NullMap _fixed_width_predicate_nulls;
     IColumn::Filter _fixed_width_predicate_matches;
+    IColumn::Filter _fixed_width_predicate_conversion_nulls;
     FilterMap _nested_filter_map;
     ColumnSelectVector _select_vector;
     uint8_t _oversized_scratch_idle_batches = 0;
@@ -441,7 +448,8 @@ private:
                         FilterMap& filter_map, bool is_dict_filter);
     Status _read_fixed_width_filter_values(size_t num_values, const VExprSPtrs& conjuncts,
                                            int column_id, FilterMap& filter_map,
-                                           IColumn* projected_column, IColumn::Filter* row_filter);
+                                           IColumn* projected_column, IColumn::Filter* row_filter,
+                                           DirectPredicateExecutionKind* execution_kind);
     Status _read_dictionary_filter_values(size_t num_values,
                                           const IColumn::Filter& dictionary_filter,
                                           FilterMap& filter_map, const IColumn* typed_dictionary,

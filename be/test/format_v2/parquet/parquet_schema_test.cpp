@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -28,6 +29,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
 #include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/native_schema_node.h"
@@ -35,6 +37,406 @@
 #include "format_v2/parquet/parquet_file_context.h"
 
 namespace doris::format::parquet {
+namespace {
+
+std::vector<tparquet::SchemaElement> unshredded_variant_schema(
+        std::optional<int8_t> specification_version = 1) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::SchemaElement variant;
+    variant.__set_name("payload");
+    variant.__set_num_children(2);
+    variant.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    variant.__set_logicalType(tparquet::LogicalType());
+    variant.logicalType.__set_VARIANT(tparquet::VariantType());
+    if (specification_version.has_value()) {
+        variant.logicalType.VARIANT.__set_specification_version(*specification_version);
+    }
+
+    tparquet::SchemaElement metadata;
+    metadata.__set_name("metadata");
+    metadata.__set_type(tparquet::Type::BYTE_ARRAY);
+    metadata.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+
+    tparquet::SchemaElement value;
+    value.__set_name("value");
+    value.__set_type(tparquet::Type::BYTE_ARRAY);
+    value.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    return {root, variant, metadata, value};
+}
+
+std::vector<tparquet::SchemaElement> struct_with_variant_schema() {
+    auto variant_fields = unshredded_variant_schema();
+    variant_fields[0].__set_name("info");
+    variant_fields[0].__set_num_children(2);
+    variant_fields[0].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    variant_fields[1].__set_name("payload");
+
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement label;
+    label.__set_name("label");
+    label.__set_type(tparquet::Type::BYTE_ARRAY);
+    label.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    return {root,
+            variant_fields[0],
+            label,
+            variant_fields[1],
+            variant_fields[2],
+            variant_fields[3]};
+}
+
+std::vector<tparquet::SchemaElement> shredded_object_variant_schema(bool signed_integer = true,
+                                                                    bool required_wrapper = true) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    tparquet::SchemaElement typed_object;
+    typed_object.__set_name("typed_value");
+    typed_object.__set_num_children(1);
+    typed_object.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    tparquet::SchemaElement field_wrapper;
+    field_wrapper.__set_name("field");
+    field_wrapper.__set_num_children(2);
+    field_wrapper.__set_repetition_type(required_wrapper ? tparquet::FieldRepetitionType::REQUIRED
+                                                         : tparquet::FieldRepetitionType::OPTIONAL);
+    tparquet::SchemaElement fallback;
+    fallback.__set_name("value");
+    fallback.__set_type(tparquet::Type::BYTE_ARRAY);
+    fallback.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    tparquet::SchemaElement typed_integer;
+    typed_integer.__set_name("typed_value");
+    typed_integer.__set_type(tparquet::Type::INT32);
+    typed_integer.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    if (!signed_integer) {
+        typed_integer.__set_logicalType(tparquet::LogicalType());
+        typed_integer.logicalType.__set_INTEGER(tparquet::IntType());
+        typed_integer.logicalType.INTEGER.__set_bitWidth(32);
+        typed_integer.logicalType.INTEGER.__set_isSigned(false);
+    }
+    schema.insert(schema.end(), {typed_object, field_wrapper, fallback, typed_integer});
+    return schema;
+}
+
+std::vector<tparquet::SchemaElement> shredded_primitive_variant_schema(
+        tparquet::SchemaElement typed_value) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    typed_value.__set_name("typed_value");
+    typed_value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    schema.push_back(std::move(typed_value));
+    return schema;
+}
+
+std::vector<tparquet::SchemaElement> shredded_time_variant_schema(bool adjusted_to_utc,
+                                                                  bool millis) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    tparquet::SchemaElement typed_value;
+    typed_value.__set_name("typed_value");
+    typed_value.__set_type(millis ? tparquet::Type::INT32 : tparquet::Type::INT64);
+    typed_value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    typed_value.__set_logicalType(tparquet::LogicalType());
+    typed_value.logicalType.__set_TIME(tparquet::TimeType());
+    typed_value.logicalType.TIME.__set_isAdjustedToUTC(adjusted_to_utc);
+    typed_value.logicalType.TIME.__set_unit(tparquet::TimeUnit());
+    if (millis) {
+        typed_value.logicalType.TIME.unit.__set_MILLIS(tparquet::MilliSeconds());
+    } else {
+        typed_value.logicalType.TIME.unit.__set_MICROS(tparquet::MicroSeconds());
+    }
+    schema.push_back(std::move(typed_value));
+    return schema;
+}
+
+std::vector<tparquet::SchemaElement> shredded_array_variant_schema(bool include_value,
+                                                                   bool include_typed_value) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    tparquet::SchemaElement typed_array;
+    typed_array.__set_name("typed_value");
+    typed_array.__set_num_children(1);
+    typed_array.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    typed_array.__set_converted_type(tparquet::ConvertedType::LIST);
+    tparquet::SchemaElement list;
+    list.__set_name("list");
+    list.__set_num_children(1);
+    list.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    tparquet::SchemaElement element;
+    element.__set_name("element");
+    element.__set_num_children(static_cast<int32_t>(include_value) +
+                               static_cast<int32_t>(include_typed_value));
+    element.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    schema.insert(schema.end(), {typed_array, list, element});
+    if (include_value) {
+        tparquet::SchemaElement value;
+        value.__set_name("value");
+        value.__set_type(tparquet::Type::BYTE_ARRAY);
+        value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        schema.push_back(std::move(value));
+    }
+    if (include_typed_value) {
+        tparquet::SchemaElement typed_value;
+        typed_value.__set_name("typed_value");
+        typed_value.__set_type(tparquet::Type::INT32);
+        typed_value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        schema.push_back(std::move(typed_value));
+    }
+    return schema;
+}
+
+} // namespace
+
+TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
+    for (const auto version : {std::optional<int8_t> {}, std::optional<int8_t> {1}}) {
+        NativeFieldDescriptor descriptor;
+        ASSERT_TRUE(descriptor.parse_from_thrift(unshredded_variant_schema(version)).ok());
+        descriptor.assign_ids();
+
+        const auto* native_variant = descriptor.get_column(0);
+        ASSERT_NE(native_variant, nullptr);
+        // Native readers must keep seeing the physical group. The logical Variant mapping belongs
+        // to ParquetColumnSchema and must not make this group look like an unindexed scalar leaf.
+        EXPECT_EQ(remove_nullable(native_variant->data_type)->get_primitive_type(), TYPE_STRUCT);
+        ASSERT_EQ(native_variant->children.size(), 2);
+        EXPECT_EQ(native_variant->children[0].physical_column_index, 0);
+        EXPECT_EQ(native_variant->children[1].physical_column_index, 1);
+        EXPECT_EQ(descriptor.physical_fields_size(), 2);
+
+        std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+        const auto status = build_parquet_column_schema(descriptor, &fields);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(fields.size(), 1);
+        EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
+        EXPECT_TRUE(fields[0]->contains_variant);
+        EXPECT_EQ(remove_nullable(fields[0]->type)->get_primitive_type(), TYPE_VARIANT);
+        EXPECT_NE(typeid_cast<const DataTypeVariantV2*>(remove_nullable(fields[0]->type).get()),
+                  nullptr);
+        ASSERT_EQ(fields[0]->children.size(), 2);
+        EXPECT_EQ(fields[0]->children[0]->name, "metadata");
+        EXPECT_EQ(fields[0]->children[1]->name, "value");
+    }
+}
+
+TEST(ParquetSchemaTest, NativeSchemaAcceptsRequiredAndOptionalVariantGroups) {
+    for (const auto repetition :
+         {tparquet::FieldRepetitionType::REQUIRED, tparquet::FieldRepetitionType::OPTIONAL}) {
+        auto schema = unshredded_variant_schema();
+        schema[1].__set_repetition_type(repetition);
+        NativeFieldDescriptor descriptor;
+        const auto status = descriptor.parse_from_thrift(schema);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_NE(descriptor.get_column(0), nullptr);
+    }
+}
+
+TEST(ParquetSchemaTest, NestedVariantPropagatesIntoParentLogicalType) {
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(struct_with_variant_schema()).ok());
+    descriptor.assign_ids();
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    const auto status = build_parquet_column_schema(descriptor, &fields);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(fields.size(), 1);
+    EXPECT_TRUE(fields[0]->contains_variant);
+    ASSERT_EQ(fields[0]->children.size(), 2);
+    EXPECT_FALSE(fields[0]->children[0]->contains_variant);
+    EXPECT_TRUE(fields[0]->children[1]->contains_variant);
+    const auto* info_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(fields[0]->type).get());
+    ASSERT_EQ(info_type->get_elements().size(), 2);
+    EXPECT_EQ(remove_nullable(info_type->get_elements()[1])->get_primitive_type(), TYPE_VARIANT);
+}
+
+TEST(ParquetSchemaTest, NativeSchemaRejectsUnsupportedVariantVersionAndMalformedLayout) {
+    NativeFieldDescriptor descriptor;
+    const auto version_status = descriptor.parse_from_thrift(unshredded_variant_schema(2));
+    EXPECT_TRUE(version_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << version_status;
+    EXPECT_NE(version_status.to_string().find("Variant specification version 2"),
+              std::string::npos);
+
+    auto missing_metadata = unshredded_variant_schema();
+    missing_metadata[2].__set_name("not_metadata");
+    const auto layout_status = descriptor.parse_from_thrift(missing_metadata);
+    EXPECT_TRUE(layout_status.is<ErrorCode::CORRUPTION>()) << layout_status;
+    EXPECT_NE(layout_status.to_string().find("metadata"), std::string::npos);
+
+    auto optional_unshredded_value = unshredded_variant_schema();
+    optional_unshredded_value[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    const auto repetition_status = descriptor.parse_from_thrift(optional_unshredded_value);
+    EXPECT_TRUE(repetition_status.is<ErrorCode::CORRUPTION>()) << repetition_status;
+    EXPECT_NE(repetition_status.to_string().find("required BYTE_ARRAY"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeVariantPreservesUtcTimestampInstant) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    tparquet::SchemaElement typed_value;
+    typed_value.__set_name("typed_value");
+    typed_value.__set_type(tparquet::Type::INT64);
+    typed_value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    typed_value.__set_logicalType(tparquet::LogicalType());
+    typed_value.logicalType.__set_TIMESTAMP(tparquet::TimestampType());
+    typed_value.logicalType.TIMESTAMP.__set_isAdjustedToUTC(true);
+    typed_value.logicalType.TIMESTAMP.__set_unit(tparquet::TimeUnit());
+    typed_value.logicalType.TIMESTAMP.unit.__set_MICROS(tparquet::MicroSeconds());
+    schema.push_back(std::move(typed_value));
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+    const auto* variant = descriptor.get_column(0);
+    ASSERT_EQ(variant->children.size(), 3);
+    EXPECT_EQ(remove_nullable(variant->children[2].data_type)->get_primitive_type(),
+              TYPE_TIMESTAMPTZ);
+}
+
+TEST(ParquetSchemaTest, NativeVariantValidatesEveryShreddedWrapperAndScalar) {
+    NativeFieldDescriptor descriptor;
+    const auto unsigned_status =
+            descriptor.parse_from_thrift(shredded_object_variant_schema(false, true));
+    EXPECT_TRUE(unsigned_status.is<ErrorCode::CORRUPTION>()) << unsigned_status;
+    EXPECT_NE(unsigned_status.to_string().find("unsigned"), std::string::npos);
+
+    const auto optional_wrapper_status =
+            descriptor.parse_from_thrift(shredded_object_variant_schema(true, false));
+    EXPECT_TRUE(optional_wrapper_status.is<ErrorCode::CORRUPTION>()) << optional_wrapper_status;
+    EXPECT_NE(optional_wrapper_status.to_string().find("wrapper"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeVariantRejectsDuplicateObjectFieldNames) {
+    auto schema = shredded_object_variant_schema();
+    schema[4].__set_num_children(2);
+    schema.insert(schema.end(), {schema[5], schema[6], schema[7]});
+
+    NativeFieldDescriptor descriptor;
+    const auto status = descriptor.parse_from_thrift(schema);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("duplicate"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeVariantRejectsUnsupportedPrimitiveTypePairs) {
+    std::vector<tparquet::SchemaElement> invalid_typed_values;
+
+    tparquet::SchemaElement int96;
+    int96.__set_type(tparquet::Type::INT96);
+    invalid_typed_values.push_back(int96);
+
+    tparquet::SchemaElement fixed_binary;
+    fixed_binary.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    fixed_binary.__set_type_length(16);
+    invalid_typed_values.push_back(fixed_binary);
+
+    tparquet::SchemaElement json;
+    json.__set_type(tparquet::Type::BYTE_ARRAY);
+    json.__set_logicalType(tparquet::LogicalType());
+    json.logicalType.__set_JSON(tparquet::JsonType());
+    invalid_typed_values.push_back(json);
+
+    tparquet::SchemaElement float16;
+    float16.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    float16.__set_type_length(2);
+    float16.__set_logicalType(tparquet::LogicalType());
+    float16.logicalType.__set_FLOAT16(tparquet::Float16Type());
+    invalid_typed_values.push_back(float16);
+
+    tparquet::SchemaElement mismatched_integer;
+    mismatched_integer.__set_type(tparquet::Type::INT64);
+    mismatched_integer.__set_logicalType(tparquet::LogicalType());
+    mismatched_integer.logicalType.__set_INTEGER(tparquet::IntType());
+    mismatched_integer.logicalType.INTEGER.__set_bitWidth(16);
+    mismatched_integer.logicalType.INTEGER.__set_isSigned(true);
+    invalid_typed_values.push_back(mismatched_integer);
+
+    tparquet::SchemaElement mismatched_decimal;
+    mismatched_decimal.__set_type(tparquet::Type::INT32);
+    mismatched_decimal.__set_logicalType(tparquet::LogicalType());
+    mismatched_decimal.logicalType.__set_DECIMAL(tparquet::DecimalType());
+    mismatched_decimal.logicalType.DECIMAL.__set_precision(10);
+    mismatched_decimal.logicalType.DECIMAL.__set_scale(2);
+    invalid_typed_values.push_back(mismatched_decimal);
+
+    tparquet::SchemaElement bad_uuid;
+    bad_uuid.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    bad_uuid.__set_type_length(15);
+    bad_uuid.__set_logicalType(tparquet::LogicalType());
+    bad_uuid.logicalType.__set_UUID(tparquet::UUIDType());
+    invalid_typed_values.push_back(bad_uuid);
+
+    for (auto& typed_value : invalid_typed_values) {
+        NativeFieldDescriptor descriptor;
+        const auto status = descriptor.parse_from_thrift(
+                shredded_primitive_variant_schema(std::move(typed_value)));
+        EXPECT_FALSE(status.ok()) << "unsupported Variant typed_value pair was accepted";
+    }
+}
+
+TEST(ParquetSchemaTest, NativeVariantRejectsRepeatedOuterGroup) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+
+    NativeFieldDescriptor descriptor;
+    const auto status = descriptor.parse_from_thrift(schema);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("repeated"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeVariantAcceptsOmittedShreddedWrapperChildren) {
+    NativeFieldDescriptor descriptor;
+
+    auto value_only_object = shredded_object_variant_schema();
+    value_only_object[5].__set_num_children(1);
+    value_only_object.pop_back();
+    ASSERT_TRUE(descriptor.parse_from_thrift(value_only_object).ok());
+
+    ASSERT_TRUE(descriptor.parse_from_thrift(shredded_array_variant_schema(true, false)).ok());
+    ASSERT_TRUE(descriptor.parse_from_thrift(shredded_array_variant_schema(false, true)).ok());
+}
+
+TEST(ParquetSchemaTest, NativeVariantRejectsNanosBeforeProjectionChoice) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    tparquet::SchemaElement typed_value;
+    typed_value.__set_name("typed_value");
+    typed_value.__set_type(tparquet::Type::INT64);
+    typed_value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    typed_value.__set_logicalType(tparquet::LogicalType());
+    typed_value.logicalType.__set_TIMESTAMP(tparquet::TimestampType());
+    typed_value.logicalType.TIMESTAMP.__set_isAdjustedToUTC(false);
+    typed_value.logicalType.TIMESTAMP.__set_unit(tparquet::TimeUnit());
+    typed_value.logicalType.TIMESTAMP.unit.__set_NANOS(tparquet::NanoSeconds());
+    schema.push_back(std::move(typed_value));
+
+    NativeFieldDescriptor descriptor;
+    const auto status = descriptor.parse_from_thrift(schema);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("TIMESTAMP(NANOS)"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeVariantRejectsUnsupportedTimeAnnotations) {
+    NativeFieldDescriptor descriptor;
+    const auto adjusted_status =
+            descriptor.parse_from_thrift(shredded_time_variant_schema(true, false));
+    EXPECT_TRUE(adjusted_status.is<ErrorCode::CORRUPTION>()) << adjusted_status;
+    EXPECT_NE(adjusted_status.to_string().find("isAdjustedToUTC"), std::string::npos);
+
+    const auto millis_status =
+            descriptor.parse_from_thrift(shredded_time_variant_schema(false, true));
+    EXPECT_TRUE(millis_status.is<ErrorCode::CORRUPTION>()) << millis_status;
+    EXPECT_NE(millis_status.to_string().find("TIME(MILLIS)"), std::string::npos);
+}
+
 TEST(ParquetSchemaTest, NativeMetadataAcceptsRequiredRootWithoutColumns) {
     tparquet::SchemaElement root;
     root.__set_name("schema");
@@ -84,9 +486,12 @@ TEST(ParquetSchemaTest, NativeMetadataTreePreservesNestedFieldNamesAndIds) {
     std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
     ASSERT_TRUE(build_parquet_column_schema(native_schema, &fields).ok());
     ASSERT_EQ(fields.size(), 1);
+    EXPECT_FALSE(fields[0]->contains_variant);
     EXPECT_EQ(fields[0]->name, "protocol");
     EXPECT_EQ(fields[0]->parquet_field_id, 10);
     ASSERT_EQ(fields[0]->children.size(), 2);
+    EXPECT_FALSE(fields[0]->children[0]->contains_variant);
+    EXPECT_FALSE(fields[0]->children[1]->contains_variant);
     EXPECT_EQ(fields[0]->children[0]->name, "minReaderVersion");
     EXPECT_EQ(fields[0]->children[0]->leaf_column_id, 0);
     EXPECT_EQ(fields[0]->children[1]->name, "minWriterVersion");

@@ -35,6 +35,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -215,6 +216,11 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Mockito.when(view2.getDatabase()).thenReturn(db);
         Mockito.when(view2.getSupportedSysTables()).thenReturn(PartitionsSysTable.HIVE_SUPPORTED_SYS_TABLES);
 
+        mockSnapshotAwareSchema(tbl, schema);
+        mockSnapshotAwareSchema(tbl2, schema);
+        mockSnapshotAwareSchema(view1, schema);
+        mockSnapshotAwareSchema(view2, schema);
+
         db.addTableForTest(tbl);
         db.addTableForTest(tbl2);
         db.addTableForTest(view1);
@@ -229,6 +235,13 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         TupleDescriptor desc = new TupleDescriptor(new TupleId(1));
         desc.setTable(mgr.getInternalCatalog().getDbNullable("test").getTableNullable("tbl1"));
         olapScanNode = new OlapScanNode(new PlanNodeId(1), desc, "tb1ScanNode", ScanContext.EMPTY);
+    }
+
+    private void mockSnapshotAwareSchema(HMSExternalTable table, List<Column> schema) {
+        // Binding pins both the snapshot and schema per relation, so HMS mocks must implement
+        // the same snapshot-aware contract as real tables instead of only the legacy overload.
+        Mockito.when(table.loadSnapshot(Mockito.any(), Mockito.any())).thenReturn(new EmptyMvccSnapshot());
+        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(schema);
     }
 
     @Test

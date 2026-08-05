@@ -677,6 +677,7 @@ Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block
                                result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+                               result_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
     if (cannot_random_write) {
         result_column->reserve(input_rows_count);

@@ -17,23 +17,27 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.bouncycastle.util.Strings;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 
 public class TableScanParams {
     public static final String PARAMS_NAME = "name";
     public static final String INCREMENTAL_READ = "incr";
     public static final String BRANCH = "branch";
     public static final String TAG = "tag";
+    public static final String OPTIONS = "options";
     private static final ImmutableSet<String> VALID_PARAM_TYPES = ImmutableSet.of(
             INCREMENTAL_READ,
             BRANCH,
-            TAG);
-
+            TAG,
+            OPTIONS);
     private final String paramType;
     // There are two ways to pass parameters to a function.
     // - One is in map form, where the data is stored in `mapParams`.
@@ -42,18 +46,21 @@ public class TableScanParams {
     //   such as: `listParams` is used for @func_name('value1', 'value2', 'value3')
     private final Map<String, String> mapParams;
     private final List<String> listParams;
+    private volatile Map<String, String> resolvedMapParams;
 
     private void validate() {
         if (!VALID_PARAM_TYPES.contains(paramType)) {
             throw new IllegalArgumentException("Invalid param type: " + paramType);
         }
-        // TODO: validate mapParams and listParams for different param types
+        if (OPTIONS.equals(paramType) && (mapParams.isEmpty() || !listParams.isEmpty())) {
+            throw new IllegalArgumentException("OPTIONS requires a non-empty key/value map");
+        }
     }
 
     public TableScanParams(String paramType, Map<String, String> mapParams, List<String> listParams) {
         this.paramType = Strings.toLowerCase(paramType);
         this.mapParams = mapParams == null ? ImmutableMap.of() : ImmutableMap.copyOf(mapParams);
-        this.listParams = listParams;
+        this.listParams = listParams == null ? ImmutableList.of() : ImmutableList.copyOf(listParams);
         validate();
     }
 
@@ -69,6 +76,44 @@ public class TableScanParams {
         return mapParams;
     }
 
+    /**
+     * Resolve dynamic parameters once for the current statement execution.
+     */
+    public Map<String, String> getOrResolveMapParams(
+            Function<Map<String, String>, Map<String, String>> resolver) {
+        Map<String, String> resolved = resolvedMapParams;
+        if (resolved == null) {
+            synchronized (this) {
+                resolved = resolvedMapParams;
+                if (resolved == null) {
+                    // Binding and scan initialization share this instance. Caching the resolved
+                    // map prevents a mutable external selector from choosing two snapshots.
+                    resolved = ImmutableMap.copyOf(resolver.apply(mapParams));
+                    resolvedMapParams = resolved;
+                }
+            }
+        }
+        return resolved;
+    }
+
+    public Optional<Map<String, String>> getResolvedMapParams() {
+        return Optional.ofNullable(resolvedMapParams);
+    }
+
+    public synchronized void reuseResolvedMapParams(Map<String, String> canonicalParams) {
+        Map<String, String> immutableParams = ImmutableMap.copyOf(canonicalParams);
+        // Aliases sharing one MVCC key must also share its dynamic selector; otherwise the cached
+        // snapshot and the later scan can silently resolve different external snapshots.
+        if (resolvedMapParams != null && !resolvedMapParams.equals(immutableParams)) {
+            throw new IllegalStateException("Conflicting resolved table scan parameters");
+        }
+        resolvedMapParams = immutableParams;
+    }
+
+    public synchronized void resetResolvedMapParams() {
+        resolvedMapParams = null;
+    }
+
     public boolean incrementalRead() {
         return INCREMENTAL_READ.equals(paramType);
     }
@@ -79,5 +124,9 @@ public class TableScanParams {
 
     public boolean isTag() {
         return TAG.equals(paramType);
+    }
+
+    public boolean isOptions() {
+        return OPTIONS.equals(paramType);
     }
 }

@@ -29,6 +29,7 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -408,11 +409,8 @@ public class PointQueryExecutor implements CoordInterface {
         }
 
         // Set timezone for functions like from_unixtime
-        String timeZone = ConnectContext.get().getSessionVariable().getTimeZone();
-        if ("CST".equals(timeZone)) {
-            timeZone = "Asia/Shanghai";
-        }
-        requestBuilder.setTimeZone(timeZone);
+        requestBuilder.setTimeZone(TimeUtils.getCanonicalTimeZone(
+                ConnectContext.get().getSessionVariable().getTimeZone()));
 
         if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
             requestBuilder.setVersion(snapshotVisibleVersions.get(0));

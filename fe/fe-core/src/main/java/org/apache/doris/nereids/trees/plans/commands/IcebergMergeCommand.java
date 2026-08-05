@@ -25,9 +25,11 @@ import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.iceberg.IcebergRowId;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -83,6 +85,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.Table;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -387,8 +390,8 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return output;
     }
 
-    private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, IcebergExternalTable icebergTable) {
-        List<Column> columns = icebergTable.getBaseSchema(true);
+    private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, IcebergExternalTable icebergTable,
+            List<Column> columns) {
 
         LogicalPlan plan = generateBasePlan();
         plan = injectRowIdColumn(plan, icebergTable);
@@ -446,7 +449,15 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
     }
 
     private LogicalPlan buildMergePlan(ConnectContext ctx, IcebergExternalTable icebergTable) {
-        LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
+        Optional<MvccSnapshot> targetSnapshot = ctx.getStatementContext()
+                .loadSnapshots(icebergTable, Optional.empty(), Optional.empty());
+        Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot.orElseThrow(
+                () -> new AnalysisException("Iceberg merge target snapshot is not available")))
+                .getSnapshotCacheValue().getIcebergTable().orElseThrow(
+                        () -> new AnalysisException("Iceberg merge target metadata is not available"));
+        // Bind projections and the sink from the same target generation retained for execution.
+        List<Column> targetSchema = icebergTable.getBaseSchema(targetSnapshot, true);
+        LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable, targetSchema);
 
         List<NamedExpression> outputExprs;
         if (!IcebergNereidsUtils.hasUnboundPlan(projectPlan)) {
@@ -462,9 +473,13 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return new LogicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
-                icebergTable.getBaseSchema(true),
+                targetIcebergTable,
+                targetSchema,
                 outputExprs,
                 deleteCtx,
+                matchedClauses.stream().anyMatch(clause -> !clause.isDelete())
+                        || !notMatchedClauses.isEmpty(),
+                true,
                 Optional.empty(),
                 Optional.empty(),
                 projectPlan);
@@ -491,7 +506,9 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             String label = String.format("iceberg_merge_into_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
 
             IcebergMergeExecutor insertExecutor =
-                    new IcebergMergeExecutor(ctx, icebergTable, label, planner, emptyInsert, -1L);
+                    new IcebergMergeExecutor(ctx, icebergTable,
+                            ((PhysicalIcebergMergeSink<?>) physicalSink).getTargetIcebergTable(),
+                            label, planner, emptyInsert, -1L);
             insertExecutor.setConflictDetectionFilter(conflictFilter);
 
             if (insertExecutor.isEmptyInsert()) {

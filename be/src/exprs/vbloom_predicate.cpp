@@ -145,6 +145,26 @@ Status VBloomPredicate::execute_on_raw_fixed_values(const uint8_t* values, size_
     return _filter->find_batch_raw_fixed(values, num_values, value_width, matches);
 }
 
+bool VBloomPredicate::can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                                       int column_id) const {
+    if (_filter == nullptr || !_filter->supports_raw_binary_values() || _children.size() != 1) {
+        return false;
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
+    return slot != nullptr && slot->column_id() == column_id &&
+           bloom_filter_type_matches(_filter->primitive_type(), slot->data_type()) &&
+           bloom_filter_type_matches(_filter->primitive_type(), data_type);
+}
+
+Status VBloomPredicate::execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                                     const DataTypePtr& data_type, int column_id,
+                                                     uint8_t* matches) const {
+    if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+        return Status::NotSupported("Bloom predicate cannot evaluate raw binary values");
+    }
+    return _filter->find_batch_raw_binary(values, num_values, matches);
+}
+
 ZoneMapFilterResult VBloomPredicate::evaluate_dictionary_filter(
         const DictionaryEvalContext& ctx) const {
     if (!can_evaluate_dictionary_filter()) {

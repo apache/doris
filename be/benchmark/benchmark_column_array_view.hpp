@@ -126,7 +126,7 @@ static ColumnPtr make_string_array_column() {
 
 // Wrap with outer Nullable (no rows are actually null, just the wrapper overhead).
 static ColumnPtr wrap_nullable(const ColumnPtr& col) {
-    return ColumnNullable::create(col->assume_mutable(),
+    return ColumnNullable::create(col->assert_mutable(),
                                   ColumnUInt8::create(col->size(), 0));
 }
 

@@ -950,7 +950,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         std::lock_guard new_tablet_lock(_new_tablet->get_push_lock());
         std::lock_guard base_tablet_wlock(_base_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        std::lock_guard<std::shared_mutex> new_tablet_wlock(_new_tablet->get_header_lock());
+        std::lock_guard new_tablet_wlock(_new_tablet->get_header_lock());
 
         do {
             RowsetSharedPtr max_rowset;
@@ -1138,7 +1138,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             }
         } else {
             // set state to ready
-            std::lock_guard<std::shared_mutex> new_wlock(_new_tablet->get_header_lock());
+            std::lock_guard new_wlock(_new_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             res = _new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {

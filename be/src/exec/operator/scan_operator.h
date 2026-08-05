@@ -76,6 +76,18 @@ public:
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
     virtual const std::optional<std::vector<int32_t>>& get_push_down_count_slot_ids() const = 0;
 
+    static bool is_count_star_pushdown(TPushAggOp::type agg_type,
+                                       const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        // An absent argument field is an old plan with unknown semantics. Only an explicitly empty
+        // argument list proves COUNT(*)/COUNT(1) and permits placeholder slots to be ignored.
+        return agg_type == TPushAggOp::type::COUNT && count_slot_ids.has_value() &&
+               count_slot_ids->empty();
+    }
+
+    bool is_count_star_pushdown() {
+        return is_count_star_pushdown(get_push_down_agg_type(), get_push_down_count_slot_ids());
+    }
+
     // If scan operator is serial operator(like topn), its real parallelism is 1.
     // Otherwise, its real parallelism is query_parallel_instance_num.
     // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.

@@ -99,6 +99,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -923,6 +924,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
+        CascadesContext cascadesContext = getCascadesContext();
+        if (cast.isExplicitType() && cascadesContext != null
+                && cascadesContext.getConnectContext().getSessionVariable().isEnableVariantV2()
+                && VariantType.containsVariant(cast.getDataType())) {
+            cast = cast.withTargetType(VariantType.toComputeV2(cast.getDataType()));
+        }
 
         // NOTICE: just for compatibility with legacy planner.
         if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {

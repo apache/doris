@@ -29,4 +29,19 @@ public class IcebergMvccSnapshot implements MvccSnapshot {
     public IcebergSnapshotCacheValue getSnapshotCacheValue() {
         return snapshotCacheValue;
     }
+
+    @Override
+    public boolean isSameSnapshot(MvccSnapshot other) {
+        if (!(other instanceof IcebergMvccSnapshot)) {
+            return false;
+        }
+        IcebergSnapshot left = snapshotCacheValue.getSnapshot();
+        IcebergSnapshotCacheValue otherCacheValue = ((IcebergMvccSnapshot) other).snapshotCacheValue;
+        IcebergSnapshot right = otherCacheValue.getSnapshot();
+        // A branch can retain its data snapshot while adopting a newer current schema.
+        // Name mapping is also scan-visible state and may change without a snapshot or schema ID change.
+        return left.getSnapshotId() == right.getSnapshotId()
+                && left.getSchemaId() == right.getSchemaId()
+                && snapshotCacheValue.getNameMapping().equals(otherCacheValue.getNameMapping());
+    }
 }

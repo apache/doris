@@ -258,12 +258,12 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     assertTrue(showNullPartitionsResult.toString().contains("p_null"))
     assertTrue(showNullPartitionsResult.toString().contains("p_NULL"))
     assertTrue(showNullPartitionsResult.toString().contains("p_bj"))
+    assertEquals(4, showNullPartitionsResult.size())
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto;
-        """
+    """
     waitingMTMVTaskFinishedByMvName(mvName)
-    // Will lose null data
-    order_qt_null_partition "SELECT * FROM ${mvName} "
+    order_qt_null_partition "SELECT * FROM ${mvName} ORDER BY id"
     sql """drop materialized view if exists ${mvName};"""
 
     // date type will has problem
@@ -305,4 +305,3 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     sql """drop catalog if exists ${catalogName}"""
 
 }
-

@@ -222,17 +222,21 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     dorisTable.getDbName(), dorisTable.getName()));
         }
         try {
+            // Freeze before deriving snapshot, partitions, and aliases; BaseTable accessors share
+            // refreshable operations and otherwise could mix two concurrent metadata generations.
+            Table retainedTable = IcebergSnapshotCacheValue.retainTableGeneration(icebergTable);
             MTMVRelatedTableIf table = (MTMVRelatedTableIf) dorisTable;
-            IcebergSnapshot latestIcebergSnapshot = IcebergUtils.getLatestIcebergSnapshot(icebergTable);
+            IcebergSnapshot latestIcebergSnapshot = IcebergUtils.getLatestIcebergSnapshot(retainedTable);
             IcebergPartitionInfo icebergPartitionInfo;
             if (!table.isValidRelatedTable()) {
                 icebergPartitionInfo = IcebergPartitionInfo.empty();
             } else {
-                icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, icebergTable,
+                icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, retainedTable,
                         latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
             }
             return new IcebergSnapshotCacheValue(
-                    icebergPartitionInfo, latestIcebergSnapshot, IcebergUtils.getNameMapping(icebergTable));
+                    icebergPartitionInfo, latestIcebergSnapshot, IcebergUtils.getNameMapping(retainedTable),
+                    retainedTable);
         } catch (AnalysisException e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }

@@ -65,6 +65,14 @@ std::string FileScanRequest::debug_string() const {
         }
         out << column_id << ":" << block_position;
     }
+    out << "}, non_predicate_positions={";
+    position_idx = 0;
+    for (const auto& [column_id, block_position] : non_predicate_positions) {
+        if (position_idx++ > 0) {
+            out << ", ";
+        }
+        out << column_id << ":" << block_position;
+    }
     out << "}, conjunct_count=" << conjuncts.size()
         << ", delete_conjunct_count=" << delete_conjuncts.size()
         << ", count_star_placeholder_columns={";

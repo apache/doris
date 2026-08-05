@@ -86,8 +86,6 @@ bool resolve_nested_struct_expr_for_file(const VExprSPtr& expr,
                                          const std::vector<ColumnMapping>& mappings,
                                          ResolvedNestedStructPath* resolved);
 
-void collect_nested_struct_paths(const VExprSPtr& expr, std::vector<NestedStructPath>* paths);
-
 std::vector<const ColumnMapping*> present_child_mappings_in_file_order(
         const std::vector<ColumnMapping>& child_mappings);
 

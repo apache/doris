@@ -20,7 +20,11 @@
 #include <string>
 #include <vector>
 
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/parquet_type.h"
 
@@ -63,7 +67,11 @@ void fill_native_type_descriptor(const NativeFieldSchema& field, ParquetTypeDesc
     result->fixed_length = schema.__isset.type_length ? schema.type_length : -1;
     if (schema.__isset.logicalType) {
         const auto& logical = schema.logicalType;
-        if (logical.__isset.DECIMAL) {
+        if (logical.__isset.STRING) {
+            result->is_string_annotation = true;
+        } else if (logical.__isset.UUID) {
+            result->is_uuid = true;
+        } else if (logical.__isset.DECIMAL) {
             result->is_decimal = true;
             result->decimal_precision = logical.DECIMAL.precision;
             result->decimal_scale = logical.DECIMAL.scale;
@@ -87,6 +95,9 @@ void fill_native_type_descriptor(const NativeFieldSchema& field, ParquetTypeDesc
         }
     } else if (schema.__isset.converted_type) {
         switch (schema.converted_type) {
+        case tparquet::ConvertedType::UTF8:
+            result->is_string_annotation = true;
+            break;
         case tparquet::ConvertedType::DECIMAL:
             result->is_decimal = true;
             result->decimal_precision = schema.__isset.precision ? schema.precision : -1;
@@ -173,7 +184,15 @@ std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldS
     result->local_id = local_id;
     result->parquet_field_id = field.field_id;
     result->name = field.name;
-    result->type = field.data_type;
+    result->variant_physical_type = field.variant_physical_type;
+    if (field.variant_physical_type != nullptr) {
+        DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
+        result->type = field.variant_physical_type->is_nullable()
+                               ? make_nullable(std::move(variant_type))
+                               : std::move(variant_type);
+    } else {
+        result->type = field.data_type;
+    }
     result->definition_level = field.definition_level;
     result->repetition_level = field.repetition_level;
     result->max_definition_level = field.definition_level;
@@ -191,7 +210,10 @@ std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldS
         fill_native_type_descriptor(field, &result->type_descriptor);
         return result;
     }
-    if (primitive_type == TYPE_ARRAY) {
+    if (field.variant_physical_type != nullptr) {
+        result->kind = ParquetColumnSchemaKind::VARIANT;
+        result->contains_variant = true;
+    } else if (primitive_type == TYPE_ARRAY) {
         result->kind = ParquetColumnSchemaKind::LIST;
     } else if (primitive_type == TYPE_MAP) {
         result->kind = ParquetColumnSchemaKind::MAP;
@@ -202,6 +224,33 @@ std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldS
     for (size_t child_idx = 0; child_idx < field.children.size(); ++child_idx) {
         result->children.push_back(
                 build_native_node_schema(field.children[child_idx], cast_set<int32_t>(child_idx)));
+        result->contains_variant |= result->children.back()->contains_variant;
+    }
+    // A nested Variant changes its public child type from the physical STRUCT carrier. Rebuild
+    // every enclosing complex type so file-block columns keep the same logical shape as readers.
+    if (result->kind != ParquetColumnSchemaKind::VARIANT && result->contains_variant) {
+        DataTypePtr logical_type;
+        if (result->kind == ParquetColumnSchemaKind::LIST) {
+            DORIS_CHECK(result->children.size() == 1);
+            logical_type = std::make_shared<DataTypeArray>(result->children[0]->type);
+        } else if (result->kind == ParquetColumnSchemaKind::MAP) {
+            DORIS_CHECK(result->children.size() == 2);
+            logical_type = std::make_shared<DataTypeMap>(make_nullable(result->children[0]->type),
+                                                         make_nullable(result->children[1]->type));
+        } else {
+            DataTypes child_types;
+            Strings child_names;
+            child_types.reserve(result->children.size());
+            child_names.reserve(result->children.size());
+            for (const auto& child : result->children) {
+                child_types.push_back(child->type);
+                child_names.push_back(child->name);
+            }
+            logical_type = std::make_shared<DataTypeStruct>(std::move(child_types),
+                                                            std::move(child_names));
+        }
+        result->type = result->type->is_nullable() ? make_nullable(std::move(logical_type))
+                                                   : std::move(logical_type);
     }
     propagate_native_max_levels(result.get());
     return result;

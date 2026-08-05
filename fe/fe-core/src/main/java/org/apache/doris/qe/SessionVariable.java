@@ -37,6 +37,8 @@ import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
@@ -172,6 +174,8 @@ public class SessionVariable implements Serializable, Writable {
             "enable_distinct_streaming_agg_force_passthrough";
     public static final String ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH = "enable_broadcast_join_force_passthrough";
     public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_AGG = "enable_local_exchange_before_agg";
+    public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG =
+            "enable_local_exchange_before_streaming_agg";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
     public static final String COLOCATE_MAX_PARALLEL_NUM = "colocate_max_parallel_num";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
@@ -548,8 +552,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TRACE_NEREIDS = "trace_nereids";
 
-    public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
-
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
@@ -847,6 +849,7 @@ public class SessionVariable implements Serializable, Writable {
     // Default is false, which means do not flatten nested when create table.
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
+    public static final String ENABLE_VARIANT_V2 = "enable_variant_v2";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -1113,8 +1116,8 @@ public class SessionVariable implements Serializable, Writable {
     public long maxScanQueueMemByte = 2147483648L / 20;
 
     @VariableMgr.VarAttr(name = MAX_SCANNERS_CONCURRENCY, needForward = true, description = {
-            "ScanNode 扫描数据的最大并发，默认为 4", "The max threads to read data of ScanNode, default 4"})
-    public int maxScannersConcurrency = 4;
+            "ScanNode 扫描数据的最大并发，默认为 8", "The max threads to read data of ScanNode, default 8"})
+    public int maxScannersConcurrency = 8;
 
     @VariableMgr.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
@@ -1376,6 +1379,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, fuzzy = true)
     public boolean enableLocalExchangeBeforeAgg = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, fuzzy = true)
+    public boolean enableLocalExchangeBeforeStreamingAgg = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
     public boolean enableDistinctStreamingAggForcePassthrough = true;
@@ -2123,7 +2129,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterPrune = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true)
+    @VariableMgr.VarAttr(
+            name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE,
+            description = {"控制支持该变量的 scanner 是否启用运行时过滤器分区裁剪。"
+                    + "File Scanner V2 始终启用安全的分区裁剪。默认为 true。",
+                    "Controls runtime-filter partition pruning in scanners that honor this variable. "
+                            + "File Scanner V2 always enables safe partition pruning. "
+                            + "The default value is true."},
+            needForward = true,
+            fuzzy = true)
     public boolean enableRuntimeFilterPartitionPrune = true;
 
     /**
@@ -2398,6 +2412,35 @@ public class SessionVariable implements Serializable, Writable {
     )
     private int eagerAggregationMode = 0;
 
+    @VariableMgr.VarAttr(name = "force_eager_agg_hint", needForward = true, setter = "setForceEagerAggHint",
+            description = {
+                    "用于测试/调试 eager aggregation 下推的匹配 hint。"
+                            + "格式：`<func>:<qualifier.column | *>=<push|nopush>`，"
+                            + "多个条目以分号分隔。例如："
+                            + "`sum:t1.a=push; sum:t2.a=nopush; count:*=push`。"
+                            + "注意：hint 按聚合函数匹配，但生效粒度是当前候选下推分支/子树，而不是单个聚合函数独立生效；"
+                            + "同一分支中只要有任一匹配项为 `nopush`，该分支本次不下推；"
+                            + "否则只要有任一匹配项为 `push`，该分支本次可被强制下推，"
+                            + "同分支内其他聚合函数会跟随这一决定。",
+                    "Test/debug hint for eager aggregation push-down. "
+                            + "Format: `<func>:<qualifier.column | *>=<push|nopush>`, "
+                            + "with multiple entries separated by `;`. "
+                            + "Example: `sum:t1.a=push; sum:t2.a=nopush; count:*=push`. "
+                            + "Note: entries are matched per aggregate-function key, but the effect "
+                            + "is applied at the current candidate push-down branch/subtree rather "
+                            + "than to one function independently. If any matched entry in the branch "
+                            + "is `nopush`, push-down is disabled for that branch; otherwise, if any "
+                            + "matched entry is `push`, push-down may be forced for that branch, and "
+                            + "the other aggregates in the same branch follow that branch-level decision."})
+    public String forceEagerAggHint = "";
+    private Map<String, Action> forceEagerAggHintMap = ImmutableMap.of();
+
+    @VariableMgr.VarAttr(name = "eager_agg_broadcast_row_count", needForward = true)
+    public int eagerAggBroadcastRowCount = 250_000;
+
+    @VariableMgr.VarAttr(name = "eager_aggregation_on_broadcast_join", needForward = true)
+    public boolean eagerAggregationOnBroadcastJoin = true;
+
     public static int getEagerAggregationMode() {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().eagerAggregationMode;
@@ -2410,15 +2453,18 @@ public class SessionVariable implements Serializable, Writable {
         this.eagerAggregationMode = mode;
     }
 
-    @VariableMgr.VarAttr(name = "eager_aggregation_on_join", needForward = true)
-    public boolean eagerAggregationOnJoin = false;
 
-    public static boolean isEagerAggregationOnJoin() {
-        if (ConnectContext.get() != null) {
-            return ConnectContext.get().getSessionVariable().eagerAggregationOnJoin;
-        } else {
-            return VariableMgr.getDefaultSessionVariable().eagerAggregationOnJoin;
+    public void setForceEagerAggHint(String forceEagerAggHint) throws DdlException {
+        try {
+            this.forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
+            this.forceEagerAggHint = forceEagerAggHint;
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
         }
+    }
+
+    public Map<String, Action> getForceEagerAggHintMap() {
+        return forceEagerAggHintMap;
     }
 
     @VariableMgr.VarAttr(
@@ -2442,8 +2488,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
 
-    @VariableMgr.VarAttr(name = PLAN_NEREIDS_DUMP)
-    public boolean planNereidsDump = false;
+    // Internal state, not a session variable: it is turned on only by MinidumpUtils while replaying
+    // a minidump file (PLAY '<dumpfile>'), where tables and statistics come from the dump instead of
+    // the catalog. It is intentionally not settable through SET, not forwarded and not serialized.
+    private boolean planNereidsDump = false;
 
     // If set to true, all query will be executed without returning result
     @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
@@ -2607,8 +2655,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(
             name = ENABLE_EXPR_ZONEMAP_FILTER,
             fuzzy = true,
-            description = {"控制 scanner 是否启用表达式 ZoneMap 过滤。默认为 false。",
-                    "Controls whether to enable expression ZoneMap filtering in scanners. "
+            description = {"控制支持该变量的 scanner 是否启用表达式 ZoneMap 过滤。"
+                    + "File Scanner V2 始终启用安全的表达式 ZoneMap 过滤。默认为 false。",
+                    "Controls expression ZoneMap filtering in scanners that honor this variable. "
+                            + "File Scanner V2 always enables safe expression ZoneMap filtering. "
                             + "The default value is false."},
             needForward = true)
     public boolean enableExprZonemapFilter = false;
@@ -3584,6 +3634,18 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSubcolumnsCount = 2048;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_VARIANT_V2,
+            needForward = true,
+            affectQueryResultInPlan = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {
+                    "是否对纯计算表达式启用 ColumnVariantV2，默认关闭。",
+                    "Whether to enable ColumnVariantV2 for compute expressions. The default is false."
+            }
+    )
+    public boolean enableVariantV2 = false;
+
+    @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             needForward = true,
             fuzzy = true
@@ -3698,6 +3760,7 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
+        this.enableLocalExchangeBeforeStreamingAgg = random.nextBoolean();
         this.enableDistinctStreamingAggForcePassthrough = random.nextBoolean();
         this.enableBroadcastJoinForcePassthrough = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
@@ -5506,6 +5569,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
         tResult.setEnableLocalExchangeBeforeAgg(enableLocalExchangeBeforeAgg);
+        tResult.setEnableLocalExchangeBeforeStreamingAgg(enableLocalExchangeBeforeStreamingAgg);
         tResult.setEnableDistinctStreamingAggForcePassthrough(enableDistinctStreamingAggForcePassthrough);
         tResult.setEnableBroadcastJoinForcePassthrough(enableBroadcastJoinForcePassthrough);
         tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
@@ -5780,6 +5844,7 @@ public class SessionVariable implements Serializable, Writable {
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
             }
+            refreshDerivedSessionVariables();
         } catch (Exception e) {
             throw new IOException("failed to read session variable: " + e.getMessage());
         }
@@ -5834,6 +5899,7 @@ public class SessionVariable implements Serializable, Writable {
                 }
 
             }
+            refreshDerivedSessionVariables();
         } catch (Exception ex) {
             throw new IOException("invalid session variable, " + ex.getMessage());
         }
@@ -5893,9 +5959,14 @@ public class SessionVariable implements Serializable, Writable {
                 // set config field
                 VariableMgr.setValue(this, val, f, varAttr.name());
             }
+            refreshDerivedSessionVariables();
         } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }
+    }
+
+    private void refreshDerivedSessionVariables() {
+        forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
     }
 
     /**
@@ -6462,6 +6533,10 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public boolean getEnableVariantFlattenNested() {
         return enableVariantFlattenNested;
+    }
+
+    public boolean isEnableVariantV2() {
+        return enableVariantV2;
     }
 
     public void setProfileLevel(String profileLevel) {

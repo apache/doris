@@ -26,10 +26,15 @@ suite("test_disable_root_variant_match", "p0") {
     sql """
         CREATE TABLE test_disable_root_variant_match_tbl (
             `id` INT NOT NULL,
+            `response_body` TEXT NULL,
             `response` variant<
                 MATCH_NAME 'msg' : string,
                 properties("variant_max_subcolumns_count" = "16")
             > NULL,
+            INDEX idx_response_body (response_body) USING INVERTED PROPERTIES(
+                "parser" = "unicode",
+                "lower_case" = "true"
+            ),
             INDEX idx_response (response) USING INVERTED PROPERTIES(
                 "parser" = "unicode",
                 "field_pattern" = "msg",
@@ -45,9 +50,9 @@ suite("test_disable_root_variant_match", "p0") {
     """
 
     sql """INSERT INTO test_disable_root_variant_match_tbl VALUES
-        (1, '{"msg": "doris community"}'),
-        (2, '{"msg": "apache software"}'),
-        (3, '{"msg": "doris variant index"}')
+        (1, 'doris community', '{"msg": "doris community"}'),
+        (2, 'apache software', '{"msg": "apache software"}'),
+        (3, 'doris variant index', '{"msg": "doris variant index"}')
     """
 
     sql "sync"
@@ -58,6 +63,17 @@ suite("test_disable_root_variant_match", "p0") {
             SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id
             FROM test_disable_root_variant_match_tbl
             WHERE response MATCH 'doris'
+            ORDER BY id
+        """
+        exception "VARIANT root column does not support MATCH"
+    }
+
+    test {
+        sql """
+            SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id
+            FROM test_disable_root_variant_match_tbl
+            WHERE response_body MATCH_ANY 'doris'
+                OR response MATCH_ANY 'doris'
             ORDER BY id
         """
         exception "VARIANT root column does not support MATCH"
