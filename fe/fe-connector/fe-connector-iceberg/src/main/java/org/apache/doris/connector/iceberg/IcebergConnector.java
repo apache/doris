@@ -19,7 +19,9 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
@@ -922,10 +924,10 @@ public class IcebergConnector implements Connector {
                 // so the metastore-spi never learns iceberg.catalog.type. Only toHiveConfOverrides is used
                 // (iceberg HMS does NOT call paimon's validate(); it does not require a warehouse). The external
                 // hive.conf.resources hive-site.xml is resolved by the connector itself (addConfResources).
-                HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
-                        IcebergConnectorProperties.TYPE_HMS, properties, storageHadoopConfig);
+                AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders
+                        .bindForType(IcebergConnectorProperties.TYPE_HMS, properties, storageHadoopConfig);
                 conf = IcebergCatalogFactory.assembleHiveConf(
-                        IcebergCatalogFactory.firstNonBlank(properties, "hive.conf.resources"),
+                        hms.getConfResources(),
                         hms.toHiveConfOverrides(ConnectorConf.get(context,
                                 IcebergConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
                                 IcebergConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
@@ -1387,7 +1389,7 @@ public class IcebergConnector implements Connector {
         if (!IcebergConnectorProperties.TYPE_JDBC.equals(IcebergCatalogFactory.resolveFlavor(properties))) {
             return;
         }
-        String driverUrl = IcebergCatalogFactory.firstNonBlank(properties, IcebergConnectorProperties.JDBC_DRIVER_URL);
+        String driverUrl = IcebergJdbcMetaStoreProperties.of(properties).getDriverUrl();
         if (StringUtils.isNotBlank(driverUrl)) {
             validationContext.validateAndResolveDriverPath(driverUrl);
         }
@@ -1402,13 +1404,12 @@ public class IcebergConnector implements Connector {
      * {@link JdbcDriverSupport#resolveDriverUrl} against {@code ConnectorContext.getEnvironment()}.
      */
     private void maybeRegisterJdbcDriver() {
-        String driverUrl = IcebergCatalogFactory.firstNonBlank(properties, IcebergConnectorProperties.JDBC_DRIVER_URL);
+        IcebergJdbcMetaStoreProperties jdbc = IcebergJdbcMetaStoreProperties.of(properties);
+        String driverUrl = jdbc.getDriverUrl();
         if (StringUtils.isBlank(driverUrl)) {
             return;
         }
-        String driverClass =
-                IcebergCatalogFactory.firstNonBlank(properties, IcebergConnectorProperties.JDBC_DRIVER_CLASS);
-        registerJdbcDriver(driverUrl, driverClass);
+        registerJdbcDriver(driverUrl, jdbc.getDriverClass());
         LOG.info("Using dynamic JDBC driver for Iceberg JDBC catalog from: {}", driverUrl);
     }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStoreProperties;
+import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
@@ -75,6 +76,11 @@ public class IcebergCatalogFactoryTest {
     private static void appendGlue(Map<String, String> opts, Map<String, String> raw,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
         IcebergCatalogFactory.appendGlueProperties(opts, IcebergGlueMetaStoreProperties.of(raw), chosenS3);
+    }
+
+    /** Same, for the jdbc appender. */
+    private static void appendJdbc(Map<String, String> opts, Map<String, String> raw) {
+        IcebergCatalogFactory.appendJdbcProperties(opts, IcebergJdbcMetaStoreProperties.of(raw));
     }
 
     // ---------------------------------------------------------------------
@@ -714,7 +720,7 @@ public class IcebergCatalogFactoryTest {
     public void appendJdbcEmitsUriWithAliasPriority() {
         // WHY: legacy uri alias priority is {uri, iceberg.jdbc.uri} (uri wins). MUTATION: wrong order -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendJdbcProperties(opts,
+        appendJdbc(opts,
                 props("uri", "jdbc:mysql://h/db", "iceberg.jdbc.uri", "jdbc:other"));
         Assertions.assertEquals("jdbc:mysql://h/db", opts.get("uri"));
     }
@@ -724,7 +730,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy addIfNotBlank maps each iceberg.jdbc.<x> to the dotted jdbc.<x> only when non-blank.
         // MUTATION: wrong emitted key spelling or emitting a blank value -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendJdbcProperties(opts,
+        appendJdbc(opts,
                 props("uri", "jdbc:mysql://h/db", "iceberg.jdbc.user", "u", "iceberg.jdbc.password", "p",
                         "iceberg.jdbc.init-catalog-tables", "true", "iceberg.jdbc.schema-version", "V1",
                         "iceberg.jdbc.strict-mode", "false"));
@@ -735,7 +741,7 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertEquals("false", opts.get("jdbc.strict-mode"));
 
         Map<String, String> bare = new HashMap<>();
-        IcebergCatalogFactory.appendJdbcProperties(bare, props("uri", "jdbc:mysql://h/db"));
+        appendJdbc(bare, props("uri", "jdbc:mysql://h/db"));
         Assertions.assertNull(bare.get("jdbc.user"), "an unset jdbc.user must NOT be emitted");
     }
 

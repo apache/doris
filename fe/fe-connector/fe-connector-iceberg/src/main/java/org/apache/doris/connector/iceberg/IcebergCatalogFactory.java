@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStoreProperties;
+import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
@@ -344,7 +345,7 @@ public final class IcebergCatalogFactory {
                 appendGlueProperties(opts, IcebergGlueMetaStoreProperties.of(props), chosenS3);
                 break;
             case IcebergConnectorProperties.TYPE_JDBC:
-                appendJdbcProperties(opts, props);
+                appendJdbcProperties(opts, IcebergJdbcMetaStoreProperties.of(props));
                 appendS3FileIO(opts, props, chosenS3);
                 // iceberg.jdbc.catalog_name is the positional catalog NAME (see resolveCatalogName); legacy
                 // removes it from the options map before building.
@@ -405,7 +406,7 @@ public final class IcebergCatalogFactory {
      */
     public static String resolveCatalogName(Map<String, String> props, String flavor, String defaultName) {
         if (IcebergConnectorProperties.TYPE_JDBC.equals(flavor)) {
-            String name = firstNonBlank(props, IcebergConnectorProperties.JDBC_CATALOG_NAME);
+            String name = IcebergJdbcMetaStoreProperties.of(props).getJdbcCatalogName();
             if (StringUtils.isBlank(name)) {
                 throw new DorisConnectorException(
                         IcebergConnectorProperties.JDBC_CATALOG_NAME + " is required for an iceberg jdbc catalog");
@@ -596,18 +597,13 @@ public final class IcebergCatalogFactory {
      * not repeated here. The {@code catalog_name} positional removal + driver registration are handled by the
      * connector. PURE.
      */
-    public static void appendJdbcProperties(Map<String, String> opts, Map<String, String> props) {
-        opts.put(CatalogProperties.URI, firstNonBlankOrEmpty(props, IcebergConnectorProperties.JDBC_URI));
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_USER_KEY,
-                firstNonBlank(props, IcebergConnectorProperties.JDBC_USER));
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_PASSWORD_KEY,
-                firstNonBlank(props, IcebergConnectorProperties.JDBC_PASSWORD));
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_INIT_CATALOG_TABLES_KEY,
-                firstNonBlank(props, IcebergConnectorProperties.JDBC_INIT_CATALOG_TABLES));
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_SCHEMA_VERSION_KEY,
-                firstNonBlank(props, IcebergConnectorProperties.JDBC_SCHEMA_VERSION));
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_STRICT_MODE_KEY,
-                firstNonBlank(props, IcebergConnectorProperties.JDBC_STRICT_MODE));
+    public static void appendJdbcProperties(Map<String, String> opts, IcebergJdbcMetaStoreProperties jdbc) {
+        opts.put(CatalogProperties.URI, jdbc.getUri());
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_USER_KEY, jdbc.getUser());
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_PASSWORD_KEY, jdbc.getPassword());
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_INIT_CATALOG_TABLES_KEY, jdbc.getInitCatalogTables());
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_SCHEMA_VERSION_KEY, jdbc.getSchemaVersion());
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_STRICT_MODE_KEY, jdbc.getStrictMode());
     }
 
     // ---------------------------------------------------------------------
@@ -698,8 +694,12 @@ public final class IcebergCatalogFactory {
     // Pure helpers
     // ---------------------------------------------------------------------
 
-    /** Returns the first non-blank value among the given keys (alias priority), or {@code null} if none set. */
-    public static String firstNonBlank(Map<String, String> props, String... keys) {
+    /**
+     * Returns the first non-blank value among the given keys (alias priority), or {@code null} if none set.
+     * The metastore keys are read off their bound holders instead; the sole remaining caller is the S3 region
+     * scan, whose alias set belongs to the storage keys rather than to any one metastore flavor.
+     */
+    private static String firstNonBlank(Map<String, String> props, String... keys) {
         for (String key : keys) {
             String value = props.get(key);
             if (StringUtils.isNotBlank(value)) {
@@ -707,16 +707,6 @@ public final class IcebergCatalogFactory {
             }
         }
         return null;
-    }
-
-    private static String firstNonBlankOrEmpty(Map<String, String> props, String... keys) {
-        String value = firstNonBlank(props, keys);
-        return value == null ? "" : value;
-    }
-
-    private static String firstNonBlankOr(Map<String, String> props, String defaultValue, String... keys) {
-        String value = firstNonBlank(props, keys);
-        return value == null ? defaultValue : value;
     }
 
     private static String nullToEmpty(String value) {

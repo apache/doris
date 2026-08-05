@@ -128,19 +128,11 @@ public final class IcebergConnectorProperties {
     public static final String GLUE_CHECKED_WAREHOUSE = "s3://doris";
     public static final String GLUE_DEFAULT_REGION = "us-east-1";
 
-    // -- JDBC input aliases (legacy IcebergJdbcMetaStoreProperties @ConnectorProperty names) --
-    public static final String[] JDBC_URI = {"uri", "iceberg.jdbc.uri"};
-    public static final String JDBC_USER = "iceberg.jdbc.user";
-    public static final String JDBC_PASSWORD = "iceberg.jdbc.password";
-    public static final String JDBC_INIT_CATALOG_TABLES = "iceberg.jdbc.init-catalog-tables";
-    public static final String JDBC_SCHEMA_VERSION = "iceberg.jdbc.schema-version";
-    public static final String JDBC_STRICT_MODE = "iceberg.jdbc.strict-mode";
+    // -- JDBC input alias (the rest of the family lives on IcebergJdbcMetaStoreProperties; this one is the
+    // positional catalog name, which the assembly REMOVES from the options map rather than reads) --
     public static final String JDBC_CATALOG_NAME = "iceberg.jdbc.catalog_name";
-    public static final String JDBC_DRIVER_URL = "iceberg.jdbc.driver_url";
-    public static final String JDBC_DRIVER_CLASS = "iceberg.jdbc.driver_class";
 
     // -- JDBC emitted literal keys (non-SDK) --
-    public static final String JDBC_PREFIX = "jdbc.";
     public static final String JDBC_USER_KEY = "jdbc.user";
     public static final String JDBC_PASSWORD_KEY = "jdbc.password";
     public static final String JDBC_INIT_CATALOG_TABLES_KEY = "jdbc.init-catalog-tables";
