@@ -218,7 +218,13 @@ Columns get_prompt_columns(const Block& block, const ColumnNumbers& arguments) {
     Columns prompt_columns;
     prompt_columns.reserve(arguments.size() - 1);
     for (size_t i = 1; i < arguments.size(); ++i) {
-        prompt_columns.emplace_back(block.get_by_position(arguments[i]).unnest_nullable().column);
+        const auto& argument = block.get_by_position(arguments[i]);
+        prompt_columns.emplace_back(
+                argument.unnest_nullable(argument.type->is_nullable()
+                                                 ? argument.get_nullable_column_info()
+                                                 : NullableColumnInfo {},
+                                         false)
+                        .column);
     }
     return prompt_columns;
 }
