@@ -391,6 +391,23 @@ TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response) {
     ASSERT_EQ(results[0], "openai response result");
 }
 
+TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_keeps_mask_literals) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({"choices":[{"message":{"content":"[MSKED]"}}]})";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0], "[MSKED]");
+
+    resp = R"({"choices":[{"message":{"content":"[MASK]"}}]})";
+    results.clear();
+    st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0], "[MASK]");
+}
+
 TEST(AI_ADAPTER_TEST, gemini_adapter_request) {
     GeminiAdapter adapter;
     TAIResource config;
@@ -696,8 +713,8 @@ TEST(AI_ADAPTER_TEST, qwen_multimodal_embedding_request_image) {
     adapter.init(config);
 
     std::string request_body;
-    Status st = adapter.build_multimodal_embedding_request(MultimodalType::IMAGE,
-                                                           "https://a/b/c.png", request_body);
+    Status st = adapter.build_multimodal_embedding_request({MultimodalType::IMAGE},
+                                                           {"https://a/b/c.png"}, {}, request_body);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     rapidjson::Document doc;
@@ -727,8 +744,8 @@ TEST(AI_ADAPTER_TEST, qwen_multimodal_embedding_request_video) {
     adapter.init(config);
 
     std::string request_body;
-    Status st = adapter.build_multimodal_embedding_request(MultimodalType::VIDEO,
-                                                           "https://a/b/c.mp4", request_body);
+    Status st = adapter.build_multimodal_embedding_request({MultimodalType::VIDEO},
+                                                           {"https://a/b/c.mp4"}, {}, request_body);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     rapidjson::Document doc;
@@ -750,6 +767,35 @@ TEST(AI_ADAPTER_TEST, qwen_multimodal_embedding_request_video) {
     ASSERT_EQ(doc["parameters"]["dimension"].GetInt(), 1024);
 }
 
+TEST(AI_ADAPTER_TEST, qwen_multimodal_embedding_batch_request) {
+    QwenAdapter adapter;
+    TAIResource config;
+    config.model_name = "tongyi-embedding-vision-plus";
+    config.dimensions = 1024;
+    adapter.init(config);
+
+    std::vector<MultimodalType> media_types = {MultimodalType::IMAGE, MultimodalType::VIDEO};
+    std::vector<std::string> media_urls = {"https://a/b/c.png", "https://a/b/c.mp4"};
+    std::string request_body;
+    Status st =
+            adapter.build_multimodal_embedding_request(media_types, media_urls, {}, request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << request_body;
+    ASSERT_TRUE(doc.IsObject());
+    ASSERT_TRUE(doc.HasMember("input"));
+    ASSERT_TRUE(doc["input"].HasMember("contents"));
+    const auto& contents = doc["input"]["contents"];
+    ASSERT_TRUE(contents.IsArray());
+    ASSERT_EQ(contents.Size(), 2);
+    ASSERT_TRUE(contents[0].HasMember("image"));
+    ASSERT_STREQ(contents[0]["image"].GetString(), "https://a/b/c.png");
+    ASSERT_TRUE(contents[1].HasMember("video"));
+    ASSERT_STREQ(contents[1]["video"].GetString(), "https://a/b/c.mp4");
+}
+
 TEST(AI_ADAPTER_TEST, qwen_multimodal_embedding_request_audio_not_supported) {
     QwenAdapter adapter;
     TAIResource config;
@@ -757,8 +803,8 @@ TEST(AI_ADAPTER_TEST, qwen_multimodal_embedding_request_audio_not_supported) {
     adapter.init(config);
 
     std::string request_body;
-    Status st = adapter.build_multimodal_embedding_request(MultimodalType::AUDIO,
-                                                           "https://a/b/c.mp3", request_body);
+    Status st = adapter.build_multimodal_embedding_request({MultimodalType::AUDIO},
+                                                           {"https://a/b/c.mp3"}, {}, request_body);
     ASSERT_FALSE(st.ok());
     ASSERT_THAT(st.to_string(),
                 ::testing::HasSubstr("QWEN only supports image/video multimodal embed"));
@@ -773,8 +819,8 @@ TEST(AI_ADAPTER_TEST, voyage_multimodal_embedding_request) {
     adapter.init(config);
 
     std::string request_body;
-    Status st = adapter.build_multimodal_embedding_request(MultimodalType::VIDEO,
-                                                           "https://a/b/c.mp4", request_body);
+    Status st = adapter.build_multimodal_embedding_request({MultimodalType::VIDEO},
+                                                           {"https://a/b/c.mp4"}, {}, request_body);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     rapidjson::Document doc;
@@ -797,6 +843,35 @@ TEST(AI_ADAPTER_TEST, voyage_multimodal_embedding_request) {
     ASSERT_FALSE(doc.HasMember("output_dimension"));
 }
 
+TEST(AI_ADAPTER_TEST, voyage_multimodal_embedding_batch_request) {
+    VoyageAIAdapter adapter;
+    TAIResource config;
+    config.model_name = "voyage-multimodal-3.5";
+    adapter.init(config);
+
+    std::vector<MultimodalType> media_types = {MultimodalType::IMAGE, MultimodalType::VIDEO};
+    std::vector<std::string> media_urls = {"https://a/b/c.png", "https://a/b/c.mp4"};
+    std::string request_body;
+    Status st =
+            adapter.build_multimodal_embedding_request(media_types, media_urls, {}, request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << request_body;
+    ASSERT_TRUE(doc.IsObject());
+    ASSERT_TRUE(doc.HasMember("inputs"));
+    const auto& request_inputs = doc["inputs"];
+    ASSERT_TRUE(request_inputs.IsArray());
+    ASSERT_EQ(request_inputs.Size(), 2);
+    ASSERT_TRUE(request_inputs[0]["content"].IsArray());
+    ASSERT_STREQ(request_inputs[0]["content"][0]["type"].GetString(), "image_url");
+    ASSERT_STREQ(request_inputs[0]["content"][0]["image_url"].GetString(), "https://a/b/c.png");
+    ASSERT_TRUE(request_inputs[1]["content"].IsArray());
+    ASSERT_STREQ(request_inputs[1]["content"][0]["type"].GetString(), "video_url");
+    ASSERT_STREQ(request_inputs[1]["content"][0]["video_url"].GetString(), "https://a/b/c.mp4");
+}
+
 TEST(AI_ADAPTER_TEST, jina_multimodal_embedding_request) {
     JinaAdapter adapter;
     TAIResource config;
@@ -805,8 +880,8 @@ TEST(AI_ADAPTER_TEST, jina_multimodal_embedding_request) {
     adapter.init(config);
 
     std::string request_body;
-    Status st = adapter.build_multimodal_embedding_request(MultimodalType::IMAGE,
-                                                           "https://a/b/c.jpg", request_body);
+    Status st = adapter.build_multimodal_embedding_request({MultimodalType::IMAGE},
+                                                           {"https://a/b/c.jpg"}, {}, request_body);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     rapidjson::Document doc;
@@ -825,6 +900,34 @@ TEST(AI_ADAPTER_TEST, jina_multimodal_embedding_request) {
     ASSERT_EQ(doc["dimensions"].GetInt(), 512);
 }
 
+TEST(AI_ADAPTER_TEST, jina_multimodal_embedding_batch_request) {
+    JinaAdapter adapter;
+    TAIResource config;
+    config.model_name = "jina-embeddings-v4";
+    config.dimensions = 512;
+    adapter.init(config);
+
+    std::vector<MultimodalType> media_types = {MultimodalType::IMAGE, MultimodalType::VIDEO};
+    std::vector<std::string> media_urls = {"https://a/b/c.jpg", "https://a/b/c.mp4"};
+    std::string request_body;
+    Status st =
+            adapter.build_multimodal_embedding_request(media_types, media_urls, {}, request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << request_body;
+    ASSERT_TRUE(doc.IsObject());
+    ASSERT_TRUE(doc.HasMember("input"));
+    const auto& input = doc["input"];
+    ASSERT_TRUE(input.IsArray());
+    ASSERT_EQ(input.Size(), 2);
+    ASSERT_TRUE(input[0].HasMember("image"));
+    ASSERT_STREQ(input[0]["image"].GetString(), "https://a/b/c.jpg");
+    ASSERT_TRUE(input[1].HasMember("video"));
+    ASSERT_STREQ(input[1]["video"].GetString(), "https://a/b/c.mp4");
+}
+
 TEST(AI_ADAPTER_TEST, multimodal_provider_support) {
     OpenAIAdapter openai_adapter;
     TAIResource openai_config;
@@ -833,7 +936,7 @@ TEST(AI_ADAPTER_TEST, multimodal_provider_support) {
 
     std::string request_body;
     Status st = openai_adapter.build_multimodal_embedding_request(
-            MultimodalType::IMAGE, "https://a/b/c.png", request_body);
+            {MultimodalType::IMAGE}, {"https://a/b/c.png"}, {}, request_body);
     ASSERT_FALSE(st.ok());
     ASSERT_THAT(st.to_string(), ::testing::HasSubstr("does not support multimodal Embed"));
 }
@@ -852,36 +955,154 @@ TEST(AI_ADAPTER_TEST, gemini_multimodal_embedding_request) {
         const char* mime_type;
     };
     const std::vector<GeminiMultimodalCase> test_cases = {
-            {MultimodalType::IMAGE, "https://a/b/c.png", "image/png"},
-            {MultimodalType::AUDIO, "https://a/b/c.mp3", "audio/mpeg"},
-            {MultimodalType::VIDEO, "https://a/b/c.mp4", "video/mp4"},
+            {MultimodalType::IMAGE, "https://a/b/c.jpg", "image/jpeg"},
+            {MultimodalType::IMAGE, "https://a/b/c.webp", "image/webp"},
+            {MultimodalType::AUDIO, "https://a/b/c.wav", "audio/wav"},
+            {MultimodalType::VIDEO, "https://a/b/c.webm", "video/webm"},
     };
 
     for (const auto& test_case : test_cases) {
         std::string request_body;
         Status st = gemini_adapter.build_multimodal_embedding_request(
-                test_case.media_type, test_case.media_url, request_body);
+                {test_case.media_type}, {test_case.media_url}, {test_case.mime_type}, request_body);
         ASSERT_TRUE(st.ok()) << st.to_string();
 
         rapidjson::Document doc;
         doc.Parse(request_body.c_str());
         ASSERT_FALSE(doc.HasParseError()) << request_body;
         ASSERT_TRUE(doc.IsObject());
-        ASSERT_TRUE(doc.HasMember("model"));
-        ASSERT_STREQ(doc["model"].GetString(), "models/gemini-embedding-2-preview");
-        ASSERT_TRUE(doc.HasMember("outputDimensionality"));
-        ASSERT_EQ(doc["outputDimensionality"].GetInt(), 768);
-        ASSERT_TRUE(doc.HasMember("content"));
-        ASSERT_TRUE(doc["content"].HasMember("parts"));
-        ASSERT_TRUE(doc["content"]["parts"].IsArray());
-        ASSERT_EQ(doc["content"]["parts"].Size(), 1);
-        ASSERT_TRUE(doc["content"]["parts"][0].HasMember("file_data"));
-        ASSERT_TRUE(doc["content"]["parts"][0]["file_data"].IsObject());
-        ASSERT_STREQ(doc["content"]["parts"][0]["file_data"]["mime_type"].GetString(),
+        ASSERT_TRUE(doc.HasMember("requests"));
+        ASSERT_TRUE(doc["requests"].IsArray());
+        ASSERT_EQ(doc["requests"].Size(), 1);
+        const auto& request = doc["requests"][0];
+        ASSERT_TRUE(request.HasMember("model"));
+        ASSERT_STREQ(request["model"].GetString(), "models/gemini-embedding-2-preview");
+        ASSERT_TRUE(request.HasMember("outputDimensionality"));
+        ASSERT_EQ(request["outputDimensionality"].GetInt(), 768);
+        ASSERT_TRUE(request.HasMember("content"));
+        ASSERT_TRUE(request["content"].HasMember("parts"));
+        ASSERT_TRUE(request["content"]["parts"].IsArray());
+        ASSERT_EQ(request["content"]["parts"].Size(), 1);
+        ASSERT_TRUE(request["content"]["parts"][0].HasMember("file_data"));
+        ASSERT_TRUE(request["content"]["parts"][0]["file_data"].IsObject());
+        ASSERT_STREQ(request["content"]["parts"][0]["file_data"]["mime_type"].GetString(),
                      test_case.mime_type);
-        ASSERT_STREQ(doc["content"]["parts"][0]["file_data"]["file_uri"].GetString(),
+        ASSERT_STREQ(request["content"]["parts"][0]["file_data"]["file_uri"].GetString(),
                      test_case.media_url);
     }
+}
+
+TEST(AI_ADAPTER_TEST, gemini_multimodal_embedding_batch_request) {
+    GeminiAdapter adapter;
+    TAIResource config;
+    config.provider_type = "GEMINI";
+    config.model_name = "gemini-embedding-2-preview";
+    config.dimensions = 768;
+    adapter.init(config);
+
+    std::vector<MultimodalType> media_types = {MultimodalType::IMAGE, MultimodalType::AUDIO,
+                                               MultimodalType::VIDEO};
+    std::vector<std::string> media_urls = {"https://a/b/c.jpg", "https://a/b/c.wav",
+                                           "https://a/b/c.webm"};
+    std::vector<std::string> media_content_types = {"image/jpeg", "audio/wav", "video/webm"};
+    std::string request_body;
+    Status st = adapter.build_multimodal_embedding_request(media_types, media_urls,
+                                                           media_content_types, request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << request_body;
+    ASSERT_TRUE(doc.IsObject());
+    ASSERT_TRUE(doc.HasMember("requests"));
+    const auto& requests = doc["requests"];
+    ASSERT_TRUE(requests.IsArray());
+    ASSERT_EQ(requests.Size(), 3);
+
+    ASSERT_STREQ(requests[0]["model"].GetString(), "models/gemini-embedding-2-preview");
+    ASSERT_EQ(requests[0]["outputDimensionality"].GetInt(), 768);
+    ASSERT_STREQ(requests[0]["content"]["parts"][0]["file_data"]["mime_type"].GetString(),
+                 "image/jpeg");
+    ASSERT_STREQ(requests[0]["content"]["parts"][0]["file_data"]["file_uri"].GetString(),
+                 "https://a/b/c.jpg");
+
+    ASSERT_STREQ(requests[1]["content"]["parts"][0]["file_data"]["mime_type"].GetString(),
+                 "audio/wav");
+    ASSERT_STREQ(requests[1]["content"]["parts"][0]["file_data"]["file_uri"].GetString(),
+                 "https://a/b/c.wav");
+
+    ASSERT_STREQ(requests[2]["content"]["parts"][0]["file_data"]["mime_type"].GetString(),
+                 "video/webm");
+    ASSERT_STREQ(requests[2]["content"]["parts"][0]["file_data"]["file_uri"].GetString(),
+                 "https://a/b/c.webm");
+}
+
+TEST(AI_ADAPTER_TEST, gemini_multimodal_embedding_request_empty_inputs) {
+    GeminiAdapter adapter;
+    TAIResource config;
+    config.provider_type = "GEMINI";
+    config.model_name = "gemini-embedding-2-preview";
+    adapter.init(config);
+
+    std::string request_body;
+    Status st = adapter.build_multimodal_embedding_request({}, {}, {}, request_body);
+    ASSERT_FALSE(st.ok());
+    ASSERT_THAT(st.to_string(),
+                ::testing::HasSubstr("Gemini multimodal embed inputs can not be empty"));
+}
+
+TEST(AI_ADAPTER_TEST, gemini_multimodal_embedding_request_size_mismatch) {
+    GeminiAdapter adapter;
+    TAIResource config;
+    config.provider_type = "GEMINI";
+    config.model_name = "gemini-embedding-2-preview";
+    adapter.init(config);
+
+    std::string request_body;
+    Status st = adapter.build_multimodal_embedding_request(
+            {MultimodalType::IMAGE, MultimodalType::VIDEO}, {"https://a/b/c.png"}, {},
+            request_body);
+    ASSERT_FALSE(st.ok());
+    ASSERT_THAT(
+            st.to_string(),
+            ::testing::HasSubstr(
+                    "Gemini multimodal embed input size mismatch, media_types=2, media_urls=1"));
+}
+
+TEST(AI_ADAPTER_TEST, gemini_multimodal_embedding_content_type_size_mismatch) {
+    GeminiAdapter adapter;
+    TAIResource config;
+    config.provider_type = "GEMINI";
+    config.model_name = "gemini-embedding-2-preview";
+    adapter.init(config);
+
+    std::string request_body;
+    Status st = adapter.build_multimodal_embedding_request({MultimodalType::IMAGE},
+                                                           {"https://a/b/c.jpg"}, {}, request_body);
+    ASSERT_FALSE(st.ok());
+    ASSERT_THAT(st.to_string(), ::testing::HasSubstr("Gemini multimodal embed input size mismatch, "
+                                                     "media_content_types=0, media_urls=1"));
+}
+
+TEST(AI_ADAPTER_TEST, gemini_parse_batch_embedding_response) {
+    GeminiAdapter adapter;
+    std::string resp = R"({
+        "embeddings": [
+            {"values": [0.1, 0.2, 0.3]},
+            {"values": [0.4, 0.5]}
+        ]
+    })";
+
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(resp, results);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 2);
+    ASSERT_EQ(results[0].size(), 3);
+    ASSERT_EQ(results[1].size(), 2);
+    ASSERT_FLOAT_EQ(results[0][0], 0.1F);
+    ASSERT_FLOAT_EQ(results[0][2], 0.3F);
+    ASSERT_FLOAT_EQ(results[1][0], 0.4F);
+    ASSERT_FLOAT_EQ(results[1][1], 0.5F);
 }
 
 } // namespace doris

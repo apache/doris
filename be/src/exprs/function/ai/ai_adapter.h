@@ -1569,6 +1569,14 @@ public:
 // Mock adapter used only for UT to bypass real HTTP calls and return deterministic data.
 class MockAdapter : public AIAdapter {
 public:
+#ifdef BE_TEST
+    static void clear_embedding_inputs_for_test() { _embedding_inputs_for_test().clear(); }
+
+    static const std::vector<std::string>& get_embedding_inputs_for_test() {
+        return _embedding_inputs_for_test();
+    }
+#endif
+
     Status set_authentication(HttpClient* client) const override { return Status::OK(); }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
@@ -1584,6 +1592,10 @@ public:
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
+#ifdef BE_TEST
+        auto& embedding_inputs = _embedding_inputs_for_test();
+        embedding_inputs.insert(embedding_inputs.end(), inputs.begin(), inputs.end());
+#endif
         return Status::OK();
     }
 
@@ -1613,6 +1625,14 @@ public:
                        [](const auto& val) { return val.GetFloat(); });
         return Status::OK();
     }
+
+private:
+#ifdef BE_TEST
+    static std::vector<std::string>& _embedding_inputs_for_test() {
+        static thread_local std::vector<std::string> embedding_inputs;
+        return embedding_inputs;
+    }
+#endif
 };
 
 class AIAdapterFactory {
