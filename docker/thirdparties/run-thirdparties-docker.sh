@@ -1405,10 +1405,10 @@ start_iceberg() {
             (
                 cd "${ICEBERG_DIR}" || exit 1
                 rm -f iceberg_data*.zip
-                wget -P "${ROOT}/docker-compose/iceberg" "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
-                sudo unzip iceberg_data_spark40.zip
+                wget -P "${ROOT}/docker-compose/iceberg" "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
+                sudo unzip iceberg_data_spark40_paimon142.zip
                 sudo mv iceberg_data data
-                sudo rm -rf iceberg_data_spark40.zip
+                sudo rm -rf iceberg_data_spark40_paimon142.zip
             )
         else
             echo "${ICEBERG_DIR}/data exists, continue !"
