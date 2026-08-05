@@ -23,6 +23,7 @@
 
 #include "cloud/config.h"
 #include "common/config.h"
+#include "exec/scan/parallel_scanner_builder.h"
 #include "io/io_common.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -102,6 +103,31 @@ TEST(OlapScannerTest, BuildScoreRuntimeCollectionIoContextAllowsMissingQueryCont
     EXPECT_EQ(io_ctx.file_cache_stats, &stats);
     EXPECT_TRUE(io_ctx.is_inverted_index);
     EXPECT_EQ(io_ctx.remote_scan_cache_write_limiter, nullptr);
+}
+
+TEST(ParallelScannerBuilderTest, PreloadIoContextUsesOlapTableOption) {
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state._query_ctx = nullptr;
+
+    TQueryOptions query_options;
+    query_options.__set_enable_file_cache(false);
+    query_options.__set_disable_file_cache(true);
+    query_options.__set_enable_file_cache_for_olap_table(true);
+    state.set_query_options(query_options);
+
+    auto io_ctx = ParallelScannerBuilder::_create_preload_io_context(&state, nullptr);
+    EXPECT_TRUE(io_ctx.read_file_cache);
+    EXPECT_FALSE(io_ctx.is_disposable);
+
+    query_options.__set_enable_file_cache(true);
+    query_options.__set_disable_file_cache(false);
+    query_options.__set_enable_file_cache_for_olap_table(false);
+    state.set_query_options(query_options);
+
+    io_ctx = ParallelScannerBuilder::_create_preload_io_context(&state, nullptr);
+    EXPECT_TRUE(io_ctx.read_file_cache);
+    EXPECT_TRUE(io_ctx.is_disposable);
 }
 
 } // namespace doris

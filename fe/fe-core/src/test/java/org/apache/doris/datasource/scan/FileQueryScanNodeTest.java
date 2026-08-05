@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -73,6 +74,10 @@ public class FileQueryScanNodeTest {
 
         void setTargetTable(TableIf targetTable) {
             this.targetTable = targetTable;
+        }
+
+        boolean isAdmissionControlEnabled() {
+            return isFileCacheAdmissionControlEnabled();
         }
 
         @Override
@@ -127,6 +132,26 @@ public class FileQueryScanNodeTest {
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
         long target = node.applyMaxFileSplitNumLimit(32 * MB, 10_000L * MB);
         Assert.assertEquals(32 * MB, target);
+    }
+
+    @Test
+    public void testFileCacheAdmissionUsesExternalTableOption() {
+        boolean originalAdmissionControl = Config.enable_file_cache_admission_control;
+        try {
+            Config.enable_file_cache_admission_control = true;
+            SessionVariable sv = new SessionVariable();
+            TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+
+            sv.setEnableFileCache(true);
+            sv.setEnableFileCacheForExternalTable(false);
+            Assert.assertFalse(node.isAdmissionControlEnabled());
+
+            sv.setEnableFileCache(false);
+            sv.setEnableFileCacheForExternalTable(true);
+            Assert.assertTrue(node.isAdmissionControlEnabled());
+        } finally {
+            Config.enable_file_cache_admission_control = originalAdmissionControl;
+        }
     }
 
     @Test

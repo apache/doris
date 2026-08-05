@@ -392,7 +392,6 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
     RETURN_IF_ERROR(_init_io_ctx());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
-    _io_ctx->is_disposable = _state->query_options().disable_file_cache;
     return Status::OK();
 }
 
@@ -939,7 +938,12 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
 
 Status FileScannerV2::_init_io_ctx() {
     _io_ctx = create_file_scan_io_context(_state);
+    _io_ctx->is_disposable = !_is_file_cache_enabled();
     return Status::OK();
+}
+
+bool FileScannerV2::_is_file_cache_enabled() const {
+    return _state->query_options().enable_file_cache_for_external_table;
 }
 
 void FileScannerV2::_reset_adaptive_batch_size_state() {
@@ -1167,8 +1171,7 @@ FileScannerV2::UncachedReaderBytesStorage FileScannerV2::_uncached_reader_bytes_
 void FileScannerV2::_collect_profile_before_close() {
     _report_file_reader_predicate_filtered_rows();
     Scanner::_collect_profile_before_close();
-    if (config::enable_file_cache && _state->query_options().enable_file_cache &&
-        _profile != nullptr) {
+    if (config::enable_file_cache && _is_file_cache_enabled() && _profile != nullptr) {
         auto file_cache_delta = io::diff_file_cache_statistics(*_file_cache_statistics,
                                                                _reported_file_cache_statistics);
         // Profile collection can run more than once. Keep additive fields incremental while

@@ -124,6 +124,7 @@ private:
     Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
+    bool _is_file_cache_enabled() const;
     Status _init_expr_ctxes();
     Status _prepare_next_split(bool* eos);
     Status _init_table_reader(const TFileRangeDesc& range);

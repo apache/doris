@@ -48,8 +48,7 @@ suite("test_file_cache_query_limit", "p0,external,nonConcurrent") {
         return
     }
 
-    sql """set enable_file_cache=true"""
-    sql """set disable_file_cache=false"""
+    sql """set enable_file_cache_for_external_table=true"""
 
     // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent
     // to testing with multiple backends having identical configurations, but simpler in logic.

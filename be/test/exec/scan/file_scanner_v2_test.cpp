@@ -208,16 +208,19 @@ class CloudFileCacheConfigGuard {
 public:
     CloudFileCacheConfigGuard()
             : _cloud_unique_id(config::cloud_unique_id),
-              _enable_file_cache(config::enable_file_cache) {}
+              _enable_file_cache(config::enable_file_cache),
+              _enable_file_cache_query_limit(config::enable_file_cache_query_limit) {}
 
     ~CloudFileCacheConfigGuard() {
         config::cloud_unique_id = _cloud_unique_id;
         config::enable_file_cache = _enable_file_cache;
+        config::enable_file_cache_query_limit = _enable_file_cache_query_limit;
     }
 
 private:
     std::string _cloud_unique_id;
     bool _enable_file_cache;
+    bool _enable_file_cache_query_limit;
 };
 
 TUniqueId make_query_id() {
@@ -654,6 +657,47 @@ TEST(FileScannerV2Test, FileScanIoContextDoesNotMarkLoadAsQueryReader) {
     EXPECT_EQ(io_ctx->query_id, &state.query_id());
     EXPECT_EQ(io_ctx->reader_type, ReaderType::UNKNOWN);
     EXPECT_EQ(io_ctx->remote_scan_cache_write_limiter, nullptr);
+}
+
+TEST(FileScannerV2Test, FileCachePolicyUsesExternalTableOption) {
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state._query_ctx = nullptr;
+    RuntimeProfile profile("file_cache_policy");
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::SELECT);
+    query_options.__set_enable_file_cache(true);
+    query_options.__set_disable_file_cache(false);
+    query_options.__set_enable_file_cache_for_external_table(false);
+    state.set_query_options(query_options);
+
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    EXPECT_FALSE(scanner._is_file_cache_enabled());
+    ASSERT_TRUE(scanner._init_io_ctx().ok());
+    EXPECT_TRUE(scanner._io_ctx->is_disposable);
+
+    query_options.__set_enable_file_cache(false);
+    query_options.__set_disable_file_cache(true);
+    query_options.__set_enable_file_cache_for_external_table(true);
+    state.set_query_options(query_options);
+
+    EXPECT_TRUE(scanner._is_file_cache_enabled());
+    ASSERT_TRUE(scanner._init_io_ctx().ok());
+    EXPECT_FALSE(scanner._io_ctx->is_disposable);
+}
+
+TEST(QueryContextTest, FileCacheQueryLimitHolderDoesNotInferTableTypeFromQueryType) {
+    CloudFileCacheConfigGuard config_guard;
+    config::enable_file_cache = true;
+    config::enable_file_cache_query_limit = true;
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::EXTERNAL);
+    query_options.__set_enable_file_cache_for_external_table(false);
+    query_options.__set_file_cache_query_limit_percent(50);
+
+    EXPECT_TRUE(QueryContext::_should_initialize_file_cache_query_context(query_options));
 }
 
 // Scenario: FileScannerV2 converts only the file formats implemented by format_v2 readers and

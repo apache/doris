@@ -342,6 +342,7 @@ private:
 
     void _init_resource_context();
     void _init_query_mem_tracker();
+    static bool _should_initialize_file_cache_query_context(const TQueryOptions& query_options);
 
     std::unordered_map<int, RuntimePredicate> _runtime_predicates;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;

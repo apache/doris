@@ -379,8 +379,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         List<String> pathPartitionKeys = getPathPartitionKeys();
 
         boolean admissionResult = true;
-        if (ConnectContext.get().getSessionVariable().isEnableFileCache()
-                && Config.enable_file_cache_admission_control) {
+        if (isFileCacheAdmissionControlEnabled()) {
             admissionResult = fileCacheAdmissionCheck();
         }
 
@@ -742,6 +741,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
      */
     protected boolean isFileCacheAdmissionApplicable() {
         return false;
+    }
+
+    protected boolean isFileCacheAdmissionControlEnabled() {
+        return sessionVariable.isEnableFileCacheForExternalTable()
+                && Config.enable_file_cache_admission_control;
     }
 
     protected boolean fileCacheAdmissionCheck() throws UserException {

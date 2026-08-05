@@ -70,6 +70,7 @@ suite("test_file_cache_statistics", "p0,external,nonConcurrent") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
+    sql """set global enable_file_cache_for_external_table=true"""
     def cacheMetric = { String metricName, String aggregateFunc ->
         def r = sql """select ${aggregateFunc}(cast(METRIC_VALUE as double)) from information_schema.file_cache_statistics
                 where METRIC_NAME = '${metricName}';"""
@@ -167,5 +168,6 @@ suite("test_file_cache_statistics", "p0,external,nonConcurrent") {
 
     assertTrue(updatedHitCounts > initialHitCounts, TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG)
     assertTrue(updatedReadCounts > initialReadCounts, TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG)
+    sql """set global enable_file_cache_for_external_table=false"""
     return true
 }

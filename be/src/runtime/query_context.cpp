@@ -115,14 +115,9 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
     _timeout_second = query_options.execution_timeout;
 
-    bool initialize_context_holder =
-            config::enable_file_cache && config::enable_file_cache_query_limit &&
-            query_options.__isset.enable_file_cache && query_options.enable_file_cache &&
-            query_options.__isset.file_cache_query_limit_percent &&
-            query_options.file_cache_query_limit_percent < 100;
-
-    // Initialize file cache context holders
-    if (initialize_context_holder) {
+    // Query type does not identify which table types a query scans. Always create holders when
+    // query-level limiting is enabled; cache-bypassed reads simply leave them unused.
+    if (_should_initialize_file_cache_query_context(query_options)) {
         _query_context_holders = io::FileCacheFactory::instance()->get_query_context_holders(
                 _query_id, query_options.file_cache_query_limit_percent);
     }
@@ -156,6 +151,12 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _mem_arb = MemShareArbitrator::create_shared(
             query_id, query_options.mem_limit,
             query_options.__isset.max_scan_mem_ratio ? query_options.max_scan_mem_ratio : 1.0);
+}
+
+bool QueryContext::_should_initialize_file_cache_query_context(const TQueryOptions& query_options) {
+    return config::enable_file_cache && config::enable_file_cache_query_limit &&
+           query_options.__isset.file_cache_query_limit_percent &&
+           query_options.file_cache_query_limit_percent < 100;
 }
 
 void QueryContext::_init_query_mem_tracker() {

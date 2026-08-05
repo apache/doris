@@ -52,6 +52,7 @@ suite("test_file_cache_features", "p0,external,nonConcurrent") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
+    sql """set global enable_file_cache_for_external_table=true"""
     def cacheMetricMax = { String metricName ->
         def r = sql """select max(cast(METRIC_VALUE as double)) from information_schema.file_cache_statistics
                 where METRIC_NAME = '${metricName}';"""
@@ -148,5 +149,6 @@ suite("test_file_cache_features", "p0,external,nonConcurrent") {
                 cacheMetricMax('need_evict_cache_in_advance') == 0.0
     }
 
+    sql """set global enable_file_cache_for_external_table=false"""
     return true
 }

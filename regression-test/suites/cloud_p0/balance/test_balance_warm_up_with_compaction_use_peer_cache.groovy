@@ -80,7 +80,7 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
         def cacheDirsForBackend = { dirs, be ->
             dirs[cacheKeyForBackend(be)] ?: dirs[be.Host]
         }
-        sql """set enable_file_cache=true"""
+        sql """set enable_file_cache_for_olap_table=true"""
         sql """CREATE TABLE $table (
                 `id` BIGINT,
                 `deleted` TINYINT,

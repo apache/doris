@@ -66,8 +66,7 @@ io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& optio
             .mtime = fd.mtime,
             .storage_resource_id {},
     };
-    if (config::enable_file_cache && option.__isset.enable_file_cache && option.enable_file_cache &&
-        fd.file_cache_admission) {
+    if (config::enable_file_cache && fd.file_cache_admission) {
         opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
     if (option.__isset.file_cache_base_path &&

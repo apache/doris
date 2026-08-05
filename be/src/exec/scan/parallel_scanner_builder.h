@@ -67,6 +67,9 @@ public:
     const OlapReaderStatistics* builder_stats() const { return &_builder_stats; }
 
 private:
+    static io::IOContext _create_preload_io_context(RuntimeState* state,
+                                                    OlapReaderStatistics* preload_stats);
+
     Status _load();
 
     Status _build_scanners_by_rowid(std::list<ScannerSPtr>& scanners);

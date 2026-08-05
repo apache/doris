@@ -401,4 +401,17 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
         Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
+
+    @Test
+    public void testTableFileCacheOptionsToThrift() {
+        SessionVariable variable = new SessionVariable();
+        variable.setEnableFileCacheForOlapTable(false);
+        variable.setEnableFileCacheForExternalTable(true);
+
+        TQueryOptions queryOptions = variable.toThrift();
+        Assertions.assertTrue(queryOptions.isSetEnableFileCacheForOlapTable());
+        Assertions.assertFalse(queryOptions.isEnableFileCacheForOlapTable());
+        Assertions.assertTrue(queryOptions.isSetEnableFileCacheForExternalTable());
+        Assertions.assertTrue(queryOptions.isEnableFileCacheForExternalTable());
+    }
 }
