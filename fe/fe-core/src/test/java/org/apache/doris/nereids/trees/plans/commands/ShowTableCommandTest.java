@@ -112,6 +112,8 @@ public class ShowTableCommandTest extends TestWithFeService {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
                 MockedStatic<ConnectContext> mockedConnectContext = Mockito.mockStatic(ConnectContext.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(mocks.env);
+            // Lower-case-table-names off, so LIKE patterns are matched case-sensitively.
+            mockedEnv.when(() -> Env.getLowerCaseTableNames(Mockito.anyString())).thenReturn(0);
             mockedConnectContext.when(ConnectContext::get).thenReturn(mocks.ctx);
             return command.doRun(mocks.ctx, mocks.executor);
         }
@@ -142,6 +144,45 @@ public class ShowTableCommandTest extends TestWithFeService {
         // It uses getTableNamesWithLock() (not the exception-swallowing ...OrEmpty... variant)
         // so a name-conflict exception raised while listing is still propagated.
         Mockito.verify(mocks.dbIf, Mockito.times(1)).getTableNamesWithLock();
+        Mockito.verify(mocks.dbIf, Mockito.times(0)).getTables();
+    }
+
+    @Test
+    public void testExternalCatalogShowTablesLikePatternUsesFastPath() throws Exception {
+        CatalogIf<?> catalogIf = Mockito.mock(CatalogIf.class);
+        ShowTableCommandMocks mocks = new ShowTableCommandMocks(catalogIf);
+        Mockito.when(mocks.dbIf.getTableNamesWithLock())
+                .thenReturn(ImmutableSet.of("tbl1", "tbl2", "other_tbl"));
+        Mockito.when(mocks.accessControllerManager.checkTblPriv(
+                Mockito.eq(mocks.ctx), Mockito.eq(CATALOG_NAME), Mockito.eq(DB_NAME),
+                Mockito.anyString(), Mockito.eq(PrivPredicate.SHOW)))
+                .thenReturn(true);
+
+        // The mysql LIKE pattern is applied on the names-only fast path: "tbl_"
+        // matches tbl1/tbl2, but not other_tbl.
+        ShowTableCommand command = new ShowTableCommand(DB_NAME, CATALOG_NAME, false, "tbl_", null,
+                PlanType.SHOW_TABLES);
+        ShowResultSet result = runDoRun(mocks, command);
+
+        List<List<String>> rows = result.getResultRows();
+        Assertions.assertEquals(2, rows.size());
+        Assertions.assertEquals(Lists.newArrayList("tbl1"), rows.get(0));
+        Assertions.assertEquals(Lists.newArrayList("tbl2"), rows.get(1));
+        Mockito.verify(mocks.dbIf, Mockito.times(1)).getTableNamesWithLock();
+        Mockito.verify(mocks.dbIf, Mockito.times(0)).getTables();
+    }
+
+    @Test
+    public void testExternalCatalogShowTablesPropagatesNameListingFailure() throws Exception {
+        CatalogIf<?> catalogIf = Mockito.mock(CatalogIf.class);
+        ShowTableCommandMocks mocks = new ShowTableCommandMocks(catalogIf);
+        // Guards the getTableNamesWithLock() contract: a case-insensitive name-conflict
+        // failure must surface as an error, not be swallowed into an empty result.
+        Mockito.when(mocks.dbIf.getTableNamesWithLock()).thenThrow(
+                new RuntimeException("Found conflicting table names under case-insensitive conditions"));
+
+        ShowTableCommand command = new ShowTableCommand(DB_NAME, CATALOG_NAME, false, PlanType.SHOW_TABLES);
+        Assertions.assertThrows(RuntimeException.class, () -> runDoRun(mocks, command));
         Mockito.verify(mocks.dbIf, Mockito.times(0)).getTables();
     }
 
