@@ -24,6 +24,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "core/value/timestamptz_value.h"
@@ -34,6 +35,32 @@
 namespace doris {
 
 namespace {
+
+Status decode_timestamp_tz_orc_values(IColumn& nested_column,
+                                      const OrcDecodedColumnView& orc_view) {
+    const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC timestamp batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto& data = assert_cast<ColumnTimeStampTz&>(nested_column).get_data();
+    const size_t old_data_size = data.size();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    data.resize(old_data_size + output_rows);
+    static const auto utc_time_zone = cctz::utc_time_zone();
+    for (size_t row = 0; row < output_rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+            data[old_data_size + row] = TimestampTzValue {};
+            continue;
+        }
+        auto& value = data[old_data_size + row];
+        value.from_unixtime(orc_batch->data[source_row], utc_time_zone);
+        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+    }
+    return Status::OK();
+}
 
 Status append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& data,
                                                 int64_t timestamp_micros) {
@@ -602,6 +629,18 @@ void DataTypeTimeStampTzSerDe::write_one_cell_to_binary(const IColumn& src_colum
            sizeof(uint8_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t), data_ref.data,
            data_ref.size);
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_orc(IColumn& column,
+                                                      const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT);
+    DORIS_CHECK(view.enable_mapping_timestamp_tz);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_timestamp_tz_orc_values(column, view);
 }
 
 } // namespace doris

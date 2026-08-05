@@ -36,6 +36,59 @@
 
 namespace doris {
 class Arena;
+
+namespace {
+
+Status decode_map_orc_values(const DataTypeSerDeSPtr& key_serde,
+                             const DataTypeSerDeSPtr& value_serde, IColumn& nested_column,
+                             const OrcDecodedColumnView& orc_view) {
+    const auto* orc_map = dynamic_cast<const ::orc::MapVectorBatch*>(orc_view.batch);
+    if (orc_map == nullptr) {
+        return Status::InternalError("Unexpected ORC map batch type {}",
+                                     orc_view.batch->toString());
+    }
+    DORIS_CHECK(orc_view.file_type != nullptr);
+    DORIS_CHECK(orc_view.selected_type != nullptr);
+    DORIS_CHECK(orc_view.file_type->getSubtypeCount() == 2);
+    DORIS_CHECK(orc_view.selected_type->getSubtypeCount() == 2);
+    DORIS_CHECK(orc_map->keys != nullptr);
+    DORIS_CHECK(orc_map->elements != nullptr);
+    auto& map_column = assert_cast<ColumnMap&>(nested_column);
+    size_t element_size = 0;
+    std::vector<size_t> element_selection;
+    RETURN_IF_ERROR(orc_serde_utils::append_orc_offsets(
+            map_column.get_offsets(), orc_map->offsets, orc_view.rows, &element_size,
+            orc_view.selected_rows, &element_selection));
+    const auto* file_key_type = orc_view.file_type->getSubtype(0);
+    const auto* selected_key_type = orc_view.selected_type->getSubtype(0);
+    DORIS_CHECK(file_key_type != nullptr);
+    DORIS_CHECK(selected_key_type != nullptr);
+    const auto child_rows = orc_view.selected_rows == nullptr
+                                    ? element_size
+                                    : static_cast<size_t>(orc_map->keys->numElements);
+    const auto* child_selection = orc_view.selected_rows == nullptr ? nullptr : &element_selection;
+    auto key_column = map_column.get_keys_ptr()->assert_mutable();
+    auto key_view =
+            orc_serde_utils::make_child_orc_view(orc_view, file_key_type, selected_key_type,
+                                                 orc_map->keys.get(), child_rows, child_selection);
+    RETURN_IF_ERROR(orc_serde_utils::read_orc_child_column(key_serde, key_column, key_view));
+    map_column.get_keys_ptr() = std::move(key_column);
+    const auto* file_value_type = orc_view.file_type->getSubtype(1);
+    const auto* selected_value_type = orc_view.selected_type->getSubtype(1);
+    DORIS_CHECK(file_value_type != nullptr);
+    DORIS_CHECK(selected_value_type != nullptr);
+    auto value_column = map_column.get_values_ptr()->assert_mutable();
+    auto value_view = orc_serde_utils::make_child_orc_view(
+            orc_view, file_value_type, selected_value_type, orc_map->elements.get(),
+            orc_view.selected_rows == nullptr ? element_size
+                                              : static_cast<size_t>(orc_map->elements->numElements),
+            child_selection);
+    RETURN_IF_ERROR(orc_serde_utils::read_orc_child_column(value_serde, value_column, value_view));
+    map_column.get_values_ptr() = std::move(value_column);
+    return Status::OK();
+}
+
+} // namespace
 Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                   int64_t end_idx, BufferWritable& bw,
                                                   FormatOptions& options) const {
@@ -484,8 +537,8 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
                                                      packed_nested_size, arena, options));
     // String batches borrow their source bytes, but the packed columns are local to this call;
     // keep only those borrowed leaves in the write Arena until Writer::add() consumes them.
-    copy_orc_string_data_to_arena(cur_batch->keys.get(), arena);
-    copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
+    orc_serde_utils::copy_orc_string_data_to_arena(cur_batch->keys.get(), arena);
+    orc_serde_utils::copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
     cur_batch->keys->numElements = packed_nested_size;
     cur_batch->elements->numElements = packed_nested_size;
 
@@ -720,6 +773,17 @@ bool DataTypeMapSerDe::write_column_to_hive_text(const IColumn& column, BufferWr
     bw.write("}", 1);
 
     return true;
+}
+
+Status DataTypeMapSerDe::read_column_from_orc(IColumn& column,
+                                              const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::MAP);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_map_orc_values(key_serde, value_serde, column, view);
 }
 
 } // namespace doris
