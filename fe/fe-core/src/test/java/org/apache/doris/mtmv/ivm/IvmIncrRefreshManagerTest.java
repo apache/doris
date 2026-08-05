@@ -30,6 +30,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class IvmIncrRefreshManagerTest {
 
@@ -40,6 +41,19 @@ public class IvmIncrRefreshManagerTest {
                 () -> new IvmIncrRefreshContext(null, new ConnectContext(), null, false));
         Assertions.assertThrows(NullPointerException.class,
                 () -> new IvmIncrRefreshContext(mtmv, null, null, false));
+    }
+
+    @Test
+    public void testRefreshContextCarriesExecutorConsumer() {
+        MTMV mtmv = mockMtmv();
+        org.apache.doris.qe.StmtExecutor executor = Mockito.mock(org.apache.doris.qe.StmtExecutor.class);
+        AtomicBoolean consumed = new AtomicBoolean(false);
+        IvmIncrRefreshContext context = new IvmIncrRefreshContext(mtmv, new ConnectContext(), "audit",
+                queryId -> { }, e -> consumed.set(true));
+
+        Assertions.assertNotNull(context.getExecutorConsumer());
+        context.getExecutorConsumer().accept(executor);
+        Assertions.assertTrue(consumed.get());
     }
 
     @Test
@@ -151,7 +165,7 @@ public class IvmIncrRefreshManagerTest {
     }
 
     private static IvmIncrRefreshContext newContext(MTMV mtmv) {
-        return new IvmIncrRefreshContext(mtmv, new ConnectContext(), "audit", queryId -> { });
+        return new IvmIncrRefreshContext(mtmv, new ConnectContext(), "audit", queryId -> { }, null);
     }
 
     private static MTMV mockMtmv() {

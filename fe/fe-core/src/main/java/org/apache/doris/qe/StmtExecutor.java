@@ -107,6 +107,7 @@ import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.CancelableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
@@ -1294,10 +1295,10 @@ public class StmtExecutor {
             }
             return;
         }
-        Optional<InsertOverwriteTableCommand> insertOverwriteTableCommand = getInsertOverwriteTableCommand();
-        if (insertOverwriteTableCommand.isPresent()) {
+        Optional<CancelableCommand> cancelableCommand = getCancelableCommand();
+        if (cancelableCommand.isPresent()) {
             // If the be scheduling has not been triggered yet, cancel the scheduling first
-            insertOverwriteTableCommand.get().cancel();
+            cancelableCommand.get().cancel();
         }
         Coordinator coordRef = coord;
         if (coordRef != null) {
@@ -1306,9 +1307,9 @@ public class StmtExecutor {
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
-        if (insertOverwriteTableCommand.isPresent() && needWaitCancelComplete) {
+        if (cancelableCommand.isPresent() && needWaitCancelComplete) {
             // Wait for the command to run or cancel completion
-            insertOverwriteTableCommand.get().waitNotRunning();
+            cancelableCommand.get().waitNotRunning();
         }
     }
 
@@ -1316,13 +1317,12 @@ public class StmtExecutor {
         cancel(cancelReason, true);
     }
 
-    private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {
+    private Optional<CancelableCommand> getCancelableCommand() {
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
             LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
-            if (logicalPlan instanceof InsertOverwriteTableCommand) {
-                InsertOverwriteTableCommand insertOverwriteTableCommand = (InsertOverwriteTableCommand) logicalPlan;
-                return Optional.of(insertOverwriteTableCommand);
+            if (logicalPlan instanceof CancelableCommand) {
+                return Optional.of((CancelableCommand) logicalPlan);
             }
         }
         return Optional.empty();

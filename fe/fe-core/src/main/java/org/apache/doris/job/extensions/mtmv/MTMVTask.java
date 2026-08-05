@@ -248,7 +248,9 @@ public class MTMVTask extends AbstractTask {
     private String computeGroup;
     private MTMV mtmv;
     private MTMVRelation relation;
-    private StmtExecutor executor;
+    // Written by the executing (Disruptor worker) thread via the executeCommand consumer
+    // callback and read by the cancel (command) thread, so it must be volatile.
+    private volatile StmtExecutor executor;
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
     private long mtmvSchemaChangeVersion;
 
@@ -600,7 +602,8 @@ public class MTMVTask extends AbstractTask {
                 IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
                         ivmConnectContext,
                         getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
-                        this::recordQueryId);
+                        this::recordQueryId,
+                        this::registerExecutor);
                 return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
             }, "IVM refresh");
         } catch (Exception e) {
@@ -833,8 +836,8 @@ public class MTMVTask extends AbstractTask {
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
         setupComputeGroup(mtmvCtx);
         try {
-            executor = MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
-                    getRefreshAuditStmt(refreshMode, refreshPartitionNames));
+            MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
+                    getRefreshAuditStmt(refreshMode, refreshPartitionNames), this::registerExecutor);
         } finally {
             recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
         }
@@ -872,6 +875,22 @@ public class MTMVTask extends AbstractTask {
         if (!Strings.isNullOrEmpty(queryId)) {
             lastQueryId = queryId;
         }
+    }
+
+    /**
+     * Registers the currently executing statement (or clears it with {@code null}).
+     * Called by the executeCommand executor consumer: non-null right before the command
+     * runs, null after it finishes. The cancel path reads this to interrupt execution.
+     * Rejects registration with an exception when the task has already been cancelled,
+     * so the command is not started at all. Uses an unchecked exception so the method
+     * reference can be used as a {@code Consumer<StmtExecutor>}.
+     */
+    public void registerExecutor(StmtExecutor executor) {
+        if (executor != null && getStatus() == TaskStatus.CANCELED) {
+            this.executor = null;
+            throw new IllegalStateException("task is CANCELED");
+        }
+        this.executor = executor;
     }
 
     private String getRefreshAuditStmt(RefreshMode refreshMode, Set<String> refreshPartitionNames) {
