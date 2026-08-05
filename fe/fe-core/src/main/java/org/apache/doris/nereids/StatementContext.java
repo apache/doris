@@ -46,6 +46,7 @@ import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -1473,6 +1474,10 @@ public class StatementContext implements Closeable {
         tableUsedPartitionNameMap.clear();
         commonTableIdToRelationIdToMap.clear();
         mvCanRewritePartitionsMap.clear();
+        candidateMTMVs.clear();
+        candidateMVs.clear();
+        mtmvRelatedTables.clear();
+        plannerHooks.removeIf(InitMaterializationContextHook.class::isInstance);
         materializedViewRewriteDuration = 0;
         hints.removeIf(UseMvHint.class::isInstance);
         tmpPlanForMvRewrite.clear();
