@@ -341,7 +341,8 @@ public:
             bytes += segment->byte_size();
         }
         std::lock_guard lock(_materialization_lock);
-        return bytes + (_materialized ? _materialized->byte_size() : 0);
+        return bytes + (_materialized ? _materialized->byte_size() : 0) +
+               (_serialized ? _serialized->byte_size() : 0);
     }
 
     size_t allocated_bytes() const override {
@@ -350,7 +351,8 @@ public:
             bytes += segment->allocated_bytes();
         }
         std::lock_guard lock(_materialization_lock);
-        return bytes + (_materialized ? _materialized->allocated_bytes() : 0);
+        return bytes + (_materialized ? _materialized->allocated_bytes() : 0) +
+               (_serialized ? _serialized->allocated_bytes() : 0);
     }
 
     void sanity_check() const override {
@@ -462,6 +464,7 @@ public:
         }
         std::lock_guard lock(_materialization_lock);
         _materialized.reset();
+        _serialized.reset();
         return true;
     }
 
@@ -472,15 +475,17 @@ public:
         }
         std::vector<VariantShreddedTypedValue> matches;
         matches.reserve(_segments.size());
+        bool all_direct = true;
         for (const auto& segment : _segments) {
             auto match = segment->find_typed_value(path);
             if (!match.has_value()) {
-                return std::nullopt;
+                all_direct = false;
+                break;
             }
             matches.push_back(std::move(*match));
         }
 
-        const bool homogeneous = matches.front().column && matches.front().type &&
+        const bool homogeneous = all_direct && matches.front().column && matches.front().type &&
                                  std::ranges::all_of(matches, [&](const auto& match) {
                                      return match.column && match.type && !match.normalized &&
                                             exact_typed_identity(matches.front().type, match.type);
@@ -495,27 +500,31 @@ public:
                                               .normalized = nullptr};
         }
 
+        auto normalized = find_normalized_value(path);
+        if (!normalized.has_value()) {
+            return std::nullopt;
+        }
+        return VariantShreddedTypedValue {
+                .column = nullptr, .type = nullptr, .normalized = std::move(*normalized)};
+    }
+
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment> path) const override {
         auto values = ColumnVariantV2::create();
         auto nulls = ColumnUInt8::create();
         nulls->reserve(size());
-        for (const auto& match : matches) {
-            if (match.normalized) {
-                const auto& nullable = assert_cast<const ColumnNullable&>(*match.normalized);
-                const auto& variants =
-                        assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
-                values->insert_range_from(variants, 0, variants.size());
-                nulls->insert_range_from(nullable.get_null_map_column(), 0, nullable.size());
-                continue;
+        for (const auto& segment : _segments) {
+            auto normalized = segment->find_normalized_value(path);
+            if (!normalized.has_value()) {
+                return std::nullopt;
             }
-            auto typed = ColumnVariantV2::create_typed(match.column, match.type);
-            values->insert_range_from(*typed, 0, typed->size());
-            const auto& nullable = assert_cast<const ColumnNullable&>(*match.column);
+            const auto& nullable = assert_cast<const ColumnNullable&>(**normalized);
+            const auto& variants =
+                    assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+            values->insert_range_from(variants, 0, variants.size());
             nulls->insert_range_from(nullable.get_null_map_column(), 0, nullable.size());
         }
-        return VariantShreddedTypedValue {
-                .column = nullptr,
-                .type = nullptr,
-                .normalized = ColumnNullable::create(std::move(values), std::move(nulls))};
+        return ColumnNullable::create(std::move(values), std::move(nulls));
     }
 
     const ColumnVariantV2& materialized_column() const override {
@@ -529,6 +538,19 @@ public:
             _materialized = std::move(materialized);
         }
         return *_materialized;
+    }
+
+    const ColumnVariantV2& serialized_column() const override {
+        std::lock_guard lock(_materialization_lock);
+        if (!_serialized) {
+            auto serialized = ColumnVariantV2::create();
+            for (const auto& segment : _segments) {
+                const ColumnVariantV2& source = segment->serialized_column();
+                serialized->insert_range_from(source, 0, source.size());
+            }
+            _serialized = std::move(serialized);
+        }
+        return *_serialized;
     }
 
 private:
@@ -565,6 +587,7 @@ private:
     std::vector<std::shared_ptr<VariantShreddedState>> _segments;
     mutable std::mutex _materialization_lock;
     mutable ColumnVariantV2::MutablePtr _materialized;
+    mutable ColumnVariantV2::MutablePtr _serialized;
 };
 
 std::shared_ptr<VariantShreddedState> combine_shredded_states(
@@ -647,6 +670,18 @@ std::optional<VariantShreddedTypedValue> ColumnVariantV2::find_shredded_typed_va
         return std::nullopt;
     }
     return _shredded->find_typed_value(path);
+}
+
+const ColumnVariantV2& ColumnVariantV2::serialization_column() const {
+    if (!_shredded) {
+        return *this;
+    }
+    const ColumnVariantV2& serialized = _shredded->serialized_column();
+    DORIS_CHECK(!serialized.is_shredded())
+            << "shredded Variant wire materializer returned another shredded column";
+    DORIS_CHECK_EQ(serialized.size(), size())
+            << "shredded Variant wire materializer changed the row count";
+    return serialized;
 }
 
 void ColumnVariantV2::ensure_encoded() {
@@ -1066,10 +1101,10 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
             _check_invariants();
             return;
         }
-        if (!_shredded->can_materialize() && !selected_source->can_materialize()) {
-            // Different files may shred the same projected path with different physical
-            // identities. Keep both incomplete states ordered because neither can reconstruct the
-            // root value.
+        if (!_shredded->can_materialize() || !selected_source->can_materialize()) {
+            // A projected segment cannot reconstruct omitted root fields. Preserve it beside any
+            // complete or projected neighbor so later path extraction can choose per-segment
+            // direct or canonical evaluation without forcing the incomplete state to materialize.
             _shredded = combine_shredded_states(std::move(_shredded), std::move(selected_source));
             _check_invariants();
             return;
@@ -1183,9 +1218,9 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
             _check_invariants();
             return;
         }
-        if (!_shredded->can_materialize() && !selected_source->can_materialize()) {
-            // Exchange channels can gather projected rows from files whose shredded leaf types
-            // differ. Preserve the segments instead of encoding an incomplete logical Variant.
+        if (!_shredded->can_materialize() || !selected_source->can_materialize()) {
+            // Exchange gathers may mix complete files with projected files. Keep their boundaries
+            // because only complete segments are allowed to reconstruct the full logical root.
             _shredded = combine_shredded_states(std::move(_shredded), std::move(selected_source));
             _check_invariants();
             return;

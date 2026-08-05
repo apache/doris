@@ -86,10 +86,19 @@ public:
     virtual bool try_append(const VariantShreddedState& source) = 0;
     virtual std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const = 0;
+    // Produces an exact Variant representation of one requested path. Complete states may fall
+    // back to their canonical roots; projected states must preserve the format's physical scalar
+    // identity rather than inferring it from the decoded value.
+    virtual std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment> path) const = 0;
 
     // The returned column is cached and owned by this state, so borrowed VariantRef values remain
     // valid for the state lifetime. Implementations must not materialize before this is called.
     virtual const ColumnVariantV2& materialized_column() const = 0;
+    // Whole-column transport may encode only the retained projection because access-path planning
+    // guarantees that omitted fields have no downstream consumer. The returned column must be a
+    // self-contained, non-shredded wire representation with the same row count.
+    virtual const ColumnVariantV2& serialized_column() const = 0;
 };
 
 // ColumnVariantV2 stores a whole column in exactly one state: encoded Variant bytes, one nullable
@@ -151,6 +160,7 @@ public:
     const DataTypePtr& typed_type() const;
     std::optional<VariantShreddedTypedValue> find_shredded_typed_value(
             std::span<const VariantShreddedPathSegment> path) const;
+    const ColumnVariantV2& serialization_column() const;
     void ensure_encoded();
     ReadView read_view() const;
 

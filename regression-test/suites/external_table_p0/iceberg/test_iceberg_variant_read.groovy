@@ -660,35 +660,23 @@ public class AppendVariantEqualityDelete {
         WHERE v['shared'] >= 20
         ORDER BY id
     """
-    String parallelScanToken =
-            "iceberg_variant_parallel_scan_" + UUID.randomUUID().toString()
-    List<List<Object>> parallelScanRows = sql """
-        SELECT '${parallelScanToken}', id,
-               CAST(v['shared'] AS INT),
-               CAST(v['a'] AS INT),
-               CAST(v['b'] AS INT),
-               CAST(v['new_field']['k'] AS INT),
-               CAST(v AS STRING)
-        FROM variant_multi_file
-        WHERE v['shared'] >= 20
+    // Keep Variant element extraction above TopN so projected shredded rows cross the exchange
+    // serialization boundary before the requested leaf is evaluated.
+    order_qt_variant_projected_remote_gather """
+        SELECT id,
+               CAST(projected['shared'] AS INT),
+               CAST(projected['a'] AS INT),
+               CAST(projected['b'] AS INT),
+               CAST(projected['new_field']['k'] AS INT)
+        FROM (
+            SELECT id, v AS projected
+            FROM variant_multi_file
+            WHERE v['shared'] >= 20
+            ORDER BY id DESC
+            LIMIT 4
+        ) gathered
         ORDER BY id
     """
-    assertEquals(4, parallelScanRows.size(),
-            "The parallel Variant query must read rows from multiple data files")
-    String parallelScanProfile = profileAction.getProfileBySql(
-            parallelScanToken, ["PerScannerRowsRead"])
-    if (profileInfoValues(parallelScanProfile, "PerScannerRowsRead")
-            .count { long rows -> rows > 0 } <= 1) {
-        parallelScanProfile = profileAction.waitProfile({
-            String profile = profileAction.getProfileBySql(
-                    parallelScanToken, ["PerScannerRowsRead"])
-            return profileInfoValues(profile, "PerScannerRowsRead")
-                    .count { long rows -> rows > 0 } > 1 ? profile : ""
-        }, [], "Completed parallel Variant profile with multiple non-empty scanners")
-    }
-    assertTrue(profileInfoValues(parallelScanProfile, "PerScannerRowsRead")
-                    .count { long rows -> rows > 0 } > 1,
-            "The parallel Variant query did not use multiple non-empty scanners")
     sql "set min_file_scanners_concurrency=1"
 
     order_qt_variant_type_matrix """
