@@ -2880,6 +2880,38 @@ TEST(ColumnMapperScanRequestTest, ArrayStructPathBuildsNestedPredicateFilter) {
     EXPECT_TRUE(projection.children.empty());
 }
 
+// Production ARRAY and STRUCT accessors make their result nullable for missing indices and NULL
+// parents. That execution nullability must not hide a required table child when deciding whether
+// the file predicate may run before TableReader's schema validation.
+TEST(ColumnMapperScanRequestTest, ArrayStructPathKeepsNullableFileLeafAboveRequiredTableLeaf) {
+    const auto required_int_type = i32();
+    const auto nullable_int_type = make_nullable(required_int_type);
+
+    auto table_a = name_col("a", required_int_type);
+    auto table_element = struct_name_col("element", {table_a}, 0);
+    auto table_array = array_col("items", -1, table_element, 0);
+    set_name_identifiers(&table_array, 0);
+
+    auto file_a = name_col("a", nullable_int_type, 0);
+    auto file_element = struct_name_col("element", {file_a}, 0);
+    auto file_array = array_col("items", -1, file_element, 0);
+    set_name_identifiers(&file_array, 0);
+
+    auto item_expr = array_element_at(table_slot(0, 0, table_array.type, "items"),
+                                      make_nullable(table_element.type), 1);
+    auto leaf_expr = struct_element(item_expr, nullable_int_type, "a");
+    auto filter_expr = int_gt(leaf_expr, 10);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_array}, {}, {file_array}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_array}, &request).ok());
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
 // Scenario: a map value struct projects child `b`, while a row filter reads value child `a`.
 // The filter is too complex to become a file-local nested predicate. Lazy demotion must move the
 // merged projection to the non-predicate set without dropping either physical value child.

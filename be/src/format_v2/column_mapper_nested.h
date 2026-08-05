@@ -42,6 +42,7 @@ struct StructChildSelector {
 
 struct NestedStructPath {
     GlobalIndex root_global_index;
+    DataTypePtr root_table_type;
     std::vector<StructChildSelector> selectors;
 };
 
@@ -49,6 +50,7 @@ struct ResolvedNestedStructPath {
     LocalColumnIndex file_projection;
     std::vector<std::string> file_child_names;
     std::vector<DataTypePtr> file_child_types;
+    std::vector<DataTypePtr> table_child_types;
     std::vector<bool> file_array_elements;
 };
 

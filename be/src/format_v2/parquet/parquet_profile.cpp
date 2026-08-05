@@ -223,6 +223,14 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                              TUnit::UNIT, parquet_profile, 1);
     rows_filtered_by_dict_filter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowsFilteredByDictFilter",
                                                                 TUnit::UNIT, parquet_profile, 1);
+    bloom_filter_probe_attempts = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BloomFilterProbeAttempts",
+                                                               TUnit::UNIT, parquet_profile, 1);
+    bloom_filter_probe_successes = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "BloomFilterProbeSuccesses", TUnit::UNIT, parquet_profile, 1);
+    bloom_filter_conservative_fallbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "BloomFilterConservativeFallbacks", TUnit::UNIT, parquet_profile, 1);
+    bloom_filter_corrupt_rejections = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "BloomFilterCorruptRejections", TUnit::UNIT, parquet_profile, 1);
     bloom_filter_read_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "BloomFilterReadTime", parquet_profile, 1);
 }
@@ -244,6 +252,11 @@ void ParquetProfile::update_pruning_stats(const ParquetPruningStats& pruning_sta
     COUNTER_UPDATE(filtered_bytes, pruning_stats.filtered_bytes);
     COUNTER_UPDATE(filtered_page_rows, pruning_stats.filtered_page_rows);
     COUNTER_UPDATE(page_index_read_calls, pruning_stats.page_index_read_calls);
+    COUNTER_UPDATE(bloom_filter_probe_attempts, pruning_stats.bloom_filter_probe_attempts);
+    COUNTER_UPDATE(bloom_filter_probe_successes, pruning_stats.bloom_filter_probe_successes);
+    COUNTER_UPDATE(bloom_filter_conservative_fallbacks,
+                   pruning_stats.bloom_filter_conservative_fallbacks);
+    COUNTER_UPDATE(bloom_filter_corrupt_rejections, pruning_stats.bloom_filter_corrupt_rejections);
     COUNTER_UPDATE(bloom_filter_read_time, pruning_stats.bloom_filter_read_time);
     COUNTER_UPDATE(row_group_filter_time, pruning_stats.row_group_filter_time);
     COUNTER_UPDATE(page_index_filter_time, pruning_stats.page_index_filter_time);
@@ -273,6 +286,11 @@ void ParquetProfile::update_deferred_pruning_stats(const ParquetPruningStats& pr
     COUNTER_UPDATE(filtered_bytes, pruning_stats.filtered_bytes);
     COUNTER_UPDATE(filtered_page_rows, pruning_stats.filtered_page_rows);
     COUNTER_UPDATE(page_index_read_calls, pruning_stats.page_index_read_calls);
+    COUNTER_UPDATE(bloom_filter_probe_attempts, pruning_stats.bloom_filter_probe_attempts);
+    COUNTER_UPDATE(bloom_filter_probe_successes, pruning_stats.bloom_filter_probe_successes);
+    COUNTER_UPDATE(bloom_filter_conservative_fallbacks,
+                   pruning_stats.bloom_filter_conservative_fallbacks);
+    COUNTER_UPDATE(bloom_filter_corrupt_rejections, pruning_stats.bloom_filter_corrupt_rejections);
     COUNTER_UPDATE(bloom_filter_read_time, pruning_stats.bloom_filter_read_time);
     COUNTER_UPDATE(row_group_filter_time, pruning_stats.row_group_filter_time);
     COUNTER_UPDATE(page_index_filter_time, pruning_stats.page_index_filter_time);

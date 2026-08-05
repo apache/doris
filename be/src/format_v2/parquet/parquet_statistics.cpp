@@ -168,7 +168,12 @@ Status read_native_bloom_filter(const tparquet::ColumnMetaData& metadata,
                                   io_ctx));
     tparquet::BloomFilterHeader header;
     uint32_t header_size = cast_set<uint32_t>(bytes_read);
-    RETURN_IF_ERROR(deserialize_thrift_msg(header_buffer.data(), &header_size, true, &header));
+    const auto deserialize_status =
+            deserialize_thrift_msg(header_buffer.data(), &header_size, true, &header);
+    if (!deserialize_status.ok()) {
+        // Keep invalid on-disk metadata distinguishable from transient read failures in profiles.
+        return Status::Corruption("Malformed Parquet Bloom filter header");
+    }
     if (!header.algorithm.__isset.BLOCK || !header.compression.__isset.UNCOMPRESSED ||
         !header.hash.__isset.XXHASH || header.numBytes <= 0) {
         return Status::NotSupported("Unsupported Parquet Bloom filter encoding");
@@ -869,7 +874,14 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
         int slot_index = -1;
         VExprContextSPtrs conjuncts;
     };
-    std::map<int, std::vector<BloomProbeGroup>> probes_by_leaf;
+    struct LeafBloomProbeGroup {
+        int leaf_column_id = -1;
+        std::vector<BloomProbeGroup> probes;
+    };
+    // The vector preserves first-probe order, while the map only deduplicates repeated leaves.
+    // This avoids reading a potentially large later payload before an earlier probe can prune.
+    std::vector<LeafBloomProbeGroup> probes_by_first_use;
+    std::map<int, size_t> group_index_by_leaf;
     const auto add_probe = [&](const ParquetColumnSchema& column_schema, int slot_index,
                                VExprContextSPtrs conjuncts) {
         if (column_schema.type == nullptr ||
@@ -878,11 +890,13 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
             column_schema.leaf_column_id >= static_cast<int>(row_group.columns.size())) {
             return;
         }
-        const auto& chunk = row_group.columns[column_schema.leaf_column_id];
-        if (!chunk.__isset.meta_data) {
-            return;
+        const auto [group_it, inserted] = group_index_by_leaf.try_emplace(
+                column_schema.leaf_column_id, probes_by_first_use.size());
+        if (inserted) {
+            probes_by_first_use.push_back(
+                    {.leaf_column_id = column_schema.leaf_column_id, .probes = {}});
         }
-        probes_by_leaf[column_schema.leaf_column_id].push_back({.column_schema = &column_schema,
+        probes_by_first_use[group_it->second].probes.push_back({.column_schema = &column_schema,
                                                                 .slot_index = slot_index,
                                                                 .conjuncts = std::move(conjuncts)});
     };
@@ -927,24 +941,45 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
         add_probe(*column_schema, probe->slot_index, {conjunct});
     }
 
-    for (const auto& [leaf_column_id, probes] : probes_by_leaf) {
+    for (const auto& leaf_group : probes_by_first_use) {
+        const int leaf_column_id = leaf_group.leaf_column_id;
+        if (pruning_stats != nullptr) {
+            ++pruning_stats->bloom_filter_probe_attempts;
+        }
+        const auto& chunk = row_group.columns[leaf_column_id];
+        if (!chunk.__isset.meta_data) {
+            if (pruning_stats != nullptr) {
+                ++pruning_stats->bloom_filter_conservative_fallbacks;
+            }
+            continue;
+        }
         std::unique_ptr<native::BlockSplitBloomFilter> bloom_filter;
+        Status bloom_status;
         int64_t timer_sink = 0;
         {
             SCOPED_RAW_TIMER(pruning_stats == nullptr ? &timer_sink
                                                       : &pruning_stats->bloom_filter_read_time);
-            const auto status = read_native_bloom_filter(
-                    row_group.columns[leaf_column_id].meta_data, file_context->native_file,
-                    file_context->native_io_ctx, &bloom_filter);
-            if (!status.ok()) {
+            bloom_status = read_native_bloom_filter(row_group.columns[leaf_column_id].meta_data,
+                                                    file_context->native_file,
+                                                    file_context->native_io_ctx, &bloom_filter);
+            if (!bloom_status.ok()) {
                 bloom_filter.reset();
             }
         }
         if (bloom_filter == nullptr) {
+            if (pruning_stats != nullptr) {
+                ++pruning_stats->bloom_filter_conservative_fallbacks;
+                if (bloom_status.is<ErrorCode::CORRUPTION>()) {
+                    ++pruning_stats->bloom_filter_corrupt_rejections;
+                }
+            }
             continue;
         }
+        if (pruning_stats != nullptr) {
+            ++pruning_stats->bloom_filter_probe_successes;
+        }
         // Keep at most one decoded payload live while reusing it for every predicate on this leaf.
-        for (const auto& probe : probes) {
+        for (const auto& probe : leaf_group.probes) {
             if (ParquetStatisticsUtils::NativeBloomFilterExcludes(
                         *probe.column_schema, probe.slot_index, probe.conjuncts, *bloom_filter)) {
                 return ParquetRowGroupPruneReason::BLOOM_FILTER;

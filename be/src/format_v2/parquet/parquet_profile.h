@@ -242,6 +242,10 @@ struct ParquetProfile {
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;
+    RuntimeProfile::Counter* bloom_filter_probe_attempts = nullptr;
+    RuntimeProfile::Counter* bloom_filter_probe_successes = nullptr;
+    RuntimeProfile::Counter* bloom_filter_conservative_fallbacks = nullptr;
+    RuntimeProfile::Counter* bloom_filter_corrupt_rejections = nullptr;
     RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
 };
 

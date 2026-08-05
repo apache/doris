@@ -58,8 +58,10 @@ namespace {
 
 class StatisticsMemoryFileReader final : public io::FileReader {
 public:
-    explicit StatisticsMemoryFileReader(std::vector<uint8_t> bytes)
-            : _bytes(std::move(bytes)), _path("native-bloom-filter.parquet") {}
+    explicit StatisticsMemoryFileReader(std::vector<uint8_t> bytes, bool fail_reads = false)
+            : _bytes(std::move(bytes)),
+              _path("native-bloom-filter.parquet"),
+              _fail_reads(fail_reads) {}
 
     Status close() override {
         _closed = true;
@@ -75,6 +77,9 @@ protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext*) override {
         ++_read_count;
+        if (_fail_reads) {
+            return Status::IOError("injected native Bloom read failure");
+        }
         if (offset > _bytes.size() || result.size > _bytes.size() - offset) {
             return Status::IOError("native Bloom test read exceeds memory file");
         }
@@ -87,6 +92,7 @@ private:
     std::vector<uint8_t> _bytes;
     io::Path _path;
     bool _closed = false;
+    bool _fail_reads = false;
     int _read_count = 0;
 };
 class BloomInExpr final : public VExpr {
@@ -618,6 +624,10 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomResolvesStructAndListLeaves) {
         EXPECT_EQ(selected_row_groups.empty(), expected_pruned);
         EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, expected_pruned ? 1 : 0);
         EXPECT_EQ(file_reader->read_count(), expected_reads);
+        EXPECT_EQ(pruning_stats.bloom_filter_probe_attempts, expected_reads == 0 ? 0 : 1);
+        EXPECT_EQ(pruning_stats.bloom_filter_probe_successes, expected_reads == 0 ? 0 : 1);
+        EXPECT_EQ(pruning_stats.bloom_filter_conservative_fallbacks, 0);
+        EXPECT_EQ(pruning_stats.bloom_filter_corrupt_rejections, 0);
     };
 
     run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 2, true, 1, true, 2);
@@ -627,6 +637,183 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomResolvesStructAndListLeaves) {
     run_case(format::parquet::ParquetColumnSchemaKind::LIST, 1, true, 1, false, 2);
     run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 1, true, 2, false, 2);
     run_case(format::parquet::ParquetColumnSchemaKind::STRUCT, 2, true, 1, false, 0, true);
+}
+
+TEST(ParquetBloomFilterPruningTest, NativeBloomReportsConservativeReadOutcomes) {
+    const auto make_valid_bloom = [] {
+        format::parquet::native::BlockSplitBloomFilter bloom_filter;
+        EXPECT_TRUE(bloom_filter
+                            .init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                                  segment_v2::HashStrategyPB::XX_HASH_64)
+                            .ok());
+        const int32_t present_value = 1;
+        bloom_filter.add_bytes(reinterpret_cast<const char*>(&present_value),
+                               sizeof(present_value));
+        tparquet::BloomFilterAlgorithm algorithm;
+        algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
+        tparquet::BloomFilterHash hash;
+        hash.__set_XXHASH(tparquet::XxHash());
+        tparquet::BloomFilterCompression compression;
+        compression.__set_UNCOMPRESSED(tparquet::Uncompressed());
+        tparquet::BloomFilterHeader header;
+        header.__set_numBytes(static_cast<int32_t>(bloom_filter.size()));
+        header.__set_algorithm(algorithm);
+        header.__set_hash(hash);
+        header.__set_compression(compression);
+        std::vector<uint8_t> bytes;
+        ThriftSerializer serializer(/*compact=*/true, 64);
+        EXPECT_TRUE(serializer.serialize(&header, &bytes).ok());
+        bytes.insert(bytes.end(), bloom_filter.data(), bloom_filter.data() + bloom_filter.size());
+        return bytes;
+    };
+
+    const auto run_case = [&](std::vector<uint8_t> bytes, bool has_offset, bool fail_reads,
+                              int64_t expected_corrupt_rejections) {
+        auto type = std::make_shared<DataTypeInt32>();
+        auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+        column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        column_schema->local_id = 0;
+        column_schema->leaf_column_id = 0;
+        column_schema->type = type;
+        column_schema->type_descriptor.doris_type = type;
+        column_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_type(tparquet::Type::INT32);
+        column_metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+        column_metadata.__set_num_values(1);
+        column_metadata.__set_total_compressed_size(0);
+        column_metadata.__set_data_page_offset(0);
+        if (has_offset) {
+            column_metadata.__set_bloom_filter_offset(0);
+            column_metadata.__set_bloom_filter_length(static_cast<int32_t>(bytes.size()));
+        }
+        tparquet::ColumnChunk chunk;
+        chunk.__set_meta_data(column_metadata);
+        tparquet::RowGroup row_group;
+        row_group.__set_columns({chunk});
+        row_group.__set_total_byte_size(0);
+        row_group.__set_num_rows(1);
+        tparquet::FileMetaData metadata;
+        metadata.__set_version(1);
+        metadata.__set_num_rows(1);
+        metadata.__set_row_groups({row_group});
+
+        auto request = request_with_bloom_conjunct(type, {Field::create_field<TYPE_INT>(2)});
+        std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+        schema.push_back(std::move(column_schema));
+        format::parquet::ParquetFileContext file_context;
+        file_context.native_file =
+                std::make_shared<StatisticsMemoryFileReader>(std::move(bytes), fail_reads);
+        std::vector<int> selected_row_groups;
+        format::parquet::ParquetPruningStats pruning_stats;
+        ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                            metadata, schema, request, nullptr, &selected_row_groups, true,
+                            &pruning_stats, nullptr, nullptr, &file_context)
+                            .ok());
+        EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+        EXPECT_EQ(pruning_stats.bloom_filter_probe_attempts, 1);
+        EXPECT_EQ(pruning_stats.bloom_filter_probe_successes, 0);
+        EXPECT_EQ(pruning_stats.bloom_filter_conservative_fallbacks, 1);
+        EXPECT_EQ(pruning_stats.bloom_filter_corrupt_rejections, expected_corrupt_rejections);
+    };
+
+    run_case({}, false, false, 0);                // missing metadata offset
+    run_case({0xff, 0xff, 0xff}, true, false, 1); // malformed header
+    auto truncated = make_valid_bloom();
+    truncated.resize(truncated.size() - 16);
+    run_case(std::move(truncated), true, false, 1); // truncated payload
+    run_case(make_valid_bloom(), true, true, 0);    // I/O failure
+}
+
+TEST(ParquetBloomFilterPruningTest, NativeBloomPreservesFirstLogicalProbeOrder) {
+    const auto make_bloom = [] {
+        format::parquet::native::BlockSplitBloomFilter bloom_filter;
+        EXPECT_TRUE(bloom_filter
+                            .init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                                  segment_v2::HashStrategyPB::XX_HASH_64)
+                            .ok());
+        const int32_t present_value = 1;
+        bloom_filter.add_bytes(reinterpret_cast<const char*>(&present_value),
+                               sizeof(present_value));
+        tparquet::BloomFilterAlgorithm algorithm;
+        algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
+        tparquet::BloomFilterHash hash;
+        hash.__set_XXHASH(tparquet::XxHash());
+        tparquet::BloomFilterCompression compression;
+        compression.__set_UNCOMPRESSED(tparquet::Uncompressed());
+        tparquet::BloomFilterHeader header;
+        header.__set_numBytes(static_cast<int32_t>(bloom_filter.size()));
+        header.__set_algorithm(algorithm);
+        header.__set_hash(hash);
+        header.__set_compression(compression);
+        std::vector<uint8_t> bytes;
+        ThriftSerializer serializer(/*compact=*/true, 64);
+        EXPECT_TRUE(serializer.serialize(&header, &bytes).ok());
+        bytes.insert(bytes.end(), bloom_filter.data(), bloom_filter.data() + bloom_filter.size());
+        return bytes;
+    };
+    const auto bloom = make_bloom();
+    std::vector<uint8_t> file_bytes = bloom;
+    file_bytes.insert(file_bytes.end(), bloom.begin(), bloom.end());
+
+    const auto type = std::make_shared<DataTypeInt32>();
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    for (int local_id = 0; local_id < 2; ++local_id) {
+        auto column = std::make_unique<format::parquet::ParquetColumnSchema>();
+        column->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        column->local_id = local_id;
+        column->leaf_column_id = 1 - local_id;
+        column->type = type;
+        column->type_descriptor.doris_type = type;
+        column->type_descriptor.physical_type = tparquet::Type::INT32;
+        schema.push_back(std::move(column));
+    }
+
+    std::vector<tparquet::ColumnChunk> chunks;
+    for (int leaf_id = 0; leaf_id < 2; ++leaf_id) {
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_type(tparquet::Type::INT32);
+        column_metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+        column_metadata.__set_num_values(1);
+        column_metadata.__set_total_compressed_size(0);
+        column_metadata.__set_data_page_offset(0);
+        column_metadata.__set_bloom_filter_offset(leaf_id * bloom.size());
+        column_metadata.__set_bloom_filter_length(static_cast<int32_t>(bloom.size()));
+        tparquet::ColumnChunk chunk;
+        chunk.__set_meta_data(column_metadata);
+        chunks.push_back(std::move(chunk));
+    }
+    tparquet::RowGroup row_group;
+    row_group.__set_columns(std::move(chunks));
+    row_group.__set_total_byte_size(0);
+    row_group.__set_num_rows(1);
+    tparquet::FileMetaData metadata;
+    metadata.__set_version(1);
+    metadata.__set_num_rows(1);
+    metadata.__set_row_groups({row_group});
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.local_positions.emplace(format::LocalColumnId(1), format::LocalIndex(1));
+    request.conjuncts = {VExprContext::create_shared(std::make_shared<BloomInExpr>(
+                                 0, type, std::vector<Field> {Field::create_field<TYPE_INT>(2)})),
+                         VExprContext::create_shared(std::make_shared<BloomInExpr>(
+                                 1, type, std::vector<Field> {Field::create_field<TYPE_INT>(1)}))};
+
+    format::parquet::ParquetFileContext file_context;
+    auto file_reader = std::make_shared<StatisticsMemoryFileReader>(std::move(file_bytes));
+    file_context.native_file = file_reader;
+    std::vector<int> selected_row_groups;
+    format::parquet::ParquetPruningStats pruning_stats;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        metadata, schema, request, nullptr, &selected_row_groups, true,
+                        &pruning_stats, nullptr, nullptr, &file_context)
+                        .ok());
+    EXPECT_TRUE(selected_row_groups.empty());
+    EXPECT_EQ(file_reader->read_count(), 2);
+    EXPECT_EQ(pruning_stats.bloom_filter_probe_attempts, 1);
+    EXPECT_EQ(pruning_stats.bloom_filter_probe_successes, 1);
 }
 
 TEST(ParquetBloomFilterPruningTest, NativeRowGroupKeepsPresentUint32AboveInt32Max) {

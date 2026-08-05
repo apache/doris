@@ -4227,6 +4227,67 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, NestedEqualityReachesParquetBloomProbe) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_nested_bloom_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_list_struct_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    auto element_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type, nullable_int_type}, Strings {"a", "b"}));
+    auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
+    std::vector<ColumnDefinition> projected_columns = {list_column};
+    set_name_identifiers(&projected_columns);
+
+    const auto root_type = projected_columns[0].type;
+    auto array_element = table_function_expr("element_at", element_type, {root_type, int_type});
+    array_element->add_child(VSlotRef::create_shared(0, 0, -1, root_type, "xs"));
+    array_element->add_child(table_int32_literal(1));
+    auto struct_element = table_function_expr("element_at", nullable_int_type,
+                                              {element_type, std::make_shared<DataTypeString>()});
+    struct_element->add_child(std::move(array_element));
+    struct_element->add_child(VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                                      Field::create_field<TYPE_STRING>("a")));
+    auto equality = table_function_expr("eq", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                        {nullable_int_type, int_type}, TExprNodeType::BINARY_PRED,
+                                        TExprOpcode::EQ);
+    equality->add_child(std::move(struct_element));
+    equality->add_child(table_int32_literal(10));
+
+    RuntimeProfile profile("profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(&state, equality)},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    auto* attempts = profile.get_counter("BloomFilterProbeAttempts");
+    auto* fallbacks = profile.get_counter("BloomFilterConservativeFallbacks");
+    ASSERT_NE(attempts, nullptr);
+    ASSERT_NE(fallbacks, nullptr);
+    EXPECT_EQ(attempts->value(), 1);
+    EXPECT_EQ(fallbacks->value(), 1);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildren) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_table_reader_list_schema_evolution_test";

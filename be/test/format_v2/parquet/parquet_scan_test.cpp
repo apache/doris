@@ -1842,6 +1842,48 @@ TEST(ParquetScanAdaptivePredicateTest, ThrowingNestedFunctionDisablesSelectedRow
     EXPECT_FALSE(throwing_comparison->root()->is_safe_to_execute_on_selected_rows());
 }
 
+TEST(ParquetScanAdaptivePredicateTest, TotalNestedAccessorsAndNullSafeEqualityAreSafe) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_int_type}, Strings {"value"}));
+    const auto array_type = std::make_shared<DataTypeArray>(struct_type);
+
+    const auto function_call = [](const std::string& name, const DataTypePtr& result_type,
+                                  VExprSPtrs children) {
+        TFunctionName function_name;
+        function_name.__set_function_name(name);
+        TFunction function;
+        function.__set_name(function_name);
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+        node.__set_type(result_type->to_thrift());
+        node.__set_fn(function);
+        node.__set_num_children(cast_set<int16_t>(children.size()));
+        node.__set_is_nullable(result_type->is_nullable());
+        auto expr = VectorizedFnCall::create_shared(node);
+        expr->set_children(std::move(children));
+        return expr;
+    };
+
+    auto array_element =
+            function_call("element_at", struct_type,
+                          {VSlotRef::create_shared(0, 0, -1, array_type, "items"),
+                           VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(1))});
+    auto struct_element = function_call(
+            "struct_element", nullable_int_type,
+            {array_element, VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                                    Field::create_field<TYPE_STRING>("value"))});
+    auto null_safe_eq = function_call(
+            "eq_for_null", std::make_shared<DataTypeUInt8>(),
+            {struct_element,
+             VLiteral::create_shared(nullable_int_type, Field::create_field<TYPE_INT>(7))});
+
+    EXPECT_TRUE(array_element->is_safe_to_execute_on_selected_rows());
+    EXPECT_TRUE(struct_element->is_safe_to_execute_on_selected_rows());
+    EXPECT_TRUE(null_safe_eq->is_safe_to_execute_on_selected_rows());
+}
+
 TEST(ParquetScanSmallFileTest, StagesOnlyBoundedHttpObjects) {
     using format::parquet::detail::should_stage_small_http_file;
     EXPECT_TRUE(should_stage_small_http_file("http://host/tiny.parquet", 512, 1024));
