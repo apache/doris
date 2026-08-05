@@ -348,14 +348,8 @@ flowchart LR
   range comparisons operate directly on dictionary slices. When projection is required, all
   fixed-width survivors are written by the filtering loop itself; strings pre-size their character
   and offset buffers and copy each compact survivor once.
-- Safe AND subexpressions may remove components exactly covered by dictionary evaluation. A
-  multi-column OR can use row-level dictionary or raw-value filtering only when it can be flattened
-  into distinct single-column branches and every branch is exact. Each branch produces a compact
-  truth map and the maps are OR-ed before selection changes. Hidden single-use columns consume their
-  ordinary predicate readers, while projected columns use an auxiliary reader so their ordinary
-  reader can still materialize union survivors. The policy is enabled only in the NULL-density and
-  encoding ranges validated by the paired benchmark matrix; otherwise the complete OR remains a
-  residual expression.
+- Safe AND subexpressions may remove components exactly covered by dictionary evaluation. OR or
+  non-equivalent expressions are not rewritten aggressively.
 - Stateful, potentially throwing, or whole-batch-sensitive expressions disable staged
   single-column scheduling and fall back to reading required columns before whole-expression
   evaluation.
@@ -834,7 +828,8 @@ split safely, or read anomalies must never change query semantics.
 | Bloom missing, disabled, or unreadable | Skip Bloom pruning and continue with later scan stages |
 | Incomplete dictionary page, mixed non-dictionary encoding, complex/repeated column | Disable dictionary pruning and Dictionary-ID Filter; use actual values |
 | Missing or inconsistent ColumnIndex/OffsetIndex | Disable fine-grained page pruning and read the full candidate range |
-| Multi-column or OR expression outside the exact distinct-single-column branch subset; stateful or error-order-sensitive expression | Preserve whole-expression evaluation to avoid changing SQL short-circuit or error semantics |
+| Multi-column AND/OR expression | Combine only conservative metadata candidate ranges; preserve whole-expression row evaluation |
+| Stateful or error-order-sensitive expression | Preserve whole-expression evaluation without metadata decomposition |
 | No stable file-version identity for Page Cache | Disable Parquet Page Cache to prevent stale-byte reads |
 | Incomplete Condition Cache coverage | Retain and recompute uncovered ranges |
 

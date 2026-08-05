@@ -101,13 +101,6 @@ const ColumnInt64& int64_data_column(const IColumn& column) {
     return assert_cast<const ColumnInt64&>(column);
 }
 
-const ColumnDecimal64& decimal64_data_column(const IColumn& column) {
-    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(&column)) {
-        return assert_cast<const ColumnDecimal64&>(nullable_column->get_nested_column());
-    }
-    return assert_cast<const ColumnDecimal64&>(column);
-}
-
 const ColumnString& string_data_column(const IColumn& column) {
     if (const auto* nullable_column = check_and_get_column<ColumnNullable>(&column)) {
         return assert_cast<const ColumnString&>(nullable_column->get_nested_column());
@@ -824,8 +817,8 @@ VExprContextSPtr create_decimal64_runtime_in_conjunct(int column_id,
 }
 
 VExprContextSPtr create_decimal64_function_conjunct(int column_id, const std::string& function_name,
-                                                    TExprOpcode::type opcode, int64_t scaled_value,
-                                                    bool mark_prepared = true) {
+                                                    TExprOpcode::type opcode,
+                                                    int64_t scaled_value) {
     const auto value_type = std::make_shared<DataTypeDecimal64>(10, 2);
     auto root = create_binary_predicate(
             function_name, opcode,
@@ -834,10 +827,8 @@ VExprContextSPtr create_decimal64_function_conjunct(int column_id, const std::st
             VLiteral::create_shared(value_type,
                                     Field::create_field<TYPE_DECIMAL64>(Decimal64 {scaled_value})));
     auto context = VExprContext::create_shared(std::move(root));
-    if (mark_prepared) {
-        context->_prepared = true;
-        context->_opened = true;
-    }
+    context->_prepared = true;
+    context->_opened = true;
     return context;
 }
 
@@ -1217,19 +1208,6 @@ std::shared_ptr<arrow::Array> build_int32_array(const std::vector<int32_t>& valu
     return finish_array(&builder);
 }
 
-std::shared_ptr<arrow::Array> build_nullable_int32_array(
-        const std::vector<std::optional<int32_t>>& values) {
-    arrow::Int32Builder builder;
-    for (const auto& value : values) {
-        if (value.has_value()) {
-            EXPECT_TRUE(builder.Append(*value).ok());
-        } else {
-            EXPECT_TRUE(builder.AppendNull().ok());
-        }
-    }
-    return finish_array(&builder);
-}
-
 std::shared_ptr<arrow::Array> build_int64_array(const std::vector<int64_t>& values) {
     arrow::Int64Builder builder;
     for (const auto value : values) {
@@ -1600,99 +1578,6 @@ void write_dictionary_int_pair_parquet_file(const std::string& file_path,
                 false);
 }
 
-void write_q28_predicate_parquet_file(const std::string& file_path, bool enable_dictionary) {
-    auto schema = arrow::schema({
-            arrow::field("quantity", arrow::int32(), false),
-            arrow::field("list_price", arrow::int32(), false),
-            arrow::field("coupon_amount", arrow::int32(), false),
-            arrow::field("wholesale_cost", arrow::int32(), false),
-            arrow::field("payload", arrow::int32(), false),
-    });
-    auto table = arrow::Table::Make(
-            schema, {build_int32_array({1, 2, 3, 4, 5, 6, 7, 8}),
-                     build_int32_array({100, 20, 30, 40, 50, 60, 70, 80}),
-                     build_int32_array({0, 0, 300, 0, 0, 0, 0, 0}),
-                     build_int32_array({0, 0, 0, 0, 500, 0, 0, 0}),
-                     build_int32_array({1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000})});
-    write_table(file_path, table, 8, enable_dictionary, false, false);
-}
-
-void write_nullable_q28_alignment_parquet_file(const std::string& file_path) {
-    auto schema = arrow::schema({
-            arrow::field("quantity", arrow::int32(), false),
-            arrow::field("list_price", arrow::int32(), true),
-            arrow::field("coupon_amount", arrow::int32(), true),
-            arrow::field("wholesale_cost", arrow::int32(), true),
-            arrow::field("payload", arrow::int32(), false),
-    });
-    auto table = arrow::Table::Make(
-            schema,
-            {build_int32_array({1, 2, 3, 4, 5, 6, 7, 8}),
-             build_nullable_int32_array({std::nullopt, std::nullopt, 30, std::nullopt, std::nullopt,
-                                         60, std::nullopt, std::nullopt}),
-             build_nullable_int32_array({std::nullopt, std::nullopt, std::nullopt, 300,
-                                         std::nullopt, std::nullopt, 300, std::nullopt}),
-             build_nullable_int32_array({std::nullopt, std::nullopt, std::nullopt, std::nullopt,
-                                         500, std::nullopt, std::nullopt, 500}),
-             build_int32_array({1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000})});
-    write_table(file_path, table, 8, false, false, true);
-}
-
-void write_q28_decimal_predicate_parquet_file(const std::string& file_path,
-                                              bool enable_dictionary) {
-    const auto decimal_type = arrow::decimal128(10, 2);
-    auto schema = arrow::schema({
-            arrow::field("quantity", arrow::int32(), false),
-            arrow::field("list_price", decimal_type, false),
-            arrow::field("coupon_amount", decimal_type, false),
-            arrow::field("wholesale_cost", decimal_type, false),
-            arrow::field("payload", arrow::int32(), false),
-    });
-    auto table = arrow::Table::Make(
-            schema,
-            {build_int32_array({1, 2, 3, 4, 5, 6, 7, 8}),
-             build_decimal128_array({10000, 2000, 3000, 4000, 5000, 6000, 7000, 8000}, 10, 2),
-             build_decimal128_array({0, 0, 30000, 0, 0, 0, 0, 0}, 10, 2),
-             build_decimal128_array({0, 0, 0, 0, 50000, 0, 0, 0}, 10, 2),
-             build_int32_array({1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000})});
-    write_table(file_path, table, 8, enable_dictionary, false, false);
-}
-
-void write_nullable_q28_predicate_parquet_file(const std::string& file_path,
-                                               bool enable_dictionary = true) {
-    auto schema = arrow::schema({
-            arrow::field("list_price", arrow::int32(), true),
-            arrow::field("coupon_amount", arrow::int32(), true),
-            arrow::field("wholesale_cost", arrow::int32(), true),
-            arrow::field("payload", arrow::int32(), false),
-    });
-    auto table = arrow::Table::Make(
-            schema, {build_nullable_int32_array({std::nullopt, 60, std::nullopt, 10}),
-                     build_nullable_int32_array({300, std::nullopt, std::nullopt, std::nullopt}),
-                     build_nullable_int32_array({std::nullopt, std::nullopt, 500, std::nullopt}),
-                     build_int32_array({1000, 2000, 3000, 4000})});
-    write_table(file_path, table, 4, enable_dictionary, false, true);
-}
-
-void write_nullable_dnf_predicate_parquet_file(const std::string& file_path,
-                                               bool enable_dictionary) {
-    auto schema = arrow::schema({
-            arrow::field("category_key", arrow::int32(), true),
-            arrow::field("capacity_key", arrow::int32(), true),
-            arrow::field("payload", arrow::int32(), false),
-    });
-    auto table = arrow::Table::Make(
-            schema, {build_nullable_int32_array(
-                             {0, -1, 3, 5, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
-                              -1, 3, 0, 5, std::nullopt, std::nullopt, std::nullopt, std::nullopt}),
-                     build_nullable_int32_array(
-                             {2, 1, 5, 9, std::nullopt, std::nullopt, std::nullopt, std::nullopt, 2,
-                              1, 5, 9, std::nullopt, std::nullopt, std::nullopt, std::nullopt}),
-                     build_int32_array({100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100,
-                                        1200, 1300, 1400, 1500, 1600})});
-    write_table(file_path, table, 8, enable_dictionary, false, true);
-}
-
 void write_dictionary_bigint_pair_parquet_file(const std::string& file_path) {
     auto schema = arrow::schema({
             arrow::field("id", arrow::int64(), false),
@@ -2054,194 +1939,6 @@ protected:
         auto request = std::make_shared<format::FileScanRequest>();
         EXPECT_TRUE(reader->open(request).ok());
         return request;
-    }
-
-    void run_q28_multi_column_or_test(bool enable_dictionary) {
-        write_q28_predicate_parquet_file(_file_path, enable_dictionary);
-        RuntimeProfile profile("profile");
-        auto reader = create_reader(0, -1, &profile);
-        RuntimeState state {TQueryOptions(), TQueryGlobals()};
-        ASSERT_TRUE(reader->init(&state).ok());
-
-        std::vector<format::ColumnDefinition> schema;
-        ASSERT_TRUE(reader->get_schema(&schema).ok());
-        auto request = std::make_shared<format::FileScanRequest>();
-        format::FileScanRequestBuilder request_builder(request.get());
-        for (int column_id = 0; column_id < 4; ++column_id) {
-            ASSERT_TRUE(
-                    request_builder.add_predicate_column(format::LocalColumnId(column_id)).ok());
-        }
-        ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(4)).ok());
-        request->predicate_only_columns = {format::LocalColumnId(0), format::LocalColumnId(2),
-                                           format::LocalColumnId(3)};
-        auto quantity = create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 2, false);
-        ASSERT_TRUE(quantity->prepare(&state, RowDescriptor()).ok());
-        ASSERT_TRUE(quantity->open(&state).ok());
-        request->conjuncts.push_back(quantity);
-
-        auto make_between = [](int column_id, int32_t lower, int32_t upper) {
-            auto lower_bound =
-                    create_int32_function_conjunct(column_id, "ge", TExprOpcode::GE, lower, false);
-            auto upper_bound =
-                    create_int32_function_conjunct(column_id, "le", TExprOpcode::LE, upper, false);
-            return create_compound_conjunct(TExprOpcode::COMPOUND_AND, lower_bound->root(),
-                                            upper_bound->root())
-                    ->root();
-        };
-        auto price_or_coupon = create_compound_conjunct(
-                TExprOpcode::COMPOUND_OR, make_between(1, 60, 70), make_between(2, 250, 350));
-        auto disjunction = create_compound_conjunct(
-                TExprOpcode::COMPOUND_OR, price_or_coupon->root(), make_between(3, 450, 550));
-        ASSERT_TRUE(disjunction->prepare(&state, RowDescriptor()).ok());
-        ASSERT_TRUE(disjunction->open(&state).ok());
-        request->conjuncts.push_back(disjunction);
-        ASSERT_TRUE(reader->open(request).ok());
-
-        Block block = build_file_block(schema);
-        size_t rows = 0;
-        bool eof = false;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-        ASSERT_EQ(rows, 4);
-        EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
-                  (ColumnInt32::Container {30, 50, 60, 70}));
-        EXPECT_EQ(int32_data_column(*block.get_by_position(4).column).get_data(),
-                  (ColumnInt32::Container {3000, 5000, 6000, 7000}));
-        EXPECT_EQ(counter_value(profile, "RowsFilteredByConjunct"), 4);
-        EXPECT_EQ(counter_value(profile, enable_dictionary ? "DictionaryPredicateDirectBatches"
-                                                           : "RawValuePredicateDirectBatches"),
-                  1);
-        EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBatches"), 0);
-        EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBranches"), 0);
-        disjunction->close();
-    }
-
-    void run_q28_decimal_multi_column_or_test(bool enable_dictionary) {
-        write_q28_decimal_predicate_parquet_file(_file_path, enable_dictionary);
-        RuntimeProfile profile("profile");
-        auto reader = create_reader(0, -1, &profile);
-        RuntimeState state {TQueryOptions(), TQueryGlobals()};
-        ASSERT_TRUE(reader->init(&state).ok());
-
-        std::vector<format::ColumnDefinition> schema;
-        ASSERT_TRUE(reader->get_schema(&schema).ok());
-        auto request = std::make_shared<format::FileScanRequest>();
-        format::FileScanRequestBuilder request_builder(request.get());
-        for (int column_id = 0; column_id < 4; ++column_id) {
-            ASSERT_TRUE(
-                    request_builder.add_predicate_column(format::LocalColumnId(column_id)).ok());
-        }
-        ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(4)).ok());
-        request->predicate_only_columns = {format::LocalColumnId(0), format::LocalColumnId(2),
-                                           format::LocalColumnId(3)};
-        auto quantity = create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 2, false);
-        ASSERT_TRUE(quantity->prepare(&state, RowDescriptor()).ok());
-        ASSERT_TRUE(quantity->open(&state).ok());
-        request->conjuncts.push_back(quantity);
-
-        auto make_between = [](int column_id, int64_t lower, int64_t upper) {
-            auto lower_bound = create_decimal64_function_conjunct(column_id, "ge", TExprOpcode::GE,
-                                                                  lower, false);
-            auto upper_bound = create_decimal64_function_conjunct(column_id, "le", TExprOpcode::LE,
-                                                                  upper, false);
-            return create_compound_conjunct(TExprOpcode::COMPOUND_AND, lower_bound->root(),
-                                            upper_bound->root())
-                    ->root();
-        };
-        auto price_or_coupon =
-                create_compound_conjunct(TExprOpcode::COMPOUND_OR, make_between(1, 6000, 7000),
-                                         make_between(2, 25000, 35000));
-        auto disjunction = create_compound_conjunct(
-                TExprOpcode::COMPOUND_OR, price_or_coupon->root(), make_between(3, 45000, 55000));
-        ASSERT_TRUE(disjunction->prepare(&state, RowDescriptor()).ok());
-        ASSERT_TRUE(disjunction->open(&state).ok());
-        request->conjuncts.push_back(disjunction);
-        ASSERT_TRUE(reader->open(request).ok());
-
-        Block block = build_file_block(schema);
-        size_t rows = 0;
-        bool eof = false;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-        ASSERT_EQ(rows, 4);
-        const auto& prices = decimal64_data_column(*block.get_by_position(1).column);
-        ASSERT_EQ(prices.size(), 4);
-        EXPECT_EQ(prices.get_element(0), Decimal64 {3000});
-        EXPECT_EQ(prices.get_element(1), Decimal64 {5000});
-        EXPECT_EQ(prices.get_element(2), Decimal64 {6000});
-        EXPECT_EQ(prices.get_element(3), Decimal64 {7000});
-        EXPECT_EQ(int32_data_column(*block.get_by_position(4).column).get_data(),
-                  (ColumnInt32::Container {3000, 5000, 6000, 7000}));
-        EXPECT_EQ(counter_value(profile, enable_dictionary ? "DictionaryPredicateDirectBatches"
-                                                           : "RawValuePredicateDirectBatches"),
-                  1);
-        EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBatches"), 0);
-        EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBranches"), 0);
-        disjunction->close();
-    }
-
-    void run_rectangular_dnf_raw_filter_test(bool enable_dictionary,
-                                             bool reuse_predicate_column = false) {
-        write_nullable_dnf_predicate_parquet_file(_file_path, enable_dictionary);
-        RuntimeProfile profile("profile");
-        auto reader = create_reader(0, -1, &profile);
-        RuntimeState state {TQueryOptions(), TQueryGlobals()};
-        ASSERT_TRUE(reader->init(&state).ok());
-
-        std::vector<format::ColumnDefinition> schema;
-        ASSERT_TRUE(reader->get_schema(&schema).ok());
-        auto request = std::make_shared<format::FileScanRequest>();
-        format::FileScanRequestBuilder request_builder(request.get());
-        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
-        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
-        ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(2)).ok());
-        request->predicate_only_columns = {format::LocalColumnId(0), format::LocalColumnId(1)};
-
-        auto make_branch = [](int32_t category, int32_t capacity) {
-            auto category_predicate =
-                    create_int32_function_conjunct(0, "eq", TExprOpcode::EQ, category, false);
-            auto capacity_predicate =
-                    create_int32_function_conjunct(1, "le", TExprOpcode::LE, capacity, false);
-            return create_compound_conjunct(TExprOpcode::COMPOUND_AND, category_predicate->root(),
-                                            capacity_predicate->root())
-                    ->root();
-        };
-        auto first_two_branches = create_compound_conjunct(TExprOpcode::COMPOUND_OR,
-                                                           make_branch(0, 2), make_branch(-1, 1));
-        auto disjunction = create_compound_conjunct(TExprOpcode::COMPOUND_OR,
-                                                    first_two_branches->root(), make_branch(3, 5));
-        ASSERT_TRUE(disjunction->prepare(&state, RowDescriptor()).ok());
-        ASSERT_TRUE(disjunction->open(&state).ok());
-        request->conjuncts.push_back(disjunction);
-        VExprContextSPtr reused_column_conjunct;
-        if (reuse_predicate_column) {
-            reused_column_conjunct =
-                    create_int32_function_conjunct(0, "eq", TExprOpcode::EQ, 0, false);
-            ASSERT_TRUE(reused_column_conjunct->prepare(&state, RowDescriptor()).ok());
-            ASSERT_TRUE(reused_column_conjunct->open(&state).ok());
-            request->conjuncts.push_back(reused_column_conjunct);
-        }
-        ASSERT_TRUE(reader->open(request).ok());
-
-        std::vector<int32_t> payloads;
-        bool eof = false;
-        while (!eof) {
-            Block block = build_file_block(schema);
-            size_t rows = 0;
-            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-            const auto& data = int32_data_column(*block.get_by_position(2).column).get_data();
-            payloads.insert(payloads.end(), data.begin(), data.end());
-        }
-        EXPECT_EQ(payloads, reuse_predicate_column ? std::vector<int32_t> {100}
-                                                   : (std::vector<int32_t> {100, 200, 300, 1000}));
-        if (reuse_predicate_column) {
-            EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBatches"), 0);
-            reused_column_conjunct->close();
-        } else {
-            EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBatches"), 2);
-            EXPECT_GE(counter_value(profile, enable_dictionary ? "DictionaryPredicateDirectBatches"
-                                                               : "RawValuePredicateDirectBatches"),
-                      4);
-        }
-        disjunction->close();
     }
 
     std::filesystem::path _test_dir;
@@ -3201,10 +2898,7 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainComparisonUsesPhysicalDirectPath) {
     ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
     ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
     request->predicate_only_columns.push_back(format::LocalColumnId(0));
-    auto quantity = create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 2, false);
-    ASSERT_TRUE(quantity->prepare(&state, RowDescriptor()).ok());
-    ASSERT_TRUE(quantity->open(&state).ok());
-    request->conjuncts.push_back(quantity);
+    request->conjuncts.push_back(create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 2));
     ASSERT_TRUE(reader->open(request).ok());
 
     Block block = build_file_block(schema);
@@ -4754,201 +4448,6 @@ TEST_F(ParquetScanTest, MultiColumnPredicateWaitsForAllPredicateColumns) {
     EXPECT_EQ(counter_value(profile, "RowsFilteredByConjunct"), 2);
     EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 12);
     EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 0);
-}
-
-TEST_F(ParquetScanTest, Q28MultiColumnOrKeepsLegacyPlainPathOutsideProfitableRange) {
-    run_q28_multi_column_or_test(false);
-}
-
-TEST_F(ParquetScanTest, Q28MultiColumnOrKeepsLegacyDictionaryPathOutsideProfitableRange) {
-    run_q28_multi_column_or_test(true);
-}
-
-TEST_F(ParquetScanTest, Q28DecimalMultiColumnOrKeepsLegacyPlainPathOutsideProfitableRange) {
-    run_q28_decimal_multi_column_or_test(false);
-}
-
-TEST_F(ParquetScanTest, Q28DecimalMultiColumnOrKeepsLegacyDictionaryPathOutsideProfitableRange) {
-    run_q28_decimal_multi_column_or_test(true);
-}
-
-TEST_F(ParquetScanTest, RectangularDnfUsesPlainRawFilter) {
-    run_rectangular_dnf_raw_filter_test(false);
-}
-
-TEST_F(ParquetScanTest, RectangularDnfUsesDictionaryRawFilter) {
-    run_rectangular_dnf_raw_filter_test(true);
-}
-
-TEST_F(ParquetScanTest, RectangularDnfFallsBackWhenColumnIsReused) {
-    run_rectangular_dnf_raw_filter_test(false, true);
-}
-
-TEST_F(ParquetScanTest, MultiColumnOrRawReadersStayAlignedAfterRejectedBatch) {
-    write_nullable_q28_alignment_parquet_file(_file_path);
-    RuntimeProfile profile("profile");
-    auto reader = create_reader(0, -1, &profile);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_shared<format::FileScanRequest>();
-    format::FileScanRequestBuilder request_builder(request.get());
-    for (int column_id = 0; column_id < 4; ++column_id) {
-        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(column_id)).ok());
-    }
-    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(4)).ok());
-    request->predicate_only_columns = {format::LocalColumnId(0), format::LocalColumnId(1),
-                                       format::LocalColumnId(2), format::LocalColumnId(3)};
-    request->conjuncts.push_back(create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 2));
-    auto price_or_coupon = create_compound_conjunct(
-            TExprOpcode::COMPOUND_OR,
-            create_int32_function_conjunct(1, "ge", TExprOpcode::GE, 30, false)->root(),
-            create_int32_function_conjunct(2, "ge", TExprOpcode::GE, 250, false)->root());
-    auto disjunction = create_compound_conjunct(
-            TExprOpcode::COMPOUND_OR, price_or_coupon->root(),
-            create_int32_function_conjunct(3, "ge", TExprOpcode::GE, 450, false)->root());
-    ASSERT_TRUE(disjunction->prepare(&state, RowDescriptor()).ok());
-    ASSERT_TRUE(disjunction->open(&state).ok());
-    request->conjuncts.push_back(disjunction);
-    reader->set_batch_size(2);
-    ASSERT_TRUE(reader->open(request).ok());
-
-    std::vector<int32_t> payloads;
-    bool eof = false;
-    while (!eof) {
-        Block block = build_file_block(schema);
-        size_t rows = 0;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-        const auto& payload = int32_data_column(*block.get_by_position(4).column);
-        payloads.insert(payloads.end(), payload.get_data().begin(), payload.get_data().end());
-    }
-    EXPECT_EQ(payloads, (std::vector<int32_t> {3000, 4000, 5000, 6000, 7000, 8000}));
-    // The scheduler grows an empty two-row batch and evaluates the OR once for the remaining
-    // prefix; correct payloads prove the independent raw readers advanced across the skipped rows.
-    EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBatches"), 1);
-    disjunction->close();
-}
-
-TEST_F(ParquetScanTest, MultiColumnOrRawFilterPreservesNullableProjectedRows) {
-    write_nullable_q28_predicate_parquet_file(_file_path);
-    RuntimeProfile profile("profile");
-    auto reader = create_reader(0, -1, &profile);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_shared<format::FileScanRequest>();
-    format::FileScanRequestBuilder request_builder(request.get());
-    for (int column_id = 0; column_id < 3; ++column_id) {
-        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(column_id)).ok());
-    }
-    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(3)).ok());
-    request->predicate_only_columns = {format::LocalColumnId(1), format::LocalColumnId(2)};
-    auto price_or_coupon = create_compound_conjunct(
-            TExprOpcode::COMPOUND_OR,
-            create_int32_function_conjunct(0, "ge", TExprOpcode::GE, 60, false)->root(),
-            create_int32_function_conjunct(1, "ge", TExprOpcode::GE, 250, false)->root());
-    auto disjunction = create_compound_conjunct(
-            TExprOpcode::COMPOUND_OR, price_or_coupon->root(),
-            create_int32_function_conjunct(2, "ge", TExprOpcode::GE, 450, false)->root());
-    ASSERT_TRUE(disjunction->prepare(&state, RowDescriptor()).ok());
-    ASSERT_TRUE(disjunction->open(&state).ok());
-    request->conjuncts.push_back(disjunction);
-    ASSERT_TRUE(reader->open(request).ok());
-
-    Block block = build_file_block(schema);
-    size_t rows = 0;
-    bool eof = false;
-    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-    ASSERT_EQ(rows, 3);
-    const auto& prices = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
-    EXPECT_EQ(prices.get_null_map_data(), (NullMap {1, 0, 1}));
-    EXPECT_EQ(int32_data_column(prices).get_data(), (ColumnInt32::Container {0, 60, 0}));
-    EXPECT_EQ(int32_data_column(*block.get_by_position(3).column).get_data(),
-              (ColumnInt32::Container {1000, 2000, 3000}));
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 3);
-    EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBatches"), 1);
-    disjunction->close();
-}
-
-TEST_F(ParquetScanTest, MultiColumnOrUsesPlainRawFiltersForNullablePredicateOnlyColumns) {
-    write_nullable_q28_predicate_parquet_file(_file_path, false);
-    RuntimeProfile profile("profile");
-    auto reader = create_reader(0, -1, &profile);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_shared<format::FileScanRequest>();
-    format::FileScanRequestBuilder request_builder(request.get());
-    for (int column_id = 0; column_id < 3; ++column_id) {
-        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(column_id)).ok());
-        request->predicate_only_columns.push_back(format::LocalColumnId(column_id));
-    }
-    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(3)).ok());
-    auto price_or_coupon = create_compound_conjunct(
-            TExprOpcode::COMPOUND_OR,
-            create_int32_function_conjunct(0, "ge", TExprOpcode::GE, 60, false)->root(),
-            create_int32_function_conjunct(1, "ge", TExprOpcode::GE, 250, false)->root());
-    auto disjunction = create_compound_conjunct(
-            TExprOpcode::COMPOUND_OR, price_or_coupon->root(),
-            create_int32_function_conjunct(2, "ge", TExprOpcode::GE, 450, false)->root());
-    ASSERT_TRUE(disjunction->prepare(&state, RowDescriptor()).ok());
-    ASSERT_TRUE(disjunction->open(&state).ok());
-    request->conjuncts.push_back(disjunction);
-    ASSERT_TRUE(reader->open(request).ok());
-
-    Block block = build_file_block(schema);
-    size_t rows = 0;
-    bool eof = false;
-    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-    ASSERT_EQ(rows, 3);
-    EXPECT_EQ(int32_data_column(*block.get_by_position(3).column).get_data(),
-              (ColumnInt32::Container {1000, 2000, 3000}));
-    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 3);
-    EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBatches"), 1);
-    disjunction->close();
-}
-
-TEST_F(ParquetScanTest, MultiColumnOrFallsBackAsAWholeWhenOneBranchIsNotSingleColumn) {
-    write_q28_predicate_parquet_file(_file_path, false);
-    RuntimeProfile profile("profile");
-    auto reader = create_reader(0, -1, &profile);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_shared<format::FileScanRequest>();
-    format::FileScanRequestBuilder request_builder(request.get());
-    for (int column_id = 1; column_id < 4; ++column_id) {
-        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(column_id)).ok());
-    }
-    request->predicate_only_columns = {format::LocalColumnId(2), format::LocalColumnId(3)};
-    auto disjunction = create_compound_conjunct(
-            TExprOpcode::COMPOUND_OR,
-            create_int32_function_conjunct(0, "ge", TExprOpcode::GE, 60, false)->root(),
-            create_int32_pair_sum_conjunct(1, 2, 1)->root());
-    ASSERT_TRUE(disjunction->prepare(&state, RowDescriptor()).ok());
-    ASSERT_TRUE(disjunction->open(&state).ok());
-    request->conjuncts.push_back(disjunction);
-    ASSERT_TRUE(reader->open(request).ok());
-
-    Block block = build_file_block(schema);
-    size_t rows = 0;
-    bool eof = false;
-    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-    ASSERT_EQ(rows, 6);
-    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
-              (ColumnInt32::Container {100, 20, 40, 60, 70, 80}));
-    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 0);
-    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 0);
-    EXPECT_EQ(counter_value(profile, "MultiColumnOrRawFilterBatches"), 0);
-    disjunction->close();
 }
 
 TEST_F(ParquetScanTest, ProfileCountersReflectPageIndexAndRangeGapPruning) {

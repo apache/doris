@@ -2140,7 +2140,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
         const IColumn::Filter& dictionary_filter, ColumnSelectVector& select_vector,
         const IColumn* typed_dictionary, IColumn* projected_values,
         ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter, size_t* survivor_count,
-        bool* projected_directly, bool* used_filter, bool preserve_filter_values) {
+        bool* projected_directly, bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(survivor_count != nullptr);
     DORIS_CHECK(projected_directly != nullptr);
@@ -2221,11 +2221,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
     }
     DORIS_CHECK_EQ(_selected_dictionary_indices.size(), selection.selected_values);
 
-    const bool direct_fixed_width_projection =
-            !preserve_filter_values &&
-            try_filter_and_project_fixed_width_dictionary(
-                    typed_dictionary, projected_values, _selected_dictionary_indices,
-                    _nullable_selection_nulls, dictionary_filter, row_filter, survivor_count);
+    const bool direct_fixed_width_projection = try_filter_and_project_fixed_width_dictionary(
+            typed_dictionary, projected_values, _selected_dictionary_indices,
+            _nullable_selection_nulls, dictionary_filter, row_filter, survivor_count);
     auto* matched =
             matched_dictionary_ids == nullptr ? nullptr : &matched_dictionary_ids->get_data();
     if (!direct_fixed_width_projection && matched != nullptr) {
@@ -2237,19 +2235,17 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
         size_t survivors = 0;
         for (const uint8_t is_null : _nullable_selection_nulls) {
             bool keep = false;
-            uint8_t filter_value = 0;
             if (is_null == 0) {
                 const uint32_t dictionary_id = _selected_dictionary_indices[physical_row++];
                 // The complete id batch was validated before this loop, so unchecked bitmap access
                 // cannot leak partial output for a corrupt page.
-                filter_value = dictionary_filter[dictionary_id];
-                keep = filter_value != 0;
+                keep = dictionary_filter[dictionary_id] != 0;
                 if (keep && matched != nullptr) {
                     matched->push_back(cast_set<int32_t>(dictionary_id));
                 }
                 survivors += keep;
             }
-            row_filter->push_back(preserve_filter_values && keep ? filter_value : (keep ? 1 : 0));
+            row_filter->push_back(keep ? 1 : 0);
         }
         DORIS_CHECK_EQ(physical_row, _selected_dictionary_indices.size());
         *survivor_count = survivors;

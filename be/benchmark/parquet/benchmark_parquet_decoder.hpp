@@ -68,8 +68,6 @@ inline tparquet::Type::type physical_type(ValueType value_type) {
         return tparquet::Type::BYTE_ARRAY;
     case ValueType::FIXED_LEN_BYTE_ARRAY:
         return tparquet::Type::FIXED_LEN_BYTE_ARRAY;
-    case ValueType::DECIMAL64:
-        throw std::logic_error("decimal is covered by the reader benchmark only");
     }
     throw std::logic_error("unknown Parquet benchmark value type");
 }
@@ -180,8 +178,6 @@ inline void add_generated_value(DecoderDigest* digest, ValueType value_type, siz
         add_digest_value(digest, reinterpret_cast<const uint8_t*>(value.data()), value.size());
         return;
     }
-    case ValueType::DECIMAL64:
-        throw std::logic_error("decimal is covered by the reader benchmark only");
     }
     throw std::logic_error("unknown Parquet benchmark value type");
 }
@@ -302,8 +298,6 @@ inline EncodedPage dictionary_page(ValueType value_type) {
         page.value_width = FIXED_BINARY_WIDTH;
         page.dictionary = encode_fixed_binary(binary_values(DICTIONARY_ENTRIES));
         break;
-    case ValueType::DECIMAL64:
-        throw std::logic_error("decimal is covered by the reader benchmark only");
     }
     return page;
 }
@@ -368,8 +362,6 @@ inline EncodedPage encoded_page(const DecoderScenario& scenario) {
                             : std::move(plain);
         break;
     }
-    case ValueType::DECIMAL64:
-        throw std::logic_error("decimal is covered by the reader benchmark only");
     }
     return page;
 }
@@ -524,7 +516,8 @@ inline DecoderDigest expected_decoder_digest(const DecoderScenario& scenario,
 
 inline Status verify_decoder_output(format::parquet::native::Decoder* decoder, Slice* encoded,
                                     const DecoderScenario& scenario, bool binary,
-                                    const ParquetSelection& selection, const SelectionPlan& plan) {
+                                    const ParquetSelection& selection,
+                                    const SelectionPlan& plan) {
     RETURN_IF_ERROR(decoder->set_data(encoded));
     DecoderDigest actual;
     if (scenario.encoding == Encoding::DICTIONARY) {
