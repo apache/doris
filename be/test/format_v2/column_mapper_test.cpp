@@ -2459,6 +2459,10 @@ TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProject
     auto table_value_b = name_col("b", string_type);
     auto table_value = struct_name_col("value", {table_value_b});
     auto table_map = map_col("m", -1, {table_value}, key_type, table_value.type);
+    auto predicate_value_a = name_col("a", int_type);
+    auto predicate_value = struct_name_col("value", {predicate_value_a});
+    table_map.has_predicate_access_paths = true;
+    table_map.predicate_children = {std::move(predicate_value)};
     set_name_identifiers(&table_map, 0);
 
     auto file_key = name_col("key", key_type, 0);
@@ -2477,7 +2481,7 @@ TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProject
     TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
                         .global_indices = {GlobalIndex(0)}};
 
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
 
     FileScanRequest request;

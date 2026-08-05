@@ -1150,7 +1150,7 @@ TEST(ExprZonemapFilterTest, VInPredicateMaterializesNestedBloomValuesDuringOpen)
     ASSERT_TRUE(DescriptorTbl::create(&obj_pool, thrift_desc_tbl, &desc_tbl).ok());
     RuntimeState runtime_state;
     runtime_state.set_desc_tbl(desc_tbl);
-    RowDescriptor row_desc(runtime_state.desc_tbl(), {0});
+    RowDescriptor row_desc(runtime_state.desc_tbl(), {0}, {false});
     VExprContext in_context(in_predicate);
     ASSERT_TRUE(in_context.prepare(&runtime_state, row_desc).ok());
     ASSERT_TRUE(in_context.open(&runtime_state).ok());

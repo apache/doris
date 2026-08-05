@@ -452,6 +452,9 @@ protected:
         auto file_request = std::make_shared<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _projected_columns, file_request.get(), _runtime_state));
+        _constant_pruning_safe_filter_count =
+                std::min(_constant_pruning_safe_filter_count,
+                         file_request->constant_pruning_safe_table_filter_count);
         bool constant_filter_pruned_split = false;
         RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
         if (constant_filter_pruned_split) {

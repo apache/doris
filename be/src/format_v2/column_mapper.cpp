@@ -335,6 +335,8 @@ struct FileSlotRewriteInfo {
     DataTypePtr file_type;
     DataTypePtr table_type;
     std::string file_column_name;
+    const ColumnMapping* root_mapping = nullptr;
+    LocalColumnIndex scan_projection;
 };
 
 struct RewriteContext {
@@ -522,6 +524,17 @@ static bool table_filter_has_only_local_entries(
         }
     }
     return true;
+}
+
+static bool table_filter_has_only_constant_entries(
+        const TableFilter& table_filter, const std::map<GlobalIndex, FilterEntry>& filter_entries) {
+    for (const auto global_index : table_filter.global_indices) {
+        const auto entry_it = filter_entries.find(global_index);
+        if (entry_it == filter_entries.end() || !entry_it->second.is_constant()) {
+            return false;
+        }
+    }
+    return !table_filter.global_indices.empty();
 }
 
 static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr,
@@ -890,6 +903,39 @@ static bool can_filter_before_table_nullability_alignment(const DataTypePtr& fil
     return !file_type->is_nullable() || table_type->is_nullable();
 }
 
+static const ColumnMapping* find_projected_child_mapping(const ColumnMapping& mapping,
+                                                         int32_t file_local_id) {
+    const auto child_it = std::ranges::find_if(
+            mapping.child_mappings, [file_local_id](const ColumnMapping& child) {
+                return child.file_local_id.has_value() && *child.file_local_id == file_local_id;
+            });
+    return child_it == mapping.child_mappings.end() ? nullptr : &*child_it;
+}
+
+static bool projected_mapping_preserves_table_nullability(const ColumnMapping& mapping,
+                                                          const LocalColumnIndex* projection) {
+    if (!can_filter_before_table_nullability_alignment(mapping.file_type, mapping.table_type)) {
+        return false;
+    }
+    if (is_full_projection(projection)) {
+        for (const auto& child : mapping.child_mappings) {
+            if (child.file_local_id.has_value() &&
+                !projected_mapping_preserves_table_nullability(child, nullptr)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    for (const auto& child_projection : projection->children) {
+        const auto* child = find_projected_child_mapping(mapping, child_projection.local_id());
+        if (child == nullptr ||
+            !projected_mapping_preserves_table_nullability(*child, &child_projection)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool rewrite_struct_element_path_to_file_expr(
         const VExprSPtr& expr, const std::vector<ColumnMapping>& mappings,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
@@ -918,13 +964,12 @@ static bool rewrite_struct_element_path_to_file_expr(
         return false;
     }
 
-    // Check every value-producing level, including the root struct. A nullable parent also makes
-    // a child access nullable even when the child type itself is required, so checking only the
-    // final leaf is insufficient. If any file level is more nullable than its table counterpart,
-    // keep the complete predicate above TableReader so schema validation observes all NULLs before
-    // row filtering.
-    if (!can_filter_before_table_nullability_alignment(rewrite_it->second.file_type,
-                                                       rewrite_it->second.table_type)) {
+    DORIS_CHECK(rewrite_it->second.root_mapping != nullptr);
+    // File-local filtering cannot discard rows before every physically projected mapped child has
+    // reached TableReader's nullability validation. ARRAY access uses a full element projection on
+    // this branch, so validating only the selected STRUCT chain can miss a required sibling.
+    if (!projected_mapping_preserves_table_nullability(*rewrite_it->second.root_mapping,
+                                                       &rewrite_it->second.scan_projection)) {
         return false;
     }
     for (size_t idx = 0; idx < struct_element_chain.size(); ++idx) {
@@ -1025,6 +1070,8 @@ static bool rewrite_binary_struct_literal_predicate(
             .file_type = file_leaf_type,
             .table_type = table_leaf_type,
             .file_column_name = {},
+            .root_mapping = nullptr,
+            .scan_projection = {},
     };
     auto file_literal =
             rewrite_literal_to_file_type(table_literal, leaf_rewrite_info, rewrite_context);
@@ -1083,6 +1130,8 @@ static bool rewrite_in_struct_literal_predicate(
             .file_type = file_leaf_type,
             .table_type = table_leaf_type,
             .file_column_name = {},
+            .root_mapping = nullptr,
+            .scan_projection = {},
     };
     VExprSPtrs file_literals;
     file_literals.reserve(table_literals.size());
@@ -1997,7 +2046,9 @@ static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position
 // file-reader expressions; constant and unset targets stay above the file reader.
 static std::map<GlobalIndex, FileSlotRewriteInfo> build_file_slot_rewrite_map(
         const std::vector<ColumnMapping>& mappings,
-        const std::map<GlobalIndex, FilterEntry>& filter_entries) {
+        const std::vector<ColumnMapping>& output_mappings,
+        const std::map<GlobalIndex, FilterEntry>& filter_entries,
+        const FileScanRequest& file_request) {
     std::map<GlobalIndex, FileSlotRewriteInfo> global_to_file_slot;
     for (const auto& mapping : mappings) {
         const auto entry_it = filter_entries.find(mapping.global_index);
@@ -2005,12 +2056,28 @@ static std::map<GlobalIndex, FileSlotRewriteInfo> build_file_slot_rewrite_map(
             continue;
         }
         DORIS_CHECK(mapping.file_local_id.has_value());
+        const auto file_column_id = LocalColumnId(*mapping.file_local_id);
+        const auto* scan_projection =
+                find_scan_projection(file_request.predicate_columns, file_column_id);
+        if (scan_projection == nullptr) {
+            scan_projection =
+                    find_scan_projection(file_request.non_predicate_columns, file_column_id);
+        }
+        DORIS_CHECK(scan_projection != nullptr);
+        const auto output_mapping_it =
+                std::ranges::find_if(output_mappings, [&](const ColumnMapping& output_mapping) {
+                    return output_mapping.global_index == mapping.global_index;
+                });
+        const auto* physical_mapping =
+                output_mapping_it == output_mappings.end() ? &mapping : &*output_mapping_it;
         global_to_file_slot.emplace(
                 mapping.global_index,
                 FileSlotRewriteInfo {.block_position = entry_it->second.local_index().value(),
                                      .file_type = mapping.file_type,
                                      .table_type = mapping.table_type,
-                                     .file_column_name = mapping.file_column_name});
+                                     .file_column_name = mapping.file_column_name,
+                                     .root_mapping = physical_mapping,
+                                     .scan_projection = *scan_projection});
     }
     return global_to_file_slot;
 }
@@ -2263,6 +2330,7 @@ Status TableColumnMapper::create_scan_request(
     file_request->non_predicate_positions.clear();
     file_request->conjuncts.clear();
     file_request->metadata_pruning_safe_conjunct_count = 0;
+    file_request->constant_pruning_safe_table_filter_count = 0;
     file_request->delete_conjuncts.clear();
     _filter_entries.clear();
     // 1. Build referenced non-predicate columns
@@ -2430,8 +2498,11 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     // Build the complete table-slot rewrite map after all predicate columns have been assigned.
     // This keeps expression localization independent from filter iteration order.
     filter_mappings = _filter_visible_mappings();
-    const auto global_to_file_slot = build_file_slot_rewrite_map(filter_mappings, _filter_entries);
-    for (const auto& table_filter : table_filters) {
+    const auto global_to_file_slot =
+            build_file_slot_rewrite_map(filter_mappings, _mappings, _filter_entries, *file_request);
+    std::vector<bool> localized_table_filters(table_filters.size(), false);
+    for (size_t table_filter_idx = 0; table_filter_idx < table_filters.size(); ++table_filter_idx) {
+        const auto& table_filter = table_filters[table_filter_idx];
         if (table_filter.conjunct != nullptr && table_filter.conjunct->root() != nullptr) {
             const auto root = table_filter.conjunct->root();
             const auto impl = root->get_impl();
@@ -2489,9 +2560,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
             RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
             file_request->conjuncts.push_back(std::move(localized_conjunct));
-            if (table_filter.metadata_pruning_safe) {
-                ++file_request->metadata_pruning_safe_conjunct_count;
-            }
+            localized_table_filters[table_filter_idx] = true;
             for (const auto global_index : table_filter.global_indices) {
                 const auto* mapping = _find_filter_mapping(global_index);
                 if (mapping != nullptr && mapping->file_local_id.has_value() &&
@@ -2502,17 +2571,44 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         }
     }
 
+    bool in_metadata_pruning_safe_prefix = true;
+    bool in_constant_pruning_safe_prefix = true;
+    for (size_t table_filter_idx = 0; table_filter_idx < table_filters.size(); ++table_filter_idx) {
+        const auto& table_filter = table_filters[table_filter_idx];
+        const bool constant_filter =
+                table_filter_has_only_constant_entries(table_filter, _filter_entries);
+        if (!table_filter.metadata_pruning_safe) {
+            in_metadata_pruning_safe_prefix = false;
+        }
+        if (constant_filter) {
+            // Safe constant filters are evaluated before opening the file and do not occupy a
+            // file-local conjunct position.
+        } else if (!localized_table_filters[table_filter_idx]) {
+            in_metadata_pruning_safe_prefix = false;
+        } else if (in_metadata_pruning_safe_prefix) {
+            ++file_request->metadata_pruning_safe_conjunct_count;
+        }
+
+        if (in_constant_pruning_safe_prefix &&
+            (constant_filter || localized_table_filters[table_filter_idx])) {
+            ++file_request->constant_pruning_safe_table_filter_count;
+        } else {
+            // A rejected localization must preserve all later filters for post-materialization
+            // evaluation, even if a later constant would otherwise prune the complete split.
+            in_constant_pruning_safe_prefix = false;
+        }
+    }
+
     // Candidate columns are added before expression rewriting because their file-block positions
     // are needed to localize slot refs. If rewriting rejects every filter that references a visible
-    // column, move its all-access-path projection to the lazy non-predicate set instead of forcing
-    // it through the eager predicate path.
+    // column, merge any independent output/filter subtrees and move the result to the lazy
+    // non-predicate set instead of forcing it through the eager predicate path.
     for (auto& mapping : _mappings) {
         if (!mapping.file_local_id.has_value()) {
             continue;
         }
         const auto local_id = LocalColumnId(*mapping.file_local_id);
-        if (localized_predicate_columns.contains(local_id) ||
-            file_request->has_deferred_non_predicate_column(local_id)) {
+        if (localized_predicate_columns.contains(local_id)) {
             continue;
         }
         const auto predicate_it = std::ranges::find_if(
@@ -2522,8 +2618,23 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         if (predicate_it == file_request->predicate_columns.end()) {
             continue;
         }
-        file_request->non_predicate_columns.push_back(std::move(*predicate_it));
+        LocalColumnIndex demoted_projection = std::move(*predicate_it);
         file_request->predicate_columns.erase(predicate_it);
+        const auto output_it = std::ranges::find_if(file_request->non_predicate_columns,
+                                                    [local_id](const LocalColumnIndex& projection) {
+                                                        return projection.column_id() == local_id;
+                                                    });
+        if (output_it != file_request->non_predicate_columns.end()) {
+            // A rejected complex predicate still needs its filter-only subtree on Scanner's
+            // table-level path. Merge it with the deferred output before collapsing the two block
+            // positions, or branch-4.1 can silently drop the child used by the residual filter.
+            RETURN_IF_ERROR(merge_local_column_index(&demoted_projection, *output_it));
+            file_request->non_predicate_columns.erase(output_it);
+            file_request->non_predicate_positions.erase(local_id);
+            std::erase(file_request->predicate_only_columns, local_id);
+        }
+        FileScanRequestBuilder builder(file_request);
+        RETURN_IF_ERROR(builder.add_non_predicate_column(std::move(demoted_projection)));
     }
     return Status::OK();
 }

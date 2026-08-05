@@ -300,6 +300,28 @@ VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t valu
     return expr;
 }
 
+VExprSPtr table_array_struct_int_greater_than_expr(int column_id, const std::string& column_name,
+                                                   const DataTypePtr& array_type,
+                                                   const DataTypePtr& element_type,
+                                                   const DataTypePtr& accessor_type,
+                                                   const std::string& child_name, int32_t value) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_element = table_function_expr("element_at", element_type, {array_type, int_type});
+    array_element->add_child(VSlotRef::create_shared(0, column_id, -1, array_type, column_name));
+    array_element->add_child(table_int32_literal(1));
+    auto struct_element = table_function_expr("element_at", accessor_type,
+                                              {element_type, std::make_shared<DataTypeString>()});
+    struct_element->add_child(std::move(array_element));
+    struct_element->add_child(VLiteral::create_shared(
+            std::make_shared<DataTypeString>(), Field::create_field<TYPE_STRING>(child_name)));
+    auto greater_than = table_function_expr("gt", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                            {accessor_type, int_type}, TExprNodeType::BINARY_PRED,
+                                            TExprOpcode::GT);
+    greater_than->add_child(std::move(struct_element));
+    greater_than->add_child(table_int32_literal(value));
+    return greater_than;
+}
+
 VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
     TExprNode node;
     node.__set_node_type(TExprNodeType::SLOT_REF);
@@ -718,6 +740,47 @@ void write_list_struct_parquet_file(const std::string& file_path) {
     writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 3,
+                                                      writer_builder.build()));
+}
+
+void write_nullable_list_struct_parquet_file(const std::string& file_path, bool first_a_is_null) {
+    auto struct_type = arrow::struct_(
+            {arrow::field("a", arrow::int32(), true), arrow::field("b", arrow::int32(), true)});
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+    field_builders.push_back(std::make_shared<arrow::Int32Builder>());
+    field_builders.push_back(std::make_shared<arrow::Int32Builder>());
+    auto struct_builder = std::make_shared<arrow::StructBuilder>(
+            struct_type, arrow::default_memory_pool(), std::move(field_builders));
+    auto list_type = arrow::list(arrow::field("element", struct_type, true));
+    arrow::ListBuilder builder(arrow::default_memory_pool(), struct_builder, list_type);
+    auto* a_builder = assert_cast<arrow::Int32Builder*>(struct_builder->field_builder(0));
+    auto* b_builder = assert_cast<arrow::Int32Builder*>(struct_builder->field_builder(1));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_builder->Append().ok());
+    if (first_a_is_null) {
+        EXPECT_TRUE(a_builder->AppendNull().ok());
+    } else {
+        EXPECT_TRUE(a_builder->Append(0).ok());
+    }
+    EXPECT_TRUE(b_builder->AppendNull().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(20).ok());
+    EXPECT_TRUE(b_builder->Append(1).ok());
+
+    auto schema = arrow::schema({arrow::field("items", list_type, false)});
+    auto table = arrow::Table::Make(schema, {finish_array(&builder)});
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
                                                       writer_builder.build()));
 }
 
@@ -4284,6 +4347,126 @@ TEST(TableReaderTest, NestedEqualityReachesParquetBloomProbe) {
     ASSERT_NE(fallbacks, nullptr);
     EXPECT_EQ(attempts->value(), 1);
     EXPECT_EQ(fallbacks->value(), 1);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ArrayAccessorDoesNotHideRequiredUnreferencedSibling) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_array_sibling_nullability_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_nullable_list_struct_parquet_file(file_path, false);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto table_element = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type, int_type}, Strings {"a", "b"}));
+    const auto table_array = std::make_shared<DataTypeArray>(table_element);
+    auto a_child = make_table_column(0, "a", nullable_int_type);
+    ColumnDefinition b_child;
+    b_child.name = "b";
+    b_child.type = int_type;
+    ColumnDefinition element_child;
+    element_child.name = "element";
+    element_child.type = table_element;
+    element_child.children = {std::move(a_child), std::move(b_child)};
+    ColumnDefinition list_column;
+    list_column.name = "items";
+    list_column.type = make_nullable(table_array);
+    list_column.children = {std::move(element_child)};
+    std::vector<ColumnDefinition> projected_columns = {std::move(list_column)};
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto root_type = projected_columns[0].type;
+    auto predicate = table_array_struct_int_greater_than_expr(0, "items", root_type, table_element,
+                                                              nullable_int_type, "a", 5);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(&state, predicate)},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    EXPECT_FALSE(status.ok()) << "A file-local filter must not hide a required sibling NULL";
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, RejectedArrayAccessorFencesLaterDefaultConstantPruning) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_array_constant_pruning_barrier_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_nullable_list_struct_parquet_file(file_path, true);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto table_element = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, nullable_int_type}, Strings {"a", "b"}));
+    const auto table_array = std::make_shared<DataTypeArray>(table_element);
+    ColumnDefinition a_child;
+    a_child.name = "a";
+    a_child.type = int_type;
+    auto b_child = make_table_column(1, "b", nullable_int_type);
+    ColumnDefinition element_child;
+    element_child.name = "element";
+    element_child.type = table_element;
+    element_child.children = {std::move(a_child), std::move(b_child)};
+    ColumnDefinition list_column;
+    list_column.name = "items";
+    list_column.type = make_nullable(table_array);
+    list_column.children = {std::move(element_child)};
+    auto missing_default = make_table_column(101, "z", nullable_int_type);
+    missing_default.default_expr = VExprContext::create_shared(
+            VLiteral::create_shared(nullable_int_type, Field::create_field<TYPE_INT>(0)));
+    std::vector<ColumnDefinition> projected_columns = {std::move(list_column),
+                                                       std::move(missing_default)};
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto root_type = projected_columns[0].type;
+    auto accessor_predicate = table_array_struct_int_greater_than_expr(
+            0, "items", root_type, table_element, nullable_int_type, "a", 10);
+    auto default_predicate = table_function_expr(
+            "eq", make_nullable(std::make_shared<DataTypeUInt8>()), {nullable_int_type, int_type},
+            TExprNodeType::BINARY_PRED, TExprOpcode::EQ);
+    default_predicate->add_child(VSlotRef::create_shared(1, 1, -1, nullable_int_type, "z"));
+    default_predicate->add_child(table_int32_literal(7));
+
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(&state, accessor_predicate),
+                                                  prepared_conjunct(&state, default_predicate)},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    EXPECT_FALSE(status.ok())
+            << "A later false default predicate must not bypass required-child validation";
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
