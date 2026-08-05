@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.metastore.MetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.hms.PaimonHmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.paimon.rest.PaimonRestMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 
@@ -64,7 +65,6 @@ import java.util.function.BiConsumer;
 public final class PaimonCatalogFactory {
 
     private static final String USER_PROPERTY_PREFIX = "paimon.";
-    private static final String PAIMON_REST_PROPERTY_PREFIX = "paimon.rest.";
     private static final String JDBC_PREFIX = "jdbc.";
 
     /**
@@ -129,7 +129,7 @@ public final class PaimonCatalogFactory {
                 ((PaimonHmsMetaStoreProperties) bound).toCatalogOptions().forEach(options::set);
                 break;
             case PaimonConnectorProperties.REST:
-                appendRestOptions(props, options);
+                ((PaimonRestMetaStoreProperties) bound).toRestOptions().forEach(options::set);
                 break;
             case PaimonConnectorProperties.JDBC:
                 appendJdbcOptions(props, options);
@@ -191,15 +191,6 @@ public final class PaimonCatalogFactory {
             }
         }
         return false;
-    }
-
-    private static void appendRestOptions(Map<String, String> props, Options options) {
-        options.set("uri", firstNonBlank(props, PaimonConnectorProperties.REST_URI));
-        props.forEach((k, v) -> {
-            if (k.startsWith(PAIMON_REST_PROPERTY_PREFIX)) {
-                options.set(k.substring(PAIMON_REST_PROPERTY_PREFIX.length()), v);
-            }
-        });
     }
 
     private static void appendJdbcOptions(Map<String, String> props, Options options) {

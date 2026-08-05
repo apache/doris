@@ -205,6 +205,28 @@ public class PaimonCatalogOptionsSnapshotTest {
     }
 
     /**
+     * The rest flavor's {@code uri} comes from the BOUND value, so it wins over the same key arriving
+     * through the {@code paimon.rest.} prefix strip.
+     *
+     * <p>Both write to {@code uri}: {@code paimon.rest.uri} strips down onto it verbatim, and the
+     * alias-resolved value is written last. Without that ordering a padded {@code paimon.rest.uri} would
+     * connect with a value {@code validate()} never saw. The generic passthrough's own {@code rest.uri}
+     * copy stays verbatim -- it is a wildcard forward of keys this connector does not interpret.
+     */
+    @Test
+    public void restSnapshotUriComesFromTheBoundValue() {
+        assertOptions(
+                props("metastore", "rest",
+                        "catalog.type", "rest",
+                        "warehouse", "/wh",
+                        "uri", "http://rest:8080",
+                        "rest.uri", " http://rest:8080 "),
+                props("paimon.catalog.type", "rest",
+                        "warehouse", " /wh ",
+                        "paimon.rest.uri", " http://rest:8080 "));
+    }
+
+    /**
      * JDBC mixes all three sources: the {@code paimon.} passthrough, the alias-resolved
      * user/password, and the raw {@code jdbc.*} passthrough that fills in whatever the first two left
      * unset. Both alias spellings are exercised (user via {@code paimon.jdbc.}, password via bare

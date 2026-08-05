@@ -117,10 +117,9 @@ public final class PaimonConnectorProperties {
     static final String[] HMS_URI = {"hive.metastore.uris", "uri"};
 
     // ---- REST flavor keys ----
-    public static final String[] REST_URI = {"paimon.rest.uri", "uri"};
-    // REST_TOKEN_PROVIDER / REST_DLF_ACCESS_KEY_ID / REST_DLF_ACCESS_KEY_SECRET removed (P2-T03): the
-    // REST dlf-token requireIf is now owned by RestMetaStoreProperties (the @ConnectorProperty aliases
-    // live in fe-connector-metastore-spi); the connector no longer hand-checks them.
+    // Kept for PaimonAliasResolutionParityTest only (see HMS_URI above); the aliases themselves live on
+    // PaimonRestMetaStoreProperties, which now supplies the rest flavor's catalog options.
+    static final String[] REST_URI = {"paimon.rest.uri", "uri"};
 
     // ---- JDBC flavor keys ----
     public static final String[] JDBC_URI = {"uri", "paimon.jdbc.uri"};
