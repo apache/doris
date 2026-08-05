@@ -241,9 +241,13 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
         }
     }
 
-    auto backend = DORIS_TRY((s3_conf.provider == io::ObjStorageType::AZURE)
-                                     ? _create_azure_backend(s3_conf)
-                                     : _create_s3_backend(s3_conf));
+    auto backend_result = (s3_conf.provider == io::ObjStorageType::AZURE)
+                                  ? _create_azure_backend(s3_conf)
+                                  : _create_s3_backend(s3_conf);
+    if (!backend_result.has_value()) {
+        return ResultError(std::move(backend_result).error());
+    }
+    auto backend = std::move(backend_result).value();
     std::shared_ptr<const ObjStorageRateLimitPolicy> rate_limit_policy;
     if (!config::is_cloud_mode() || s3_conf.is_internal_bucket) {
         rate_limit_policy = std::make_shared<BeObjStorageRateLimitPolicy>();
@@ -520,6 +524,7 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
                     .region = info.region(),
                     .ak = info.ak(),
                     .sk = info.sk(),
+                    .token = {},
                     .bucket = info.bucket(),
                     .provider = io::ObjStorageType::AWS,
                     .use_virtual_addressing =
