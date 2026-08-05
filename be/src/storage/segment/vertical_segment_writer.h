@@ -71,6 +71,11 @@ struct VerticalSegmentWriterOptions {
     std::shared_ptr<MowContext> mow_ctx;
 };
 
+class DerivedColumnGenerator;
+// Matches block_transform.h: at most one derived column (the row-store column)
+// for each flush, held as a {cid, generator} pair; null generator means none.
+using DerivedColumn = std::pair<uint32_t, std::shared_ptr<const DerivedColumnGenerator>>;
+
 struct RowsInBlock {
     const Block* block;
     size_t row_pos;
@@ -95,6 +100,10 @@ public:
     // Once write_batch is called, no more blocks shoud be added.
     Status batch_block(const Block* block, size_t row_pos, size_t num_rows);
     Status write_batch();
+
+    void set_derived_column(DerivedColumn derived_column) {
+        _derived_column = std::move(derived_column);
+    }
 
     [[nodiscard]] std::string data_dir_path() const {
         return _data_dir == nullptr ? "" : _data_dir->path();
@@ -153,6 +162,8 @@ private:
     void _set_max_key(const Slice& key);
     Status _append_row_store_column(const Block& block, size_t row_pos, size_t num_rows,
                                     uint32_t cid);
+    Status _append_generated_column(const DerivedColumnGenerator& generator, const Block& block,
+                                    size_t row_pos, size_t num_rows, uint32_t cid);
     // Thin wrapper over MowKeyProbe that translates a ProbeOutcome back into the out-parameters the
     // partial update fill loops use. `found_cb` receives the rowset that holds `loc`: the fixed
     // path pins it in its HistoricalRowFetcher, the flexible path in `_rsid_to_rowset`, which its
@@ -254,6 +265,9 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
+
+    // the derived column the transform chain hands off to this writer's bounded pump
+    DerivedColumn _derived_column;
 
     BlockAggregator _block_aggregator;
 };
