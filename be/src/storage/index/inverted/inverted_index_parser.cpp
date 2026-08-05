@@ -236,42 +236,25 @@ std::string AnalyzerConfigParser::compute_analyzer_key(const std::string& value)
 AnalyzerConfig AnalyzerConfigParser::parse(const std::string& analyzer_name,
                                            const std::string& parser_type_str) {
     AnalyzerConfig config;
-
-    // Determine parser type from parser_type_str (from index properties)
-    auto parser_type = get_inverted_index_parser_type_from_string(parser_type_str);
     const std::string normalized_analyzer = normalize_to_lower(analyzer_name);
-
-    // If parser_type_str didn't yield a valid type, try analyzer_name
-    if (parser_type == InvertedIndexParserType::PARSER_UNKNOWN && !normalized_analyzer.empty()) {
-        parser_type = get_inverted_index_parser_type_from_string(normalized_analyzer);
-    }
-
     const bool analyzer_is_builtin = is_builtin_analyzer(normalized_analyzer);
 
-    // Case 1: analyzer_name is non-empty and NOT a builtin type => custom analyzer
-    if (!analyzer_name.empty() && !analyzer_is_builtin) {
-        config.custom_analyzer = analyzer_name;
-        config.parser_type = InvertedIndexParserType::PARSER_NONE;
+    if (!normalized_analyzer.empty()) {
         config.analyzer_key = normalize_to_lower(analyzer_name);
-    } else {
-        // Case 2: builtin analyzer or user did not specify analyzer
-        config.custom_analyzer.clear();
-
-        // Use parser_type from index properties for slow path tokenization
-        if (parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
+        if (analyzer_is_builtin) {
+            config.parser_type = get_inverted_index_parser_type_from_string(normalized_analyzer);
+        } else {
+            config.provider_name = analyzer_name;
             config.parser_type = InvertedIndexParserType::PARSER_NONE;
-        } else {
-            config.parser_type = parser_type;
         }
+        return config;
+    }
 
-        // analyzer_key: what user specified (for index selection)
-        // Empty means "user did not specify", BE will auto-select
-        if (normalized_analyzer.empty() && parser_type != InvertedIndexParserType::PARSER_UNKNOWN) {
-            // No analyzer name but valid parser type - use parser type as key
-            config.analyzer_key = inverted_index_parser_type_to_string(parser_type);
-        } else {
-            config.analyzer_key = normalized_analyzer;
-        }
+    auto parser_type = get_inverted_index_parser_type_from_string(parser_type_str);
+    if (parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
+        config.parser_type = InvertedIndexParserType::PARSER_NONE;
+    } else {
+        config.parser_type = parser_type;
     }
 
     return config;

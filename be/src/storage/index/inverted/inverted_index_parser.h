@@ -208,15 +208,15 @@ std::string build_analyzer_key_from_properties(
 
 // Result structure for analyzer config parsing
 struct AnalyzerConfig {
-    std::string custom_analyzer;
+    std::string provider_name;
     InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_NONE;
     // analyzer_key: what user specified in USING ANALYZER clause
     // Empty means "user did not specify" (BE auto-selects)
     // Non-empty means "user specified this analyzer" (BE exact matches)
     std::string analyzer_key;
 
-    // Check if this is a custom analyzer (not builtin)
-    bool is_custom() const { return !custom_analyzer.empty(); }
+    // Check if execution uses a named analyzer or normalizer provider.
+    bool uses_provider() const { return !provider_name.empty(); }
 
     // Check if user explicitly specified an analyzer
     bool is_user_specified() const { return !analyzer_key.empty(); }
