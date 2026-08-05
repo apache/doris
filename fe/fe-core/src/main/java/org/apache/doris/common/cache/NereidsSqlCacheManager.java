@@ -83,6 +83,7 @@ import org.apache.logging.log4j.Logger;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -101,9 +102,13 @@ public class NereidsSqlCacheManager {
     // key: <ctl.db>:<user>:<sql>
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
-    // Fence publication for metadata changes that can invalidate an in-flight cached plan.
-    private final AtomicLong invalidationEpoch = new AtomicLong();
+    // Table fences use this sequence without rejecting publications for unrelated tables.
+    private final AtomicLong publicationSequence = new AtomicLong();
     private final ReentrantReadWriteLock publicationLock = new ReentrantReadWriteLock();
+    // Guarded by publicationLock.
+    private long globalInvalidationSequence;
+    private final Map<Long, Long> tableIdInvalidationSequences = new HashMap<>();
+    private final Map<FullTableName, Long> tableNameInvalidationSequences = new HashMap<>();
 
     public NereidsSqlCacheManager() {
         sqlCaches = buildSqlCaches(
@@ -150,7 +155,13 @@ public class NereidsSqlCacheManager {
         publicationLock.writeLock().lock();
         try {
             if (fencePublication) {
-                invalidationEpoch.incrementAndGet();
+                long invalidationSequence = publicationSequence.incrementAndGet();
+                if (tableId >= 0) {
+                    tableIdInvalidationSequences.put(tableId, invalidationSequence);
+                }
+                if (invalidateTableName != null) {
+                    tableNameInvalidationSequences.put(invalidateTableName, invalidationSequence);
+                }
             }
             Set<String> invalidateKeys = new LinkedHashSet<>();
 
@@ -182,15 +193,28 @@ public class NereidsSqlCacheManager {
     public void invalidateAll() {
         publicationLock.writeLock().lock();
         try {
-            invalidationEpoch.incrementAndGet();
+            globalInvalidationSequence = publicationSequence.incrementAndGet();
+            tableIdInvalidationSequences.clear();
+            tableNameInvalidationSequences.clear();
             sqlCaches.invalidateAll();
         } finally {
             publicationLock.writeLock().unlock();
         }
     }
 
-    public long getInvalidationEpoch() {
-        return invalidationEpoch.get();
+    public long getPublicationSequence() {
+        return publicationSequence.get();
+    }
+
+    @VisibleForTesting
+    public long getTableInvalidationSequence(TableNameInfo tableNameInfo) {
+        publicationLock.readLock().lock();
+        try {
+            return tableNameInvalidationSequences.getOrDefault(new FullTableName(
+                    tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl()), 0L);
+        } finally {
+            publicationLock.readLock().unlock();
+        }
     }
 
     public static synchronized void updateConfig() {
@@ -259,7 +283,7 @@ public class NereidsSqlCacheManager {
         if (sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable) != null
                 && sqlCacheContext.getResultSetInFe().isPresent()) {
             sqlCacheContext.setAffectQueryResultVariables(sessionVariable);
-            putIfEpochUnchanged(key, sqlCacheContext);
+            putIfPublicationValid(key, sqlCacheContext);
         }
     }
 
@@ -309,20 +333,33 @@ public class NereidsSqlCacheManager {
                 return;
             }
 
-            putIfEpochUnchanged(key, sqlCacheContext);
+            putIfPublicationValid(key, sqlCacheContext);
         }
     }
 
-    private void putIfEpochUnchanged(String key, SqlCacheContext sqlCacheContext) {
+    private void putIfPublicationValid(String key, SqlCacheContext sqlCacheContext) {
         publicationLock.readLock().lock();
         try {
-            if (sqlCacheContext.getCacheInvalidationEpoch() == invalidationEpoch.get()
-                    && sqlCaches.getIfPresent(key) == null) {
+            if (isPublicationValid(sqlCacheContext) && sqlCaches.getIfPresent(key) == null) {
                 sqlCaches.put(key, sqlCacheContext);
             }
         } finally {
             publicationLock.readLock().unlock();
         }
+    }
+
+    private boolean isPublicationValid(SqlCacheContext sqlCacheContext) {
+        long publicationBaseline = sqlCacheContext.getPublicationBaseline();
+        if (globalInvalidationSequence > publicationBaseline) {
+            return false;
+        }
+        for (Entry<FullTableName, TableVersion> usedTable : sqlCacheContext.getUsedTables().entrySet()) {
+            if (tableIdInvalidationSequences.getOrDefault(usedTable.getValue().id, 0L) > publicationBaseline
+                    || tableNameInvalidationSequences.getOrDefault(usedTable.getKey(), 0L) > publicationBaseline) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

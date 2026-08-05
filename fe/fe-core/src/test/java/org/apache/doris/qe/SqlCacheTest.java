@@ -47,6 +47,8 @@ public class SqlCacheTest extends TestWithFeService {
         createDatabase("sql_cache_constraint_test");
         createTable("create table sql_cache_constraint_test.t (k int) "
                 + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
+        createTable("create table sql_cache_constraint_test.t2 (k int) "
+                + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
     }
 
     @Test
@@ -101,12 +103,14 @@ public class SqlCacheTest extends TestWithFeService {
         cacheContext.addUsedTable(table);
         NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
         sqlCacheManager.getSqlCaches().put("mapping_constraint_cache", cacheContext);
-        long initialEpoch = sqlCacheManager.getInvalidationEpoch();
+        long initialSequence = sqlCacheManager.getTableInvalidationSequence(
+                TableNameInfoUtils.fromTableOrNull(table));
 
         sqlCacheManager.invalidateAboutTableAndFencePublication(TableNameInfoUtils.fromTableOrNull(table));
 
         Assertions.assertNull(sqlCacheManager.getSqlCaches().getIfPresent("mapping_constraint_cache"));
-        Assertions.assertEquals(initialEpoch + 1, sqlCacheManager.getInvalidationEpoch());
+        Assertions.assertTrue(sqlCacheManager.getTableInvalidationSequence(
+                TableNameInfoUtils.fromTableOrNull(table)) > initialSequence);
     }
 
     @Test
@@ -136,26 +140,26 @@ public class SqlCacheTest extends TestWithFeService {
         sqlCacheManager.invalidateAll();
         String sql = "select 350";
         prepareFeCacheContext(sql);
-        long initialEpoch = sqlCacheManager.getInvalidationEpoch();
+        long initialSequence = sqlCacheManager.getPublicationSequence();
         TableIf table = Env.getCurrentInternalCatalog()
                 .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t");
 
         sqlCacheManager.invalidateAboutTable(table);
         sqlCacheManager.tryAddFeSqlCache(connectContext, sql);
 
-        Assertions.assertEquals(initialEpoch, sqlCacheManager.getInvalidationEpoch());
+        Assertions.assertEquals(initialSequence, sqlCacheManager.getPublicationSequence());
         Assertions.assertEquals(1, sqlCacheManager.getSqlCaches().asMap().size());
     }
 
     @Test
-    public void testInvalidationEpochRejectsLateCachePublication() throws Exception {
+    public void testTableInvalidationRejectsLatePublicationForUsedTable() throws Exception {
         connectContext.getSessionVariable().setEnableSqlCache(true);
         NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
         sqlCacheManager.invalidateAll();
         String sql = "select 400";
-        prepareFeCacheContext(sql);
         TableIf table = Env.getCurrentInternalCatalog()
                 .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t");
+        prepareFeCacheContext(sql, table);
 
         CountDownLatch publicationReady = new CountDownLatch(1);
         CountDownLatch invalidationFinished = new CountDownLatch(1);
@@ -183,16 +187,90 @@ public class SqlCacheTest extends TestWithFeService {
         }
         Assertions.assertTrue(sqlCacheManager.getSqlCaches().asMap().isEmpty());
 
-        prepareFeCacheContext(sql);
+        prepareFeCacheContext(sql, table);
         sqlCacheManager.tryAddFeSqlCache(connectContext, sql);
         Assertions.assertEquals(1, sqlCacheManager.getSqlCaches().asMap().size());
     }
 
-    private void prepareFeCacheContext(String sql) {
+    @Test
+    public void testTableInvalidationAllowsUnrelatedPublications() throws Exception {
+        connectContext.getSessionVariable().setEnableSqlCache(true);
+        NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+        sqlCacheManager.invalidateAll();
+        TableIf table = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t");
+        TableIf unrelatedTable = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t2");
+
+        prepareFeCacheContext("select 500", unrelatedTable);
+        sqlCacheManager.invalidateAboutTableAndFencePublication(table);
+        sqlCacheManager.tryAddFeSqlCache(connectContext, "select 500");
+        Assertions.assertFalse(sqlCacheManager.getSqlCaches().asMap().isEmpty());
+
+        sqlCacheManager.invalidateAll();
+        prepareFeCacheContext("select 501");
+        sqlCacheManager.invalidateAboutTableAndFencePublication(table);
+        sqlCacheManager.tryAddFeSqlCache(connectContext, "select 501");
+
+        Assertions.assertFalse(sqlCacheManager.getSqlCaches().asMap().isEmpty());
+    }
+
+    @Test
+    public void testTableInvalidationRejectsMultiTablePublication() throws Exception {
+        connectContext.getSessionVariable().setEnableSqlCache(true);
+        NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+        sqlCacheManager.invalidateAll();
+        TableIf table = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t");
+        TableIf table2 = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t2");
+        String sql = "select 600";
+        prepareFeCacheContext(sql, table, table2);
+
+        sqlCacheManager.invalidateAboutTableAndFencePublication(table2);
+        sqlCacheManager.tryAddFeSqlCache(connectContext, sql);
+
+        Assertions.assertTrue(sqlCacheManager.getSqlCaches().asMap().isEmpty());
+    }
+
+    @Test
+    public void testPersistedTableNameRejectsLatePublication() throws Exception {
+        connectContext.getSessionVariable().setEnableSqlCache(true);
+        NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+        sqlCacheManager.invalidateAll();
+        TableIf table = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t");
+        String sql = "select 700";
+        prepareFeCacheContext(sql, table);
+
+        sqlCacheManager.invalidateAboutTableAndFencePublication(TableNameInfoUtils.fromTableOrNull(table));
+        sqlCacheManager.tryAddFeSqlCache(connectContext, sql);
+
+        Assertions.assertTrue(sqlCacheManager.getSqlCaches().asMap().isEmpty());
+    }
+
+    @Test
+    public void testInvalidateAllRejectsLatePublication() {
+        connectContext.getSessionVariable().setEnableSqlCache(true);
+        NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+        sqlCacheManager.invalidateAll();
+        String sql = "select 800";
+        prepareFeCacheContext(sql);
+
+        sqlCacheManager.invalidateAll();
+        sqlCacheManager.tryAddFeSqlCache(connectContext, sql);
+
+        Assertions.assertTrue(sqlCacheManager.getSqlCaches().asMap().isEmpty());
+    }
+
+    private void prepareFeCacheContext(String sql, TableIf... tables) {
         StatementContext statementContext =
                 new StatementContext(connectContext, new OriginStatement(sql, 0));
         connectContext.setStatementContext(statementContext);
         SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().get();
+        for (TableIf table : tables) {
+            sqlCacheContext.addUsedTable(table);
+        }
         sqlCacheContext.setResultSetInFe(Mockito.mock(ResultSet.class));
     }
 }

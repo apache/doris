@@ -34,6 +34,7 @@ import org.apache.doris.binlog.UpsertRecord;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.EncryptKeySearchDesc;
@@ -42,6 +43,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -1222,11 +1224,7 @@ public class EditLog {
                         break;
                     }
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
-                    env.getConstraintManager().addConstraint(
-                            tni, constraint.getName(), constraint, true);
-                    if (constraint instanceof DistributionMappingConstraint) {
-                        env.getSqlCacheManager().invalidateAboutTableAndFencePublication(tni);
-                    }
+                    replayConstraint(env, tni, constraint, true);
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying add constraint %s on table %s",
                                     constraint.getName(), tni));
@@ -1242,11 +1240,7 @@ public class EditLog {
                         break;
                     }
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
-                    env.getConstraintManager().dropConstraint(
-                            tni, constraint.getName(), true);
-                    if (constraint instanceof DistributionMappingConstraint) {
-                        env.getSqlCacheManager().invalidateAboutTableAndFencePublication(tni);
-                    }
+                    replayConstraint(env, tni, constraint, false);
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying drop constraint %s on table %s",
                                     constraint.getName(), tni));
@@ -1542,6 +1536,39 @@ public class EditLog {
                 System.exit(-1);
             } else {
                 LOG.warn("Skip replay Operation Type {} due to exception, log id: {}", opCode, logId, e);
+            }
+        }
+    }
+
+    private static void replayConstraint(
+            Env env, TableNameInfo tableNameInfo, Constraint constraint, boolean add) {
+        TableIf table = null;
+        if (constraint instanceof DistributionMappingConstraint) {
+            CatalogIf<?> catalog = env.getCatalogMgr().getCatalog(tableNameInfo.getCtl());
+            DatabaseIf<?> database = catalog == null ? null : catalog.getDbNullable(tableNameInfo.getDb());
+            table = database == null ? null : database.getTableNullable(tableNameInfo.getTbl());
+            if (table != null) {
+                table.writeLock();
+            }
+        }
+        try {
+            if (add) {
+                env.getConstraintManager().addConstraint(
+                        tableNameInfo, constraint.getName(), constraint, true);
+            } else {
+                env.getConstraintManager().dropConstraint(
+                        tableNameInfo, constraint.getName(), true);
+            }
+            if (constraint instanceof DistributionMappingConstraint) {
+                if (table == null) {
+                    env.getSqlCacheManager().invalidateAboutTableAndFencePublication(tableNameInfo);
+                } else {
+                    env.getSqlCacheManager().invalidateAboutTableAndFencePublication(table);
+                }
+            }
+        } finally {
+            if (table != null) {
+                table.writeUnlock();
             }
         }
     }

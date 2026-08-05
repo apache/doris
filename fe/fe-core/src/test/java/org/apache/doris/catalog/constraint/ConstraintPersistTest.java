@@ -56,6 +56,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatchSupported {
 
@@ -334,24 +340,70 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
                 "pk_replay_epoch", com.google.common.collect.ImmutableSet.of("k1"));
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping_replay_epoch", "mapping_replay_epoch", List.of("k2"), List.of("k1"));
-        long initialEpoch = Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch();
+        long initialSequence = Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo);
 
         replayConstraint(OperationType.OP_ADD_CONSTRAINT, tableNameInfo, primaryKey);
-        Assertions.assertEquals(initialEpoch,
-                Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
+        Assertions.assertEquals(initialSequence, Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo));
         replayConstraint(OperationType.OP_DROP_CONSTRAINT, tableNameInfo, primaryKey);
-        Assertions.assertEquals(initialEpoch,
-                Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
+        Assertions.assertEquals(initialSequence, Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo));
 
         replayConstraint(OperationType.OP_ADD_CONSTRAINT, tableNameInfo, mapping);
-        Assertions.assertEquals(initialEpoch + 1,
-                Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
+        long addMappingSequence = Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo);
+        Assertions.assertTrue(addMappingSequence > initialSequence);
         Assertions.assertEquals(List.of(mapping), manager.getDistributionMappingConstraints(table));
         replayConstraint(OperationType.OP_DROP_CONSTRAINT, tableNameInfo, mapping);
-        Assertions.assertEquals(initialEpoch + 2,
-                Env.getCurrentEnv().getSqlCacheManager().getInvalidationEpoch());
+        Assertions.assertTrue(Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo) > addMappingSequence);
         Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
         Assertions.assertTrue(manager.getDistributionMappingConstraints(table).isEmpty());
+    }
+
+    @Test
+    void distributionMappingReplayWaitsForTableReadersBeforeMutationAndFence() throws Exception {
+        TableIf table = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_replay_lock", "mapping_replay_lock", List.of("k2"), List.of("k1"));
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        long initialSequence = Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo);
+        CountDownLatch replayStarted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        table.readLock();
+        Future<?> replay = executor.submit(() -> {
+            replayStarted.countDown();
+            replayConstraint(OperationType.OP_ADD_CONSTRAINT, tableNameInfo, mapping);
+            return null;
+        });
+        try {
+            Assertions.assertTrue(replayStarted.await(10, TimeUnit.SECONDS));
+            Assertions.assertThrows(TimeoutException.class,
+                    () -> replay.get(100, TimeUnit.MILLISECONDS));
+            Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
+            Assertions.assertEquals(initialSequence, Env.getCurrentEnv().getSqlCacheManager()
+                    .getTableInvalidationSequence(tableNameInfo));
+        } finally {
+            table.readUnlock();
+        }
+
+        try {
+            replay.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(mapping, manager.getConstraint(tableNameInfo, mapping.getName()));
+            Assertions.assertTrue(Env.getCurrentEnv().getSqlCacheManager()
+                    .getTableInvalidationSequence(tableNameInfo) > initialSequence);
+        } finally {
+            executor.shutdownNow();
+            if (manager.getConstraint(tableNameInfo, mapping.getName()) != null) {
+                manager.dropConstraint(tableNameInfo, mapping.getName(), true);
+            }
+        }
     }
 
     private void replayConstraint(short operationType, TableNameInfo tableNameInfo, Constraint constraint)

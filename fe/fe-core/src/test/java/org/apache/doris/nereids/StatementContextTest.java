@@ -55,7 +55,7 @@ public class StatementContextTest {
         try {
             org.junit.jupiter.api.Assertions.assertTrue(statementContext.getSqlCacheContext().isPresent());
             org.junit.jupiter.api.Assertions.assertEquals(
-                    0L, statementContext.getSqlCacheContext().get().getCacheInvalidationEpoch());
+                    0L, statementContext.getSqlCacheContext().get().getPublicationBaseline());
         } finally {
             statementContext.close();
         }

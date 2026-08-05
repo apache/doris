@@ -384,7 +384,7 @@ public class StatementContext implements Closeable {
                 NereidsSqlCacheManager sqlCacheManager = env == null ? null : env.getSqlCacheManager();
                 this.sqlCacheContext = new SqlCacheContext(
                         connectContext.getCurrentUserIdentity(),
-                        sqlCacheManager == null ? 0L : sqlCacheManager.getInvalidationEpoch());
+                        sqlCacheManager == null ? 0L : sqlCacheManager.getPublicationSequence());
                 if (originStatement != null) {
                     this.sqlCacheContext.setOriginSql(originStatement.originStmt);
                 }
