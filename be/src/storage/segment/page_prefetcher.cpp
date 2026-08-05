@@ -53,14 +53,14 @@ void sort_by_file_offset(std::vector<PageCandidate>* pages) {
               });
 }
 
+} // namespace
+
 bool within_read_amplification(size_t fetched_bytes, size_t requested_bytes,
                                double max_read_amplification_ratio) {
     DORIS_CHECK(requested_bytes > 0);
     return static_cast<long double>(fetched_bytes) / static_cast<long double>(requested_bytes) <=
            static_cast<long double>(max_read_amplification_ratio);
 }
-
-} // namespace
 
 Status validate_page_candidates(const std::vector<PageCandidate>& pages, uint64_t file_size) {
     uint64_t previous_end = 0;

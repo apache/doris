@@ -50,6 +50,10 @@ struct PagePrefetchOptions {
     bool adaptive_window = false;
 };
 
+/// Return whether one planned fetch stays within the configured read amplification limit.
+bool within_read_amplification(size_t fetched_bytes, size_t requested_bytes,
+                               double max_read_amplification_ratio);
+
 struct PageFetchPlan {
     std::vector<PageFetchRangeSpec> ranges;
     std::unordered_map<uint32_t, std::pair<size_t, size_t>> page_to_range;
