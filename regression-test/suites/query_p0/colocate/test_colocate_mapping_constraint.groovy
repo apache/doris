@@ -484,6 +484,15 @@ suite("test_colocate_mapping_constraint") {
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
         contains "COLOCATE"
     }
+    ["LEFT", "RIGHT", "FULL"].each { outerJoinType ->
+        explain {
+            sql """ SELECT *
+                    FROM test_colocate_mapping_constraint_left l
+                    ${outerJoinType} OUTER JOIN test_colocate_mapping_constraint_right r
+                      ON l.d1 = r.d1 AND l.k2 = r.k2 """
+            contains "COLOCATE"
+        }
+    }
     explain {
         sql """ SELECT *
                 FROM test_colocate_mapping_constraint_left l

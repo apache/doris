@@ -101,7 +101,7 @@ public class NereidsSqlCacheManager {
     // key: <ctl.db>:<user>:<sql>
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
-    // Always fence cache publication on metadata invalidation, regardless of session optimization switches.
+    // Fence publication for metadata changes that can invalidate an in-flight cached plan.
     private final AtomicLong invalidationEpoch = new AtomicLong();
     private final ReentrantReadWriteLock publicationLock = new ReentrantReadWriteLock();
 
@@ -118,6 +118,15 @@ public class NereidsSqlCacheManager {
     }
 
     public void invalidateAboutTable(TableIf tableIf) {
+        invalidateAboutTable(tableIf.getId(), getFullTableName(tableIf), false);
+    }
+
+    /** Invalidate table caches and reject cache publications started before a metadata change. */
+    public void invalidateAboutTableAndFencePublication(TableIf tableIf) {
+        invalidateAboutTable(tableIf.getId(), getFullTableName(tableIf), true);
+    }
+
+    private FullTableName getFullTableName(TableIf tableIf) {
         FullTableName invalidateTableName = null;
         DatabaseIf database = tableIf.getDatabase();
         if (database != null) {
@@ -128,19 +137,21 @@ public class NereidsSqlCacheManager {
                 );
             }
         }
-        invalidateAboutTable(tableIf.getId(), invalidateTableName);
+        return invalidateTableName;
     }
 
-    /** Invalidate table caches during replay when only the persisted qualified name is available. */
-    public void invalidateAboutTable(TableNameInfo tableNameInfo) {
+    /** Invalidate table caches and fence publication using a persisted qualified name. */
+    public void invalidateAboutTableAndFencePublication(TableNameInfo tableNameInfo) {
         invalidateAboutTable(-1L, new FullTableName(
-                tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl()));
+                tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl()), true);
     }
 
-    private void invalidateAboutTable(long tableId, FullTableName invalidateTableName) {
+    private void invalidateAboutTable(long tableId, FullTableName invalidateTableName, boolean fencePublication) {
         publicationLock.writeLock().lock();
         try {
-            invalidationEpoch.incrementAndGet();
+            if (fencePublication) {
+                invalidationEpoch.incrementAndGet();
+            }
             Set<String> invalidateKeys = new LinkedHashSet<>();
 
             for (Entry<String, SqlCacheContext> kv : sqlCaches.asMap().entrySet()) {

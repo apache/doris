@@ -134,7 +134,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
         Env.getCurrentEnv().getConstraintManager().addConstraint(tableNameInfo, name, constraint, false);
         if (table != null) {
-            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTableAndFencePublication(table);
         }
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after add constraint %s on table %s", constraint.getName(), tableNameInfo));

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
@@ -301,6 +302,25 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         Assertions.assertEquals(
                 List.of(mapping), manager.getDistributionMappingConstraints(recoveredTable));
         dropTableWithSql("drop table test.mapping_recover force");
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void restoreTableWithoutMappingClearsStaleDistributionMappingIndex() throws Exception {
+        Table table = (Table) RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        DistributionMappingConstraint staleMapping = new DistributionMappingConstraint(
+                "stale_mapping", "stale_mapping", List.of("k2"), List.of("k1"));
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        manager.addConstraint(tableNameInfo, staleMapping.getName(), staleMapping, true);
+        table.getTableAttributes().getConstraintsMap().clear();
+
+        manager.restoreTableConstraints(tableNameInfo, table);
+
+        Assertions.assertNull(manager.getConstraint(tableNameInfo, staleMapping.getName()));
+        Assertions.assertTrue(manager.getDistributionMappingConstraints(table).isEmpty());
     }
 
     @Test

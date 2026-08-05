@@ -1225,7 +1225,7 @@ public class EditLog {
                     env.getConstraintManager().addConstraint(
                             tni, constraint.getName(), constraint, true);
                     if (constraint instanceof DistributionMappingConstraint) {
-                        env.getSqlCacheManager().invalidateAboutTable(tni);
+                        env.getSqlCacheManager().invalidateAboutTableAndFencePublication(tni);
                     }
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying add constraint %s on table %s",
@@ -1245,7 +1245,7 @@ public class EditLog {
                     env.getConstraintManager().dropConstraint(
                             tni, constraint.getName(), true);
                     if (constraint instanceof DistributionMappingConstraint) {
-                        env.getSqlCacheManager().invalidateAboutTable(tni);
+                        env.getSqlCacheManager().invalidateAboutTableAndFencePublication(tni);
                     }
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying drop constraint %s on table %s",

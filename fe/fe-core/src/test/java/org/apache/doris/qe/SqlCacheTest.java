@@ -101,10 +101,12 @@ public class SqlCacheTest extends TestWithFeService {
         cacheContext.addUsedTable(table);
         NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
         sqlCacheManager.getSqlCaches().put("mapping_constraint_cache", cacheContext);
+        long initialEpoch = sqlCacheManager.getInvalidationEpoch();
 
-        sqlCacheManager.invalidateAboutTable(TableNameInfoUtils.fromTableOrNull(table));
+        sqlCacheManager.invalidateAboutTableAndFencePublication(TableNameInfoUtils.fromTableOrNull(table));
 
         Assertions.assertNull(sqlCacheManager.getSqlCaches().getIfPresent("mapping_constraint_cache"));
+        Assertions.assertEquals(initialEpoch + 1, sqlCacheManager.getInvalidationEpoch());
     }
 
     @Test
@@ -128,12 +130,32 @@ public class SqlCacheTest extends TestWithFeService {
     }
 
     @Test
+    public void testTableInvalidationDoesNotRejectUnrelatedCachePublication() throws Exception {
+        connectContext.getSessionVariable().setEnableSqlCache(true);
+        NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+        sqlCacheManager.invalidateAll();
+        String sql = "select 350";
+        prepareFeCacheContext(sql);
+        long initialEpoch = sqlCacheManager.getInvalidationEpoch();
+        TableIf table = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t");
+
+        sqlCacheManager.invalidateAboutTable(table);
+        sqlCacheManager.tryAddFeSqlCache(connectContext, sql);
+
+        Assertions.assertEquals(initialEpoch, sqlCacheManager.getInvalidationEpoch());
+        Assertions.assertEquals(1, sqlCacheManager.getSqlCaches().asMap().size());
+    }
+
+    @Test
     public void testInvalidationEpochRejectsLateCachePublication() throws Exception {
         connectContext.getSessionVariable().setEnableSqlCache(true);
         NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
         sqlCacheManager.invalidateAll();
         String sql = "select 400";
         prepareFeCacheContext(sql);
+        TableIf table = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("sql_cache_constraint_test").getTableOrDdlException("t");
 
         CountDownLatch publicationReady = new CountDownLatch(1);
         CountDownLatch invalidationFinished = new CountDownLatch(1);
@@ -148,7 +170,7 @@ public class SqlCacheTest extends TestWithFeService {
             Future<?> invalidation = executor.submit(() -> {
                 Assertions.assertTrue(publicationReady.await(30, TimeUnit.SECONDS));
                 try {
-                    sqlCacheManager.invalidateAll();
+                    sqlCacheManager.invalidateAboutTableAndFencePublication(table);
                 } finally {
                     invalidationFinished.countDown();
                 }

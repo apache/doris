@@ -31,6 +31,7 @@ import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -44,6 +45,8 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Set;
 
@@ -220,6 +223,29 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         } finally {
             table.setState(OlapTableState.NORMAL);
         }
+    }
+
+    @Test
+    void distributionMappingDropReadsConstraintUnderTableWriteLock() throws Exception {
+        addConstraint("alter table t1 add constraint mapping_drop_lock "
+                + "colocate mapping mapping_drop_lock (k2) "
+                + "determines distribution key (k1) not enforced");
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("t1");
+
+        try (MockedStatic<MTMVUtil> mtmvUtil =
+                Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mtmvUtil.when(() -> MTMVUtil.getDependentMtmvsByConstraint(
+                            Mockito.any(), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        Assertions.assertTrue(table.isWriteLockHeldByCurrentThread());
+                        return java.util.List.of();
+                    });
+
+            dropConstraint("alter table t1 drop constraint mapping_drop_lock");
+        }
+        Assertions.assertNull(getConstraintMgr().getConstraint(
+                tableNameInfoOf(table), "mapping_drop_lock"));
     }
 
     @Test

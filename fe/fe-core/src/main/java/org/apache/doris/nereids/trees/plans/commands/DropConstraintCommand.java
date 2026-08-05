@@ -86,21 +86,26 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
                     ConstraintCommandUtils.lockCurrentDatabase(tableNameInfo);
             try {
                 TableIf currentTable = database.getTableOrDdlException(tableNameInfo.getTbl());
-                constraint = getConstraintOrThrow(tableNameInfo);
-                dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-                if (constraint instanceof DistributionMappingConstraint) {
-                    if (!(currentTable instanceof OlapTable)) {
-                        throw new AnalysisException("Distribution mapping constraint requires an OLAP table");
-                    }
+                if (currentTable instanceof OlapTable) {
                     OlapTable olapTable = (OlapTable) currentTable;
                     olapTable.writeLockOrDdlException();
                     try {
+                        constraint = getConstraintOrThrow(tableNameInfo);
+                        dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
                         Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
-                        Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(currentTable);
+                        if (constraint instanceof DistributionMappingConstraint) {
+                            Env.getCurrentEnv().getSqlCacheManager()
+                                    .invalidateAboutTableAndFencePublication(currentTable);
+                        }
                     } finally {
                         olapTable.writeUnlock();
                     }
                 } else {
+                    constraint = getConstraintOrThrow(tableNameInfo);
+                    dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
+                    if (constraint instanceof DistributionMappingConstraint) {
+                        throw new AnalysisException("Distribution mapping constraint requires an OLAP table");
+                    }
                     Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
                 }
             } finally {

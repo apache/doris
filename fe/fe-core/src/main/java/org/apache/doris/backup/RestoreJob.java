@@ -2658,7 +2658,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     Env.getCurrentEnv().getConstraintManager().dropTableConstraints(originTableInfo);
                     Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
                             originTableInfo, newOlapTbl);
-                    Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(originTableInfo);
+                    Env.getCurrentEnv().getSqlCacheManager()
+                            .invalidateAboutTableAndFencePublication(originTableInfo);
 
                     // set the olap table state to normal immediately for querying
                     newOlapTbl.setState(OlapTableState.NORMAL);

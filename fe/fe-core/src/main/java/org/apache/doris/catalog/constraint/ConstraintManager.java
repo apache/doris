@@ -291,23 +291,27 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
         Map<String, Constraint> tableLocalConstraints =
                 ((Table) table).getTableAttributes().getConstraintsMap();
-        if (tableLocalConstraints.isEmpty()) {
-            return;
-        }
         String key = toKey(tableNameInfo);
         writeLock();
         try {
-            Map<String, Constraint> indexedConstraints =
-                    constraintsMap.computeIfAbsent(key, ignored -> new HashMap<>());
-            indexedConstraints.entrySet().removeIf(
-                    entry -> entry.getValue() instanceof DistributionMappingConstraint);
-            tableLocalConstraints.forEach((name, constraint) -> {
+            Map<String, Constraint> indexedConstraints = constraintsMap.get(key);
+            if (indexedConstraints != null) {
+                indexedConstraints.entrySet().removeIf(
+                        entry -> entry.getValue() instanceof DistributionMappingConstraint);
+            }
+            for (Entry<String, Constraint> entry : tableLocalConstraints.entrySet()) {
+                Constraint constraint = entry.getValue();
                 if (constraint instanceof DistributionMappingConstraint) {
-                    indexedConstraints.put(name, constraint);
+                    if (indexedConstraints == null) {
+                        indexedConstraints = new HashMap<>();
+                    }
+                    indexedConstraints.put(entry.getKey(), constraint);
                 }
-            });
-            if (indexedConstraints.isEmpty()) {
+            }
+            if (indexedConstraints == null || indexedConstraints.isEmpty()) {
                 constraintsMap.remove(key);
+            } else {
+                constraintsMap.put(key, indexedConstraints);
             }
         } finally {
             writeUnlock();
