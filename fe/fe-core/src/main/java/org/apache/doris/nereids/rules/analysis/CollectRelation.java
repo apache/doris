@@ -237,7 +237,7 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
         // we need to collect stream table's base table as well
         if (table instanceof BaseTableStream) {
-            collectFromTableStream((BaseTableStream) table, cascadesContext, tableFrom, unboundRelation);
+            collectFromTableStream((BaseTableStream) table, cascadesContext, tableFrom);
         }
     }
 
@@ -314,9 +314,29 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private void collectFromTableStream(BaseTableStream tableStream, CascadesContext cascadesContext,
-                                        TableFrom tableFrom, Optional<UnboundRelation> unboundRelation) {
+                                        TableFrom tableFrom) {
         StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
-        List<String> tableQualifier = tableStream.getBaseTableFullQualifiers();
-        statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+        TableIf baseTable = tableStream.getBaseTableNullable();
+        if (baseTable == null) {
+            throw new AnalysisException("Table ["
+                    + tableStream.getBaseTableFullQualifiers().get(2) + "] does not exist");
+        }
+
+        // Cache the ID-resolved base table so planner locks the object used during binding.
+        Map<List<String>, TableIf> tables;
+        switch (tableFrom) {
+            case QUERY:
+                tables = statementContext.getTables();
+                break;
+            case INSERT_TARGET:
+                tables = statementContext.getInsertTargetTables();
+                break;
+            case MTMV:
+                tables = statementContext.getMtmvRelatedTables();
+                break;
+            default:
+                throw new AnalysisException("Unknown table from " + tableFrom);
+        }
+        tables.put(baseTable.getFullQualifiers(), baseTable);
     }
 }
