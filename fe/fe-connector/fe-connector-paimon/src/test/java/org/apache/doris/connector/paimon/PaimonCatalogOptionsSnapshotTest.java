@@ -63,7 +63,7 @@ public class PaimonCatalogOptionsSnapshotTest {
 
     /** Sorted so an assertion failure renders as a readable diff of the whole option map. */
     private static void assertOptions(Map<String, String> expected, Map<String, String> input) {
-        Options actual = PaimonCatalogFactory.buildCatalogOptions(input);
+        Options actual = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(input));
         Assertions.assertEquals(new TreeMap<>(expected), new TreeMap<>(actual.toMap()));
     }
 

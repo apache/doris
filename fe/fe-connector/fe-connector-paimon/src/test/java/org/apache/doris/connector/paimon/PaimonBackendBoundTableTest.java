@@ -79,11 +79,11 @@ public class PaimonBackendBoundTableTest {
     private static final DataField C2 = new DataField(1, "c2", DataTypes.INT());
 
     private static PaimonScanPlanProvider provider() {
-        return new PaimonScanPlanProvider(Collections.emptyMap(), null);
+        return new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), null);
     }
 
     private static PaimonConnectorMetadata metadata(RecordingPaimonCatalogOps ops) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     // ==================== the loader itself ====================
