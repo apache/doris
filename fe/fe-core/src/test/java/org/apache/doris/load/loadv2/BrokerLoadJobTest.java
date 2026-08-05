@@ -29,6 +29,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlStatus;
+import org.apache.doris.load.FailMsg;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -467,5 +468,51 @@ public class BrokerLoadJobTest {
             // expected
         }
         Assert.assertEquals(0L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+    }
+
+    @Test
+    public void testPendingTaskOnFinishedWithNereidsPlanningError(@Injectable BrokerPendingTaskAttachment attachment,
+            @Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
+            @Injectable BrokerFileGroupAggInfo fileGroupAggInfo, @Injectable BrokerFileGroup brokerFileGroup,
+            @Injectable OlapTable olapTable, @Mocked NereidsLoadingTaskPlanner loadingTaskPlanner) throws Exception {
+        // A Nereids planning error is a RuntimeException; it must cancel the job with the real
+        // cause instead of escaping into the generic pending-task retry path (which used to end
+        // in a misleading "Label has already been used" cancellation).
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        Deencapsulation.setField(brokerLoadJob, "state", JobState.LOADING);
+        Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
+        aggKeyToFileGroups.put(new FileGroupAggKey(1L, null), Lists.newArrayList(brokerFileGroup));
+        Deencapsulation.setField(brokerLoadJob, "fileGroupAggInfo", fileGroupAggInfo);
+        new Expectations() {
+            {
+                attachment.getTaskId();
+                minTimes = 0;
+                result = 1L;
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
+                catalog.getDbNullable(anyLong);
+                minTimes = 0;
+                result = database;
+                fileGroupAggInfo.getAggKeyToFileGroups();
+                minTimes = 0;
+                result = aggKeyToFileGroups;
+                database.getTableNullable(anyLong);
+                minTimes = 0;
+                result = olapTable;
+                loadingTaskPlanner.plan((TUniqueId) any, (List) any, anyInt);
+                minTimes = 0;
+                result = new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "disk /mnt/mock on backend 10001 exceed limit usage");
+            }
+        };
+
+        brokerLoadJob.onTaskFinished(attachment);
+
+        Assert.assertEquals(JobState.CANCELLED, brokerLoadJob.getState());
+        FailMsg failMsg = Deencapsulation.getField(brokerLoadJob, "failMsg");
+        Assert.assertTrue(failMsg.getMsg().contains("exceed limit usage"));
+        Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
+        Assert.assertEquals(0, idToTasks.size());
     }
 }
