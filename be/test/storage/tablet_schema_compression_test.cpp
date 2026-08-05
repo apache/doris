@@ -55,6 +55,7 @@ TEST(TabletColumnCompressionTest, InitFromPbNoOverride) {
     TabletColumn col;
     col.init_from_pb(pb);
     ASSERT_FALSE(col.has_compression());
+    ASSERT_EQ(col.compression(), segment_v2::UNKNOWN_COMPRESSION);
 
     ColumnPB out;
     col.to_schema_pb(&out);
@@ -141,6 +142,7 @@ TEST(TabletColumnCompressionTest, InitColumnFromTColumnNoOverride) {
     ColumnPB column;
     TabletMeta::init_column_from_tcolumn(1, tcolumn, &column);
     ASSERT_FALSE(column.has_compression_type());
+    ASSERT_EQ(column.compression_type(), segment_v2::UNKNOWN_COMPRESSION);
     ASSERT_FALSE(column.has_compression_level());
 }
 

@@ -71,10 +71,6 @@ struct SegmentWriterOptions {
     uint32_t max_rows_per_segment = UINT32_MAX;
     bool enable_unique_key_merge_on_write = false;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
-    // Set for the sub-threshold small-segment optimization, which forces NO_COMPRESSION for
-    // the whole segment. When true, per-column codec overrides are suppressed as well; a
-    // table-level NO_COMPRESSION default must NOT set this, so explicit per-column codecs win.
-    bool suppress_compression = false;
 
     RowsetWriterContext* rowset_ctx = nullptr;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;

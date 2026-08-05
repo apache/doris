@@ -144,7 +144,6 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     writer_options.mow_ctx = _context.mow_context;
     if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
-        writer_options.suppress_compression = true;
     }
 
     if (_context.write_binlog_opt().enable) {
@@ -188,7 +187,6 @@ Status SegmentFlusher::_create_segment_writer(
     writer_options.mow_ctx = _context.mow_context;
     if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
-        writer_options.suppress_compression = true;
     }
 
     writer = std::make_unique<segment_v2::VerticalSegmentWriter>(

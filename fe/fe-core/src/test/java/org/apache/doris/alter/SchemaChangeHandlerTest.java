@@ -171,6 +171,25 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testRejectAddColumnWithCompression() {
+        expectException("ALTER TABLE test.sc_dup ADD COLUMN compression_v1 INT COMPRESSION 'zstd:9'",
+                "Per-column compression is not supported for ADD COLUMN");
+    }
+
+    @Test
+    public void testRejectAddColumnsWithCompression() {
+        expectException("ALTER TABLE test.sc_dup ADD COLUMN "
+                        + "(compression_v1 INT, compression_v2 INT COMPRESSION 'zstd:9')",
+                "Per-column compression is not supported for ADD COLUMN");
+    }
+
+    @Test
+    public void testRejectModifyColumnWithCompression() {
+        expectException("ALTER TABLE test.sc_dup MODIFY COLUMN error_msg VARCHAR(1024) COMPRESSION 'zstd:9'",
+                "Per-column compression is not supported for MODIFY COLUMN");
+    }
+
+    @Test
     public void testWithRowBinlogSchemaChangeNoHistoricalValue() throws Exception {
         String tableName = "binlog_no_hist";
         String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"

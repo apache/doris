@@ -53,4 +53,23 @@ public class ColumnCompressionSqlTest {
         TColumn t = ColumnToThrift.toThrift(c);
         Assertions.assertFalse(t.isSetCompressionType());
     }
+
+    @Test
+    public void testEqualsIncludesCompression() {
+        Column base = new Column("c1", Type.INT, true, null, false, "", true);
+        base.setCompression(TCompressionType.ZSTD, 9);
+
+        Column same = new Column("c1", Type.INT, true, null, false, "", true);
+        same.setCompression(TCompressionType.ZSTD, 9);
+        Assertions.assertEquals(base, same);
+        Assertions.assertEquals(base.hashCode(), same.hashCode());
+
+        Column differentType = new Column("c1", Type.INT, true, null, false, "", true);
+        differentType.setCompression(TCompressionType.LZ4HC, 9);
+        Assertions.assertNotEquals(base, differentType);
+
+        Column differentLevel = new Column("c1", Type.INT, true, null, false, "", true);
+        differentLevel.setCompression(TCompressionType.ZSTD, 10);
+        Assertions.assertNotEquals(base, differentLevel);
+    }
 }

@@ -37,8 +37,8 @@ namespace doris::segment_v2 {
 // per-column compression override on the TabletColumn is propagated into that ColumnMetaPB,
 // on BOTH writers -- VerticalSegmentWriter is the default write path
 // (config::enable_vertical_segment_writer defaults to true), so a regression there silently
-// drops the feature. They also verify that a small-segment NO_COMPRESSION suppression is not
-// overridden by the per-column codec.
+// drops the feature. They also verify that the per-column codec takes priority over the
+// writer-level compression setting.
 //
 // SegmentWriter::init_column_meta is public, so it is called directly. VerticalSegmentWriter's
 // _init_column_meta is private, so this subclass (a declared friend in the production header,
@@ -142,34 +142,43 @@ TEST_F(SegmentWriterColumnCompressionTest, SegmentWriterFallsBackToTableCodec) {
     EXPECT_FALSE(meta.has_compression_level());
 }
 
-// A per-column codec must NOT resurrect compression when the segment is small enough that
-// the writer suppressed it via the small-segment optimization (suppress_compression).
-TEST_F(SegmentWriterColumnCompressionTest, SegmentWriterRespectsNoCompressionSuppression) {
-    auto column = make_int_column(true, CompressionTypePB::ZSTD, 9);
+TEST_F(SegmentWriterColumnCompressionTest, UpgradeLegacyColumnPbInheritsTableCodec) {
+    ColumnPB legacy_pb;
+    legacy_pb.set_unique_id(0);
+    legacy_pb.set_name("c0");
+    legacy_pb.set_type("INT");
+    legacy_pb.set_is_key(true);
+    legacy_pb.set_is_nullable(false);
+    legacy_pb.set_length(4);
+    std::string serialized;
+    ASSERT_TRUE(legacy_pb.SerializeToString(&serialized));
+
+    ColumnPB upgraded_pb;
+    ASSERT_TRUE(upgraded_pb.ParseFromString(serialized));
+    ASSERT_FALSE(upgraded_pb.has_compression_type());
+    ASSERT_EQ(upgraded_pb.compression_type(), UNKNOWN_COMPRESSION);
+
+    TabletColumn column(upgraded_pb);
     auto schema = make_schema(column);
     SegmentWriterOptions opts;
-    opts.compression_type = NO_COMPRESSION;
-    opts.suppress_compression = true;
+    opts.compression_type = LZ4F;
     auto file_writer = create_file_writer(2);
     SegmentWriter writer(file_writer.get(), 2, schema, nullptr, nullptr, opts, nullptr);
 
     ColumnMetaPB meta;
     ColumnWriterOptions col_opts;
     writer.init_column_meta(&meta, 0, column, col_opts);
-    EXPECT_EQ(meta.compression(), NO_COMPRESSION);
+    EXPECT_EQ(meta.compression(), LZ4F);
     EXPECT_FALSE(meta.has_compression_level());
 }
 
-// A table-level NO_COMPRESSION default must NOT clobber an explicit per-column codec: only the
-// small-segment suppression (suppress_compression) drops the override, never the table default.
-TEST_F(SegmentWriterColumnCompressionTest,
-       SegmentWriterPerColumnCodecOverridesNoCompressionDefault) {
+TEST_F(SegmentWriterColumnCompressionTest, SegmentWriterColumnCodecOverridesTableNoCompression) {
     auto column = make_int_column(true, CompressionTypePB::ZSTD, 9);
     auto schema = make_schema(column);
     SegmentWriterOptions opts;
-    opts.compression_type = NO_COMPRESSION; // table default off, no small-segment suppression
-    auto file_writer = create_file_writer(7);
-    SegmentWriter writer(file_writer.get(), 7, schema, nullptr, nullptr, opts, nullptr);
+    opts.compression_type = NO_COMPRESSION;
+    auto file_writer = create_file_writer(2);
+    SegmentWriter writer(file_writer.get(), 2, schema, nullptr, nullptr, opts, nullptr);
 
     ColumnMetaPB meta;
     ColumnWriterOptions col_opts;
@@ -212,32 +221,14 @@ TEST_F(SegmentWriterColumnCompressionTest, VerticalSegmentWriterFallsBackToTable
     EXPECT_FALSE(meta.has_compression_level());
 }
 
-TEST_F(SegmentWriterColumnCompressionTest, VerticalSegmentWriterRespectsNoCompressionSuppression) {
+TEST_F(SegmentWriterColumnCompressionTest,
+       VerticalSegmentWriterColumnCodecOverridesTableNoCompression) {
     auto column = make_int_column(true, CompressionTypePB::ZSTD, 9);
     auto schema = make_schema(column);
     VerticalSegmentWriterOptions opts;
     opts.compression_type = NO_COMPRESSION;
-    opts.suppress_compression = true;
     auto file_writer = create_file_writer(5);
     TestVerticalSegmentWriter writer(file_writer.get(), 5, schema, nullptr, nullptr, opts, nullptr);
-
-    ColumnMetaPB meta;
-    ColumnWriterOptions col_opts;
-    writer.build_meta(&meta, column, col_opts);
-    EXPECT_EQ(meta.compression(), NO_COMPRESSION);
-    EXPECT_FALSE(meta.has_compression_level());
-}
-
-// A table-level NO_COMPRESSION default must NOT clobber an explicit per-column codec on the
-// default write path either.
-TEST_F(SegmentWriterColumnCompressionTest,
-       VerticalSegmentWriterPerColumnCodecOverridesNoCompressionDefault) {
-    auto column = make_int_column(true, CompressionTypePB::ZSTD, 9);
-    auto schema = make_schema(column);
-    VerticalSegmentWriterOptions opts;
-    opts.compression_type = NO_COMPRESSION; // table default off, no small-segment suppression
-    auto file_writer = create_file_writer(8);
-    TestVerticalSegmentWriter writer(file_writer.get(), 8, schema, nullptr, nullptr, opts, nullptr);
 
     ColumnMetaPB meta;
     ColumnWriterOptions col_opts;

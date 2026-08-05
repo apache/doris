@@ -1138,46 +1138,51 @@ public:
                 compressed_buf.size = max_len;
             }
 
-            auto ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_compressionLevel,
-                                              _compression_level);
-            if (ZSTD_isError(ret)) {
-                return Status::InvalidArgument("ZSTD_CCtx_setParameter compression level error: {}",
-                                               ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
-            }
-            // set checksum flag to 1
-            ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_checksumFlag, 1);
-            if (ZSTD_isError(ret)) {
-                return Status::InvalidArgument("ZSTD_CCtx_setParameter checksumFlag error: {}",
-                                               ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
-            }
-
             ZSTD_outBuffer out_buf = {compressed_buf.data, compressed_buf.size, 0};
+            {
+                SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                        ExecEnv::GetInstance()->block_compression_mem_tracker());
+                auto ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_compressionLevel,
+                                                  _compression_level);
+                if (ZSTD_isError(ret)) {
+                    return Status::InvalidArgument(
+                            "ZSTD_CCtx_setParameter compression level error: {}",
+                            ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                }
+                // set checksum flag to 1
+                ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_checksumFlag, 1);
+                if (ZSTD_isError(ret)) {
+                    return Status::InvalidArgument("ZSTD_CCtx_setParameter checksumFlag error: {}",
+                                                   ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                }
 
-            for (size_t i = 0; i < inputs.size(); i++) {
-                ZSTD_inBuffer in_buf = {inputs[i].data, inputs[i].size, 0};
+                for (size_t i = 0; i < inputs.size(); i++) {
+                    ZSTD_inBuffer in_buf = {inputs[i].data, inputs[i].size, 0};
 
-                bool last_input = (i == inputs.size() - 1);
-                auto mode = last_input ? ZSTD_e_end : ZSTD_e_continue;
+                    bool last_input = (i == inputs.size() - 1);
+                    auto mode = last_input ? ZSTD_e_end : ZSTD_e_continue;
 
-                bool finished = false;
-                do {
-                    // do compress
-                    ret = ZSTD_compressStream2(context->ctx, &out_buf, &in_buf, mode);
+                    bool finished = false;
+                    do {
+                        // do compress
+                        ret = ZSTD_compressStream2(context->ctx, &out_buf, &in_buf, mode);
 
-                    if (ZSTD_isError(ret)) {
-                        compress_failed = true;
-                        return Status::InternalError("ZSTD_compressStream2 error: {}",
-                                                     ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
-                    }
+                        if (ZSTD_isError(ret)) {
+                            compress_failed = true;
+                            return Status::InternalError(
+                                    "ZSTD_compressStream2 error: {}",
+                                    ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                        }
 
-                    // ret is ZSTD hint for needed output buffer size
-                    if (ret > 0 && out_buf.pos == out_buf.size) {
-                        compress_failed = true;
-                        return Status::InternalError("ZSTD_compressStream2 output buffer full");
-                    }
+                        // ret is ZSTD hint for needed output buffer size
+                        if (ret > 0 && out_buf.pos == out_buf.size) {
+                            compress_failed = true;
+                            return Status::InternalError("ZSTD_compressStream2 output buffer full");
+                        }
 
-                    finished = last_input ? (ret == 0) : (in_buf.pos == inputs[i].size);
-                } while (!finished);
+                        finished = last_input ? (ret == 0) : (in_buf.pos == inputs[i].size);
+                    } while (!finished);
+                }
             }
 
             // set compressed size for caller
@@ -1677,7 +1682,7 @@ public:
 
         std::lock_guard<std::mutex> l(_mutex);
         // Another thread may have inserted the same key while we were building.
-        auto [it, inserted] = _codecs.try_emplace(key, std::move(instance));
+        auto it = _codecs.try_emplace(key, std::move(instance)).first;
         *codec = it->second.get();
         return Status::OK();
     }

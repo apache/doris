@@ -109,7 +109,7 @@ public:
     void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
-    bool has_compression() const { return _has_compression; }
+    bool has_compression() const { return _compression != segment_v2::UNKNOWN_COMPRESSION; }
     segment_v2::CompressionTypePB compression() const { return _compression; }
     int compression_level() const { return _compression_level; }
     bool is_auto_increment() const { return _is_auto_increment; }
@@ -305,7 +305,6 @@ private:
     bool _has_default_value = false;
     std::string _default_value;
 
-    bool _has_compression = false;
     segment_v2::CompressionTypePB _compression = segment_v2::UNKNOWN_COMPRESSION;
     int _compression_level = 0;
 

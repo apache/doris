@@ -186,6 +186,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                      Map<Long, IntSupplier> colUniqueIdSupplierMap)
             throws DdlException {
         Column column = addColumnOp.getColumn();
+        if (column.hasCompressionOverride()) {
+            throw new DdlException("Per-column compression is not supported for ADD COLUMN");
+        }
         ColumnPosition columnPos = addColumnOp.getColPos();
         String targetIndexName = addColumnOp.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
@@ -264,6 +267,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                      Map<Long, LinkedList<Column>> indexSchemaMap, boolean ignoreSameColumn,
                                      Map<Long, IntSupplier> colUniqueIdSupplierMap) throws DdlException {
         List<Column> columns = addColumnsOp.getColumns();
+        if (columns.stream().anyMatch(Column::hasCompressionOverride)) {
+            throw new DdlException("Per-column compression is not supported for ADD COLUMN");
+        }
         String targetIndexName = addColumnsOp.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
 
@@ -1022,11 +1028,9 @@ public class SchemaChangeHandler extends AlterHandler {
                             && modColumn.getDataType() == PrimitiveType.VARIANT) {
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
-                    // compression-only change: the per-column codec is per-segment metadata,
-                    // old segments stay readable with their original codec and the new codec
-                    // applies to new data, so no data rewrite is needed.
-                    if (columnPos == null && col.equalsIgnoreCompression(modColumn)) {
-                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                    if (col.hasCompressionOverride() || modColumn.hasCompressionOverride()) {
+                        throw new DdlException(
+                                "Per-column compression is not supported for MODIFY COLUMN");
                     }
                     if (col.isClusterKey()) {
                         throw new DdlException("Can not modify cluster key column: " + col.getName());
@@ -1939,11 +1943,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     boolean found = false;
                     for (Column alterColumn : alterSchema) {
                         if (alterColumn.nameEquals(partitionCol.getName(), true)) {
-                            // 2.1 partition column cannot be modified.
-                            // A compression-only delta is per-segment metadata and does not affect
-                            // partitioning, so it is allowed; use equalsIgnoreCompression here.
-                            if (needAlterColumns.contains(alterColumn)
-                                    && !alterColumn.equalsIgnoreCompression(partitionCol)) {
+                            // 2.1 partition column cannot be modified
+                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(partitionCol)) {
                                 throw new DdlException(
                                         "Can not modify partition column[" + partitionCol.getName() + "]. index["
                                                 + olapTable.getIndexNameById(alterIndexId) + "]");
@@ -1972,11 +1973,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     boolean found = false;
                     for (Column alterColumn : alterSchema) {
                         if (alterColumn.nameEquals(distributionCol.getName(), true)) {
-                            // 3.1 distribution column cannot be modified.
-                            // A compression-only delta does not affect hash distribution/routing,
-                            // so it is allowed; use equalsIgnoreCompression here.
-                            if (needAlterColumns.contains(alterColumn)
-                                    && !alterColumn.equalsIgnoreCompression(distributionCol)) {
+                            // 3.1 distribution column cannot be modified
+                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(distributionCol)) {
                                 throw new DdlException(
                                         "Can not modify distribution column[" + distributionCol.getName() + "]. index["
                                                 + olapTable.getIndexNameById(alterIndexId) + "]");

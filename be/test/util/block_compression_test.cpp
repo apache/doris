@@ -151,13 +151,14 @@ TEST_F(BlockCompressionTest, multi) {
 }
 
 TEST_F(BlockCompressionTest, GetCodecWithLevelDefaultReturnsSingleton) {
-    BlockCompressionCodec* codec = nullptr;
-    // level <= 0 => default => type-only singleton
-    ASSERT_TRUE(get_block_compression_codec(segment_v2::ZSTD, 0, &codec).ok());
-    ASSERT_NE(codec, nullptr);
-    BlockCompressionCodec* singleton = nullptr;
-    ASSERT_TRUE(get_block_compression_codec(segment_v2::ZSTD, &singleton).ok());
-    ASSERT_EQ(codec, singleton);
+    for (auto type : {segment_v2::ZSTD, segment_v2::LZ4HC}) {
+        BlockCompressionCodec* codec = nullptr;
+        ASSERT_TRUE(get_block_compression_codec(type, 0, &codec).ok());
+        ASSERT_NE(codec, nullptr);
+        BlockCompressionCodec* singleton = nullptr;
+        ASSERT_TRUE(get_block_compression_codec(type, &singleton).ok());
+        ASSERT_EQ(codec, singleton);
+    }
 }
 
 TEST_F(BlockCompressionTest, GetCodecWithZstdLevelReturnsSharedInstance) {
@@ -201,6 +202,31 @@ static std::string compress_at_level(segment_v2::CompressionTypePB type, int lev
     EXPECT_TRUE(codec->decompress(Slice(compressed.data(), compressed.size()), &out_slice).ok());
     EXPECT_EQ(std::string(out_slice.data, out_slice.size), in);
     return std::string(reinterpret_cast<const char*>(compressed.data()), compressed.size());
+}
+
+TEST_F(BlockCompressionTest, DowngradeLegacyCodecReadsLeveledData) {
+    std::string in;
+    in.reserve(64 * 1024);
+    for (int i = 0; in.size() < 64 * 1024; ++i) {
+        in += "apache doris column compression ";
+        in += std::to_string(i % 1024);
+    }
+
+    struct Case {
+        segment_v2::CompressionTypePB type;
+        int level;
+    };
+    for (auto c : {Case {segment_v2::ZSTD, 9}, Case {segment_v2::LZ4HC, 9}}) {
+        std::string compressed = compress_at_level(c.type, c.level, in);
+
+        BlockCompressionCodec* legacy_codec = nullptr;
+        ASSERT_TRUE(get_block_compression_codec(c.type, &legacy_codec).ok());
+        ASSERT_NE(legacy_codec, nullptr);
+        std::string out(in.size(), '\0');
+        Slice out_slice(out);
+        ASSERT_TRUE(legacy_codec->decompress(Slice(compressed), &out_slice).ok());
+        EXPECT_EQ(std::string(out_slice.data, out_slice.size), in);
+    }
 }
 
 TEST_F(BlockCompressionTest, DifferentLevelsProduceDifferentOutput) {

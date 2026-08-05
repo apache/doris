@@ -555,15 +555,8 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
-    if (column.has_compression_type()) {
-        _has_compression = true;
-        _compression = column.compression_type();
-        _compression_level = column.has_compression_level() ? column.compression_level() : 0;
-    } else {
-        _has_compression = false;
-        _compression = segment_v2::UNKNOWN_COMPRESSION;
-        _compression_level = 0;
-    }
+    _compression = column.compression_type();
+    _compression_level = column.has_compression_level() ? column.compression_level() : 0;
 }
 
 TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
@@ -650,7 +643,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_doc_materialization_min_rows(_variant.doc_materialization_min_rows);
     column->set_variant_doc_hash_shard_count(_variant.doc_hash_shard_count);
     column->set_variant_enable_nested_group(_variant.enable_nested_group);
-    if (_has_compression) {
+    if (has_compression()) {
         column->set_compression_type(_compression);
         if (_compression_level > 0) {
             column->set_compression_level(_compression_level);

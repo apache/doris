@@ -117,10 +117,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
     meta->set_encoding(EncodingInfo::resolve_default_encoding(opts.storage_format, column));
-    // A per-column codec overrides the table-level default, but never when compression is
-    // being suppressed for this segment (small-segment NO_COMPRESSION), otherwise the
-    // sub-threshold optimization would be defeated for per-column-compressed columns.
-    if (column.has_compression() && !_opts.suppress_compression) {
+    if (column.has_compression()) {
         meta->set_compression(column.compression());
         if (column.compression_level() > 0) {
             meta->set_compression_level(column.compression_level());

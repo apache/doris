@@ -118,8 +118,6 @@ public class ColumnCompressionTest {
 
     @Test
     public void testToSqlRendersCompressionClause() throws Exception {
-        // Schema-change SQL reconstruction (ADD/MODIFY COLUMN, CCR rawSql) must carry the codec,
-        // otherwise the per-column policy is silently dropped on the downstream CCR path.
         ColumnDefinition withLevel = new ColumnDefinition("c1", IntegerType.INSTANCE, false,
                 AggregateType.NONE, true, Optional.empty(), "");
         withLevel.setCompressionSpec("zstd:9");

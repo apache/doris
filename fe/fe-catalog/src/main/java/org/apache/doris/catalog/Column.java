@@ -939,23 +939,6 @@ public class Column implements GsonPostProcessable {
 
         Column other = (Column) obj;
 
-        return equalsIgnoreCompression(other)
-                && Objects.equals(compressionType, other.compressionType)
-                && compressionLevel == other.compressionLevel;
-    }
-
-    // Compare all attributes except the per-column compression codec/level. The codec is
-    // per-segment metadata that only affects how bytes are packed on disk; it does not change a
-    // column's logical shape, routing, or partitioning. Guards that only care about "did the
-    // column change in a way that requires a data rewrite or is illegal on a key column" should
-    // use this and treat a compression-only delta separately.
-    public boolean equalsIgnoreCompression(Column other) {
-        if (other == this) {
-            return true;
-        }
-        if (other == null) {
-            return false;
-        }
         return name.equalsIgnoreCase(other.name)
                 && Objects.equals(getDefaultValue(), other.getDefaultValue())
                 && Objects.equals(aggregationType, other.aggregationType)
@@ -968,7 +951,9 @@ public class Column implements GsonPostProcessable {
                 && visible == other.visible
                 && Objects.equals(children, other.children)
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
-                && clusterKeyId == other.clusterKeyId;
+                && clusterKeyId == other.clusterKeyId
+                && Objects.equals(compressionType, other.compressionType)
+                && compressionLevel == other.compressionLevel;
     }
 
     // distribution column compare only care about attrs which affect data,
