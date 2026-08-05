@@ -45,6 +45,8 @@ namespace doris {
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
+template <typename T>
+class RleBatchDecoder;
 
 class Decoder {
 public:
@@ -94,18 +96,13 @@ protected:
 class BaseDictDecoder : public Decoder {
 public:
     BaseDictDecoder() = default;
-    ~BaseDictDecoder() override = default;
+    // Out-of-line: member unique_ptr<RleBatchDecoder<uint32_t>> only needs the
+    // complete type where the dtor/set_data/skip_values are defined (decoder.cpp),
+    // keeping the costly RLE template machinery out of every includer of this header.
+    ~BaseDictDecoder() override;
 
     // Set the data to be decoded
-    Status set_data(Slice* data) override {
-        _data = data;
-        _offset = 0;
-        uint8_t bit_width = *data->data;
-        _index_batch_decoder = std::make_unique<RleBatchDecoder<uint32_t>>(
-                reinterpret_cast<uint8_t*>(data->data) + 1, static_cast<int>(data->size) - 1,
-                bit_width);
-        return Status::OK();
-    }
+    Status set_data(Slice* data) override;
 
 protected:
     /**
@@ -146,11 +143,7 @@ protected:
         return Status::OK();
     }
 
-    Status skip_values(size_t num_values) override {
-        _indexes.resize(num_values);
-        _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(num_values));
-        return Status::OK();
-    }
+    Status skip_values(size_t num_values) override;
 
     // For dictionary encoding
     DorisUniqueBufferPtr<uint8_t> _dict;
