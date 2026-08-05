@@ -281,12 +281,13 @@ MutableColumnPtr nullable_int64(const std::vector<int64_t>& values,
                                 const std::vector<uint8_t>& nulls);
 
 MutableColumnPtr complete_shredded_object_physical(std::string_view residual_key,
-                                                   int64_t residual_value, int64_t typed_value) {
+                                                   int64_t residual_value, int64_t typed_value,
+                                                   uint8_t residual_width = 0) {
     VariantBatchBuilder builder;
     auto row = builder.begin_row();
     auto object = row.start_object();
     object.add_key(StringRef(residual_key.data(), residual_key.size()));
-    row.add_int(residual_value);
+    row.add_scalar(VariantScalarRef::integer(residual_value, residual_width));
     object.finish();
     row.finish();
     VariantBatchBuilder batch = builder.finish_batch();
@@ -302,6 +303,51 @@ MutableColumnPtr complete_shredded_object_physical(std::string_view residual_key
             nullable_strings({StringRef(residual.metadata.data, residual.metadata.size)}, {0}));
     root_fields.push_back(
             nullable_strings({StringRef(residual.value.data, residual.value.size)}, {0}));
+    root_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(object_fields)),
+                                                 ColumnUInt8::create(1, 0)));
+    return root_wrapper(std::move(root_fields));
+}
+
+MutableColumnPtr complete_shredded_decimal_object_physical(std::string_view residual_key,
+                                                           __int128 residual_value,
+                                                           uint8_t residual_scale,
+                                                           uint8_t residual_width,
+                                                           int64_t typed_value) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef(residual_key.data(), residual_key.size()));
+    row.add_scalar(VariantScalarRef::decimal(residual_value, residual_scale, residual_width));
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef residual = batch.value_at(0);
+
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(nullable_int64({typed_value}, {0}));
+    MutableColumns object_fields;
+    object_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(wrapper_fields)),
+                                                   ColumnUInt8::create(1, 0)));
+    MutableColumns root_fields;
+    root_fields.push_back(
+            nullable_strings({StringRef(residual.metadata.data, residual.metadata.size)}, {0}));
+    root_fields.push_back(
+            nullable_strings({StringRef(residual.value.data, residual.value.size)}, {0}));
+    root_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(object_fields)),
+                                                 ColumnUInt8::create(1, 0)));
+    return root_wrapper(std::move(root_fields));
+}
+
+MutableColumnPtr projected_shredded_decimal_object_physical(__int128 value, uint32_t scale) {
+    auto decimals = ColumnDecimal128V3::create(0, scale);
+    decimals->insert_value(Decimal128V3 {value});
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(
+            ColumnNullable::create(std::move(decimals), ColumnUInt8::create(1, 0)));
+    MutableColumns object_fields;
+    object_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(wrapper_fields)),
+                                                   ColumnUInt8::create(1, 0)));
+    MutableColumns root_fields;
     root_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(object_fields)),
                                                  ColumnUInt8::create(1, 0)));
     return root_wrapper(std::move(root_fields));
@@ -946,6 +992,48 @@ TEST(VariantColumnReaderTest, GathersConsecutiveProjectedShreddedBatches) {
     EXPECT_EQ(restored_values.get_value_ref(2).get_int(), 30);
 }
 
+TEST(VariantColumnReaderTest, SelectsProjectedShreddedRowsWithoutMaterializing) {
+    auto schema = shredded_object_schema();
+    schema.local_id = 0;
+    schema.children[2]->local_id = 2;
+    schema.children[2]->children[0]->local_id = 0;
+    schema.children[2]->children[0]->children[0]->local_id = 0;
+    auto projection = format::LocalColumnIndex::partial_local(0);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+    projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(0));
+    VariantMaterializationNode plan;
+    plan.schema = &schema;
+    plan.contains_variant = true;
+    plan.variant_projection = std::move(projection);
+    plan.variant_state_schema = create_variant_state_schema(schema, &*plan.variant_projection);
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_columns(plan, projected_shredded_object_physical({10, 20, 30}),
+                                            output)
+                        .ok());
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    const IColumn::Permutation permutation {2, 0, 1};
+    MutableColumnPtr permuted = variants.permute(permutation, 2);
+    MutableColumnPtr truncated = variants.clone_resized(2);
+    const std::array path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("a")}};
+    auto verify = [&](const IColumn& column, const ColumnInt64::Container& expected) {
+        const auto& selected = assert_cast<const ColumnVariantV2&>(column);
+        ASSERT_TRUE(selected.is_shredded());
+        const auto match = selected.find_shredded_typed_value(path);
+        ASSERT_TRUE(match.has_value());
+        EXPECT_EQ(assert_cast<const ColumnInt64&>(
+                          assert_cast<const ColumnNullable&>(*match->column).get_nested_column())
+                          .get_data(),
+                  expected);
+    };
+    verify(*permuted, ColumnInt64::Container({30, 10}));
+    verify(*truncated, ColumnInt64::Container({10, 20}));
+}
+
 TEST(VariantColumnReaderTest, GathersCompleteAndProjectedShreddedBatches) {
     auto projected_schema = shredded_object_schema();
     projected_schema.local_id = 0;
@@ -1065,6 +1153,80 @@ TEST(VariantColumnReaderTest, PreservesPrimitiveWidthsAcrossProjectedFiles) {
             assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
     EXPECT_EQ(values.get_value_ref(0).primitive_id(), VariantPrimitiveId::INT64);
     EXPECT_EQ(values.get_value_ref(1).primitive_id(), VariantPrimitiveId::INT32);
+}
+
+TEST(VariantColumnReaderTest, PreservesWidthsAcrossMaterializedPathFallback) {
+    auto projected_int_schema = shredded_object_schema();
+    auto projected_decimal_schema = shredded_object_schema();
+    auto* decimal_leaf = projected_decimal_schema.children[2]->children[0]->children[0].get();
+    decimal_leaf->type = make_nullable(std::make_shared<DataTypeDecimal128>(38, 2));
+    decimal_leaf->type_descriptor.decimal_precision = 38;
+    decimal_leaf->type_descriptor.decimal_scale = 2;
+    auto prepare_projected = [](ParquetColumnSchema& schema) {
+        schema.local_id = 0;
+        schema.children[2]->local_id = 2;
+        schema.children[2]->children[0]->local_id = 0;
+        schema.children[2]->children[0]->children[0]->local_id = 0;
+        auto projection = format::LocalColumnIndex::partial_local(0);
+        projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+        projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+        projection.children.back().children.back().children.push_back(
+                format::LocalColumnIndex::local(0));
+        VariantMaterializationNode plan;
+        plan.schema = &schema;
+        plan.contains_variant = true;
+        plan.variant_projection = std::move(projection);
+        plan.variant_state_schema = create_variant_state_schema(schema, &*plan.variant_projection);
+        return plan;
+    };
+    auto projected_int_plan = prepare_projected(projected_int_schema);
+    auto projected_decimal_plan = prepare_projected(projected_decimal_schema);
+    auto complete_schema = shredded_named_object_schema("b");
+    VariantMaterializationNode complete_plan;
+    complete_plan.schema = &complete_schema;
+    complete_plan.contains_variant = true;
+    complete_plan.variant_state_schema = create_variant_state_schema(complete_schema, nullptr);
+
+    auto verify = [&](VariantMaterializationNode& projected_plan,
+                      MutableColumnPtr projected_physical, MutableColumnPtr complete_physical,
+                      VariantPrimitiveId expected_id) {
+        auto projected = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+        auto complete = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+        ASSERT_TRUE(materialize_variant_columns(projected_plan, std::move(projected_physical),
+                                                projected)
+                            .ok());
+        ASSERT_TRUE(
+                materialize_variant_columns(complete_plan, std::move(complete_physical), complete)
+                        .ok());
+        const std::array<uint32_t, 1> selected {0};
+        const std::array path_segments {VariantElementV2PathSegment::object_key(StringRef("a"))};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        ASSERT_TRUE(resolve_variant_element_v2_path(path_segments, &path).ok());
+        for (const auto order : {std::array<const IColumn*, 2> {projected.get(), complete.get()},
+                                 std::array<const IColumn*, 2> {complete.get(), projected.get()}}) {
+            auto gathered = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+            for (const IColumn* source : order) {
+                gathered->insert_indices_from(*source, selected.begin(), selected.end());
+            }
+            const auto& nullable = assert_cast<const ColumnNullable&>(*gathered);
+            const auto& variants =
+                    assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+            ColumnPtr extracted;
+            ASSERT_TRUE(extract_variant_element_v2(variants, *path, nullable.get_null_map_data(),
+                                                   &extracted)
+                                .ok());
+            const auto& values = assert_cast<const ColumnVariantV2&>(
+                    assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
+            EXPECT_EQ(values.get_value_ref(0).primitive_id(), expected_id);
+            EXPECT_EQ(values.get_value_ref(1).primitive_id(), expected_id);
+        }
+    };
+
+    verify(projected_int_plan, projected_shredded_object_physical({7}),
+           complete_shredded_object_physical("a", 8, 9, 8), VariantPrimitiveId::INT64);
+    verify(projected_decimal_plan, projected_shredded_decimal_object_physical(7, 2),
+           complete_shredded_decimal_object_physical("a", 8, 2, 16, 9),
+           VariantPrimitiveId::DECIMAL16);
 }
 
 TEST(VariantColumnReaderTest, GathersProjectedShreddedBatchesWithDifferentLeafTypes) {

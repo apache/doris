@@ -323,14 +323,23 @@ public:
         DORIS_CHECK(std::ranges::all_of(_segments, [](const auto& segment) {
             return segment != nullptr;
         })) << "composite Variant shredded segments must not be null";
+        for (const auto& segment : _segments) {
+            const size_t segment_rows = segment->size();
+            DORIS_CHECK_LE(segment_rows, std::numeric_limits<size_t>::max() - _rows)
+                    << "composite Variant shredded row count overflows size_t";
+            _rows += segment_rows;
+        }
     }
 
-    size_t size() const override {
+    size_t size() const override { return _rows; }
+
+    size_t recompute_size() const {
         size_t rows = 0;
         for (const auto& segment : _segments) {
-            DORIS_CHECK_LE(segment->size(), std::numeric_limits<size_t>::max() - rows)
+            const size_t segment_rows = segment->size();
+            DORIS_CHECK_LE(segment_rows, std::numeric_limits<size_t>::max() - rows)
                     << "composite Variant shredded row count overflows size_t";
-            rows += segment->size();
+            rows += segment_rows;
         }
         return rows;
     }
@@ -356,6 +365,10 @@ public:
     }
 
     void sanity_check() const override {
+        // Row count is read in per-row expression loops, so cache it and reserve the full segment
+        // walk for invariant checks instead of making extraction quadratic in segment count.
+        DORIS_CHECK_EQ(recompute_size(), _rows)
+                << "cached composite Variant shredded row count is stale";
         for (const auto& segment : _segments) {
             segment->sanity_check();
         }
@@ -455,6 +468,9 @@ public:
     }
 
     bool try_append(const VariantShreddedState& source) override {
+        const size_t source_rows = source.size();
+        DORIS_CHECK_LE(source_rows, std::numeric_limits<size_t>::max() - _rows)
+                << "composite Variant shredded row count overflows size_t";
         if (const auto* composite = dynamic_cast<const CompositeVariantShreddedState*>(&source)) {
             for (const auto& segment : composite->_segments) {
                 append(segment);
@@ -465,6 +481,7 @@ public:
         std::lock_guard lock(_materialization_lock);
         _materialized.reset();
         _serialized.reset();
+        _rows += source_rows;
         return true;
     }
 
@@ -585,6 +602,7 @@ private:
     }
 
     std::vector<std::shared_ptr<VariantShreddedState>> _segments;
+    size_t _rows = 0;
     mutable std::mutex _materialization_lock;
     mutable ColumnVariantV2::MutablePtr _materialized;
     mutable ColumnVariantV2::MutablePtr _serialized;
@@ -1675,7 +1693,16 @@ MutableColumnPtr ColumnVariantV2::permute(const Permutation& permutation, size_t
     }
 
     if (_shredded) {
-        return _shredded->materialized_column().permute(permutation, limit);
+        DorisVector<uint32_t> selected_indices(result_size);
+        for (size_t row = 0; row < result_size; ++row) {
+            DORIS_CHECK_LE(permutation[row], std::numeric_limits<uint32_t>::max())
+                    << "shredded Variant permutation index exceeds uint32 domain";
+            selected_indices[row] = static_cast<uint32_t>(permutation[row]);
+        }
+        // Local TopN selection may run before exchange and projected states cannot reconstruct
+        // omitted root fields, so preserve the native shredded representation while gathering.
+        return ColumnVariantV2::create_shredded(_shredded->select_indices(
+                selected_indices.data(), selected_indices.data() + selected_indices.size()));
     }
 
     if (_typed) {
@@ -1714,6 +1741,11 @@ MutableColumnPtr ColumnVariantV2::clone_resized(size_t new_size) const {
             result->_shredded = _shredded;
             result->_check_invariants();
             return result;
+        }
+        if (new_size < size()) {
+            // LIMIT truncation is a row selection and must not require complete Variant roots from
+            // a projected scanner state.
+            return ColumnVariantV2::create_shredded(_shredded->select_range(0, new_size));
         }
         return _shredded->materialized_column().clone_resized(new_size);
     }

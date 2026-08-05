@@ -602,10 +602,18 @@ public:
             add_bool(value.get_bool());
             return;
         case VariantPrimitiveId::INT8:
+            add_scalar(VariantScalarRef::integer(value.get_int(), 1));
+            return;
         case VariantPrimitiveId::INT16:
+            add_scalar(VariantScalarRef::integer(value.get_int(), 2));
+            return;
         case VariantPrimitiveId::INT32:
+            add_scalar(VariantScalarRef::integer(value.get_int(), 4));
+            return;
         case VariantPrimitiveId::INT64:
-            add_int(value.get_int());
+            // Importing an existing VariantRef must retain its physical identity; external
+            // shredded schemas use the width to distinguish otherwise equal scalar values.
+            add_scalar(VariantScalarRef::integer(value.get_int(), 8));
             return;
         case VariantPrimitiveId::FLOAT:
             add_scalar(VariantScalarRef::float32(value.get_float()));
@@ -621,7 +629,7 @@ public:
                 throw Exception(ErrorCode::CORRUPTION,
                                 "Variant imported decimal exceeds precision 38");
             }
-            add_scalar(VariantScalarRef::decimal(decimal.unscaled, decimal.scale));
+            add_scalar(VariantScalarRef::decimal(decimal.unscaled, decimal.scale, decimal.width));
             return;
         }
         case VariantPrimitiveId::DATE:

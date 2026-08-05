@@ -660,14 +660,27 @@ public class AppendVariantEqualityDelete {
         WHERE v['shared'] >= 20
         ORDER BY id
     """
-    // Keep Variant element extraction above TopN so projected shredded rows cross the exchange
-    // serialization boundary before the requested leaf is evaluated.
+    sql "set enable_two_phase_read_opt=true"
+    sql "set topn_opt_limit_threshold=1024"
+    sql "set topn_lazy_materialization_threshold=-1"
+    // Keep only a mapper-eligible top-level path above forced two-phase TopN. The local row
+    // selection and the following exchange must both retain the projected shredded state.
+    explain {
+        sql """
+            SELECT id, CAST(projected['shared'] AS INT)
+            FROM (
+                SELECT id, v AS projected
+                FROM variant_multi_file
+                WHERE v['shared'] >= 20
+                ORDER BY id DESC
+                LIMIT 4
+            ) gathered
+        """
+        contains "OPT TWO PHASE"
+    }
     order_qt_variant_projected_remote_gather """
         SELECT id,
-               CAST(projected['shared'] AS INT),
-               CAST(projected['a'] AS INT),
-               CAST(projected['b'] AS INT),
-               CAST(projected['new_field']['k'] AS INT)
+               CAST(projected['shared'] AS INT)
         FROM (
             SELECT id, v AS projected
             FROM variant_multi_file
