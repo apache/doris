@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -58,6 +59,15 @@ public class IcebergCatalogFactoryTest {
             m.put(kv[i], kv[i + 1]);
         }
         return m;
+    }
+
+    /**
+     * Binds the raw map the way {@code buildCatalogProperties} does before calling the rest appender, so these
+     * tests keep expressing their input as the properties a user writes.
+     */
+    private static void appendRest(Map<String, String> opts, Map<String, String> raw,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        IcebergCatalogFactory.appendRestProperties(opts, IcebergRestMetaStoreProperties.of(raw), raw, chosenS3);
     }
 
     // ---------------------------------------------------------------------
@@ -350,12 +360,12 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy puts CatalogProperties.URI UNCONDITIONALLY (field default ""), alias priority
         // iceberg.rest.uri > uri. MUTATION: only-if-nonblank put OR wrong alias order -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.uri", "https://rest", "uri", "https://other"), Optional.empty());
         Assertions.assertEquals("https://rest", opts.get("uri"));
 
         Map<String, String> empty = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(empty, props(), Optional.empty());
+        appendRest(empty, props(), Optional.empty());
         Assertions.assertEquals("", empty.get("uri"), "uri must be emitted as empty string when no alias is set");
     }
 
@@ -363,10 +373,10 @@ public class IcebergCatalogFactoryTest {
     public void appendRestEmitsPrefixOnlyWhenSet() {
         // WHY: legacy emits "prefix" only if iceberg.rest.prefix is non-blank. MUTATION: unconditional put -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts, props("iceberg.rest.prefix", "p1"), Optional.empty());
+        appendRest(opts, props("iceberg.rest.prefix", "p1"), Optional.empty());
         Assertions.assertEquals("p1", opts.get("prefix"));
         Map<String, String> none = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(none, props(), Optional.empty());
+        appendRest(none, props(), Optional.empty());
         Assertions.assertNull(none.get("prefix"));
     }
 
@@ -376,11 +386,11 @@ public class IcebergCatalogFactoryTest {
         // Boolean.parseBoolean(iceberg.rest.vended-credentials-enabled). MUTATION: wrong header key/value or
         // emitting when disabled -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.vended-credentials-enabled", "true"), Optional.empty());
         Assertions.assertEquals("vended-credentials", opts.get("header.X-Iceberg-Access-Delegation"));
         Map<String, String> off = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(off, props(), Optional.empty());
+        appendRest(off, props(), Optional.empty());
         Assertions.assertNull(off.get("header.X-Iceberg-Access-Delegation"));
     }
 
@@ -390,11 +400,11 @@ public class IcebergCatalogFactoryTest {
         // keys rest.client.connection-timeout-ms / rest.client.socket-timeout-ms. MUTATION: wrong defaults or
         // wrong literal keys -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts, props(), Optional.empty());
+        appendRest(opts, props(), Optional.empty());
         Assertions.assertEquals("10000", opts.get("rest.client.connection-timeout-ms"));
         Assertions.assertEquals("60000", opts.get("rest.client.socket-timeout-ms"));
         Map<String, String> over = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(over,
+        appendRest(over,
                 props("iceberg.rest.connection-timeout-ms", "5000", "iceberg.rest.socket-timeout-ms", "7000"),
                 Optional.empty());
         Assertions.assertEquals("5000", over.get("rest.client.connection-timeout-ms"));
@@ -407,7 +417,7 @@ public class IcebergCatalogFactoryTest {
         // server-uri/scope + token-refresh-enabled (default "true" from OAuth2Properties default).
         // MUTATION: emitting token instead, wrong keys, or dropping token-refresh-enabled -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.security.type", "oauth2",
                         "iceberg.rest.oauth2.credential", "id:secret",
                         "iceberg.rest.oauth2.server-uri", "https://auth",
@@ -425,7 +435,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: oauth2 with no credential uses the pre-configured token flow: emit OAuth2Properties.TOKEN.
         // MUTATION: emitting credential / token-refresh-enabled here -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.security.type", "oauth2", "iceberg.rest.oauth2.token", "tok"), Optional.empty());
         Assertions.assertEquals("tok", opts.get("token"));
         Assertions.assertNull(opts.get("credential"));
@@ -437,7 +447,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: the oauth2 block is gated on security.type==oauth2 (default none). MUTATION: applying it
         // unconditionally would leak credential/token even for a non-oauth2 catalog -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.oauth2.credential", "id:secret"), Optional.empty());
         Assertions.assertNull(opts.get("credential"));
     }
@@ -448,7 +458,7 @@ public class IcebergCatalogFactoryTest {
         // glue/s3tables the credentials come from the chosen S3 store, EXPLICIT (static AK/SK) -> rest.* creds
         // (AwsProperties.REST_*). MUTATION: wrong signing keys, or sourcing creds from the wrong place -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "glue", "iceberg.rest.sigv4-enabled", "true",
                         "iceberg.rest.signing-region", "us-east-1"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").accessKey("AK").secretKey("SK")
@@ -467,7 +477,7 @@ public class IcebergCatalogFactoryTest {
         // ARN the glue/s3tables signing path emits the assume-role block (client.factory + client.assume-role.*).
         // MUTATION: emitting rest.access-key-id from a blank AK, or skipping assume-role -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "s3tables", "iceberg.rest.sigv4-enabled", "true",
                         "iceberg.rest.signing-region", "us-west-2"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-west-2")
@@ -482,7 +492,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: a signing-name NOT in {glue,s3tables} uses the iceberg.rest.* explicit creds (not the S3 store).
         // MUTATION: reading the S3 store here -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "custom",
                         "iceberg.rest.access-key-id", "RAK", "iceberg.rest.secret-access-key", "RSK"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").accessKey("SHOULD_NOT_USE")
@@ -497,7 +507,7 @@ public class IcebergCatalogFactoryTest {
         // s3.credentials_provider_type must pin client.credentials-provider to that provider class (was silently
         // dropped). MUTATION: dropping the else branch -> the key is absent -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "glue", "s3.credentials_provider_type", "anonymous"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")));
         Assertions.assertEquals(AnonymousCredentialsProvider.class.getName(),
@@ -505,7 +515,7 @@ public class IcebergCatalogFactoryTest {
 
         // DEFAULT / absent -> nothing emitted (SDK default chain, the common case).
         Map<String, String> defaultOpts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(defaultOpts,
+        appendRest(defaultOpts,
                 props("iceberg.rest.signing-name", "glue"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")));
         Assertions.assertNull(defaultOpts.get("client.credentials-provider"),
@@ -517,7 +527,7 @@ public class IcebergCatalogFactoryTest {
         // F14: a non-glue/s3tables signing-name with NO explicit iceberg.rest.* creds falls to PROVIDER_CHAIN;
         // iceberg.rest.credentials_provider_type pins the provider class. MUTATION: dropping the else -> absent.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "custom",
                         "iceberg.rest.credentials_provider_type", "web-identity"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3")));
@@ -531,7 +541,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: the entire signing block is gated on a non-blank signing-name. MUTATION: emitting rest.signing-name
         // (even empty) without the gate -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts, props(), Optional.empty());
+        appendRest(opts, props(), Optional.empty());
         Assertions.assertNull(opts.get("rest.signing-name"));
         Assertions.assertNull(opts.get("rest.sigv4-enabled"));
     }

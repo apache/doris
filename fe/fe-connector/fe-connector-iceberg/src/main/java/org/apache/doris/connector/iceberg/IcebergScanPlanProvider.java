@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
@@ -1538,8 +1539,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * vended-credentials gate to its hadoop config / output path). Pure function of the catalog properties.
      */
     static boolean restVendedCredentialsEnabled(Map<String, String> properties) {
+        // Bound rather than read raw so the flag has ONE reader: the same holder the catalog assembly uses to
+        // decide whether to send the delegation header. The bind is behind the flavor check, so it happens only
+        // for a REST catalog, and only on the per-table paths below (never per split).
         return IcebergConnectorProperties.TYPE_REST.equals(IcebergCatalogFactory.resolveFlavor(properties))
-                && Boolean.parseBoolean(properties.get(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED));
+                && IcebergRestMetaStoreProperties.of(properties).isVendedCredentialsEnabled();
     }
 
     /**

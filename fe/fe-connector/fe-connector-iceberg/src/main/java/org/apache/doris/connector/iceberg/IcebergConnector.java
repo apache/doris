@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
@@ -151,6 +152,11 @@ public class IcebergConnector implements Connector {
     private static final String BE_TEST_LOCATION = "test_location";
 
     private final Map<String, String> properties;
+    // The bound iceberg.rest.* facts, the single reader of those keys on this side. Bound for EVERY flavor:
+    // of() only binds (it never validates, that is the provider's CREATE-time job), and the two listing flags
+    // it carries are read unconditionally below -- IcebergCatalogOps gates them on restFlavor instead, so a
+    // non-REST catalog reads the same defaults it read from the raw map before.
+    private final IcebergRestMetaStoreProperties restProperties;
     private final ConnectorContext context;
     private volatile Catalog icebergCatalog;
     // Session-aware REST catalog, built for every REST catalog (plain or iceberg.rest.session=user). A SINGLE
@@ -215,6 +221,8 @@ public class IcebergConnector implements Connector {
 
     public IcebergConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
+        // Before isUserSessionEnabled(), which the cache fields below gate on.
+        this.restProperties = IcebergRestMetaStoreProperties.of(this.properties);
         // Pin the thread-context classloader to the plugin loader for the duration of every
         // executeAuthenticated call (see TcclPinningConnectorContext). The injected context is fanned out to
         // the metadata / transaction / procedure ops below; wrapping it once here is what extends the
@@ -565,10 +573,8 @@ public class IcebergConnector implements Connector {
     private IcebergCatalogOps newCatalogBackedOps() {
         String flavor = IcebergCatalogFactory.resolveFlavor(properties);
         boolean restFlavor = IcebergConnectorProperties.TYPE_REST.equals(flavor);
-        boolean nestedNamespaceEnabled = Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.REST_NESTED_NAMESPACE_ENABLED, "false"));
-        boolean viewEnabled = Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.REST_VIEW_ENABLED, "true"));
+        boolean nestedNamespaceEnabled = restProperties.isNestedNamespaceEnabled();
+        boolean viewEnabled = restProperties.isViewEnabled();
         Optional<String> externalCatalogName =
                 Optional.ofNullable(properties.get(IcebergConnectorProperties.EXTERNAL_CATALOG_NAME));
         Catalog sharedCatalog = getOrCreateCatalog();
@@ -602,10 +608,8 @@ public class IcebergConnector implements Connector {
         IcebergSessionCatalogAdapter adapter = sessionCatalogAdapter;
         Catalog perUserCatalog = adapter.delegatedCatalog(session);
         ViewCatalog perUserViewCatalog = adapter.delegatedViewCatalog(session);
-        boolean nestedNamespaceEnabled = Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.REST_NESTED_NAMESPACE_ENABLED, "false"));
-        boolean viewEnabled = Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.REST_VIEW_ENABLED, "true"));
+        boolean nestedNamespaceEnabled = restProperties.isNestedNamespaceEnabled();
+        boolean viewEnabled = restProperties.isViewEnabled();
         Optional<String> externalCatalogName =
                 Optional.ofNullable(properties.get(IcebergConnectorProperties.EXTERNAL_CATALOG_NAME));
         // restFlavor is unconditionally true here (isUserSessionEnabled() ⇒ a REST catalog).
@@ -874,8 +878,7 @@ public class IcebergConnector implements Connector {
      * that {@code session=user} implies {@code security.type=oauth2}.
      */
     boolean isUserSessionEnabled() {
-        return IcebergConnectorProperties.SESSION_USER.equalsIgnoreCase(
-                        properties.get(IcebergConnectorProperties.REST_SESSION))
+        return restProperties.isUserSession()
                 && IcebergConnectorProperties.TYPE_REST.equals(IcebergCatalogFactory.resolveFlavor(properties));
     }
 
@@ -976,15 +979,14 @@ public class IcebergConnector implements Connector {
         // Built directly via new RESTSessionCatalog(), so the CatalogUtil catalog-impl key is neither needed nor
         // valid here; drop it.
         sessionProps.remove(CatalogProperties.CATALOG_IMPL);
-        String sessionTimeout = properties.get(IcebergConnectorProperties.REST_SESSION_TIMEOUT);
+        String sessionTimeout = restProperties.getSessionTimeout();
         if (StringUtils.isNotBlank(sessionTimeout)) {
             sessionProps.put(CatalogProperties.AUTH_SESSION_TIMEOUT_MS, sessionTimeout);
         }
         boolean userSession = isUserSessionEnabled();
         IcebergSessionCatalogAdapter.DelegatedTokenMode tokenMode =
-                IcebergSessionCatalogAdapter.DelegatedTokenMode.fromString(properties.getOrDefault(
-                        IcebergConnectorProperties.REST_DELEGATED_TOKEN_MODE,
-                        IcebergConnectorProperties.DELEGATED_TOKEN_MODE_ACCESS_TOKEN));
+                IcebergSessionCatalogAdapter.DelegatedTokenMode.fromString(
+                        restProperties.getDelegatedTokenMode());
         // Frozen catalog-identity properties for the 401-recovery rebuild: an unmodifiable copy so the rebuild
         // always re-resolves from the catalog's OWN credential and can never capture a per-user delegated token.
         Map<String, String> frozenProps = Collections.unmodifiableMap(new HashMap<>(sessionProps));

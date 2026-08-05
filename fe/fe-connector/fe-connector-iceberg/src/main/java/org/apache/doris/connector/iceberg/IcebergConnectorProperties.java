@@ -69,23 +69,14 @@ public final class IcebergConnectorProperties {
     public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
     public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
 
-    // -- REST catalog options --
-    public static final String REST_NESTED_NAMESPACE_ENABLED = "iceberg.rest.nested-namespace-enabled";
-    public static final String REST_VIEW_ENABLED = "iceberg.rest.view-enabled";
-
     // -- REST per-user session (OIDC delegated credential; #63068 re-migration) --
     // iceberg.rest.session = none (default, one shared catalog identity) | user (project the querying user's
     // delegated credential onto a per-request Iceberg REST SessionCatalog; requires security.type=oauth2 and
-    // gates the SUPPORTS_USER_SESSION capability). delegated-token-mode picks how the token is attached:
-    // access_token = verbatim OAuth2 bearer; token_exchange = typed token key so the REST server exchanges it.
+    // gates the SUPPORTS_USER_SESSION capability). Every other REST key -- including the rest of this one's
+    // family -- is declared by IcebergRestMetaStoreProperties; these two remain only because test fixtures
+    // spell the session mode out when building a catalog property map.
     public static final String REST_SESSION = "iceberg.rest.session";
-    public static final String SESSION_NONE = "none";
     public static final String SESSION_USER = "user";
-    public static final String REST_DELEGATED_TOKEN_MODE = "iceberg.rest.oauth2.delegated-token-mode";
-    public static final String DELEGATED_TOKEN_MODE_ACCESS_TOKEN = "access_token";
-    public static final String DELEGATED_TOKEN_MODE_TOKEN_EXCHANGE = "token_exchange";
-    // Optional per-session OAuth2 AuthSession timeout (maps to CatalogProperties.AUTH_SESSION_TIMEOUT_MS).
-    public static final String REST_SESSION_TIMEOUT = "iceberg.rest.session-timeout";
 
     // -- Namespace hierarchy (REST 3-level <catalog>.<db>.<table>) --
     // Mirrors legacy IcebergExternalCatalog.EXTERNAL_CATALOG_NAME: when present, this catalog level is
@@ -108,28 +99,10 @@ public final class IcebergConnectorProperties {
     // are referenced via the SDK in IcebergCatalogFactory, not duplicated here.
     // =====================================================================
 
-    // -- REST input aliases (legacy IcebergRestProperties @ConnectorProperty names) --
-    public static final String REST_URI = "iceberg.rest.uri";
-    public static final String URI = "uri";
-    public static final String REST_PREFIX = "iceberg.rest.prefix";
-    public static final String REST_SECURITY_TYPE = "iceberg.rest.security.type";
-    public static final String REST_OAUTH2_TOKEN = "iceberg.rest.oauth2.token";
-    public static final String REST_OAUTH2_CREDENTIAL = "iceberg.rest.oauth2.credential";
-    public static final String REST_OAUTH2_SCOPE = "iceberg.rest.oauth2.scope";
-    public static final String REST_OAUTH2_SERVER_URI = "iceberg.rest.oauth2.server-uri";
-    public static final String REST_OAUTH2_TOKEN_REFRESH_ENABLED = "iceberg.rest.oauth2.token-refresh-enabled";
+    // -- REST input alias (the rest of the family lives on IcebergRestMetaStoreProperties) --
     public static final String REST_VENDED_CREDENTIALS_ENABLED = "iceberg.rest.vended-credentials-enabled";
-    public static final String REST_SIGV4_ENABLED = "iceberg.rest.sigv4-enabled";
-    public static final String REST_SIGNING_NAME = "iceberg.rest.signing-name";
-    public static final String REST_SIGNING_REGION = "iceberg.rest.signing-region";
-    public static final String REST_ACCESS_KEY_ID = "iceberg.rest.access-key-id";
-    public static final String REST_SECRET_ACCESS_KEY = "iceberg.rest.secret-access-key";
-    public static final String REST_SESSION_TOKEN = "iceberg.rest.session-token";
-    public static final String REST_CREDENTIALS_PROVIDER_TYPE = "iceberg.rest.credentials_provider_type";
-    public static final String REST_CONNECTION_TIMEOUT_MS = "iceberg.rest.connection-timeout-ms";
-    public static final String REST_SOCKET_TIMEOUT_MS = "iceberg.rest.socket-timeout-ms";
 
-    // -- REST emitted literal keys / values / defaults (non-SDK) --
+    // -- REST emitted literal keys / values (non-SDK) --
     public static final String REST_PREFIX_KEY = "prefix";
     public static final String REST_VENDED_CREDENTIALS_HEADER = "header.X-Iceberg-Access-Delegation";
     public static final String REST_VENDED_CREDENTIALS_VALUE = "vended-credentials";
@@ -138,12 +111,9 @@ public final class IcebergConnectorProperties {
     public static final String REST_SIGNING_NAME_KEY = "rest.signing-name";
     public static final String REST_SIGV4_ENABLED_KEY = "rest.sigv4-enabled";
     public static final String REST_SIGNING_REGION_KEY = "rest.signing-region";
-    public static final String DEFAULT_REST_CONNECTION_TIMEOUT_MS = "10000";
-    public static final String DEFAULT_REST_SOCKET_TIMEOUT_MS = "60000";
     public static final String SECURITY_TYPE_OAUTH2 = "oauth2";
     public static final String SIGNING_NAME_GLUE = "glue";
     public static final String SIGNING_NAME_S3TABLES = "s3tables";
-    public static final String PROVIDER_MODE_DEFAULT = "DEFAULT";
 
     // -- GLUE input alias arrays (legacy AWSGlueMetaStoreBaseProperties / IcebergGlueMetaStoreProperties) --
     public static final String[] GLUE_ENDPOINT = {"glue.endpoint", "aws.endpoint", "aws.glue.endpoint"};

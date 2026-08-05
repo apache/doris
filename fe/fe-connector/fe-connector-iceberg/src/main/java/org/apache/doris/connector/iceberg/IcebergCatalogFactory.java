@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -331,7 +332,9 @@ public final class IcebergCatalogFactory {
         opts.put(CatalogProperties.CATALOG_IMPL, resolveCatalogImpl(flavor));
         switch (flavor) {
             case IcebergConnectorProperties.TYPE_REST:
-                appendRestProperties(opts, props, chosenS3);
+                // Bound directly rather than through MetaStoreProviders: the flavor is already decided here, and
+                // this class stays a PURE offline-testable function (a ServiceLoader lookup is neither).
+                appendRestProperties(opts, IcebergRestMetaStoreProperties.of(props), props, chosenS3);
                 appendS3FileIO(opts, props, chosenS3);
                 break;
             case IcebergConnectorProperties.TYPE_GLUE:
@@ -420,67 +423,58 @@ public final class IcebergCatalogFactory {
      * ({@code prefix} / vended-credentials header / the two effectively-always timeouts), oauth2, and the glue
      * sigv4 signing block (with credentials sourced from the chosen S3 store for glue/s3tables, else from the
      * {@code iceberg.rest.*} aliases). PURE.
+     *
+     * <p>Every {@code iceberg.rest.*} value is read off the BOUND {@code rest} holder, which declares the alias
+     * set once. {@code props} is still needed for the credential-provider mode, whose alias set spans the
+     * s3/glue/rest namespaces and so belongs to no single flavor.
      */
-    public static void appendRestProperties(Map<String, String> opts, Map<String, String> props,
-            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+    public static void appendRestProperties(Map<String, String> opts, IcebergRestMetaStoreProperties rest,
+            Map<String, String> props, Optional<S3CompatibleFileSystemProperties> chosenS3) {
         // Core: uri is put UNCONDITIONALLY (legacy field default ""), alias priority iceberg.rest.uri > uri.
-        opts.put(CatalogProperties.URI,
-                firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_URI, IcebergConnectorProperties.URI));
+        opts.put(CatalogProperties.URI, rest.getUri());
         // Optional.
-        putIfNotBlank(opts, IcebergConnectorProperties.REST_PREFIX_KEY,
-                firstNonBlank(props, IcebergConnectorProperties.REST_PREFIX));
-        String vendedEnabled =
-                firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED);
-        if (Boolean.parseBoolean(vendedEnabled)) {
+        putIfNotBlank(opts, IcebergConnectorProperties.REST_PREFIX_KEY, rest.getPrefix());
+        if (rest.isVendedCredentialsEnabled()) {
             opts.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_HEADER,
                     IcebergConnectorProperties.REST_VENDED_CREDENTIALS_VALUE);
         }
         // Timeouts: legacy fields default non-blank, so they are effectively always emitted.
-        opts.put(IcebergConnectorProperties.REST_CONNECTION_TIMEOUT_MS_KEY,
-                firstNonBlankOr(props, IcebergConnectorProperties.DEFAULT_REST_CONNECTION_TIMEOUT_MS,
-                        IcebergConnectorProperties.REST_CONNECTION_TIMEOUT_MS));
-        opts.put(IcebergConnectorProperties.REST_SOCKET_TIMEOUT_MS_KEY,
-                firstNonBlankOr(props, IcebergConnectorProperties.DEFAULT_REST_SOCKET_TIMEOUT_MS,
-                        IcebergConnectorProperties.REST_SOCKET_TIMEOUT_MS));
-        appendRestOAuth2Properties(opts, props);
-        appendRestSigningProperties(opts, props, chosenS3);
+        opts.put(IcebergConnectorProperties.REST_CONNECTION_TIMEOUT_MS_KEY, rest.getConnectionTimeoutMs());
+        opts.put(IcebergConnectorProperties.REST_SOCKET_TIMEOUT_MS_KEY, rest.getSocketTimeoutMs());
+        appendRestOAuth2Properties(opts, rest);
+        appendRestSigningProperties(opts, rest, props, chosenS3);
     }
 
-    private static void appendRestOAuth2Properties(Map<String, String> opts, Map<String, String> props) {
-        String securityType = firstNonBlank(props, IcebergConnectorProperties.REST_SECURITY_TYPE);
-        if (!IcebergConnectorProperties.SECURITY_TYPE_OAUTH2.equalsIgnoreCase(securityType)) {
+    private static void appendRestOAuth2Properties(Map<String, String> opts, IcebergRestMetaStoreProperties rest) {
+        if (!IcebergConnectorProperties.SECURITY_TYPE_OAUTH2.equalsIgnoreCase(rest.getSecurityType())) {
             return;
         }
-        String credential = firstNonBlank(props, IcebergConnectorProperties.REST_OAUTH2_CREDENTIAL);
+        String credential = rest.getOauth2Credential();
         if (StringUtils.isNotBlank(credential)) {
             // Client Credentials Flow.
             opts.put(OAuth2Properties.CREDENTIAL, credential);
-            putIfNotBlank(opts, OAuth2Properties.OAUTH2_SERVER_URI,
-                    firstNonBlank(props, IcebergConnectorProperties.REST_OAUTH2_SERVER_URI));
-            putIfNotBlank(opts, OAuth2Properties.SCOPE,
-                    firstNonBlank(props, IcebergConnectorProperties.REST_OAUTH2_SCOPE));
-            opts.put(OAuth2Properties.TOKEN_REFRESH_ENABLED,
-                    firstNonBlankOr(props, String.valueOf(OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT),
-                            IcebergConnectorProperties.REST_OAUTH2_TOKEN_REFRESH_ENABLED));
+            putIfNotBlank(opts, OAuth2Properties.OAUTH2_SERVER_URI, rest.getOauth2ServerUri());
+            putIfNotBlank(opts, OAuth2Properties.SCOPE, rest.getOauth2Scope());
+            // The holder cannot name the SDK's own default (it stays SDK-free), so it reports blank instead.
+            String tokenRefreshEnabled = rest.getOauth2TokenRefreshEnabled();
+            opts.put(OAuth2Properties.TOKEN_REFRESH_ENABLED, StringUtils.isNotBlank(tokenRefreshEnabled)
+                    ? tokenRefreshEnabled : String.valueOf(OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT));
         } else {
             // Pre-configured Token Flow (validation guarantees a token here when credential is absent).
-            opts.put(OAuth2Properties.TOKEN,
-                    firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_OAUTH2_TOKEN));
+            opts.put(OAuth2Properties.TOKEN, nullToEmpty(rest.getOauth2Token()));
         }
     }
 
-    private static void appendRestSigningProperties(Map<String, String> opts, Map<String, String> props,
-            Optional<S3CompatibleFileSystemProperties> chosenS3) {
-        String signingName = firstNonBlank(props, IcebergConnectorProperties.REST_SIGNING_NAME);
+    private static void appendRestSigningProperties(Map<String, String> opts, IcebergRestMetaStoreProperties rest,
+            Map<String, String> props, Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        String signingName = rest.getSigningName();
         if (StringUtils.isBlank(signingName)) {
             return;
         }
         // signing-name is case-sensitive; do not lower-case it.
         opts.put(IcebergConnectorProperties.REST_SIGNING_NAME_KEY, signingName);
-        opts.put(IcebergConnectorProperties.REST_SIGV4_ENABLED_KEY,
-                firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_SIGV4_ENABLED));
-        opts.put(IcebergConnectorProperties.REST_SIGNING_REGION_KEY,
-                firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_SIGNING_REGION));
+        opts.put(IcebergConnectorProperties.REST_SIGV4_ENABLED_KEY, rest.getSigV4Enabled());
+        opts.put(IcebergConnectorProperties.REST_SIGNING_REGION_KEY, rest.getSigningRegion());
         if (IcebergConnectorProperties.SIGNING_NAME_GLUE.equals(signingName)
                 || IcebergConnectorProperties.SIGNING_NAME_S3TABLES.equals(signingName)) {
             // glue/s3tables: credentials come from the chosen S3 store, switching on its credential type
@@ -501,15 +495,13 @@ public final class IcebergCatalogFactory {
             }
         } else {
             // other signing-name: explicit iceberg.rest.* credentials, else the non-DEFAULT provider chain (F14).
-            String restAccessKey = firstNonBlank(props, IcebergConnectorProperties.REST_ACCESS_KEY_ID);
-            String restSecretKey = firstNonBlank(props, IcebergConnectorProperties.REST_SECRET_ACCESS_KEY);
+            String restAccessKey = rest.getAccessKeyId();
+            String restSecretKey = rest.getSecretAccessKey();
             if (StringUtils.isNotBlank(restAccessKey) && StringUtils.isNotBlank(restSecretKey)) {
-                putRestExplicitCredentials(opts, restAccessKey, restSecretKey,
-                        firstNonBlank(props, IcebergConnectorProperties.REST_SESSION_TOKEN));
+                putRestExplicitCredentials(opts, restAccessKey, restSecretKey, rest.getSessionToken());
             } else {
                 putIfNotBlank(opts, AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
-                        AwsCredentialsProviderModes.classNameFor(
-                                props, IcebergConnectorProperties.REST_CREDENTIALS_PROVIDER_TYPE));
+                        AwsCredentialsProviderModes.classNameForMode(rest.getCredentialsProviderType()));
             }
         }
     }

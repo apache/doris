@@ -161,6 +161,34 @@ public class IcebergCatalogOptionsSnapshotTest {
     }
 
     /**
+     * Surrounding whitespace is stripped from every {@code iceberg.rest.*} value.
+     *
+     * <p>This CHANGED when the assembly moved onto the bound holder, and the change is the point: the
+     * property binder has always trimmed, so a uri written with a trailing space was already validated
+     * trimmed at CREATE while the catalog was built from the untrimmed string. The two now agree. Note the
+     * raw keys themselves ride through the copy-all base untrimmed — only the values the assembly derives
+     * are normalized.
+     */
+    @Test
+    public void restTrimsSurroundingWhitespaceSnapshot() {
+        assertOptions(
+                props("iceberg.catalog.type", "rest",
+                        "iceberg.rest.uri", "  https://rest/api  ",
+                        "iceberg.rest.security.type", "oauth2",
+                        "iceberg.rest.oauth2.token", " tkn-123 ",
+                        "catalog-impl", "org.apache.iceberg.rest.RESTCatalog",
+                        "rest.client.connection-timeout-ms", "10000",
+                        "rest.client.socket-timeout-ms", "60000",
+                        "uri", "https://rest/api",
+                        "token", "tkn-123"),
+                props("iceberg.catalog.type", "rest",
+                        "iceberg.rest.uri", "  https://rest/api  ",
+                        "iceberg.rest.security.type", "oauth2",
+                        "iceberg.rest.oauth2.token", " tkn-123 "),
+                "rest", noS3());
+    }
+
+    /**
      * signing-name=glue with a bound generic-S3 store: the signing block takes its credentials from the
      * STORE (not the {@code iceberg.rest.*} keys), and the S3FileIO dialect is emitted on top.
      */
