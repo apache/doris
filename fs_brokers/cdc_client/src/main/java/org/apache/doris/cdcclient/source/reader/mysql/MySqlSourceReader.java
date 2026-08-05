@@ -1198,9 +1198,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     private long calculateLagBytes(
-            FetchEndOffsetRequest request,
-            Map<String, String> endOffset,
-            MySqlConnection jdbc)
+            FetchEndOffsetRequest request, Map<String, String> endOffset, MySqlConnection jdbc)
             throws SQLException {
         if (MapUtils.isEmpty(request.getReferenceOffset())) {
             return -1;
@@ -1216,8 +1214,8 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             String referenceFile = request.getReferenceOffset().get("file");
             String endFile = endOffset.get("file");
             if (referenceFile != null && endFile != null) {
-                boolean referenceFileExists = binlogFiles.stream()
-                        .anyMatch(file -> file.name().equals(referenceFile));
+                boolean referenceFileExists =
+                        binlogFiles.stream().anyMatch(file -> file.name().equals(referenceFile));
                 boolean endFileExists =
                         binlogFiles.stream().anyMatch(file -> file.name().equals(endFile));
                 if (!referenceFileExists || !endFileExists) {
