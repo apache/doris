@@ -95,6 +95,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PaimonScanNodeTest {
@@ -145,6 +146,22 @@ public class PaimonScanNodeTest {
         List<org.apache.doris.spi.Split> countStarSplits = node.getSplits(1);
         Assert.assertEquals(1, countStarSplits.size());
         Assert.assertEquals(Optional.of(15_000L), ((PaimonSplit) countStarSplits.get(0)).getRowCount());
+    }
+
+    @Test
+    public void testNonCountScanDoesNotComputeMergedRowCount() throws UserException {
+        PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
+        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.<String>emptyList()));
+        DataSplit dataSplit = mockCountDataSplit("ordinary.parquet", 1_000);
+        Mockito.clearInvocations(dataSplit);
+        Mockito.doReturn(Collections.singletonList(dataSplit)).when(node).getPaimonSplitFromAPI();
+        Mockito.when(sv.isForceJniScanner()).thenReturn(true);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+
+        List<org.apache.doris.spi.Split> splits = node.getSplits(1);
+
+        Assert.assertEquals(1, splits.size());
+        Mockito.verify(dataSplit, Mockito.never()).mergedRowCount();
     }
 
     @Test
@@ -1438,8 +1455,7 @@ public class PaimonScanNodeTest {
                 Collections.<String>emptyList());
         DataSplit dataSplit = Mockito.mock(DataSplit.class);
         Mockito.when(dataSplit.rowCount()).thenReturn(rowCount);
-        Mockito.when(dataSplit.mergedRowCountAvailable()).thenReturn(true);
-        Mockito.when(dataSplit.mergedRowCount()).thenReturn(rowCount);
+        Mockito.when(dataSplit.mergedRowCount()).thenReturn(OptionalLong.of(rowCount));
         Mockito.when(dataSplit.partition()).thenReturn(BinaryRow.singleColumn(1));
         Mockito.when(dataSplit.dataFiles()).thenReturn(Collections.singletonList(dataFileMeta));
         Mockito.when(dataSplit.convertToRawFiles()).thenReturn(Optional.empty());

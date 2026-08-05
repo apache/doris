@@ -89,6 +89,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -525,15 +526,18 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
-            if (applyCountPushdown && dataSplit.mergedRowCountAvailable()) {
-                splitStat.setMergedRowCount(dataSplit.mergedRowCount());
+            OptionalLong mergedRowCount = applyCountPushdown
+                    ? dataSplit.mergedRowCount() : OptionalLong.empty();
+            if (applyCountPushdown && mergedRowCount.isPresent()) {
+                long count = mergedRowCount.getAsLong();
+                splitStat.setMergedRowCount(count);
                 PaimonSplit split = new PaimonSplit(dataSplit);
-                split.setRowCount(dataSplit.mergedRowCount());
+                split.setRowCount(count);
                 if (partitionInfoMap != null) {
                     split.setPaimonPartitionValues(partitionInfoMap);
                 }
                 pushDownCountSplits.add(split);
-                pushDownCountSum += dataSplit.mergedRowCount();
+                pushDownCountSum += count;
             } else if (!forceJniScanner && !forceJniForSystemTable && supportNativeReader(optRawFiles)) {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;

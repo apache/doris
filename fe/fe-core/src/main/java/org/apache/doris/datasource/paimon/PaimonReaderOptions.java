@@ -183,10 +183,11 @@ public final class PaimonReaderOptions {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
             FileStoreTable main = normalizeManifestParallelism(
                     pair.wrapped(), safeBound, materializeAbsent);
-            FileStoreTable fallback = normalizeManifestParallelism(
-                    pair.fallback(), safeBound, materializeAbsent);
-            return main == pair.wrapped() && fallback == pair.fallback()
-                    ? table : new FallbackReadFileStoreTable(main, fallback);
+            FileStoreTable other = normalizeManifestParallelism(
+                    pair.other(), safeBound, materializeAbsent);
+            return main == pair.wrapped() && other == pair.other()
+                    ? table : new FallbackReadFileStoreTable(
+                            main, other, wrappedBranchHasReadPriority(pair));
         }
 
         if (table instanceof DelegatedFileStoreTable) {
@@ -235,12 +236,17 @@ public final class PaimonReaderOptions {
                 (Table) table, safeBound, materializeAbsent);
     }
 
+    private static boolean wrappedBranchHasReadPriority(FallbackReadFileStoreTable table) {
+        // Paimon's factory sets wrappedFirst=false only for scan.primary-branch tables.
+        return !table.wrapped().options().containsKey(CoreOptions.SCAN_PRIMARY_BRANCH.key());
+    }
+
     public static void validateEffectiveTable(Table table) {
         validateEffectiveTableOptions(table.options());
         if (table instanceof FallbackReadFileStoreTable) {
             // The fallback scan plans its private child independently, so the visible main options
             // cannot prove that every manifest executor input is safe.
-            validateEffectiveTable(((FallbackReadFileStoreTable) table).fallback());
+            validateEffectiveTable(((FallbackReadFileStoreTable) table).other());
         }
         if (table instanceof DelegatedFileStoreTable) {
             // Privilege and other supported delegates can hide a fallback planner behind their
@@ -255,7 +261,7 @@ public final class PaimonReaderOptions {
         validateIfPresentForRuntime(table.options(), CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
         validateIfPresent(table.options(), CoreOptions.SCAN_PLAN_SORT_PARTITION.key());
         if (table instanceof FallbackReadFileStoreTable) {
-            validateEffectivePlanningTable(((FallbackReadFileStoreTable) table).fallback());
+            validateEffectivePlanningTable(((FallbackReadFileStoreTable) table).other());
         }
         if (table instanceof DelegatedFileStoreTable) {
             validateEffectivePlanningTable(((DelegatedFileStoreTable) table).wrapped());

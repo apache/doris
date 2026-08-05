@@ -73,7 +73,7 @@ public class PaimonTableValuedFunctionTest {
         Mockito.when(fallback.schema()).thenReturn(schema);
         Mockito.when(main.options()).thenReturn(Collections.emptyMap());
         Mockito.when(fallback.options()).thenReturn(Collections.emptyMap());
-        FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback);
+        FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
         FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
                 pair, Mockito.mock(PrivilegeChecker.class), Identifier.create("db", "table"));
 

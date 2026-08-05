@@ -21,10 +21,10 @@
 6	default_partition	\N
 
 -- !ao_auto_partition_metadata --
-{2026-07-01}	3
-{2026-07-02}	1
-{2026-07-03}	1
-{null}	1
+dt=2026-07-01	3
+dt=2026-07-02	1
+dt=2026-07-03	1
+dt=__DEFAULT_PARTITION__	1
 
 -- !ao_empty --
 1	\N
@@ -40,4 +40,4 @@
 1	omitted-partition	2026-07-01
 
 -- !ao_partition_default_metadata --
-{2026-07-01}	1
+dt=2026-07-01	1
