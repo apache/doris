@@ -302,15 +302,29 @@ RecursiveDeleteOptions S3Accessor::make_recursive_delete_options(
                             ? static_cast<size_t>(config::recycler_max_tasks_per_batch)
                             : 1000,
     };
-    options.executor = [pool = std::move(pool)](std::vector<ObjStorageDeleteTask> tasks) {
-        SyncExecutor<ObjectStorageResponse> executor(
-                pool, "delete object storage batches",
-                [](const ObjectStorageResponse& response) { return !response.ok(); });
-        for (auto& task : tasks) {
-            executor.add(std::move(task));
+    struct ExecutorState {
+        explicit ExecutorState(std::shared_ptr<SimpleThreadPool> pool_) : pool(std::move(pool_)) {
+            reset();
         }
+
+        void reset() {
+            executor = std::make_unique<SyncExecutor<ObjectStorageResponse>>(
+                    pool, "delete object storage batches",
+                    [](const ObjectStorageResponse& response) { return !response.ok(); });
+        }
+
+        std::shared_ptr<SimpleThreadPool> pool;
+        std::unique_ptr<SyncExecutor<ObjectStorageResponse>> executor;
+    };
+    auto state = std::make_shared<ExecutorState>(std::move(pool));
+    options.executor.submit = [state](ObjStorageDeleteTask task) {
+        state->executor->add(std::move(task));
+        return ObjectStorageResponse::OK();
+    };
+    options.executor.wait = [state]() {
         bool finished = false;
-        auto responses = executor.when_all(&finished);
+        auto responses = state->executor->when_all(&finished);
+        state->reset();
         if (!finished) {
             return ObjectStorageResponse {
                     .status = {TStatusCode::INTERNAL_ERROR,

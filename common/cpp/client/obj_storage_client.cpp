@@ -189,41 +189,44 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively(
     const auto max_tasks_per_batch = std::max<size_t>(1, options.max_tasks_per_batch);
     std::vector<std::string> keys;
     keys.reserve(delete_batch_size);
-    std::vector<ObjStorageDeleteTask> tasks;
-    tasks.reserve(max_tasks_per_batch);
+    size_t pending_tasks = 0;
 
-    auto add_delete_task = [&]() {
-        tasks.emplace_back([backend = backend_, rate_limit_policy = rate_limit_policy_,
-                            bucket = opts.bucket, batch = std::move(keys)]() mutable {
+    auto wait_for_tasks = [&]() {
+        if (pending_tasks == 0) {
+            return ObjectStorageResponse::OK();
+        }
+        pending_tasks = 0;
+        return options.executor ? options.executor.wait() : ObjectStorageResponse::OK();
+    };
+    auto submit_delete_task = [&]() {
+        ObjStorageDeleteTask task = [backend = backend_, rate_limit_policy = rate_limit_policy_,
+                                     bucket = opts.bucket, batch = std::move(keys)]() mutable {
             auto rate_limit = acquire_rate_limit(rate_limit_policy, ObjStorageRequestType::PUT);
             if (!rate_limit.resp.ok()) {
                 return rate_limit.resp;
             }
             return backend->delete_objects(ObjectStoragePathOptions {.bucket = std::move(bucket)},
                                            std::move(batch));
-        });
+        };
         keys.clear();
         keys.reserve(delete_batch_size);
-    };
-    auto execute_tasks = [&]() {
-        if (tasks.empty()) {
-            return ObjectStorageResponse::OK();
-        }
+
+        ObjectStorageResponse response;
         if (options.executor) {
-            auto response = options.executor(std::move(tasks));
-            tasks.clear();
-            tasks.reserve(max_tasks_per_batch);
+            response = options.executor.submit(std::move(task));
+        } else {
+            response = task();
+        }
+        if (!response.ok()) {
+            auto wait_response = wait_for_tasks();
+            if (!wait_response.ok()) {
+                return wait_response;
+            }
             return response;
         }
-        for (auto& task : tasks) {
-            auto response = task();
-            if (!response.ok()) {
-                return response;
-            }
-        }
-        tasks.clear();
-        tasks.reserve(max_tasks_per_batch);
-        return ObjectStorageResponse::OK();
+        ++pending_tasks;
+        return pending_tasks == max_tasks_per_batch ? wait_for_tasks()
+                                                    : ObjectStorageResponse::OK();
     };
 
     std::string continuation_token;
@@ -232,9 +235,12 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively(
         auto page = list_objects(list_opts, continuation_token);
         if (!page.resp.ok()) {
             if (!keys.empty()) {
-                add_delete_task();
+                auto submit_response = submit_delete_task();
+                if (!submit_response.ok()) {
+                    return submit_response;
+                }
             }
-            auto delete_response = execute_tasks();
+            auto delete_response = wait_for_tasks();
             if (!delete_response.ok()) {
                 return delete_response;
             }
@@ -248,10 +254,7 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively(
             }
             keys.emplace_back(std::move(object.file_path));
             if (keys.size() == delete_batch_size) {
-                add_delete_task();
-            }
-            if (tasks.size() == max_tasks_per_batch) {
-                auto response = execute_tasks();
+                auto response = submit_delete_task();
                 if (!response.ok()) {
                     return response;
                 }
@@ -259,9 +262,12 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively(
         }
     }
     if (!keys.empty()) {
-        add_delete_task();
+        auto response = submit_delete_task();
+        if (!response.ok()) {
+            return response;
+        }
     }
-    return execute_tasks();
+    return wait_for_tasks();
 }
 
 std::string ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,

@@ -63,6 +63,7 @@ public:
     }
     ObjectStorageListPage list_objects(const ObjectStoragePathOptions&,
                                        std::string_view continuation_token) override {
+        ++list_calls_;
         const size_t index =
                 continuation_token.empty()
                         ? 0
@@ -101,6 +102,7 @@ public:
     }
 
     int delete_calls() const { return delete_calls_.load(); }
+    int list_calls() const { return list_calls_.load(); }
     const std::vector<std::string>& deleted_keys() const { return deleted_keys_; }
     void fail_delete() { fail_delete_after_ = 0; }
 
@@ -108,6 +110,7 @@ private:
     std::vector<ObjectMeta> objects_;
     size_t batch_size_;
     int iterator_fail_after_;
+    std::atomic<int> list_calls_ {0};
     std::atomic<int> delete_calls_ {0};
     std::atomic<int> fail_delete_after_ {-1};
     std::mutex deleted_keys_mutex_;
@@ -210,11 +213,11 @@ TEST(RecyclerBatchDeleteTest, ProductionExecutorRunsMultipleTaskBatches) {
 
     auto options = TestS3Accessor::make_recursive_delete_options(0, pool);
     size_t executor_batches = 0;
-    auto production_executor = std::move(options.executor);
-    options.executor = [&executor_batches, production_executor = std::move(production_executor)](
-                               std::vector<ObjStorageDeleteTask> tasks) mutable {
+    auto production_wait = std::move(options.executor.wait);
+    options.executor.wait = [&executor_batches,
+                             production_wait = std::move(production_wait)]() mutable {
         ++executor_batches;
-        return production_executor(std::move(tasks));
+        return production_wait();
     };
 
     auto backend = std::make_shared<MockObjStorageBackend>(make_objects(10), 2);
@@ -227,6 +230,27 @@ TEST(RecyclerBatchDeleteTest, ProductionExecutorRunsMultipleTaskBatches) {
     EXPECT_EQ(backend->delete_calls(), 5);
     EXPECT_EQ(backend->deleted_keys().size(), 10);
     EXPECT_EQ(pool->stop(), 0);
+}
+
+TEST(RecyclerBatchDeleteTest, StreamsDeleteTasksWhileListing) {
+    auto backend = std::make_shared<MockObjStorageBackend>(make_objects(5), 1);
+    ObjStorageClient client(backend);
+    std::vector<int> list_calls_at_submit;
+    RecursiveDeleteOptions options {.max_tasks_per_batch = 1000};
+    options.executor.submit = [backend, &list_calls_at_submit](ObjStorageDeleteTask task) {
+        list_calls_at_submit.push_back(backend->list_calls());
+        return task();
+    };
+    options.executor.wait = [] { return ObjectStorageResponse::OK(); };
+
+    auto response =
+            client.delete_objects_recursively({.bucket = "bucket", .prefix = "test_key_"}, options);
+
+    EXPECT_TRUE(response.ok());
+    ASSERT_EQ(list_calls_at_submit.size(), 5);
+    EXPECT_EQ(list_calls_at_submit.front(), 1);
+    EXPECT_EQ(backend->list_calls(), 5);
+    EXPECT_EQ(backend->deleted_keys().size(), 5);
 }
 
 TEST(RecyclerBatchDeleteTest, ProductionExecutorPropagatesCancellation) {

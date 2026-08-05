@@ -275,6 +275,7 @@ ObjectStorageHeadResponse AzureObjStorageBackend::head_object(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
                 e.what(), e.Message, static_cast<int>(e.StatusCode),
                 wrap_object_storage_path_msg(opts), tls_debug_suffix);
+        LOG(WARNING) << msg << ", request_id=" << e.RequestId;
         return ObjectStorageHeadResponse {
                 .resp = {.status =
                                  ObjectStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},

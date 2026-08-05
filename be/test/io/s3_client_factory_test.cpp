@@ -19,6 +19,7 @@
 #include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
+#include <aws/s3/model/HeadObjectResult.h>
 #include <gtest/gtest.h>
 
 #include <cstdlib>
@@ -26,10 +27,13 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "cpp/aws_common.h"
 #include "cpp/client/s3_obj_storage_backend.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
+#include "cpp/sync_point.h"
+#include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -58,6 +62,73 @@ S3ClientConf make_hash_collision_conf(std::string endpoint, bool is_internal_buc
     conf.use_virtual_addressing = !is_internal_bucket;
     return conf;
 }
+
+class CloudModeConfigGuard {
+public:
+    explicit CloudModeConfigGuard(bool cloud_mode)
+            : _deploy_mode(config::deploy_mode), _cloud_unique_id(config::cloud_unique_id) {
+        config::deploy_mode = cloud_mode ? "cloud" : "";
+        config::cloud_unique_id.clear();
+    }
+
+    ~CloudModeConfigGuard() {
+        config::deploy_mode = _deploy_mode;
+        config::cloud_unique_id = _cloud_unique_id;
+    }
+
+private:
+    std::string _deploy_mode;
+    std::string _cloud_unique_id;
+};
+
+class RateLimiterConfigGuard {
+public:
+    RateLimiterConfigGuard()
+            : _enabled(config::enable_s3_rate_limiter),
+              _qps_max_speed(_qps()->get_max_speed()),
+              _qps_max_burst(_qps()->get_max_burst()),
+              _qps_limit(_qps()->get_limit()),
+              _bytes_max_speed(_bytes()->get_max_speed()),
+              _bytes_max_burst(_bytes()->get_max_burst()),
+              _bytes_limit(_bytes()->get_limit()) {}
+
+    ~RateLimiterConfigGuard() {
+        config::enable_s3_rate_limiter = _enabled;
+        _qps()->reset(_qps_max_speed, _qps_max_burst, _qps_limit);
+        _bytes()->reset(_bytes_max_speed, _bytes_max_burst, _bytes_limit);
+    }
+
+private:
+    static S3RateLimiterHolder* _qps() {
+        return S3RateLimiterManager::instance().qps_limiter(S3RateLimitType::GET);
+    }
+    static S3RateLimiterHolder* _bytes() {
+        return S3RateLimiterManager::instance().bytes_limiter(S3RateLimitType::GET);
+    }
+
+    bool _enabled;
+    size_t _qps_max_speed;
+    size_t _qps_max_burst;
+    size_t _qps_limit;
+    size_t _bytes_max_speed;
+    size_t _bytes_max_burst;
+    size_t _bytes_limit;
+};
+
+class SyncPointProcessingGuard {
+public:
+    SyncPointProcessingGuard() : _was_enabled(SyncPoint::get_instance()->get_enable()) {
+        SyncPoint::get_instance()->enable_processing();
+    }
+    ~SyncPointProcessingGuard() {
+        if (!_was_enabled) {
+            SyncPoint::get_instance()->disable_processing();
+        }
+    }
+
+private:
+    bool _was_enabled;
+};
 
 } // namespace
 
@@ -115,6 +186,55 @@ TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesHashCollisions) {
     EXPECT_EQ(create_count, 2);
     EXPECT_EQ(holder.get(), internal_client);
     EXPECT_EQ(holder.s3_client_conf(), internal_conf);
+}
+
+TEST_F(S3ClientFactoryTest, SelectsRateLimiterByDeploymentAndBucketType) {
+    RateLimiterConfigGuard rate_limiter_guard;
+    SyncPointProcessingGuard sync_point_guard;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard create_backend_callback;
+    sync_point->set_call_back(
+            "s3_client_factory::create",
+            [](auto&& args) {
+                auto result = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageBackend>>(args);
+                result->second = true;
+            },
+            &create_backend_callback);
+    SyncPoint::CallbackGuard head_object_callback;
+    sync_point->set_call_back(
+            "s3_file_system::head_object",
+            [](auto&& args) {
+                auto result = try_any_cast_ret<Aws::S3::Model::HeadObjectOutcome>(args);
+                result->first =
+                        Aws::S3::Model::HeadObjectOutcome(Aws::S3::Model::HeadObjectResult {});
+                result->second = true;
+            },
+            &head_object_callback);
+
+    config::enable_s3_rate_limiter = true;
+    auto check_selection = [&](bool cloud_mode, bool internal_bucket, bool expect_limited,
+                               std::string endpoint) {
+        CloudModeConfigGuard cloud_mode_guard(cloud_mode);
+        auto& manager = S3RateLimiterManager::instance();
+        manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 1);
+        manager.bytes_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
+
+        auto result = S3ClientFactory::instance().create(
+                make_factory_conf(std::move(endpoint), internal_bucket));
+        ASSERT_TRUE(result.has_value()) << result.error();
+        auto client = std::move(result).value();
+        EXPECT_TRUE(client->head_object({.bucket = "bucket", .key = "key"}).resp.ok());
+        auto second = client->head_object({.bucket = "bucket", .key = "key"});
+        if (expect_limited) {
+            EXPECT_EQ(second.resp.status.code, static_cast<int>(ErrorCode::EXCEEDED_LIMIT));
+        } else {
+            EXPECT_TRUE(second.resp.ok());
+        }
+    };
+
+    check_selection(false, false, true, "non-cloud-external-rate-limit.example.com");
+    check_selection(true, true, true, "cloud-internal-rate-limit.example.com");
+    check_selection(true, false, false, "cloud-external-no-rate-limit.example.com");
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
@@ -466,6 +586,26 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1RoleArnDefaultFallback) {
     auto provider = factory.create_aws_credentials_provider(conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider),
               nullptr);
+
+    config::aws_credentials_provider_version = "v2";
+}
+
+TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1PartialCredentialsUseDefaultChain) {
+    S3ClientFactory& factory = S3ClientFactory::instance();
+    config::aws_credentials_provider_version = "v1";
+
+    for (bool provide_access_key : {false, true}) {
+        S3ClientConf conf;
+        conf.cred_provider_type = CredProviderType::Default;
+        conf.role_arn = "arn:aws:iam::123456789012:role/test-role";
+        conf.ak = provide_access_key ? "ak" : "";
+        conf.sk = provide_access_key ? "" : "sk";
+
+        auto provider = factory.create_aws_credentials_provider(conf).provider;
+        EXPECT_NE(
+                std::dynamic_pointer_cast<Aws::Auth::DefaultAWSCredentialsProviderChain>(provider),
+                nullptr);
+    }
 
     config::aws_credentials_provider_version = "v2";
 }

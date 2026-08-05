@@ -86,8 +86,8 @@ private:
 
 // RAII admission for one logical object-storage call. The common ObjStorageClient facade
 // constructs the guard before dispatching to the provider client. A lazy list page and a
-// provider-sized delete batch are each treated as one logical call; recursive delete keeps the
-// previous BE behavior of one admission for the whole operation for now.
+// provider-sized delete batch are each treated as one logical call, including the list pages and
+// delete batches issued by recursive deletion.
 //
 // The constructor charges the QPS bucket (may sleep when throttled; rejected only by
 // the legacy token_limit cumulative cap) and then reserves `estimated_bytes` from the

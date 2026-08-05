@@ -170,8 +170,16 @@ struct ObjStorageCapabilities {
 };
 
 using ObjStorageDeleteTask = std::function<ObjectStorageResponse()>;
-using ObjStorageDeleteExecutor =
-        std::function<ObjectStorageResponse(std::vector<ObjStorageDeleteTask>)>;
+
+// A streaming executor for recursive deletion. submit() must enqueue the task immediately so the
+// producer is subject to the executor's queue backpressure while it continues listing. wait()
+// completes the current synchronization batch and prepares the executor for the next one.
+struct ObjStorageDeleteExecutor {
+    std::function<ObjectStorageResponse(ObjStorageDeleteTask)> submit {};
+    std::function<ObjectStorageResponse()> wait {};
+
+    explicit operator bool() const { return submit && wait; }
+};
 
 struct RecursiveDeleteOptions {
     int64_t expiration_time = 0;

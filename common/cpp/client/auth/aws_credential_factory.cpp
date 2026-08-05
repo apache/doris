@@ -88,7 +88,8 @@ AwsCredentialResult AwsCredentialFactory::create(const AwsCredentialOptions& opt
             return options.role_arn.empty() ? AwsCredentialResult {.provider = std::move(base)}
                                             : assume_role(options, std::move(base));
         }
-        if (options.empty_credentials == EmptyCredentialsBehavior::ANONYMOUS) {
+        if (!has_access_key && !has_secret_key &&
+            options.empty_credentials == EmptyCredentialsBehavior::ANONYMOUS) {
             return {
                     .provider = std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>(),
             };

@@ -53,23 +53,31 @@ void record_s3_request_failed(const Aws::S3::S3Error& error) {
     record_object_request_failed(static_cast<int>(error.GetResponseCode()));
 }
 
+std::string object_identity(const ObjectStoragePathOptions& opts) {
+    return opts.path.empty() ? opts.key : opts.path.native();
+}
+
+std::string s3_error_message(const Aws::S3::S3Error& error, std::string_view message) {
+    return fmt::format("{}: {} {} code={}, type={}, request_id={}", message,
+                       error.GetExceptionName(), error.GetMessage(),
+                       static_cast<int>(error.GetResponseCode()),
+                       static_cast<int>(error.GetErrorType()), error.GetRequestId());
+}
+
 } // namespace
 
 ObjectStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
     using namespace Aws::Http;
     switch (err.GetResponseCode()) {
     case HttpResponseCode::NOT_FOUND:
-        return {TStatusCode::NOT_FOUND,
-                fmt::format("{}: {} {}", msg, err.GetExceptionName(), err.GetMessage())};
+        return {TStatusCode::NOT_FOUND, s3_error_message(err, msg)};
     case HttpResponseCode::FORBIDDEN:
         // TODO: no permission and other 4xx errors should be handled separately
-        return {TStatusCode::NOT_AUTHORIZED,
-                fmt::format("{}: {} {}", msg, err.GetExceptionName(), err.GetMessage())};
+        return {TStatusCode::NOT_AUTHORIZED, s3_error_message(err, msg)};
     case HttpResponseCode::REQUEST_NOT_MADE:
-        return {-1, fmt::format("{}: {} {}", msg, err.GetExceptionName(), err.GetMessage())};
+        return {-1, s3_error_message(err, msg)};
     default:
-        return {TStatusCode::INTERNAL_ERROR,
-                fmt::format("{}: {} {}", msg, err.GetExceptionName(), err.GetMessage())};
+        return {TStatusCode::INTERNAL_ERROR, s3_error_message(err, msg)};
     }
 }
 
@@ -281,7 +289,7 @@ ObjectStorageHeadResponse S3ObjStorageBackend::head_object(const ObjectStoragePa
                      << " request_id " << outcome.GetError().GetRequestId();
         return {.resp = {.status = s3fs_error(
                                  outcome.GetError(),
-                                 fmt::format("failed to head object: {}", opts.path.native())),
+                                 fmt::format("failed to head object: {}", object_identity(opts))),
                          .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
                          .request_id = outcome.GetError().GetRequestId()},
                 .file_size = -1};
@@ -303,8 +311,8 @@ ObjectStorageResponse S3ObjStorageBackend::get_object(const ObjectStoragePathOpt
     if (!outcome.IsSuccess()) {
         record_s3_request_failed(outcome.GetError());
         return ObjectStorageResponse {
-                .status = s3fs_error(outcome.GetError(),
-                                     fmt::format("failed to get object: {}", opts.path.native())),
+                .status = s3fs_error(outcome.GetError(), fmt::format("failed to get object: {}",
+                                                                     object_identity(opts))),
                 .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
                 .request_id = outcome.GetError().GetRequestId(),
         };
@@ -312,10 +320,13 @@ ObjectStorageResponse S3ObjStorageBackend::get_object(const ObjectStoragePathOpt
     *size_return = outcome.GetResult().GetContentLength();
     SYNC_POINT_CALLBACK("s3_obj_storage_client::get_object", size_return);
     if (*size_return != bytes_read) {
+        const auto& request_id = outcome.GetResult().GetRequestId();
         return ObjectStorageResponse {
                 .status = {TStatusCode::INTERNAL_ERROR,
-                           fmt::format("incomplete read from {}, expect {}, got {}",
-                                       opts.path.native(), bytes_read, *size_return)}};
+                           fmt::format("incomplete read from {}, expect {}, got {}, request_id={}",
+                                       object_identity(opts), bytes_read, *size_return,
+                                       request_id)},
+                .request_id = request_id};
     }
     return ObjectStorageResponse::OK();
 }
@@ -435,6 +446,14 @@ ObjectStorageResponse S3ObjStorageBackend::delete_objects(const ObjectStoragePat
         SYNC_POINT_CALLBACK("s3_obj_storage_client::delete_objects_recursively", &delete_outcome);
         if (!delete_outcome.IsSuccess()) {
             record_s3_request_failed(delete_outcome.GetError());
+            LOG(WARNING) << fmt::format(
+                    "failed to delete objects, endpoint: {}, bucket: {}, key: {}, responseCode: "
+                    "{}, error: {}, request_id: {}",
+                    _config.endpoint, opts.bucket,
+                    delete_request.GetDelete().GetObjects().front().GetKey(),
+                    static_cast<int>(delete_outcome.GetError().GetResponseCode()),
+                    delete_outcome.GetError().GetMessage(),
+                    delete_outcome.GetError().GetRequestId());
             return ObjectStorageResponse {
                     .status = s3fs_error(delete_outcome.GetError(),
                                          fmt::format("failed to delete dir {}", opts.key)),
@@ -443,11 +462,17 @@ ObjectStorageResponse S3ObjStorageBackend::delete_objects(const ObjectStoragePat
         }
         if (!delete_outcome.GetResult().GetErrors().empty()) {
             const auto& error = delete_outcome.GetResult().GetErrors().front();
+            LOG(WARNING) << fmt::format(
+                    "failed to delete object in batch, endpoint: {}, bucket: {}, key: {}, error "
+                    "code: {}, error: {}, request_id: {}",
+                    _config.endpoint, opts.bucket, error.GetKey(), error.GetCode(),
+                    error.GetMessage(), delete_outcome.GetResult().GetRequestId());
             return ObjectStorageResponse {
                     .status = {TStatusCode::INTERNAL_ERROR,
                                fmt::format("failed to delete object {}: {}, request_id={}",
                                            error.GetKey(), error.GetMessage(),
-                                           delete_outcome.GetResult().GetRequestId())}};
+                                           delete_outcome.GetResult().GetRequestId())},
+                    .request_id = delete_outcome.GetResult().GetRequestId()};
         }
     }
     return ObjectStorageResponse::OK();
@@ -469,11 +494,15 @@ ObjectStorageResponse S3ObjStorageBackend::delete_object(const ObjectStoragePath
         return ObjectStorageResponse::OK();
     }
     record_s3_request_failed(outcome.GetError());
+    LOG(WARNING) << fmt::format(
+            "failed to delete object, endpoint: {}, bucket: {}, key: {}, responseCode: {}, "
+            "error: {}, request_id: {}",
+            _config.endpoint, opts.bucket, opts.key,
+            static_cast<int>(outcome.GetError().GetResponseCode()), outcome.GetError().GetMessage(),
+            outcome.GetError().GetRequestId());
     return ObjectStorageResponse {
-            .status = {TStatusCode::INTERNAL_ERROR,
-                       fmt::format("failed to delete object {}: {}, request_id={}", opts.key,
-                                   outcome.GetError().GetMessage(),
-                                   outcome.GetError().GetRequestId())},
+            .status = s3fs_error(outcome.GetError(),
+                                 fmt::format("failed to delete object {}", opts.key)),
             .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
             .request_id = outcome.GetError().GetRequestId()};
 }

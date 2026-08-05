@@ -79,7 +79,7 @@ TEST_F(S3AccessorMockTest, list_objects_compatibility) {
     auto page = s3_obj_client.list_objects(
             {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/list_objects_compatibility"}, {});
 
-    EXPECT_NE(page.resp.status.code, TStatusCode::OK);
+    EXPECT_FALSE(page.resp.ok());
     EXPECT_TRUE(page.objects.empty());
 }
 
