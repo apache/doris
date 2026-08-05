@@ -81,7 +81,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
             'bash'
           )
           brew install "${cellars[@]}" || true
@@ -102,4 +102,11 @@ jobs:
           fi
 
           export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+
+          LLVM_PREFIX="$(brew --prefix llvm@20)"
+          export PATH="${LLVM_PREFIX}/bin:${PATH}"
+          export DORIS_CLANG_HOME="${LLVM_PREFIX}"
+          export CC="${LLVM_PREFIX}/bin/clang"
+          export CXX="${LLVM_PREFIX}/bin/clang++"
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean
