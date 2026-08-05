@@ -17,6 +17,11 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.metastore.MetaStoreProperties;
+import org.apache.doris.connector.metastore.paimon.hms.PaimonHmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.AbstractMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -27,6 +32,7 @@ import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -105,12 +111,22 @@ public final class PaimonCatalogFactory {
     public static Options buildCatalogOptions(Map<String, String> props) {
         Options options = new Options();
         String flavor = resolveFlavor(props);
+        // Resolve the metastore identifier BEFORE binding: an unknown flavor must keep failing with
+        // this factory's own "Unknown paimon.catalog.type value" message rather than the metastore
+        // dispatcher's "no provider supports these properties".
+        String metastore = metastoreIdentifier(flavor);
+        // Bind the flavor's typed facts and assemble from THOSE. The alias-resolved values were
+        // already being computed here for validation; re-scanning the raw map for assembly is what let
+        // a catalog validate one value and connect with another. Storage plays no part in the option
+        // keys, so an empty storage map is enough (the connector binds its own storage-carrying
+        // instance for the HiveConf).
+        MetaStoreProperties bound = MetaStoreProviders.bind(props, Collections.emptyMap());
 
-        appendCommonOptions(props, options, flavor);
+        appendCommonOptions(props, options, metastore, ((AbstractMetaStoreProperties) bound).getWarehouse());
 
         switch (flavor) {
             case PaimonConnectorProperties.HMS:
-                appendHmsOptions(props, options);
+                ((PaimonHmsMetaStoreProperties) bound).toCatalogOptions().forEach(options::set);
                 break;
             case PaimonConnectorProperties.REST:
                 appendRestOptions(props, options);
@@ -125,12 +141,12 @@ public final class PaimonCatalogFactory {
         return options;
     }
 
-    private static void appendCommonOptions(Map<String, String> props, Options options, String flavor) {
-        String warehouse = props.get(PaimonConnectorProperties.WAREHOUSE);
+    private static void appendCommonOptions(Map<String, String> props, Options options, String metastore,
+            String warehouse) {
         if (StringUtils.isNotBlank(warehouse)) {
             options.set(CatalogOptions.WAREHOUSE.key(), warehouse);
         }
-        options.set(CatalogOptions.METASTORE.key(), metastoreIdentifier(flavor));
+        options.set(CatalogOptions.METASTORE.key(), metastore);
 
         // FIXME(cmy): Rethink these custom properties (ported from AbstractPaimonProperties).
         // Re-key generic paimon.* props by stripping the prefix, excluding storage prefixes which
@@ -175,18 +191,6 @@ public final class PaimonCatalogFactory {
             }
         }
         return false;
-    }
-
-    private static void appendHmsOptions(Map<String, String> props, Options options) {
-        String pool = props.getOrDefault(
-                PaimonConnectorProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS,
-                PaimonConnectorProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS_DEFAULT);
-        String location = props.getOrDefault(
-                PaimonConnectorProperties.LOCATION_IN_PROPERTIES,
-                PaimonConnectorProperties.LOCATION_IN_PROPERTIES_DEFAULT);
-        options.set(PaimonConnectorProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS, pool);
-        options.set(PaimonConnectorProperties.LOCATION_IN_PROPERTIES, location);
-        options.set("uri", firstNonBlank(props, PaimonConnectorProperties.HMS_URI));
     }
 
     private static void appendRestOptions(Map<String, String> props, Options options) {

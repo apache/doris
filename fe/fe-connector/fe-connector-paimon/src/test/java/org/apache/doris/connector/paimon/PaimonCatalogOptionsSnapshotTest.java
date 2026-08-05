@@ -141,6 +141,29 @@ public class PaimonCatalogOptionsSnapshotTest {
     }
 
     /**
+     * A padded metastore uri reaches the catalog Options TRIMMED, because the option now comes from the
+     * bound hms properties instead of a second scan of the raw map.
+     *
+     * <p>This is a deliberate behaviour change, and it removes an inconsistency rather than introducing
+     * one: the HiveConf this same catalog connects with has always been built from the bound value, so
+     * before this change one catalog would talk to the metastore as "thrift://nn:9083" while its paimon
+     * Options claimed "thrift://nn:9083 ".
+     */
+    @Test
+    public void hmsSnapshotTrimsThePaddedUriLikeTheHiveConfAlwaysDid() {
+        assertOptions(
+                props("metastore", "hive",
+                        "catalog.type", "hms",
+                        "warehouse", "/wh",
+                        "uri", "thrift://nn:9083",
+                        "client-pool-cache.eviction-interval-ms", "300000",
+                        "location-in-properties", "false"),
+                props("paimon.catalog.type", "hms",
+                        "warehouse", " /wh ",
+                        "hive.metastore.uris", " thrift://nn:9083 "));
+    }
+
+    /**
      * REST emits every {@code paimon.rest.*} key TWICE: once as {@code rest.<x>} (the generic
      * {@code paimon.} passthrough in the common appender) and once as {@code <x>} (the rest appender's
      * own prefix strip). Pinned because it is surprising, not because it is desirable — the rest

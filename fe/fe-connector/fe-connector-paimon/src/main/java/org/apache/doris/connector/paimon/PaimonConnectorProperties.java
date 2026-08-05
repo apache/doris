@@ -108,13 +108,13 @@ public final class PaimonConnectorProperties {
     public static final String JDBC = "jdbc";
 
     // ---- HMS flavor keys ----
-    /** Hive metastore uri; primary key + the {@code "uri"} alias (legacy HMSBaseProperties). */
-    public static final String[] HMS_URI = {"hive.metastore.uris", "uri"};
-    public static final String CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS = "client-pool-cache.eviction-interval-ms";
-    /** Default client-pool-cache eviction interval (ms) = 5 minutes (legacy default). */
-    public static final String CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS_DEFAULT = "300000";
-    public static final String LOCATION_IN_PROPERTIES = "location-in-properties";
-    public static final String LOCATION_IN_PROPERTIES_DEFAULT = "false";
+    // The uri aliases and the two paimon-private hms options now live on the bound hms properties
+    // (AbstractHmsMetaStoreProperties / PaimonHmsMetaStoreProperties), which both validation and
+    // assembly read, so the copies that used to sit here are gone.
+    //
+    // HMS_URI is kept for PaimonAliasResolutionParityTest only, which exists to prove the two readers
+    // agreed before the second one was retired; it goes when that test does.
+    static final String[] HMS_URI = {"hive.metastore.uris", "uri"};
 
     // ---- REST flavor keys ----
     public static final String[] REST_URI = {"paimon.rest.uri", "uri"};

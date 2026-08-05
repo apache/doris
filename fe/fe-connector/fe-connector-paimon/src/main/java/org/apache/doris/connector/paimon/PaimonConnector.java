@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
@@ -435,10 +436,10 @@ public class PaimonConnector implements Connector {
                 // so connection-critical settings present only in that file reach the live metastore client.
                 // Shared parser produces the neutral HiveConf overrides (P2-T03); the connector seeds the
                 // external hive-site.xml as the BASE first, then overlays the overrides (F2 ordering).
-                HmsMetaStoreProperties hms = (HmsMetaStoreProperties)
+                AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties)
                         MetaStoreProviders.bind(properties, storageHadoopConfig);
                 HiveConf hc = PaimonCatalogFactory.assembleHiveConf(
-                        PaimonCatalogFactory.firstNonBlank(properties, "hive.conf.resources"),
+                        hms.getConfResources(),
                         hms.toHiveConfOverrides(ConnectorConf.get(context,
                                 PaimonConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
                                 PaimonConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
