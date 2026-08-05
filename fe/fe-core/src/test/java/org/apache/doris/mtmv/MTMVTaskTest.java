@@ -33,6 +33,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
@@ -83,6 +84,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class MTMVTaskTest {
@@ -406,7 +408,7 @@ public class MTMVTaskTest {
                     });
             mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.executeCommand(
                     Mockito.eq(mtmvCtx), Mockito.eq(command), Mockito.any(StatementContext.class),
-                    Mockito.anyString())).thenAnswer(new Answer<StmtExecutor>() {
+                    Mockito.anyString(), Mockito.any(Consumer.class))).thenAnswer(new Answer<StmtExecutor>() {
                         @Override
                         public StmtExecutor answer(InvocationOnMock invocation) {
                             StatementContext statementContext = invocation.getArgument(2);
@@ -835,5 +837,37 @@ public class MTMVTaskTest {
                 Mockito.same(refreshContext), Mockito.nullable(Set.class), Mockito.nullable(Set.class)))
                 .thenReturn(Collections.emptyMap());
         return refreshContext;
+    }
+
+    @Test
+    public void testRegisterExecutorRejectsCancelledTask() {
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        task.setStatus(TaskStatus.CANCELED);
+        org.apache.doris.qe.StmtExecutor executor = Mockito.mock(org.apache.doris.qe.StmtExecutor.class);
+
+        boolean rejected = false;
+        try {
+            task.registerExecutor(executor);
+        } catch (IllegalStateException e) {
+            rejected = true;
+        }
+        Assert.assertTrue("registerExecutor must reject a cancelled task", rejected);
+        // A cancelled task must not expose a registered executor to the cancel path.
+        Assert.assertNull(Deencapsulation.getField(task, "executor"));
+    }
+
+    @Test
+    public void testRegisterExecutorAcceptsRunningTask() {
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        task.setStatus(TaskStatus.RUNNING);
+        org.apache.doris.qe.StmtExecutor executor = Mockito.mock(org.apache.doris.qe.StmtExecutor.class);
+
+        task.registerExecutor(executor);
+        Assert.assertSame(executor, Deencapsulation.getField(task, "executor"));
+        // Registering null clears the field (used by executeCommand's finally after the command finishes).
+        task.registerExecutor(null);
+        Assert.assertNull(Deencapsulation.getField(task, "executor"));
     }
 }

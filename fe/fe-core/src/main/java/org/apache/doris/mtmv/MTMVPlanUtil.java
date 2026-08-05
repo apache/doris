@@ -109,6 +109,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -149,26 +150,29 @@ public class MTMVPlanUtil {
     }
 
     /**
-     * Execute a Nereids command in an MTMV context with optional audit logging.
-     * Creates a new MTMV ConnectContext internally. Callers that need the ConnectContext
-     * to exist before the StatementContext is constructed (so that {@code new StatementContext()}
-     * captures the correct thread-local) should use
-     * {@link #executeCommand(ConnectContext, Command, StatementContext, String)} instead.
+     * Execute a Nereids command in an MTMV context with optional audit logging and an
+     * executor registration callback. The callback is invoked right before the command
+     * starts running (with the executing {@link StmtExecutor}) and once more after it
+     * finishes (with {@code null}), so callers can expose the currently executing
+     * statement to cancellation paths.
      */
     public static StmtExecutor executeCommand(MTMV mtmv, Command command,
-            StatementContext stmtCtx, @Nullable String auditStmt) throws Exception {
+            StatementContext stmtCtx, @Nullable String auditStmt,
+            @Nullable Consumer<StmtExecutor> executorConsumer) throws Exception {
         ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         stmtCtx.setConnectContext(ctx);
-        return executeCommand(ctx, command, stmtCtx, auditStmt);
+        return executeCommand(ctx, command, stmtCtx, auditStmt, executorConsumer);
     }
 
     /**
-     * Execute a Nereids command using a pre-created ConnectContext.
-     * Use this overload when the ConnectContext must be created before the StatementContext
-     * so that {@code new StatementContext()} captures the correct thread-local ConnectContext.
+     * Execute a Nereids command using a pre-created ConnectContext, registering the
+     * executing {@link StmtExecutor} through {@code executorConsumer} before the command
+     * runs and clearing it (with {@code null}) after the command finishes, so task
+     * cancellation can interrupt the running statement.
      */
     public static StmtExecutor executeCommand(ConnectContext ctx, Command command,
-            StatementContext stmtCtx, @Nullable String auditStmt) throws Exception {
+            StatementContext stmtCtx, @Nullable String auditStmt,
+            @Nullable Consumer<StmtExecutor> executorConsumer) throws Exception {
         ctx.setStatementContext(stmtCtx);
         ctx.getState().setNereids(true);
         ctx.getSessionVariable().setEnableMaterializedViewRewrite(false);
@@ -176,12 +180,18 @@ public class MTMVPlanUtil {
         StmtExecutor executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, stmtCtx));
         ctx.setExecutor(executor);
         ctx.setQueryId(AbstractTask.generateQueryId());
+        if (executorConsumer != null) {
+            executorConsumer.accept(executor);
+        }
         try {
             command.run(ctx, executor);
             if (ctx.getState().getStateType() != MysqlStateType.OK) {
                 throw new UserException(ctx.getState().getErrorMessage());
             }
         } finally {
+            if (executorConsumer != null) {
+                executorConsumer.accept(null);
+            }
             if (auditStmt != null) {
                 AuditLogHelper.logAuditLog(ctx, auditStmt,
                         executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);

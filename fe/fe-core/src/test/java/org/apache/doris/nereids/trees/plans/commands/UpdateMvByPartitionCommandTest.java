@@ -193,7 +193,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         org.apache.doris.qe.StmtExecutor executor = MTMVPlanUtil.executeCommand(
-                mtmv, command, statementContext, "refresh materialized view test.ivm_mv");
+                mtmv, command, statementContext, "refresh materialized view test.ivm_mv", null);
 
         Assertions.assertNotNull(executor);
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableMaterializedViewRewrite());
@@ -212,7 +212,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
                 mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
         org.apache.doris.qe.StmtExecutor executor = MTMVPlanUtil.executeCommand(
-                mtmv, command, statementContext, "refresh materialized view test.ivm_mv");
+                mtmv, command, statementContext, "refresh materialized view test.ivm_mv", null);
 
         Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
         Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
