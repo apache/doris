@@ -34,7 +34,7 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
     if (context == nullptr) {
         return nullptr;
     }
-    auto* analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
+    const auto* analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     if (analyzer_ctx == nullptr) {
         analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
@@ -124,7 +124,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     std::string column_name = block.get_by_position(arguments[0]).name;
     VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
                << ", match_query_str=" << match_query_str;
-    auto* analyzer_ctx = get_match_analyzer_ctx(context);
+    const auto* analyzer_ctx = get_match_analyzer_ctx(context);
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
@@ -199,10 +199,8 @@ std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_query_str_token(
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(analyzer_ctx->parser_type);
 
-    // Decision is based on parser_type (from index properties):
-    // - PARSER_NONE: no tokenization (keyword/exact match)
-    // - Other parsers: tokenize using the analyzer
-    if (!analyzer_ctx->should_tokenize()) {
+    // Raw execution is valid only when neither a named analyzer nor a builtin parser is active.
+    if (!analyzer_ctx->requires_analysis()) {
         // Keyword index: all strings (including empty) are valid tokens for exact match.
         // Empty string is a valid value in keyword index and should be matchable.
         query_tokens.emplace_back(match_query_str);
@@ -235,15 +233,14 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         return data_tokens;
     }
 
-    // Determine tokenization strategy based on parser_type
-    const bool should_tokenize =
-            analyzer_ctx->should_tokenize() && analyzer_ctx->analyzer != nullptr;
+    const bool requires_analysis =
+            analyzer_ctx->requires_analysis() && analyzer_ctx->analyzer != nullptr;
 
     if (array_offsets) {
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
-            if (!should_tokenize) {
+            if (!requires_analysis) {
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
@@ -256,7 +253,7 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        if (!should_tokenize) {
+        if (!requires_analysis) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(

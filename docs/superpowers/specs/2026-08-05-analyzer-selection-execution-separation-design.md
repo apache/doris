@@ -31,7 +31,7 @@ The wire already contains enough information to resolve both meanings. This desi
 - Changing index-policy DDL or policy distribution.
 - Generalizing analysis fingerprints beyond the existing CommonGrams mechanism.
 - Reworking query-cache or single-flight keys.
-- Fixing independent `default` alias, normalizer-key, ARRAY fallback, or historical reserved-name issues.
+- Fixing independent `default` alias, ARRAY fallback, or historical reserved-name issues.
 
 These issues can be handled independently. They do not justify expanding the protocol used by every MATCH query.
 
@@ -53,7 +53,7 @@ The actual type may reuse and clarify the existing `AnalyzerConfig` structure. T
 
 - `selection_key` is the normalized original `analyzer_name` from Thrift. It is consumed only by inverted-index reader selection.
 - `provider_name` is non-empty only for a named analyzer or normalizer pipeline.
-- `parser_type` describes builtin execution. `PARSER_NONE` with an empty provider means raw keyword execution.
+- `parser_type` describes builtin execution. `PARSER_NONE` with an empty provider means raw keyword execution; `PARSER_UNKNOWN` preserves the legacy default `SimpleAnalyzer` behavior.
 
 Parser mode, lowercase, stopwords, and char-filter settings remain in the existing analyzer configuration and are not duplicated.
 
@@ -84,6 +84,7 @@ This produces the following required truth table:
 | --- | --- | --- | --- | --- | --- |
 | empty | `none` | empty | empty | `NONE` | no |
 | empty | `english` | empty | empty | `ENGLISH` | yes |
+| empty | `unknown` or empty | empty | empty | `UNKNOWN` | yes (legacy default) |
 | `none` | `none` | `none` | empty | `NONE` | no |
 | `none` | `english` | `none` | empty | `NONE` | no |
 | `standard` | `none` | `standard` | empty | `STANDARD` | yes |
@@ -92,20 +93,25 @@ This produces the following required truth table:
 
 The resolver treats a non-empty builtin name as authoritative. The parser string is only consulted when the name is empty.
 
+Physical index keys use metadata precedence `analyzer`, `normalizer`, then builtin parser. A propertyless raw index is canonicalized to `none`, so explicit `USING ANALYZER none` matches it without alias or fallback branches.
+
 ### Runtime context
 
 `InvertedIndexAnalyzerCtx` stores the selection key separately from execution configuration. Its decision helper is renamed to reflect behavior rather than token count:
 
 ```cpp
 bool requires_analysis() const {
-    return !provider_name.empty() ||
+    return !analyzer_name.empty() ||
            parser_type != InvertedIndexParserType::PARSER_NONE;
 }
 ```
 
+The context keeps the existing `analyzer_name` spelling for the execution-side name; `provider_name`
+is only resolver terminology. This avoids exposing the provider factory as a runtime-context concept.
+
 A custom keyword analyzer and a normalizer both return true because their pipelines must run even if they emit one term.
 
-The inverted-index iterator reads only `selection_key`. FunctionMatch and SNII readers read only `requires_analysis()`, the canonical parser, and the resolved provider.
+The inverted-index iterator reads only `analyzer_key`. FunctionMatch and SNII readers read only `requires_analysis()`, the canonical parser, and the resolved provider.
 
 ### Analyzer construction
 
@@ -113,6 +119,7 @@ The inverted-index iterator reads only `selection_key`. FunctionMatch and SNII r
 
 - Raw execution does not construct an analyzer provider.
 - Builtin execution creates a provider from the canonical parser type.
+- Legacy `PARSER_UNKNOWN` creates the historical default `SimpleAnalyzer` for rolling upgrades.
 - Named execution creates a provider from `provider_name` through `IndexPolicyMgr`.
 - A required provider that cannot be constructed returns an analyzer error. It does not fall back to raw matching or `SimpleAnalyzer`.
 
@@ -165,6 +172,7 @@ No FE, Thrift, catalog, or on-disk metadata changes are required.
 This is a BE-local semantic correction using existing wire fields.
 
 - Old FE to new BE uses the same Thrift payload and receives corrected resolution.
+- Empty/`unknown` parser payloads from old FE retain their historical default-analysis semantics.
 - New FE behavior is unchanged.
 - No capability negotiation or ordered FE/BE upgrade is required.
 - Existing query-cache keys remain valid because the selected physical index continues to determine indexed token semantics.
@@ -181,12 +189,14 @@ Add the complete truth table above. In particular, include both regression direc
 - custom provider + `NONE` resolves to analysis.
 
 Also verify mixed-case builtin normalization and a named normalizer with `NONE`.
+Verify that normalizer-only index properties retain the normalizer name as their physical key.
 
 ### Runtime unit tests
 
 - Raw resolution creates no provider and preserves the whole query, including empty strings, case, whitespace, and punctuation.
 - Named custom keyword analysis runs its lowercase/filter pipeline.
 - Reader selection still receives `none`, `standard`, and custom analyzer keys unchanged.
+- A normalizer-only reader cannot be selected by explicit `none`.
 - Missing named policies return an error rather than raw fallback.
 
 ### Regression tests

@@ -14,6 +14,8 @@
 - Analyzer-name precedence is absolute: a non-empty builtin name selects that parser; a non-empty custom name selects that provider with `PARSER_NONE`; only an empty name falls back to `parser_type_str`.
 - The normalized explicit analyzer name is the only selection key. An empty analyzer name keeps an empty selection key even when a fallback parser exists.
 - `none` resolves to an empty provider and `PARSER_NONE`, so it neither tokenizes nor constructs an analyzer.
+- Empty or `unknown` legacy parser payloads retain `PARSER_UNKNOWN` and the historical default analyzer.
+- Physical metadata keys use analyzer, normalizer, then parser precedence; propertyless raw indexes use `none`.
 - Do not change FE, Thrift, wire compatibility, index identifiers, cache keys, or fingerprints.
 - Conf and worktree-local environment changes are never staged.
 
@@ -71,7 +73,6 @@ struct AnalyzerConfig {
     std::string analyzer_key;
 
     bool uses_provider() const { return !provider_name.empty(); }
-    bool is_user_specified() const { return !analyzer_key.empty(); }
 };
 ```
 
@@ -96,9 +97,7 @@ Expected: FAIL because the current resolver derives the physical selection key f
 
 ```cpp
 config.analyzer_key = normalized_analyzer;
-config.parser_type = parser_type == InvertedIndexParserType::PARSER_UNKNOWN
-                             ? InvertedIndexParserType::PARSER_NONE
-                             : parser_type;
+config.parser_type = parser_type;
 ```
 
 - [x] **Step 9: Run all resolver tests and verify GREEN**
@@ -126,7 +125,7 @@ Stage only the parser header, parser implementation, parser unit test, and this 
 
 **Interfaces:**
 - Consumes: Task 1's `AnalyzerConfig {provider_name, parser_type, analyzer_key}`.
-- Produces: `InvertedIndexAnalyzerCtx::analyzer_key`, `InvertedIndexAnalyzerCtx::provider_name`, and `requires_analysis() const`; `VMatchPredicate::get_analyzer_key()` returns only the selection key.
+- Produces: `InvertedIndexAnalyzerCtx::analyzer_key`, the existing execution-side `InvertedIndexAnalyzerCtx::analyzer_name`, and `requires_analysis() const`; `VMatchPredicate::get_analyzer_key()` returns only the selection key.
 
 - [ ] **Step 1: Add a minimal match-predicate fixture and failing explicit-none test**
 
@@ -165,17 +164,17 @@ Expected: FAIL because the current constructor resolves the fallback `english` p
 ```cpp
 struct InvertedIndexAnalyzerCtx {
     std::string analyzer_key;
-    std::string provider_name;
-    InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_NONE;
+    std::string analyzer_name;
+    InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
     // existing analysis objects and configuration
 
     bool requires_analysis() const {
-        return !provider_name.empty() || parser_type != InvertedIndexParserType::PARSER_NONE;
+        return !analyzer_name.empty() || parser_type != InvertedIndexParserType::PARSER_NONE;
     }
 };
 ```
 
-Resolve before building `InvertedIndexAnalyzerConfig`. Populate its `analyzer_name` from `provider_name`, store all three resolved values in the context, and call `create_analyzer_provider` only when `requires_analysis()` is true. Change `get_analyzer_key()` to return `context->analyzer_key`.
+Resolve before building `InvertedIndexAnalyzerConfig`. Populate its `analyzer_name` from the resolved `provider_name`, store the selection key and execution configuration in the context, and call `create_analyzer_provider` only when `requires_analysis()` is true. Change `get_analyzer_key()` to return `context->analyzer_key`.
 
 - [ ] **Step 4: Run the focused test and verify GREEN**
 
@@ -196,7 +195,7 @@ struct Case {
 };
 ```
 
-Cover builtin `english`, custom `customer_analyzer`, empty name with `standard`, and empty input. Assert selection key, provider, parser, `requires_analysis`, and analyzer/provider nullness.
+Cover builtin `english`, custom `customer_analyzer`, empty name with `standard`, and legacy empty/`unknown` input. Assert selection key, provider, parser, `requires_analysis`, and analyzer/provider nullness.
 
 - [ ] **Step 6: Run all match-predicate tests and verify GREEN**
 
@@ -206,7 +205,7 @@ Expected: PASS.
 
 - [ ] **Step 7: Make physical selection consume only `analyzer_key`**
 
-Replace iterator comparisons and diagnostics that currently read `analyzer_name` as a selection key with `analyzer_key`. Rename all execution-side context reads from `analyzer_name` to `provider_name`; replace `should_tokenize()` calls with `requires_analysis()`.
+Replace iterator comparisons and diagnostics that currently read `analyzer_name` as a selection key with `analyzer_key`. Keep execution-side context reads on `analyzer_name`; replace `should_tokenize()` calls with `requires_analysis()`.
 
 - [ ] **Step 8: Reproduce explicit `none` through the SNII reader before updating its context**
 

@@ -179,9 +179,6 @@ std::string get_analyzer_name_from_properties(
 }
 
 std::string normalize_analyzer_key(std::string_view analyzer) {
-    // Simple normalization: lowercase, or empty if input is empty.
-    // Empty string means "user did not specify" - BE will auto-select.
-    // Non-empty string means "user specified this analyzer" - BE will exact match.
     if (analyzer.empty()) {
         return "";
     }
@@ -190,9 +187,9 @@ std::string normalize_analyzer_key(std::string_view analyzer) {
 
 std::string build_analyzer_key_from_properties(
         const std::map<std::string, std::string>& properties) {
-    auto analyzer = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
-    if (analyzer != properties.end() && !analyzer->second.empty()) {
-        return normalize_analyzer_key(analyzer->second);
+    const auto analyzer_name = get_analyzer_name_from_properties(properties);
+    if (!analyzer_name.empty()) {
+        return normalize_analyzer_key(analyzer_name);
     }
 
     std::string parser;
@@ -207,7 +204,7 @@ std::string build_analyzer_key_from_properties(
     }
 
     if (parser.empty()) {
-        return "";
+        return INVERTED_INDEX_PARSER_NONE;
     }
     return normalize_analyzer_key(parser);
 }
@@ -228,11 +225,6 @@ bool AnalyzerConfigParser::is_builtin_analyzer(const std::string& normalized_nam
     return parser_type != InvertedIndexParserType::PARSER_UNKNOWN;
 }
 
-std::string AnalyzerConfigParser::compute_analyzer_key(const std::string& value) {
-    // Simple: just lowercase, empty stays empty
-    return normalize_analyzer_key(value);
-}
-
 AnalyzerConfig AnalyzerConfigParser::parse(const std::string& analyzer_name,
                                            const std::string& parser_type_str) {
     AnalyzerConfig config;
@@ -250,12 +242,7 @@ AnalyzerConfig AnalyzerConfigParser::parse(const std::string& analyzer_name,
         return config;
     }
 
-    auto parser_type = get_inverted_index_parser_type_from_string(parser_type_str);
-    if (parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
-        config.parser_type = InvertedIndexParserType::PARSER_NONE;
-    } else {
-        config.parser_type = parser_type;
-    }
+    config.parser_type = get_inverted_index_parser_type_from_string(parser_type_str);
 
     return config;
 }

@@ -2225,12 +2225,61 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
+    auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+    analyzer_ctx->analyzer_key = "none";
+    analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
+    match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
 
     MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
     auto status =
             collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
+    EXPECT_TRUE(collect_infos.empty());
+}
+
+TEST_F(CollectionStatisticsTest, ExplicitNoneDoesNotSelectNormalizerIndexForScoring) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1325;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("normalized");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2325);
+    index_pb.set_index_name("normalized_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "lowercase";
+    (*props)[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] = "true";
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 82;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "normalized", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("normalized", SlotId(kSlotId)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("ABC"));
+    auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+    analyzer_ctx->analyzer_key = "none";
+    analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
+    match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
+
+    MatchPredicateCollector collector;
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.msg().find("No inverted index found for analyzer 'none'"), std::string::npos)
+            << status;
     EXPECT_TRUE(collect_infos.empty());
 }
 
@@ -2448,7 +2497,8 @@ TEST_F(CollectionStatisticsTest, MatchSelectsOnlyTheRuntimeAnalyzerIndex) {
     config.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
     config.stop_words = "none";
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
-    analyzer_ctx->analyzer_name = "english";
+    analyzer_ctx->analyzer_key = "english";
+    analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_ENGLISH;
     analyzer_ctx->analyzer_provider =
             segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
     match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
@@ -2825,7 +2875,8 @@ TEST_F(CollectionStatisticsTest, OneScoringFieldCannotSelectDifferentPhysicalInd
         config.parser_type = parser_type;
         config.stop_words = "none";
         auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
-        analyzer_ctx->analyzer_name = analyzer_name;
+        analyzer_ctx->analyzer_key = analyzer_name;
+        analyzer_ctx->parser_type = parser_type;
         analyzer_ctx->analyzer_provider =
                 segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
                         &config);

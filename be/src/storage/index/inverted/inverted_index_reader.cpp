@@ -407,7 +407,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                      query_info);
         } else {
             SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-            if (analyzer_ctx != nullptr && !analyzer_ctx->should_tokenize()) {
+            if (analyzer_ctx != nullptr && !analyzer_ctx->requires_analysis()) {
                 // Keyword index: all strings (including empty) are valid tokens for exact match.
                 // Empty string is a valid value in keyword index and should be matchable.
                 query_info.term_infos.emplace_back(search_str);

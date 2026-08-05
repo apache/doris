@@ -385,17 +385,16 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
 
     const auto* analyzer_ctx = expr->query_analyzer_ctx();
     DORIS_CHECK(analyzer_ctx != nullptr);
-    DORIS_CHECK(analyzer_ctx->analyzer_provider != nullptr);
     const auto query_type = match_query_type(expr->op());
     DORIS_CHECK(query_type != InvertedIndexQueryType::UNKNOWN_QUERY);
-    const auto* index_meta =
-            DORIS_TRY(select_index_meta(candidates.index_metas, candidates.field_type, query_type,
-                                        analyzer_ctx->analyzer_name));
+    const auto* index_meta = DORIS_TRY(select_index_meta(
+            candidates.index_metas, candidates.field_type, query_type, analyzer_ctx->analyzer_key));
     if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties()) ||
         !IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
         return Status::OK();
     }
 
+    DORIS_CHECK(analyzer_ctx->analyzer_provider != nullptr);
     auto options = DataTypeSerDe::get_default_format_options();
     options.timezone = &state->timezone_obj();
     auto term_infos = analyze_plain_query(right_literal->value(options), *analyzer_ctx);

@@ -38,10 +38,19 @@
 -- !snii_raw_exact --
 1
 
+-- !snii_raw_explicit_none --
+1
+
 -- !v3_raw_exact --
 1
 
+-- !v3_raw_explicit_none --
+1
+
 -- !v2_raw_exact --
+1
+
+-- !v2_raw_explicit_none --
 1
 
 -- !snii_raw_case_sensitive --

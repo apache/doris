@@ -657,7 +657,7 @@ TEST_F(SniiIndexReaderCountFallback, FunctionMatchUsesQuerySelectedReaderForNull
             {"content", std::make_shared<DataTypeString>()}};
     std::vector<IndexIterator*> iterators {iterator.get()};
     InvertedIndexAnalyzerCtx analyzer_ctx;
-    analyzer_ctx.analyzer_name = "english";
+    analyzer_ctx.analyzer_key = "english";
     analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
 
     FunctionMatchPhrase function;
@@ -993,6 +993,7 @@ TEST_F(SniiIndexReaderCountFallback, CustomKeywordAnalyzerWithNoneParserNormaliz
 
 TEST_F(SniiIndexReaderCountFallback, NoneParserWithoutAnalyzerUsesRawString) {
     InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.analyzer_key = "none";
     analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
 
     QueryExecutionContext lowercase_execution(/*enable_query_cache=*/false);

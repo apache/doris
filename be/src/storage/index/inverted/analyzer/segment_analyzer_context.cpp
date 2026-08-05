@@ -64,7 +64,7 @@ Result<std::optional<InvertedIndexAnalyzerCtx>> maybe_rebuild_segment_analyzer_c
         IndexPolicyMgr* index_policy_mgr) {
     DORIS_CHECK(!segment_base_fingerprint.empty());
     if (request_context == nullptr || request_context->analyzer_provider == nullptr ||
-        !request_context->should_tokenize()) {
+        !request_context->requires_analysis()) {
         return analyzer_bypass("query context cannot reconstruct the physical token stream");
     }
 

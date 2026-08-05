@@ -109,6 +109,8 @@ suite("test_storage_format_snii_custom_analyzer", "p0,nonConcurrent") {
     qt_v3_char_eq "SELECT count(*) FROM ${v3Table} WHERE c_none = 'Apple'"
     qt_v2_char_eq "SELECT count(*) FROM ${v2Table} WHERE c_none = 'Apple'"
 
+    sql "SET enable_match_without_inverted_index = false"
+
     qt_snii_custom_match_all \
         "SELECT count(*) FROM ${sniiTable} WHERE v_cus MATCH_ALL 'D E F'"
     qt_v3_custom_match_all \
@@ -131,10 +133,16 @@ suite("test_storage_format_snii_custom_analyzer", "p0,nonConcurrent") {
 
     qt_snii_raw_exact \
         "SELECT count(*) FROM ${sniiTable} WHERE v_raw MATCH_ALL 'FAILED ORDER'"
+    qt_snii_raw_explicit_none \
+        "SELECT count(*) FROM ${sniiTable} WHERE v_raw MATCH_ALL 'FAILED ORDER' USING ANALYZER none"
     qt_v3_raw_exact \
         "SELECT count(*) FROM ${v3Table} WHERE v_raw MATCH_ALL 'FAILED ORDER'"
+    qt_v3_raw_explicit_none \
+        "SELECT count(*) FROM ${v3Table} WHERE v_raw MATCH_ALL 'FAILED ORDER' USING ANALYZER none"
     qt_v2_raw_exact \
         "SELECT count(*) FROM ${v2Table} WHERE v_raw MATCH_ALL 'FAILED ORDER'"
+    qt_v2_raw_explicit_none \
+        "SELECT count(*) FROM ${v2Table} WHERE v_raw MATCH_ALL 'FAILED ORDER' USING ANALYZER none"
     qt_snii_raw_case_sensitive \
         "SELECT count(*) FROM ${sniiTable} WHERE v_raw MATCH_ALL 'failed order'"
     qt_v3_raw_case_sensitive \

@@ -31,9 +31,6 @@ namespace doris::segment_v2 {
 InvertedIndexIterator::InvertedIndexIterator() = default;
 
 std::string InvertedIndexIterator::ensure_normalized_key(const std::string& analyzer_key) {
-    // Simple normalization: lowercase, empty stays empty.
-    // Empty means "user did not specify" (auto-select mode).
-    // Non-empty means "user specified this analyzer" (exact match mode).
     return normalize_analyzer_key(analyzer_key);
 }
 
@@ -69,13 +66,11 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("inverted index bypass");
     });
 
-    // analyzer_name from analyzer_ctx: what user specified in USING ANALYZER clause.
-    // Empty means "user did not specify" (BE auto-selects index).
-    // Non-empty means "user specified this analyzer" (BE exact matches).
-    const std::string& analyzer_name =
-            (i_param->analyzer_ctx != nullptr) ? i_param->analyzer_ctx->analyzer_name : "";
+    // The execution context carries reader selection separately from analyzer execution.
+    const std::string& analyzer_key =
+            (i_param->analyzer_ctx != nullptr) ? i_param->analyzer_ctx->analyzer_key : "";
     auto reader =
-            DORIS_TRY(select_best_reader(i_param->column_type, i_param->query_type, analyzer_name));
+            DORIS_TRY(select_best_reader(i_param->column_type, i_param->query_type, analyzer_key));
     if (UNLIKELY(reader == nullptr)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "inverted index reader is null");

@@ -473,7 +473,7 @@ Status SniiIndexReader::_parse_query_terms(
             query_type, query_info->slop, actual_similarity));
     SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
     try {
-        if (analyzer_ctx != nullptr && !analyzer_ctx->should_tokenize()) {
+        if (analyzer_ctx != nullptr && !analyzer_ctx->requires_analysis()) {
             query_info->term_infos.emplace_back(search_str);
         } else {
             auto analyzer = analyzer_ctx == nullptr ? nullptr : analyzer_ctx->get_analyzer(purpose);

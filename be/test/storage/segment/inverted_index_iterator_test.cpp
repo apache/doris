@@ -195,26 +195,14 @@ TEST_F(InvertedIndexIteratorTest, AddReader_DuplicateIndexIdFails) {
 #endif
 }
 
-// Test that "none" is treated as a distinct analyzer key (not empty string)
-TEST_F(InvertedIndexIteratorTest, AddReader_NoneAnalyzerIsDistinct) {
+TEST_F(InvertedIndexIteratorTest, DefaultRawReaderMatchesExplicitNone) {
     InvertedIndexIterator iterator;
-    auto empty_reader = create_mock_reader("", InvertedIndexReaderType::FULLTEXT,
-                                           1); // empty key (no properties)
-    auto none_reader = create_mock_reader("none", InvertedIndexReaderType::FULLTEXT,
-                                          2); // explicit "none" key
+    auto raw_reader = create_mock_reader("");
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, raw_reader);
 
-    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, empty_reader);
-    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, none_reader);
-
-    // Query with empty string = fallback mode, returns first available
-    auto result_empty = iterator.select_best_reader("");
-    EXPECT_TRUE(result_empty.has_value());
-    // Don't assert which reader - fallback mode returns first available
-
-    // Query for "none" should return none_reader (exact match)
     auto result_none = iterator.select_best_reader(INVERTED_INDEX_PARSER_NONE);
     EXPECT_TRUE(result_none.has_value());
-    EXPECT_EQ(result_none.value(), none_reader);
+    EXPECT_EQ(result_none.value(), raw_reader);
 }
 
 // find_reader_candidates tests (via select_best_reader)
