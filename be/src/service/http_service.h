@@ -36,6 +36,7 @@ class CloudStorageEngine;
 class HttpService {
 public:
     HttpService(ExecEnv* env, int port, int num_threads);
+    HttpService(ExecEnv* env, std::unique_ptr<EvHttpServer> http_server);
     ~HttpService();
 
     Status start();

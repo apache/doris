@@ -15,32 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common;
 
-#include <memory>
+import org.apache.doris.thrift.TNetworkAddress;
 
-#include "common/status.h"
+import org.apache.thrift.transport.TSocket;
+import org.apache.thrift.transport.TTransport;
+import org.apache.thrift.transport.layered.TFramedTransport;
 
-namespace brpc {
-class Server;
+public class OssThriftClientTransportProvider implements ThriftClientTransportProvider {
+    @Override
+    public TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking) throws Exception {
+        return nonBlocking
+                ? new TFramedTransport(new TSocket(address.hostname, address.port, timeoutMs))
+                : new TSocket(address.hostname, address.port, timeoutMs);
+    }
 }
-
-namespace doris {
-
-class ExecEnv;
-
-// Class enclose brpc service
-class BRpcService {
-public:
-    BRpcService(ExecEnv* exec_env);
-    ~BRpcService();
-
-    Status start(int port, int num_threads);
-    void join();
-
-private:
-    ExecEnv* _exec_env;
-    std::unique_ptr<brpc::Server> _server;
-};
-
-} // namespace doris

@@ -82,6 +82,8 @@ public:
 
     const char* remote_host() const;
 
+    void set_header(const std::string& key, const std::string& value) { _headers[key] = value; }
+
 private:
     HttpMethod _method;
     std::string _uri;

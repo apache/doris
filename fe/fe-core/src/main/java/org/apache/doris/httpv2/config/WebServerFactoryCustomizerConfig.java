@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.config;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.tls.server.HttpServerTlsProviderFactory;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,7 +40,7 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
 
     @Override
     public void customize(ConfigurableJettyWebServerFactory factory) {
-
+        HttpServerTlsProviderFactory.create().customize(factory);
         // Set HTTP header size for all connectors
         ((JettyServletWebServerFactory) factory).addServerCustomizers(server -> {
             WebAppContext context = server.getDescendant(WebAppContext.class);
