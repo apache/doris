@@ -32,6 +32,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlStatus;
+import org.apache.doris.load.FailMsg;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
@@ -482,5 +483,79 @@ public class BrokerLoadJobTest {
         }
 
         Assert.assertEquals(0L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+    }
+
+    @Test
+    public void testPendingTaskOnFinishedWithNereidsPlanningError() throws Exception {
+        // A Nereids planning error is a RuntimeException; it must cancel the job with the real
+        // cause instead of escaping into the generic pending-task retry path (which used to end
+        // in a misleading "Label has already been used" cancellation).
+        BrokerPendingTaskAttachment attachment = Mockito.mock(BrokerPendingTaskAttachment.class);
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        BrokerFileGroupAggInfo fileGroupAggInfo = Mockito.mock(BrokerFileGroupAggInfo.class);
+        BrokerFileGroup brokerFileGroup = Mockito.mock(BrokerFileGroup.class);
+        NereidsBrokerFileGroup nereidsBfg = Mockito.mock(NereidsBrokerFileGroup.class);
+        Mockito.when(brokerFileGroup.toNereidsBrokerFileGroup()).thenReturn(nereidsBfg);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        GlobalTransactionMgrIface globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        ProgressManager progressManager = Mockito.mock(ProgressManager.class);
+        ComputeGroupMgr computeGroupMgr = Mockito.mock(ComputeGroupMgr.class);
+        TableProperty tableProperty = Mockito.mock(TableProperty.class);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<NereidsLoadingTaskPlanner> ignored =
+                        Mockito.mockConstruction(NereidsLoadingTaskPlanner.class, (mock, context) ->
+                                Mockito.doThrow(new org.apache.doris.nereids.exceptions.AnalysisException(
+                                        "disk /mnt/mock on backend 10001 exceed limit usage"))
+                                        .when(mock).plan(Mockito.any(), Mockito.anyList(), Mockito.anyInt()))) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envMockedStatic.when(Env::getCurrentProgressManager).thenReturn(progressManager);
+            envMockedStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTxnMgr);
+
+            BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+            Deencapsulation.setField(brokerLoadJob, "state", JobState.LOADING);
+            BrokerDesc brokerDesc = Mockito.mock(BrokerDesc.class);
+            Deencapsulation.setField(brokerLoadJob, "brokerDesc", brokerDesc);
+
+            Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
+            FileGroupAggKey aggKey = new FileGroupAggKey(1L, null);
+            aggKeyToFileGroups.put(aggKey, Lists.newArrayList(brokerFileGroup));
+            Deencapsulation.setField(brokerLoadJob, "fileGroupAggInfo", fileGroupAggInfo);
+
+            Mockito.when(attachment.getTaskId()).thenReturn(1L);
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyLong());
+            Mockito.doReturn(Lists.newArrayList()).when(database)
+                    .getTablesOnIdOrderOrThrowException(Mockito.anyList());
+            Mockito.when(fileGroupAggInfo.getAggKeyToFileGroups()).thenReturn(aggKeyToFileGroups);
+            Mockito.when(fileGroupAggInfo.getAllTableIds()).thenReturn(Sets.newHashSet(1L));
+            Mockito.doReturn(olapTable).when(database).getTableNullable(Mockito.anyLong());
+            Mockito.when(olapTable.isTemporary()).thenReturn(false);
+            Mockito.when(olapTable.getTableProperty()).thenReturn(tableProperty);
+            Mockito.when(tableProperty.getUseSchemaLightChange()).thenReturn(false);
+            Mockito.when(olapTable.getIndexes()).thenReturn(null);
+            Mockito.when(attachment.getFileStatusByTable(aggKey)).thenReturn(
+                    Collections.singletonList(Collections.singletonList(new TBrokerFileStatus())));
+            Mockito.when(attachment.getFileNumByTable(aggKey)).thenReturn(1);
+            Mockito.when(env.getNextId()).thenReturn(1L);
+            Mockito.when(env.getComputeGroupMgr()).thenReturn(computeGroupMgr);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(computeGroupMgr.getAllBackendComputeGroup())
+                    .thenReturn(new ComputeGroup("default", "default", null));
+            TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+            Mockito.when(globalTxnMgr.getCallbackFactory()).thenReturn(callbackFactory);
+
+            brokerLoadJob.onTaskFinished(attachment);
+
+            Assert.assertEquals(JobState.CANCELLED, brokerLoadJob.getState());
+            FailMsg failMsg = Deencapsulation.getField(brokerLoadJob, "failMsg");
+            Assert.assertTrue(failMsg.getMsg().contains("exceed limit usage"));
+            Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
+            Assert.assertEquals(0, idToTasks.size());
+        }
     }
 }

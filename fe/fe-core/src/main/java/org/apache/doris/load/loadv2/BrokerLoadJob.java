@@ -243,7 +243,10 @@ public class BrokerLoadJob extends BulkLoadJob {
         try {
             Database db = getDb();
             createLoadingTask(db, attachment);
-        } catch (UserException e) {
+        } catch (UserException | org.apache.doris.nereids.exceptions.AnalysisException e) {
+            // Nereids analysis errors extend RuntimeException, not UserException; without this
+            // branch a deterministic planning failure (e.g. "disk ... exceed limit usage") falls
+            // into the generic pending-task retry path and the real cause is never reported.
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
                     .add("error_msg", "Failed to divide job into loading task.")
