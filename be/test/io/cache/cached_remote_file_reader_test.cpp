@@ -212,7 +212,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_reads_exact_remote_ra
     EXPECT_EQ(stats.bytes_read_from_local, 0);
     EXPECT_EQ(stats.bytes_read_from_remote, read_size);
     EXPECT_EQ(stats.async_cache_write_submitted, 0);
-    EXPECT_EQ(cache()->async_write_service()->pending_count(), 0);
+    EXPECT_EQ(cache()->async_write_manager()->pending_count(), 0);
     EXPECT_EQ(cache()->inflight_write_buffer_index()->count(), 0);
     EXPECT_EQ(cache()->_cur_cache_size, 0);
 
@@ -241,14 +241,14 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     ASSERT_TRUE(cached_block->append(Slice(cached_payload.data(), cached_payload.size())).ok());
     ASSERT_TRUE(cached_block->finalize().ok());
 
-    auto* service = cache()->async_write_service();
+    auto* manager = cache()->async_write_manager();
     auto* inflight_index = cache()->inflight_write_buffer_index();
     AsyncCacheWriteBufferPtr inflight_buffer;
-    ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
+    ASSERT_TRUE(manager->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
     const std::string inflight_payload(1_mb, '2');
     memcpy(inflight_buffer->data(), inflight_payload.data(), inflight_payload.size());
-    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(
-            inflight_buffer, 2_mb, 1_mb, MonotonicMicros(), service->current_write_epoch());
+    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(inflight_buffer, 2_mb, 1_mb,
+                                                                     MonotonicMicros());
     ASSERT_EQ(inflight_index->insert_if_absent(reader->_cache_hash, 2_mb, inflight_entry), nullptr);
     Defer remove_inflight {[&]() {
         static_cast<void>(inflight_index->remove_if(reader->_cache_hash, 2_mb, inflight_entry));
@@ -278,7 +278,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(stats.probe_downloaded_hit, 1);
     EXPECT_EQ(stats.probe_miss, 2);
     EXPECT_EQ(stats.async_cache_write_submitted, 0);
-    EXPECT_EQ(cache()->async_write_service()->pending_count(), 0);
+    EXPECT_EQ(cache()->async_write_manager()->pending_count(), 0);
 
     auto probe_result = cache()->probe(reader->_cache_hash, 0, 4_mb, cache_context);
     ASSERT_EQ(probe_result.file_blocks.size(), 4);
@@ -408,13 +408,13 @@ TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_reads_full_inflight_i
     auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
     auto reader = create_reader(counting_reader);
 
-    auto* service = cache()->async_write_service();
+    auto* manager = cache()->async_write_manager();
     auto* inflight_index = cache()->inflight_write_buffer_index();
     AsyncCacheWriteBufferPtr inflight_buffer;
-    ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
+    ASSERT_TRUE(manager->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
     memset(inflight_buffer->data(), 'i', inflight_buffer->size());
-    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(
-            inflight_buffer, 1_mb, 1_mb, MonotonicMicros(), service->current_write_epoch());
+    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(inflight_buffer, 1_mb, 1_mb,
+                                                                     MonotonicMicros());
     ASSERT_EQ(inflight_index->insert_if_absent(reader->_cache_hash, 1_mb, inflight_entry), nullptr);
     Defer remove_inflight {[&]() {
         static_cast<void>(inflight_index->remove_if(reader->_cache_hash, 1_mb, inflight_entry));
@@ -468,21 +468,25 @@ TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_clips_remote_read_at_
     EXPECT_EQ(cache()->_cur_cache_size, 0);
 }
 
-TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_ignores_stale_inflight_epoch) {
-    create_cache("cached_remote_reader_no_write_unaligned_stale_inflight");
+TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_reuses_invalidated_inflight_payload) {
+    create_cache("cached_remote_reader_no_write_unaligned_invalidated_inflight");
     auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
     auto reader = create_reader(counting_reader);
 
-    auto* service = cache()->async_write_service();
+    auto* manager = cache()->async_write_manager();
     auto* inflight_index = cache()->inflight_write_buffer_index();
-    const uint64_t stale_epoch = service->current_write_epoch();
+    const auto stale_epoch = manager->current_write_epoch(reader->_cache_hash);
     AsyncCacheWriteBufferPtr inflight_buffer;
-    ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
+    ASSERT_TRUE(manager->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
     memset(inflight_buffer->data(), 'i', inflight_buffer->size());
-    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(
-            inflight_buffer, 1_mb, 1_mb, MonotonicMicros(), stale_epoch);
+    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(inflight_buffer, 1_mb, 1_mb,
+                                                                     MonotonicMicros());
     ASSERT_EQ(inflight_index->insert_if_absent(reader->_cache_hash, 1_mb, inflight_entry), nullptr);
-    ASSERT_EQ(service->invalidate_pending_writes(), stale_epoch + 1);
+    Defer remove_inflight {[&]() {
+        static_cast<void>(inflight_index->remove_if(reader->_cache_hash, 1_mb, inflight_entry));
+    }};
+    manager->invalidate_pending_writes(reader->_cache_hash);
+    ASSERT_FALSE(manager->is_current_write_epoch(stale_epoch));
 
     constexpr size_t read_offset = 1_mb + 123;
     constexpr size_t read_size = 4096;
@@ -495,14 +499,13 @@ TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_ignores_stale_infligh
                     .ok());
 
     EXPECT_EQ(bytes_read, read_size);
-    EXPECT_EQ(result, std::string(read_size, '1'));
-    EXPECT_EQ(counting_reader->reads(),
-              (std::vector<std::pair<size_t, size_t>> {{read_offset, read_size}}));
-    EXPECT_EQ(inflight_index->count(), 0);
-    EXPECT_EQ(stats.bytes_read_from_local, 0);
-    EXPECT_EQ(stats.bytes_read_from_remote, read_size);
-    EXPECT_EQ(stats.inflight_write_buffer_index_hit, 0);
-    EXPECT_EQ(stats.inflight_write_buffer_index_miss, 1);
+    EXPECT_EQ(result, std::string(read_size, 'i'));
+    EXPECT_EQ(counting_reader->read_count(), 0);
+    EXPECT_EQ(inflight_index->count(), 1);
+    EXPECT_EQ(stats.bytes_read_from_local, read_size);
+    EXPECT_EQ(stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(stats.inflight_write_buffer_index_hit, 1);
+    EXPECT_EQ(stats.inflight_write_buffer_index_miss, 0);
     EXPECT_EQ(stats.async_cache_write_submitted, 0);
 }
 
@@ -530,7 +533,9 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     ASSERT_TRUE(fs::remove(cache_file, remove_error));
     ASSERT_FALSE(remove_error);
 
-    const uint64_t old_epoch = cache()->async_write_service()->current_write_epoch();
+    auto* manager = cache()->async_write_manager();
+    const auto old_epoch = manager->current_write_epoch(reader->_cache_hash);
+    const uint64_t old_cache_epoch = manager->current_cache_epoch();
     constexpr size_t read_offset = 1_mb + 123;
     constexpr size_t read_size = 4096;
     std::string result(read_size, '\0');
@@ -548,7 +553,10 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(stats.bytes_read_from_local, 0);
     EXPECT_EQ(stats.bytes_read_from_remote, read_size);
     EXPECT_EQ(stats.async_cache_write_submitted, 0);
-    EXPECT_EQ(cache()->async_write_service()->current_write_epoch(), old_epoch + 1);
+    EXPECT_EQ(manager->current_cache_epoch(), old_cache_epoch);
+    EXPECT_FALSE(manager->is_current_write_epoch(old_epoch));
+    const auto new_epoch = manager->current_write_epoch(reader->_cache_hash);
+    EXPECT_LT(old_epoch.key_token->generation(), new_epoch.key_token->generation());
 
     bool removed = false;
     for (int attempt = 0; attempt < 5000; ++attempt) {
@@ -931,7 +939,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest, concurrent_cold_reads_publish_only_one_a
     SyncPoint::CallbackGuard insert_guard;
     SyncPoint::CallbackGuard worker_guard;
     sync_point->set_call_back(
-            "CachedRemoteFileReader::_submit_async_write_tasks:before_inflight_insert",
+            "FixedBlockAsyncWriteSubmitter::try_submit:before_inflight_insert",
             [&](auto&&) {
                 std::unique_lock lock(insert_mutex);
                 ++insert_arrivals;
