@@ -21,8 +21,6 @@
 
 namespace doris::segment_v2 {
 
-using namespace inverted_index;
-
 const int32_t BM25Similarity::MAX_INT32 = std::numeric_limits<int32_t>::max();
 const uint32_t BM25Similarity::MAX_INT4 = long_to_int4(static_cast<uint64_t>(MAX_INT32));
 const int32_t BM25Similarity::NUM_FREE_VALUES = 255 - static_cast<int>(MAX_INT4);

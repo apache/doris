@@ -23,6 +23,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
+#include "exec/sort/hybrid_sorter.h"
 #include "exec/sort/sort_block.h"
 #include "util/simd/bits.h"
 
@@ -241,5 +242,13 @@ void IColumn::check_const_only_in_top_level() const {
     };
     for_each_subcolumn(throw_if_const);
 }
+
+#ifdef BE_TEST
+void IColumn::get_permutation_default(bool reverse, size_t limit, int nan_direction_hint,
+                                      Permutation& res) const {
+    HybridSorter sorter;
+    get_permutation(reverse, limit, nan_direction_hint, sorter, res);
+}
+#endif
 
 } // namespace doris
