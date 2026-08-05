@@ -364,6 +364,51 @@ TEST(ParquetV2NativeDecoderTest, FragmentedDictionarySelectionUsesOneConsumerBat
     EXPECT_EQ(selected_indices, expected);
 }
 
+TEST(ParquetV2NativeDecoderTest, Q28ShapedDictionarySelectionUsesOneConsumerBatch) {
+    constexpr size_t DICTIONARY_SIZE = 256;
+    constexpr size_t VALUE_COUNT = 4096;
+    std::array<int32_t, DICTIONARY_SIZE> dictionary_values {};
+    std::iota(dictionary_values.begin(), dictionary_values.end(), 0);
+    auto dictionary = make_unique_buffer<uint8_t>(sizeof(dictionary_values));
+    memcpy(dictionary.get(), dictionary_values.data(), sizeof(dictionary_values));
+
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(
+            Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::RLE_DICTIONARY, decoder)
+                    .ok());
+    decoder->set_type_length(sizeof(int32_t));
+    ASSERT_TRUE(decoder->set_dict(dictionary, sizeof(dictionary_values), DICTIONARY_SIZE).ok());
+
+    faststring encoded_ids;
+    RleEncoder<uint32_t> encoder(&encoded_ids, 8);
+    for (uint32_t row = 0; row < VALUE_COUNT; ++row) {
+        encoder.Put(row % DICTIONARY_SIZE);
+    }
+    encoder.Flush();
+    std::vector<uint8_t> payload(encoded_ids.size() + 1);
+    payload[0] = 8;
+    memcpy(payload.data() + 1, encoded_ids.data(), encoded_ids.size());
+    Slice data(payload.data(), payload.size());
+    ASSERT_TRUE(decoder->set_data(&data).ok());
+
+    ParquetSelection selection {.total_values = VALUE_COUNT, .selected_values = 0, .ranges = {}};
+    std::vector<uint32_t> expected;
+    for (uint32_t row = 0; row < VALUE_COUNT; ++row) {
+        if ((row * 37) % 101 >= 5) {
+            continue;
+        }
+        selection.ranges.push_back({.first = row, .count = 1});
+        ++selection.selected_values;
+        expected.push_back(row % DICTIONARY_SIZE);
+    }
+
+    CaptureDictionaryConsumer consumer;
+    ASSERT_TRUE(decoder->decode_selected_dictionary_values(selection, consumer).ok());
+
+    EXPECT_EQ(consumer.consume_calls, 1);
+    EXPECT_EQ(consumer.indices, expected);
+}
+
 TEST(ParquetV2NativeDecoderTest, HighlySparseDictionarySelectionAvoidsFullBatchDecode) {
     constexpr size_t DICTIONARY_SIZE = 32;
     constexpr size_t VALUE_COUNT = 256;

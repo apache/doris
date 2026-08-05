@@ -516,8 +516,7 @@ inline DecoderDigest expected_decoder_digest(const DecoderScenario& scenario,
 
 inline Status verify_decoder_output(format::parquet::native::Decoder* decoder, Slice* encoded,
                                     const DecoderScenario& scenario, bool binary,
-                                    const ParquetSelection& selection,
-                                    const SelectionPlan& plan) {
+                                    const ParquetSelection& selection, const SelectionPlan& plan) {
     RETURN_IF_ERROR(decoder->set_data(encoded));
     DecoderDigest actual;
     if (scenario.encoding == Encoding::DICTIONARY) {
@@ -626,7 +625,7 @@ inline void run_decoder(benchmark::State& state, DecoderScenario scenario, int s
 
 inline bool register_decoder_benchmarks() {
     for (const auto& scenario : decoder_scenarios()) {
-        for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
+        for (const int selectivity : {0, 1, 5, 10, 50, 90, 100}) {
             for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
                 const std::string name = "ParquetDecoder/" + to_string(scenario.encoding) + "/" +
                                          to_string(scenario.value_type) + "/sel_" +
