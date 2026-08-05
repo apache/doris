@@ -139,12 +139,6 @@ template <typename T, size_t N>
 struct IsFixedContainer<FixedContainer<T, N>> : std::true_type {};
 
 template <typename T>
-struct IsBitSetContainer : std::false_type {};
-
-template <typename T>
-struct IsBitSetContainer<BitSetContainer<T>> : std::true_type {};
-
-template <typename T>
 struct DynamicContainerHash {
     size_t operator()(const T& value) const {
         if constexpr (std::is_floating_point_v<T>) {

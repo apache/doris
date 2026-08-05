@@ -567,8 +567,8 @@ TEST(NativeParquetStatisticsTest, FloatingNanEqualityKeepsFiniteOnlyFooterAndPag
             std::vector<format::parquet::RowRange> selected_ranges;
             std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
             ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
-                                metadata, page_indexes, schema, request, 2, &selected_ranges,
-                                &skip_plans, nullptr)
+                                metadata, metadata.row_groups[0], page_indexes, schema, request, 2,
+                                &selected_ranges, &skip_plans, nullptr)
                                 .ok());
             ASSERT_EQ(1, selected_ranges.size());
             EXPECT_EQ(0, selected_ranges[0].start);

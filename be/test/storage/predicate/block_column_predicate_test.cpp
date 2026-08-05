@@ -1860,7 +1860,8 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
                 return true;
             };
             stat.get_stat_func = &get_stat_func;
-            EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            // Parquet min/max bounds omit NaNs, which can still satisfy Doris NE semantics.
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
         }
         {
             // 5 not belongs to [6, 7]
@@ -1962,7 +1963,8 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
                 return true;
             };
             stat.get_stat_func = &get_stat_func;
-            EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+            // Parquet min/max bounds omit NaNs, which can still satisfy Doris GE semantics.
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
         }
     }
     {
