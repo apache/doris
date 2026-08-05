@@ -917,6 +917,11 @@ static bool projected_mapping_preserves_table_nullability(const ColumnMapping& m
     if (!can_filter_before_table_nullability_alignment(mapping.file_type, mapping.table_type)) {
         return false;
     }
+    if (remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_VARIANT) {
+        // Shredded Variant children describe physical encoding, not table-schema nullability
+        // contracts. The Variant root is therefore the only mapped level that can be validated.
+        return true;
+    }
     if (is_full_projection(projection)) {
         for (const auto& child : mapping.child_mappings) {
             if (child.file_local_id.has_value() &&
