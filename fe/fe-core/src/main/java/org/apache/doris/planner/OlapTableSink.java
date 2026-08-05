@@ -512,7 +512,7 @@ public class OlapTableSink extends DataSink {
         }
     }
 
-    private TDistributionHashType geTDistributionHashType(DistributionInfo distInfo) {
+    private TDistributionHashType getTDistributionHashType(DistributionInfo distInfo) {
         if (distInfo instanceof HashDistributionInfo
                 && ((HashDistributionInfo) distInfo).getHashType() == HashDistributionInfo.HashType.IDENTITY) {
             return TDistributionHashType.IDENTITY;
@@ -1008,7 +1008,7 @@ public class OlapTableSink extends DataSink {
         partitionParam.setTableId(table.getId());
         partitionParam.setVersion(0);
         partitionParam.setPartitionType(partType.toThrift());
-        partitionParam.setDistributionHashType(geTDistributionHashType(table.getDefaultDistributionInfo()));
+        partitionParam.setDistributionHashType(getTDistributionHashType(table.getDefaultDistributionInfo()));
 
         // create shadow partition for empty auto partition table. only use in this load.
         if (enableAutomaticPartition && partitionIds.isEmpty()) {
