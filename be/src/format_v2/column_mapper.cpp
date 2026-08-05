@@ -903,6 +903,7 @@ static bool rewrite_struct_element_path_to_file_expr(
     if (!collect_struct_element_chain(expr, &struct_element_chain) ||
         struct_element_chain.size() != resolved.file_child_names.size() ||
         struct_element_chain.size() != resolved.file_child_types.size() ||
+        struct_element_chain.size() != resolved.table_child_types.size() ||
         struct_element_chain.size() != resolved.file_array_elements.size()) {
         return false;
     }
@@ -927,8 +928,11 @@ static bool rewrite_struct_element_path_to_file_expr(
         return false;
     }
     for (size_t idx = 0; idx < struct_element_chain.size(); ++idx) {
-        if (!can_filter_before_table_nullability_alignment(
-                    resolved.file_child_types[idx], struct_element_chain[idx]->data_type())) {
+        // Accessor results become nullable for missing ARRAY indices and NULL parents. Compare the
+        // file child with the declared table child instead, or that execution-only wrapper can
+        // hide a nullable-file-to-required-table contract violation before alignment reports it.
+        if (!can_filter_before_table_nullability_alignment(resolved.file_child_types[idx],
+                                                           resolved.table_child_types[idx])) {
             return false;
         }
     }
