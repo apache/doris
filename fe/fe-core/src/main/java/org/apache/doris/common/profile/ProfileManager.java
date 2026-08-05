@@ -57,6 +57,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -129,12 +131,22 @@ public class ProfileManager extends MasterDaemon {
     volatile boolean isProfileLoaded = false;
     // Guard against spawning multiple profile-loader threads while loading is in progress.
     private final AtomicBoolean isProfileLoading = new AtomicBoolean(false);
-    // Set when a load attempt terminates without fully indexing storage. This is distinct from
-    // isProfileLoaded, which means the on-disk index is complete and therefore authoritative for
-    // deleteBrokenProfiles()/deleteOutdatedProfilesFromStorage(). A failed attempt must stop the
-    // loader from respawning on every scheduler tick WITHOUT enabling that destructive cleanup,
-    // because a partial in-memory index would otherwise classify valid stored profiles as broken.
-    private final AtomicBoolean isProfileLoadFailed = new AtomicBoolean(false);
+    // A cold load can fail transiently -- e.g. the bounded profileIOExecutor rejects a submit under
+    // saturation (BlockedPolicy -> RejectedExecutionException), which is exactly the pressure this
+    // guard targets. We must not respawn a loader every scheduler tick on failure, but we also must
+    // not give up permanently: a permanent "never retry" latch would keep isProfileLoaded=false for
+    // the life of the FE, which disables deleteBrokenProfiles()/deleteOutdatedProfilesFromStorage()
+    // (both gated on isProfileLoaded) while writeProfileToStorage() keeps writing -- trading a thread
+    // leak for an unbounded disk leak. Instead we back off exponentially between retries and give up
+    // only after MAX_LOAD_RETRY consecutive failures, so a transient failure self-heals.
+    private final AtomicInteger consecutiveLoadFailures = new AtomicInteger(0);
+    private final AtomicLong nextLoadRetryTimeMs = new AtomicLong(0);
+    private static final int MAX_LOAD_RETRY = 10;
+    private static final long MAX_LOAD_BACKOFF_MS = 300_000L;
+    // Upper bound for a synchronous caller blocking on an in-flight load. A stuck loader (submit()
+    // blocked up to 60s under BlockedPolicy, or an unbounded future.get()) must not hang the caller
+    // forever -- exactly the scenario this change targets.
+    private static final long PROFILE_LOAD_WAIT_TIMEOUT_MS = 120_000L;
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
     private ReentrantReadWriteLock lock;
@@ -608,47 +620,45 @@ public class ProfileManager extends MasterDaemon {
     // deserialize to an object Profile
     // push them to memory structure of ProfileManager for index
     protected void loadProfilesFromStorageIfFirstTime(boolean sync) {
-        if (checkIfProfileLoaded() || isProfileLoadFailed.get()) {
+        if (!shouldAttemptLoad()) {
             return;
         }
         if (!isProfileLoading.compareAndSet(false, true)) {
             if (sync) {
-                waitForProfileLoadFinish();
+                waitForProfileLoadFinish(PROFILE_LOAD_WAIT_TIMEOUT_MS);
             }
             return;
         }
         // Recheck after winning ownership: a stale pre-CAS read could have observed
         // isProfileLoaded=false while a previous loader was finishing. Without this, that loader
         // marks loaded and clears isProfileLoading, then this CAS succeeds and starts a redundant
-        // second full cold load. Release ownership and bail if loading already terminated.
-        if (checkIfProfileLoaded() || isProfileLoadFailed.get()) {
+        // second full cold load. Release ownership and bail if loading no longer needs to run.
+        if (!shouldAttemptLoad()) {
             isProfileLoading.set(false);
             return;
         }
 
         Runnable loadTask = () -> {
             long startTime = System.currentTimeMillis();
-            boolean loadSucceeded = false;
+            int readFailures = -1;
             try {
-                loadProfilesFromStorage();
-                loadSucceeded = true;
-                LOG.info("Load profiles into memory finished, costs {}ms",
-                        System.currentTimeMillis() - startTime);
+                readFailures = loadProfilesFromStorage();
+                LOG.info("Load profiles into memory finished, readFailures={}, costMs={}",
+                        readFailures, System.currentTimeMillis() - startTime);
             } catch (Exception e) {
                 LOG.error("Failed to load query profile from storage", e);
             } finally {
-                if (loadSucceeded) {
-                    // Only a fully indexed load may mark the disk index authoritative; downstream
-                    // cleanup deletes stored profiles missing from the in-memory index.
+                // A load only counts as successful when every stored profile was read without error
+                // (readFailures == 0). A partial read must NOT mark the disk index authoritative,
+                // because downstream cleanup deletes stored profiles missing from the in-memory
+                // index; treat it as a failure so cleanup stays disabled until a clean load succeeds.
+                if (readFailures == 0) {
+                    // Only a fully indexed load may mark the disk index authoritative.
+                    consecutiveLoadFailures.set(0);
+                    nextLoadRetryTimeMs.set(0);
                     markProfileLoaded();
                 } else {
-                    // Record a terminal failure so the loader is not respawned every scheduler tick,
-                    // but keep isProfileLoaded=false so destructive cleanup stays disabled on a
-                    // partial index. The load will not be retried until the FE restarts.
-                    isProfileLoadFailed.set(true);
-                    LOG.warn("Profile loading did not complete successfully, "
-                            + "will not retry until FE restarts. Loaded profile count in memory: {}",
-                            queryIdToProfileMap.size());
+                    recordLoadFailure();
                 }
                 isProfileLoading.set(false);
             }
@@ -663,23 +673,53 @@ public class ProfileManager extends MasterDaemon {
                 loadThread.start();
             } catch (Throwable t) {
                 // Native-thread allocation / start() can fail under the resource pressure this
-                // guard targets. loadTask never runs, so release ownership and record a terminal
-                // failure here; otherwise every later cycle sees isProfileLoading=true and
-                // permanently skips the cold load.
-                isProfileLoadFailed.set(true);
+                // guard targets. loadTask never runs, so release ownership and record the failure
+                // here; otherwise every later cycle sees isProfileLoading=true and skips the load
+                // until the backoff-free path can never re-enter it.
+                recordLoadFailure();
                 isProfileLoading.set(false);
-                LOG.warn("Failed to start profile-loader thread, "
-                        + "profile loading will not be retried until FE restarts", t);
+                LOG.warn("Failed to start profile-loader thread, will retry after backoff", t);
             }
         }
     }
 
-    private void loadProfilesFromStorage() throws Exception {
+    // True if a cold load should be attempted now: not already loaded, not exhausted retries, and
+    // past the current backoff window.
+    private boolean shouldAttemptLoad() {
+        if (checkIfProfileLoaded()) {
+            return false;
+        }
+        if (consecutiveLoadFailures.get() >= MAX_LOAD_RETRY) {
+            return false;
+        }
+        return System.currentTimeMillis() >= nextLoadRetryTimeMs.get();
+    }
+
+    // Record a failed/partial load attempt and schedule the next retry with exponential backoff
+    // (1s, 2s, 4s ... capped at MAX_LOAD_BACKOFF_MS). After MAX_LOAD_RETRY consecutive failures we
+    // stop retrying and log that cleanup stays disabled until the FE restarts.
+    private void recordLoadFailure() {
+        int failures = consecutiveLoadFailures.incrementAndGet();
+        long backoffMs = Math.min(1000L << Math.min(failures, 8), MAX_LOAD_BACKOFF_MS);
+        nextLoadRetryTimeMs.set(System.currentTimeMillis() + backoffMs);
+        if (failures >= MAX_LOAD_RETRY) {
+            LOG.warn("Profile cold load failed {} times, giving up until FE restarts; "
+                    + "profile disk cleanup stays disabled, loadedProfileCount={}",
+                    failures, queryIdToProfileMap.size());
+        } else {
+            LOG.warn("Profile cold load failed, attempt={}, nextRetryInMs={}, loadedProfileCount={}",
+                    failures, backoffMs, queryIdToProfileMap.size());
+        }
+    }
+
+    // Returns the number of profiles that failed to read (0 means a fully indexed, clean load).
+    private int loadProfilesFromStorage() throws Exception {
         List<String> profileDirAbsPaths = getOnStorageProfileInfos();
         LOG.info("Reading {} profiles from {}", profileDirAbsPaths.size(), PROFILE_STORAGE_PATH);
         // Newest profile first
         profileDirAbsPaths.sort(Collections.reverseOrder());
 
+        int readFailures = 0;
         // Process profiles in batches
         for (int i = 0; i < profileDirAbsPaths.size(); i += BATCH_SIZE) {
             // Thread safe list
@@ -693,6 +733,13 @@ public class ProfileManager extends MasterDaemon {
             // Create and add tasks for current batch to executor
             for (String profileDirAbsPath : batch) {
                 profileIOFutures.add(profileIOExecutor.submit(() -> {
+                    // NOTE: Profile.read() returns null for BOTH a genuinely malformed file (safe to
+                    // treat as absent) and a transient IO error (must not be treated as absent). It
+                    // swallows every exception internally, so a transient read failure is invisible
+                    // here and does not increment readFailures below. This gap means isProfileLoaded
+                    // can still be set on a load that silently skipped a valid-but-unreadable file;
+                    // distinguishing the two requires Profile.read() to throw on IO-class errors,
+                    // which is out of scope for this change (tracked as a follow-up).
                     Profile profile = Profile.read(profileDirAbsPath);
                     if (profile != null) {
                         profiles.add(profile);
@@ -705,6 +752,7 @@ public class ProfileManager extends MasterDaemon {
                 try {
                     future.get();
                 } catch (Exception e) {
+                    readFailures++;
                     LOG.warn("Failed to read profile from storage", e);
                 }
             }
@@ -713,8 +761,9 @@ public class ProfileManager extends MasterDaemon {
                 pushProfile(profile);
             }
 
-            LOG.info("Processed batch {} - {} of {} profiles", i, end, profileDirAbsPaths.size());
+            LOG.debug("Processed batch {} - {} of {} profiles", i, end, profileDirAbsPaths.size());
         }
+        return readFailures;
     }
 
     private void markProfileLoaded() {
@@ -726,8 +775,13 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    private void waitForProfileLoadFinish() {
+    private void waitForProfileLoadFinish(long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
         while (isProfileLoading.get() && !checkIfProfileLoaded()) {
+            if (System.currentTimeMillis() >= deadline) {
+                LOG.warn("Timed out waiting for in-flight profile load to finish, timeoutMs={}", timeoutMs);
+                return;
+            }
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
@@ -788,10 +842,8 @@ public class ProfileManager extends MasterDaemon {
             List<Future<?>> profileWriteFutures = Lists.newArrayList();
 
             for (ProfileElement profileElement : profilesToBeStored) {
-                Thread thread = new Thread(() -> {
-                    profileElement.writeToStorage(PROFILE_STORAGE_PATH);
-                });
-                profileWriteFutures.add(profileIOExecutor.submit(thread));
+                profileWriteFutures.add(profileIOExecutor.submit(
+                        () -> profileElement.writeToStorage(PROFILE_STORAGE_PATH)));
             }
 
             for (Future<?> future : profileWriteFutures) {
@@ -958,7 +1010,7 @@ public class ProfileManager extends MasterDaemon {
         List<Future<?>> profileDeleteFutures = Lists.newArrayList();
 
         for (String brokenProfile : brokenProfiles) {
-            Thread iothread = new Thread(() -> {
+            profileDeleteFutures.add(profileIOExecutor.submit(() -> {
                 try {
                     File profileFile = new File(brokenProfile);
                     if (!profileFile.isFile()) {
@@ -971,8 +1023,7 @@ public class ProfileManager extends MasterDaemon {
                 } catch (Exception e) {
                     LOG.error("Failed to delete broken profile: {}", brokenProfile, e);
                 }
-            });
-            profileDeleteFutures.add(profileIOExecutor.submit(iothread));
+            }));
         }
 
         for (Future<?> future : profileDeleteFutures) {

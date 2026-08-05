@@ -1354,12 +1354,29 @@ class ProfileManagerTest {
         Assertions.assertTrue(pushProfileEntered.get(), "pushProfile override should have been entered");
         // A failed load must NOT be promoted to the cleanup-authoritative "index complete" state,
         // otherwise deleteBrokenProfiles() would delete valid stored profiles missing from the
-        // partial in-memory index. It should, however, stop respawning the loader.
+        // partial in-memory index.
         Assertions.assertFalse(pm.isProfileLoaded, "failed load must not mark the disk index authoritative");
         Assertions.assertTrue(pm.queryIdToProfileMap.isEmpty());
-        // A subsequent trigger must not restart the load (terminal failure recorded until FE restart).
+
+        // A second trigger inside the backoff window must NOT re-enter the load body -- this is the
+        // property the failure handling exists to protect (no per-tick loader respawn on failure).
+        pushProfileEntered.set(false);
         pm.loadProfilesFromStorageIfFirstTime(true);
+        Assertions.assertFalse(pushProfileEntered.get(),
+                "a load in the backoff window must not be restarted by a later trigger");
         Assertions.assertFalse(pm.isProfileLoaded);
+
+        // The invariant the failed-load handling really protects: valid stored profiles must survive
+        // a failed load. Because isProfileLoaded stayed false, destructive cleanup is a no-op.
+        File[] filesBefore = tempDir.listFiles();
+        Assertions.assertNotNull(filesBefore);
+        Assertions.assertEquals(1, filesBefore.length);
+        pm.deleteBrokenProfiles();
+        pm.deleteOutdatedProfilesFromStorage();
+        File[] filesAfter = tempDir.listFiles();
+        Assertions.assertNotNull(filesAfter);
+        Assertions.assertEquals(1, filesAfter.length,
+                "a failed load must not enable destructive cleanup of valid stored profiles");
     }
 
     @Test
