@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
@@ -68,6 +69,12 @@ public class IcebergCatalogFactoryTest {
     private static void appendRest(Map<String, String> opts, Map<String, String> raw,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
         IcebergCatalogFactory.appendRestProperties(opts, IcebergRestMetaStoreProperties.of(raw), raw, chosenS3);
+    }
+
+    /** Same, for the glue appender. */
+    private static void appendGlue(Map<String, String> opts, Map<String, String> raw,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        IcebergCatalogFactory.appendGlueProperties(opts, IcebergGlueMetaStoreProperties.of(raw), chosenS3);
     }
 
     // ---------------------------------------------------------------------
@@ -556,7 +563,7 @@ public class IcebergCatalogFactoryTest {
         // unset session token is written as "". MUTATION: blank-guarding these puts (like the base S3FileIO path)
         // -> the empty s3.session-token would be absent -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts, props("glue.access_key", "a", "glue.secret_key", "b",
+        appendGlue(opts, props("glue.access_key", "a", "glue.secret_key", "b",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").accessKey("S3AK").secretKey("S3SK")
                         .endpoint("https://s3").usePathStyle("true")));
@@ -573,7 +580,7 @@ public class IcebergCatalogFactoryTest {
         // provider keys and RETURN (mutually exclusive with the IAM-role branch). MUTATION: wrong key/value, or
         // also emitting client.factory (IAM branch) -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.access_key", "GAK", "glue.secret_key", "GSK", "aws.glue.session-token", "GST",
                         "glue.role_arn", "arn:aws:iam::1:role/should-not-fire",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
@@ -596,7 +603,7 @@ public class IcebergCatalogFactoryTest {
         // provider used to read only ak/sk, so a supplied token was dropped here and AWS then rejected the
         // temporary credentials. MUTATION: dropping the token read in create() -> AwsBasicCredentials -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.access_key", "GAK", "glue.secret_key", "GSK", "aws.glue.session-token", "GST",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
                 Optional.empty());
@@ -619,7 +626,7 @@ public class IcebergCatalogFactoryTest {
         // -> AwsSessionCredentials.create accepts a blank token silently -> this turns red instead of AWS
         // rejecting it much later with a confusing 4xx.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.access_key", "GAK", "glue.secret_key", "GSK",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
                 Optional.empty());
@@ -639,7 +646,7 @@ public class IcebergCatalogFactoryTest {
         // aws.region + client.assume-role.arn/region + optional external-id). MUTATION: wrong keys or skipping
         // external-id -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.role_arn", "arn:aws:iam::1:role/r", "glue.external_id", "eid", "glue.region", "eu-west-1",
                         "glue.endpoint", "https://glue.eu-west-1.amazonaws.com"),
                 Optional.empty());
@@ -655,7 +662,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy always puts glue.endpoint (AwsProperties.GLUE_CATALOG_ENDPOINT) and client.region. MUTATION:
         // dropping either -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.access_key", "a", "glue.secret_key", "b", "glue.region", "ap-south-1",
                         "glue.endpoint", "https://glue.ap-south-1.amazonaws.com"),
                 Optional.empty());
@@ -668,14 +675,14 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy resolves the region from glue.region first, else extracts it from the endpoint host via
         // ENDPOINT_PATTERN, else us-east-1. MUTATION: not extracting from the endpoint, or wrong fallback -> red.
         Map<String, String> fromEndpoint = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(fromEndpoint,
+        appendGlue(fromEndpoint,
                 props("glue.access_key", "a", "glue.secret_key", "b",
                         "glue.endpoint", "https://glue-fips.ca-central-1.api.aws"),
                 Optional.empty());
         Assertions.assertEquals("ca-central-1", fromEndpoint.get("client.region"));
 
         Map<String, String> defaulted = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(defaulted,
+        appendGlue(defaulted,
                 props("glue.access_key", "a", "glue.secret_key", "b", "glue.endpoint", "https://not-a-glue-host"),
                 Optional.empty());
         Assertions.assertEquals("us-east-1", defaulted.get("client.region"));
@@ -686,14 +693,14 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy putIfAbsent(WAREHOUSE_LOCATION, "s3://doris") — fills the placeholder only when the user
         // did not supply a warehouse. MUTATION: an unconditional put would clobber the user's warehouse -> red.
         Map<String, String> defaulted = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(defaulted,
+        appendGlue(defaulted,
                 props("glue.access_key", "a", "glue.secret_key", "b", "glue.endpoint", "https://glue.x.amazonaws.com"),
                 Optional.empty());
         Assertions.assertEquals("s3://doris", defaulted.get("warehouse"));
 
         Map<String, String> userWh = new HashMap<>();
         userWh.put("warehouse", "s3://mybucket/wh");
-        IcebergCatalogFactory.appendGlueProperties(userWh,
+        appendGlue(userWh,
                 props("glue.access_key", "a", "glue.secret_key", "b", "glue.endpoint", "https://glue.x.amazonaws.com"),
                 Optional.empty());
         Assertions.assertEquals("s3://mybucket/wh", userWh.get("warehouse"));

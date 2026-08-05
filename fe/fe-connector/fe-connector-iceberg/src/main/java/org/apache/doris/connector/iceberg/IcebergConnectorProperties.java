@@ -115,18 +115,8 @@ public final class IcebergConnectorProperties {
     public static final String SIGNING_NAME_GLUE = "glue";
     public static final String SIGNING_NAME_S3TABLES = "s3tables";
 
-    // -- GLUE input alias arrays (legacy AWSGlueMetaStoreBaseProperties / IcebergGlueMetaStoreProperties) --
-    public static final String[] GLUE_ENDPOINT = {"glue.endpoint", "aws.endpoint", "aws.glue.endpoint"};
-    public static final String[] GLUE_REGION = {"glue.region", "aws.region", "aws.glue.region"};
-    public static final String[] GLUE_ACCESS_KEY = {
-            "glue.access_key", "aws.glue.access-key", "client.credentials-provider.glue.access_key"};
-    public static final String[] GLUE_SECRET_KEY = {
-            "glue.secret_key", "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"};
-    public static final String[] GLUE_SESSION_TOKEN = {"aws.glue.session-token"};
-    public static final String[] GLUE_IAM_ROLE = {"glue.role_arn"};
-    public static final String[] GLUE_EXTERNAL_ID = {"glue.external_id"};
-
-    // -- GLUE emitted literal keys / values / defaults (non-SDK) --
+    // -- GLUE emitted literal keys / values / defaults (non-SDK; the input aliases are declared by
+    // IcebergGlueMetaStoreProperties) --
     public static final String GLUE_CREDENTIALS_PROVIDER_KEY = "client.credentials-provider";
     public static final String GLUE_CREDENTIALS_PROVIDER_2X =
             "org.apache.doris.connector.iceberg.glue.ConfigurationAWSCredentialsProvider2x";

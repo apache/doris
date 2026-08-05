@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
@@ -340,7 +341,7 @@ public final class IcebergCatalogFactory {
             case IcebergConnectorProperties.TYPE_GLUE:
                 // glue emits its OWN s3.* (unconditional) + glue-client creds; it does NOT use the base
                 // S3FileIO path (legacy IcebergGlueMetaStoreProperties ignores storagePropertiesList).
-                appendGlueProperties(opts, props, chosenS3);
+                appendGlueProperties(opts, IcebergGlueMetaStoreProperties.of(props), chosenS3);
                 break;
             case IcebergConnectorProperties.TYPE_JDBC:
                 appendJdbcProperties(opts, props);
@@ -531,7 +532,7 @@ public final class IcebergCatalogFactory {
      * aliases (which fe-filesystem does not read into the S3 store) the s3.* FileIO creds may be absent — a
      * UT-invisible edge handled at the P6.6 docker gate (the glue-client creds below still come from glue.*).
      */
-    public static void appendGlueProperties(Map<String, String> opts, Map<String, String> props,
+    public static void appendGlueProperties(Map<String, String> opts, IcebergGlueMetaStoreProperties glue,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
         chosenS3.ifPresent(s3 -> {
             opts.put(S3FileIOProperties.ACCESS_KEY_ID, nullToEmpty(s3.getAccessKey()));
@@ -540,27 +541,26 @@ public final class IcebergCatalogFactory {
             opts.put(S3FileIOProperties.PATH_STYLE_ACCESS, nullToEmpty(s3.getUsePathStyle()));
             opts.put(S3FileIOProperties.SESSION_TOKEN, nullToEmpty(s3.getSessionToken()));
         });
-        String glueEndpoint = firstNonBlank(props, IcebergConnectorProperties.GLUE_ENDPOINT);
+        String glueEndpoint = glue.getGlueEndpoint();
         putIfNotBlank(opts, AwsProperties.GLUE_CATALOG_ENDPOINT, glueEndpoint);
-        String glueRegion = resolveGlueRegion(props, glueEndpoint);
-        String glueAccessKey = firstNonBlank(props, IcebergConnectorProperties.GLUE_ACCESS_KEY);
-        String glueSecretKey = firstNonBlank(props, IcebergConnectorProperties.GLUE_SECRET_KEY);
+        String glueRegion = resolveGlueRegion(glue.getGlueRegion(), glueEndpoint);
+        String glueAccessKey = glue.getGlueAccessKey();
+        String glueSecretKey = glue.getGlueSecretKey();
         if (StringUtils.isNotBlank(glueAccessKey) && StringUtils.isNotBlank(glueSecretKey)) {
             opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_KEY,
                     IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_2X);
             opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_ACCESS_KEY, glueAccessKey);
             opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SECRET_KEY, glueSecretKey);
             putIfNotBlank(opts, IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN,
-                    firstNonBlank(props, IcebergConnectorProperties.GLUE_SESSION_TOKEN));
+                    glue.getGlueSessionToken());
         } else {
-            String glueIamRole = firstNonBlank(props, IcebergConnectorProperties.GLUE_IAM_ROLE);
+            String glueIamRole = glue.getGlueIamRole();
             if (StringUtils.isNotBlank(glueIamRole)) {
                 opts.put(AwsProperties.CLIENT_FACTORY, AssumeRoleAwsClientFactory.class.getName());
                 opts.put(IcebergConnectorProperties.AWS_REGION_KEY, glueRegion);
                 opts.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, glueIamRole);
                 opts.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, glueRegion);
-                putIfNotBlank(opts, AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID,
-                        firstNonBlank(props, IcebergConnectorProperties.GLUE_EXTERNAL_ID));
+                putIfNotBlank(opts, AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, glue.getGlueExternalId());
             }
         }
         opts.put(AwsClientProperties.CLIENT_REGION, glueRegion);
@@ -571,8 +571,7 @@ public final class IcebergCatalogFactory {
      * Mirrors legacy {@code AWSGlueMetaStoreBaseProperties.checkAndInit} region resolution: an explicit
      * glue.region / aws.region / aws.glue.region wins; else extract from the endpoint host; else us-east-1.
      */
-    private static String resolveGlueRegion(Map<String, String> props, String glueEndpoint) {
-        String region = firstNonBlank(props, IcebergConnectorProperties.GLUE_REGION);
+    private static String resolveGlueRegion(String region, String glueEndpoint) {
         if (StringUtils.isNotBlank(region)) {
             return region;
         }
