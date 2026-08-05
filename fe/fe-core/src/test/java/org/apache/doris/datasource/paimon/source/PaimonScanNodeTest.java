@@ -757,6 +757,7 @@ public class PaimonScanNodeTest {
     public void testPinnedFileCreationScanPreservesBatchReaderFilters() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         FileStoreTable table = Mockito.mock(FileStoreTable.class);
         Snapshot snapshot = Mockito.mock(Snapshot.class);
@@ -766,7 +767,9 @@ public class PaimonScanNodeTest {
         org.apache.paimon.options.Options configuration = new org.apache.paimon.options.Options();
         configuration.set(CoreOptions.BATCH_SCAN_MODE, CoreOptions.BatchScanMode.NONE);
 
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
         Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getTargetTable()).thenReturn(externalTable);
         Mockito.when(source.getPaimonTable()).thenReturn(table);
         Mockito.when(source.getPaimonTable(ArgumentMatchers.any(TableScanParams.class))).thenReturn(table);
         Mockito.when(snapshot.id()).thenReturn(23L);
@@ -822,6 +825,7 @@ public class PaimonScanNodeTest {
     public void testBoundEmptyDataSnapshotStillPlansMetadataSystemTable() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
         Table paimonTable = Mockito.mock(Table.class);
         ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
@@ -830,7 +834,9 @@ public class PaimonScanNodeTest {
         org.apache.paimon.table.source.Split schemaSplit =
                 Mockito.mock(org.apache.paimon.table.source.Split.class);
 
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getTargetTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
         Mockito.when(systemTable.getSysTableType()).thenReturn("schemas");
         Mockito.when(source.getPaimonTable((TableScanParams) null)).thenReturn(paimonTable);

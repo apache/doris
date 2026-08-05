@@ -41,6 +41,7 @@ import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -85,6 +86,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -97,6 +99,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
+    private final StatementContext.ExternalScanTaskCache externalScanTaskCache;
 
     @Getter
     protected TableSample tableSample;
@@ -136,6 +139,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
             StatisticalType statisticalType, ScanContext scanContext, boolean needCheckColumnPriv, SessionVariable sv) {
         super(id, desc, planNodeName, statisticalType, scanContext, needCheckColumnPriv);
         this.sessionVariable = sv;
+        ConnectContext context = ConnectContext.get();
+        StatementContext statementContext = context == null ? null : context.getStatementContext();
+        this.externalScanTaskCache = statementContext == null
+                ? null : statementContext.getExternalScanTaskCache();
+    }
+
+    protected <T> List<T> getOrLoadExternalScanTasks(
+            ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader) throws Exception {
+        if (externalScanTaskCache == null) {
+            return loader.call();
+        }
+        return externalScanTaskCache.getOrLoad(key, loader);
     }
 
     /**

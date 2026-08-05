@@ -29,6 +29,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplitter;
@@ -78,6 +79,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -320,8 +322,17 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
-                    directoryLister, hmsTable);
+            HiveFileScanTaskCacheKey cacheKey = new HiveFileScanTaskCacheKey(
+                    hmsTable.getCatalog().getId(), hmsTable.getId(), partitions);
+            try {
+                fileCaches = getOrLoadExternalScanTasks(cacheKey,
+                        () -> cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
+                                directoryLister, hmsTable));
+            } catch (IOException | UserException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IOException("Failed to list Hive files", e);
+            }
         }
         if (!isBatchMode && getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetPartitionFilesTime(System.currentTimeMillis() - startTime);
@@ -428,11 +439,10 @@ public class HiveScanNode extends FileQueryScanNode {
         long totalSize = 0;
         for (FileCacheValue value : inputCacheValue) {
             for (HiveExternalMetaCache.HiveFileStatus file : value.getFiles()) {
-                file.setSplittable(value.isSplittable());
-                file.setPartitionValues(value.getPartitionValues());
-                file.setAcidInfo(value.getAcidInfo());
-                fileList.add(file);
-                totalSize += file.getLength();
+                HiveExternalMetaCache.HiveFileStatus sampledFile =
+                        copyFileStatus(file, value);
+                fileList.add(sampledFile);
+                totalSize += sampledFile.getLength();
             }
         }
         long sampleSize = 0;
@@ -456,6 +466,86 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         }
         return fileList.subList(0, index);
+    }
+
+    private HiveExternalMetaCache.HiveFileStatus copyFileStatus(
+            HiveExternalMetaCache.HiveFileStatus file, FileCacheValue cacheValue) {
+        HiveExternalMetaCache.HiveFileStatus copy = new HiveExternalMetaCache.HiveFileStatus();
+        copy.setBlockLocations(file.getBlockLocations());
+        copy.setPath(file.getPath());
+        copy.setLength(file.getLength());
+        copy.setBlockSize(file.getBlockSize());
+        copy.setModificationTime(file.getModificationTime());
+        copy.setSplittable(cacheValue.isSplittable());
+        copy.setPartitionValues(cacheValue.getPartitionValues());
+        copy.setAcidInfo(cacheValue.getAcidInfo());
+        return copy;
+    }
+
+    private static final class HiveFileScanTaskCacheKey
+            implements ExternalScanTaskCacheKey<FileCacheValue> {
+        private final long catalogId;
+        private final long tableId;
+        private final List<HivePartitionCacheKey> partitions;
+
+        private HiveFileScanTaskCacheKey(long catalogId, long tableId, List<HivePartition> partitions) {
+            this.catalogId = catalogId;
+            this.tableId = tableId;
+            this.partitions = partitions.stream()
+                    .map(HivePartitionCacheKey::new)
+                    .collect(Collectors.toList());
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof HiveFileScanTaskCacheKey)) {
+                return false;
+            }
+            HiveFileScanTaskCacheKey that = (HiveFileScanTaskCacheKey) object;
+            return catalogId == that.catalogId
+                    && tableId == that.tableId
+                    && partitions.equals(that.partitions);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(catalogId, tableId, partitions);
+        }
+    }
+
+    private static final class HivePartitionCacheKey {
+        private final String inputFormat;
+        private final String path;
+        private final List<String> partitionValues;
+
+        private HivePartitionCacheKey(HivePartition partition) {
+            this.inputFormat = partition.getInputFormat();
+            this.path = partition.getPath();
+            this.partitionValues = partition.getPartitionValues() == null
+                    ? null : Collections.unmodifiableList(new ArrayList<>(partition.getPartitionValues()));
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof HivePartitionCacheKey)) {
+                return false;
+            }
+            HivePartitionCacheKey that = (HivePartitionCacheKey) object;
+            return Objects.equals(inputFormat, that.inputFormat)
+                    && Objects.equals(path, that.path)
+                    && Objects.equals(partitionValues, that.partitionValues);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(inputFormat, path, partitionValues);
+        }
     }
 
     private List<FileCacheValue> getFileSplitByTransaction(HiveExternalMetaCache cache, List<HivePartition> partitions,

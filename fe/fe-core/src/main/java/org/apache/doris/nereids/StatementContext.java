@@ -30,6 +30,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -99,6 +100,10 @@ import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.Stack;
 import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.concurrent.GuardedBy;
 
@@ -322,6 +327,7 @@ public class StatementContext implements Closeable {
     // IcebergScanNode
     // TODO: better solution?
     private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    private volatile ExternalScanTaskCache externalScanTaskCache = new ExternalScanTaskCache();
     // For Iceberg rewrite operations: control whether to use GATHER distribution
     // When true, data will be collected to a single node to avoid generating too many small files
     private boolean useGatherForIcebergRewrite = false;
@@ -910,6 +916,7 @@ public class StatementContext implements Closeable {
 
     @Override
     public void close() {
+        clearExternalScanTasks();
         releasePlannerResources();
     }
 
@@ -1013,6 +1020,9 @@ public class StatementContext implements Closeable {
         latestSnapshotFences.clear();
         resolvedSnapshotScanParams.clear();
         tableMetadataSnapshots.clear();
+        ExternalScanTaskCache oldCache = externalScanTaskCache;
+        externalScanTaskCache = new ExternalScanTaskCache();
+        oldCache.invalidate();
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
@@ -1364,6 +1374,83 @@ public class StatementContext implements Closeable {
         List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
         this.icebergRewriteFileScanTasks = null;
         return tasks;
+    }
+
+    public ExternalScanTaskCache getExternalScanTaskCache() {
+        return externalScanTaskCache;
+    }
+
+    /**
+     * Release scan tasks at the end of one execution without closing reusable prepared-statement
+     * state. Delayed scan work retains only the invalidated generation and cannot repopulate this
+     * StatementContext.
+     */
+    public void clearExternalScanTasks() {
+        externalScanTaskCache.invalidate();
+    }
+
+    /**
+     * One execution generation of statement-scoped external scan tasks.
+     *
+     * <p>Scan nodes capture this object when they are constructed. Resetting a prepared statement
+     * swaps the generation before invalidating the old one, so a delayed asynchronous scan from
+     * the previous execution cannot insert tasks into the next execution's cache.
+     */
+    public static final class ExternalScanTaskCache {
+        private final Map<ExternalScanTaskCacheKey<?>, CompletableFuture<List<?>>> tasks =
+                new ConcurrentHashMap<>();
+        private boolean invalidated;
+
+        @SuppressWarnings("unchecked")
+        public <T> List<T> getOrLoad(
+                ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader) throws Exception {
+            CompletableFuture<List<?>> newLoad = new CompletableFuture<>();
+            CompletableFuture<List<?>> load;
+            boolean cacheable;
+            synchronized (this) {
+                cacheable = !invalidated;
+                if (cacheable) {
+                    load = tasks.putIfAbsent(key, newLoad);
+                } else {
+                    load = null;
+                }
+            }
+            if (!cacheable) {
+                return immutableCopy(loader.call());
+            }
+            if (load == null) {
+                try {
+                    List<T> loadedTasks = immutableCopy(loader.call());
+                    newLoad.complete(loadedTasks);
+                    return loadedTasks;
+                } catch (Exception | Error throwable) {
+                    newLoad.completeExceptionally(throwable);
+                    tasks.remove(key, newLoad);
+                    throw throwable;
+                }
+            }
+            try {
+                return (List<T>) load.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception) {
+                    throw (Exception) cause;
+                }
+                throw (Error) cause;
+            }
+        }
+
+        private synchronized void invalidate() {
+            invalidated = true;
+            tasks.clear();
+        }
+
+        private static <T> List<T> immutableCopy(List<T> loadedTasks) {
+            return Collections.unmodifiableList(new ArrayList<>(loadedTasks));
+        }
     }
 
     /**

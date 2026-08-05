@@ -27,6 +27,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -88,6 +89,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -745,49 +747,144 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (PaimonScanParams.isPinnedEmptyScan(resolvedOptions)) {
                 return Collections.emptyList();
             }
-            Optional<Long> fileCreationTime = PaimonScanParams.getPinnedFileCreationTime(resolvedOptions);
-            if (fileCreationTime.isPresent()) {
-                if (!(paimonTable instanceof FileStoreTable)) {
-                    throw new UserException("Paimon file-creation OPTIONS require a data table.");
+            int[] projectedColumns = new int[0];
+            if (!PaimonScanParams.getPinnedFileCreationTime(resolvedOptions).isPresent()) {
+                List<String> fieldNames = paimonTable.rowType().getFieldNames();
+                projectedColumns = desc.getSlots().stream().mapToInt(
+                        slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))
+                        .toArray();
+                if (Arrays.stream(projectedColumns).anyMatch(index -> index < 0)) {
+                    throw new UserException("Paimon scan schema does not contain all bound Doris columns.");
                 }
-                FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
-                SnapshotReader snapshotReader = fileStoreTable.newSnapshotReader()
-                        .withMode(ScanMode.ALL)
-                        .withSnapshot(Long.parseLong(
-                                paimonTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key())))
-                        .withManifestEntryFilter(entry ->
-                                entry.file().creationTimeEpochMillis() >= fileCreationTime.get());
-                preserveBatchScanFilters(fileStoreTable, snapshotReader);
-                if (predicates != null) {
-                    predicates.forEach(snapshotReader::withFilter);
-                }
-                return snapshotReader.read().splits();
             }
-            List<String> fieldNames = paimonTable.rowType().getFieldNames();
-            int[] projected = desc.getSlots().stream().mapToInt(
-                    slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))
-                    .toArray();
-            if (Arrays.stream(projected).anyMatch(index -> index < 0)) {
-                throw new UserException("Paimon scan schema does not contain all bound Doris columns.");
-            }
-            ReadBuilder readBuilder = paimonTable.newReadBuilder();
-            TableScan scan = readBuilder.withFilter(predicates)
-                    .withProjection(projected)
-                    .newScan();
-            PaimonMetricRegistry registry = new PaimonMetricRegistry();
-            if (scan instanceof InnerTableScan) {
-                scan = ((InnerTableScan) scan).withMetricRegistry(registry);
-            }
-            List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
-            PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
-            if (!registry.getAllGroups().isEmpty()) {
-                registry.clear();
-            }
-            return splits;
+            int[] projected = projectedColumns;
+            PaimonSplitTaskCacheKey cacheKey = createPaimonSplitTaskCacheKey(
+                    relationSnapshot, paimonTable, resolvedOptions, projected);
+            return getOrLoadExternalScanTasks(cacheKey,
+                    () -> planPaimonSplits(paimonTable, resolvedOptions, projected));
+        } catch (UserException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UserException("Failed to plan Paimon scan tasks", e);
         } finally {
             if (getSummaryProfile() != null) {
                 getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
             }
+        }
+    }
+
+    private List<org.apache.paimon.table.source.Split> planPaimonSplits(
+            Table paimonTable, Map<String, String> resolvedOptions, int[] projected) throws UserException {
+        Optional<Long> fileCreationTime = PaimonScanParams.getPinnedFileCreationTime(resolvedOptions);
+        if (fileCreationTime.isPresent()) {
+            if (!(paimonTable instanceof FileStoreTable)) {
+                throw new UserException("Paimon file-creation OPTIONS require a data table.");
+            }
+            FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
+            SnapshotReader snapshotReader = fileStoreTable.newSnapshotReader()
+                    .withMode(ScanMode.ALL)
+                    .withSnapshot(Long.parseLong(
+                            paimonTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key())))
+                    .withManifestEntryFilter(entry ->
+                            entry.file().creationTimeEpochMillis() >= fileCreationTime.get());
+            preserveBatchScanFilters(fileStoreTable, snapshotReader);
+            if (predicates != null) {
+                predicates.forEach(snapshotReader::withFilter);
+            }
+            return snapshotReader.read().splits();
+        }
+        ReadBuilder readBuilder = paimonTable.newReadBuilder();
+        TableScan scan = readBuilder.withFilter(predicates)
+                .withProjection(projected)
+                .newScan();
+        PaimonMetricRegistry registry = new PaimonMetricRegistry();
+        if (scan instanceof InnerTableScan) {
+            scan = ((InnerTableScan) scan).withMetricRegistry(registry);
+        }
+        List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
+        PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
+        if (!registry.getAllGroups().isEmpty()) {
+            registry.clear();
+        }
+        return splits;
+    }
+
+    private PaimonSplitTaskCacheKey createPaimonSplitTaskCacheKey(
+            Optional<MvccSnapshot> relationSnapshot, Table paimonTable,
+            Map<String, String> resolvedOptions, int[] projected) {
+        Long snapshotId = null;
+        Long schemaId = null;
+        if (relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot) {
+            PaimonSnapshot snapshot = ((PaimonMvccSnapshot) relationSnapshot.get())
+                    .getSnapshotCacheValue().getSnapshot();
+            snapshotId = snapshot.getSnapshotId();
+            schemaId = snapshot.getSchemaId();
+        }
+        return new PaimonSplitTaskCacheKey(
+                source.getCatalog().getId(),
+                source.getExternalTable().getId(),
+                source.getTargetTable().getId(),
+                snapshotId,
+                schemaId,
+                resolvedOptions,
+                paimonTable.options(),
+                projected,
+                PaimonUtil.encodeObjectToString(predicates));
+    }
+
+    private static final class PaimonSplitTaskCacheKey
+            implements ExternalScanTaskCacheKey<org.apache.paimon.table.source.Split> {
+        private final long catalogId;
+        private final long relationTableId;
+        private final long targetTableId;
+        private final Long snapshotId;
+        private final Long schemaId;
+        private final Map<String, String> resolvedOptions;
+        private final Map<String, String> tableOptions;
+        private final int[] projected;
+        private final String serializedPredicates;
+
+        private PaimonSplitTaskCacheKey(
+                long catalogId, long relationTableId, long targetTableId, Long snapshotId, Long schemaId,
+                Map<String, String> resolvedOptions, Map<String, String> tableOptions, int[] projected,
+                String serializedPredicates) {
+            this.catalogId = catalogId;
+            this.relationTableId = relationTableId;
+            this.targetTableId = targetTableId;
+            this.snapshotId = snapshotId;
+            this.schemaId = schemaId;
+            this.resolvedOptions = Collections.unmodifiableMap(new HashMap<>(resolvedOptions));
+            this.tableOptions = Collections.unmodifiableMap(new HashMap<>(tableOptions));
+            this.projected = Arrays.copyOf(projected, projected.length);
+            this.serializedPredicates = serializedPredicates;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof PaimonSplitTaskCacheKey)) {
+                return false;
+            }
+            PaimonSplitTaskCacheKey that = (PaimonSplitTaskCacheKey) object;
+            return catalogId == that.catalogId
+                    && relationTableId == that.relationTableId
+                    && targetTableId == that.targetTableId
+                    && Objects.equals(snapshotId, that.snapshotId)
+                    && Objects.equals(schemaId, that.schemaId)
+                    && resolvedOptions.equals(that.resolvedOptions)
+                    && tableOptions.equals(that.tableOptions)
+                    && Arrays.equals(projected, that.projected)
+                    && serializedPredicates.equals(that.serializedPredicates);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(
+                    catalogId, relationTableId, targetTableId, snapshotId, schemaId,
+                    resolvedOptions, tableOptions, serializedPredicates)
+                    + Arrays.hashCode(projected);
         }
     }
 
