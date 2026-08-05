@@ -31,7 +31,7 @@ namespace {
 
 TEST(ParquetBenchmarkScenariosTest, DecoderMatrixCoversNativeEncodingAndTypeFamilies) {
     const auto scenarios = decoder_scenarios();
-    EXPECT_EQ(scenarios.size() * 6 * 2, size_t {228});
+    EXPECT_EQ(scenarios.size() * 7 * 2, size_t {266});
     const std::set<std::pair<Encoding, ValueType>> actual = [&] {
         std::set<std::pair<Encoding, ValueType>> values;
         for (const auto& scenario : scenarios) {

@@ -34,8 +34,8 @@ timed region. It covers PLAIN, dictionary, byte-stream-split, and DELTA encoding
 supported fixed-width and binary physical types. Sparse selections are provided as both one
 clustered range and many alternating ranges.
 
-The decoder selection axis includes 0%, 1%, 10%, 50%, 90%, and 100% so boundary and
-high-selectivity behavior are visible.
+The decoder selection axis includes 0%, 1%, 5%, 10%, 50%, 90%, and 100% so Q28-shaped sparse,
+boundary, and high-selectivity behavior are visible.
 
 ```shell
 be/output/lib/benchmark_test \
