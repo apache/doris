@@ -280,7 +280,9 @@ public:
         }
 
         if constexpr (PT == PredicateType::IN_LIST) {
-            if (result && statistic->get_bloom_filter_func != nullptr &&
+            // The legacy Parquet callback performs I/O, so apply value-specific capability first.
+            if (result && can_do_bloom_filter(false) &&
+                statistic->get_bloom_filter_func != nullptr &&
                 (*statistic->get_bloom_filter_func)(statistic, column_id())) {
                 if (!statistic->bloom_filter) {
                     return result;
@@ -405,6 +407,11 @@ public:
     }
 
     bool can_do_bloom_filter(bool ngram) const override {
+        if constexpr ((Type == PrimitiveType::TYPE_FLOAT || Type == PrimitiveType::TYPE_DOUBLE) &&
+                      PT == PredicateType::IN_LIST) {
+            // One NaN makes the whole IN Bloom probe conservative, so skip loading the payload.
+            return !ngram && !_contains_nan;
+        }
         return PT == PredicateType::IN_LIST && !ngram;
     }
 

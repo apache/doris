@@ -443,6 +443,7 @@ TEST(ExprZonemapFilterTest, FloatingPointNanBloomProbeIsConservative) {
                 nan_field, remove_nullable(type)->get_primitive_type(), 0, 0));
         auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
 
+        EXPECT_FALSE(equals.can_evaluate_bloom_filter({slot, literal}));
         EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
                   equals.evaluate_bloom_filter(bloom_ctx, {slot, literal}));
         EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
@@ -454,6 +455,7 @@ TEST(ExprZonemapFilterTest, FloatingPointNanBloomProbeIsConservative) {
                                             : Field::create_field<TYPE_DOUBLE>(2.0);
         auto finite_literal = std::make_shared<VLiteral>(
                 create_texpr_node_from(absent_finite, primitive_type, 0, 0));
+        EXPECT_TRUE(equals.can_evaluate_bloom_filter({slot, finite_literal}));
         EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
                   equals.evaluate_bloom_filter(bloom_ctx, {slot, finite_literal}));
     };
@@ -462,6 +464,21 @@ TEST(ExprZonemapFilterTest, FloatingPointNanBloomProbeIsConservative) {
                Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN()));
     check_type(std::make_shared<DataTypeFloat64>(),
                Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN()));
+}
+
+TEST(ExprZonemapFilterTest, FloatingPointInWithNanIsNotBloomEligible) {
+    auto type = std::make_shared<DataTypeFloat64>();
+    auto predicate = std::make_shared<VInPredicate>(make_in_predicate_node(false, 2));
+    predicate->add_child(make_slot(0, type));
+    predicate->_zonemap_materialized = true;
+    predicate->_seg_filter_contains_nan = true;
+    predicate->_seg_filter_values = {
+            Field::create_field<TYPE_DOUBLE>(1.0),
+            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN())};
+
+    EXPECT_FALSE(predicate->can_evaluate_bloom_filter());
+    predicate->_seg_filter_contains_nan = false;
+    EXPECT_TRUE(predicate->can_evaluate_bloom_filter());
 }
 
 TEST(ExprZonemapFilterTest, FloatingPointNanEqualityIgnoresFiniteOnlyRangeBounds) {

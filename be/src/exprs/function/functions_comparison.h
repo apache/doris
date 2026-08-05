@@ -377,7 +377,14 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
 }
 
 inline bool can_evaluate_equality(const VExprSPtrs& arguments, Op op) {
-    return op == Op::EQ && can_evaluate(arguments);
+    if (op != Op::EQ || !can_evaluate(arguments)) {
+        return false;
+    }
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    DORIS_CHECK(slot_literal.has_value());
+    // Bloom membership cannot disprove Doris NaN equality across different physical encodings.
+    return !expr_zonemap::field_is_nan(
+            slot_literal->literal, remove_nullable(slot_literal->slot_type)->get_primitive_type());
 }
 
 inline bool dictionary_value_matches(const Field& value, const Field& literal, Op op) {
