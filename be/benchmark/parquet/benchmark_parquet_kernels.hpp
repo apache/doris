@@ -670,7 +670,6 @@ inline bool register_kernel_benchmarks() {
                 break;
             case ValueType::BYTE_ARRAY:
             case ValueType::FIXED_LEN_BYTE_ARRAY:
-            case ValueType::DECIMAL64:
                 state.SkipWithError("kernel benchmark requires a fixed-width primitive type");
                 break;
             }

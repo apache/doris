@@ -40,6 +40,7 @@
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "exprs/expr_zonemap_filter.h"
+#include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -165,6 +166,41 @@ public:
 private:
     int32_t _value;
     const std::string _expr_name = "MetadataInt32GreaterThanExpr";
+};
+
+class MetadataSlotInt32GreaterThanExpr final : public VExpr {
+public:
+    MetadataSlotInt32GreaterThanExpr(int slot_index, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _slot_index(slot_index),
+              _value(value) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataSlotInt32GreaterThanExpr is metadata-only");
+    }
+    bool can_evaluate_zonemap_filter() const override { return true; }
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_slot_index);
+    }
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        const auto zone_map = ctx.zone_map(_slot_index);
+        if (zone_map == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        if (!zone_map->has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        return zone_map->max_value <= Field::create_field<TYPE_INT>(_value)
+                       ? ZoneMapFilterResult::kNoMatch
+                       : ZoneMapFilterResult::kMayMatch;
+    }
+
+private:
+    int _slot_index;
+    int32_t _value;
+    const std::string _expr_name = "MetadataSlotInt32GreaterThanExpr";
 };
 
 class MetadataBoundsProbeExpr final : public VExpr {
@@ -466,6 +502,130 @@ TEST(NativeParquetStatisticsTest, InvalidTimeAndPaddedBooleanPageBoundsCannotPru
     EXPECT_EQ(bool_ranges[0].start, 0);
     EXPECT_EQ(bool_ranges[0].length, 1);
 }
+
+TEST(NativeParquetStatisticsTest, MultiColumnOrUnionsPageIndexRanges) {
+    auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+    auto make_schema = [](int local_id, int leaf_column_id) {
+        auto column = std::make_unique<format::parquet::ParquetColumnSchema>();
+        column->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        column->local_id = local_id;
+        column->leaf_column_id = leaf_column_id;
+        column->type = std::make_shared<DataTypeInt32>();
+        column->type_descriptor.doris_type = column->type;
+        column->type_descriptor.physical_type = tparquet::Type::INT32;
+        return column;
+    };
+    auto make_page_index = [&](const std::vector<int32_t>& values) {
+        format::parquet::NativeParquetPageIndex page_index;
+        std::vector<std::string> encoded;
+        encoded.reserve(values.size());
+        for (const auto value : values) {
+            encoded.push_back(encode_int32(value));
+        }
+        page_index.column_index.__set_min_values(encoded);
+        page_index.column_index.__set_max_values(encoded);
+        page_index.column_index.__set_null_pages(std::vector<bool>(values.size(), false));
+        page_index.column_index.__set_null_counts(std::vector<int64_t>(values.size(), 0));
+        std::vector<tparquet::PageLocation> locations;
+        for (size_t page_idx = 0; page_idx < values.size(); ++page_idx) {
+            tparquet::PageLocation location;
+            location.__set_offset(static_cast<int64_t>(page_idx * 100));
+            location.__set_compressed_page_size(100);
+            location.__set_first_row_index(static_cast<int64_t>(page_idx * 10));
+            locations.push_back(location);
+        }
+        page_index.offset_index.__set_page_locations(std::move(locations));
+        return page_index;
+    };
+
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(make_schema(0, 0));
+    schema.push_back(make_schema(1, 1));
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData metadata;
+    metadata.__set_column_orders({order, order});
+
+    auto make_compound_expr = [](TExprOpcode::type opcode, VExprSPtr left, VExprSPtr right) {
+        TExprNode compound_node;
+        compound_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+        compound_node.__set_opcode(opcode);
+        compound_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+        compound_node.__set_num_children(2);
+        compound_node.__set_is_nullable(false);
+        auto compound = VCompoundPred::create_shared(compound_node);
+        compound->add_child(std::move(left));
+        compound->add_child(std::move(right));
+        return compound;
+    };
+    auto make_compound = [&](TExprOpcode::type opcode) {
+        return VExprContext::create_shared(make_compound_expr(
+                opcode, std::make_shared<MetadataSlotInt32GreaterThanExpr>(0, 50),
+                std::make_shared<MetadataSlotInt32GreaterThanExpr>(1, 50)));
+    };
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.local_positions.emplace(format::LocalColumnId(1), format::LocalIndex(1));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0)),
+                                 format::LocalColumnIndex::top_level(format::LocalColumnId(1))};
+    request.conjuncts = {make_compound(TExprOpcode::COMPOUND_OR)};
+
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+    page_indexes.emplace(0, make_page_index({100, 0, 0}));
+    page_indexes.emplace(1, make_page_index({0, 0, 100}));
+    std::vector<format::parquet::RowRange> selected_ranges;
+    std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, tparquet::RowGroup {}, page_indexes, schema, request, 30,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 2);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 10);
+    EXPECT_EQ(selected_ranges[1].start, 20);
+    EXPECT_EQ(selected_ranges[1].length, 10);
+
+    page_indexes.erase(1);
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, tparquet::RowGroup {}, page_indexes, schema, request, 30,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 30);
+
+    request.conjuncts = {make_compound(TExprOpcode::COMPOUND_AND)};
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, tparquet::RowGroup {}, page_indexes, schema, request, 30,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 10);
+
+    page_indexes.emplace(1, make_page_index({0, 0, 100}));
+    auto first_branch = make_compound_expr(
+            TExprOpcode::COMPOUND_AND, std::make_shared<MetadataSlotInt32GreaterThanExpr>(0, 50),
+            std::make_shared<MetadataSlotInt32GreaterThanExpr>(1, 50));
+    auto second_branch = make_compound_expr(
+            TExprOpcode::COMPOUND_AND, std::make_shared<MetadataSlotInt32GreaterThanExpr>(0, -1),
+            std::make_shared<MetadataSlotInt32GreaterThanExpr>(1, 50));
+    request.conjuncts = {VExprContext::create_shared(make_compound_expr(
+            TExprOpcode::COMPOUND_OR, std::move(first_branch), std::move(second_branch)))};
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, tparquet::RowGroup {}, page_indexes, schema, request, 30,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 20);
+    EXPECT_EQ(selected_ranges[0].length, 10);
+}
+
 TEST(ParquetBloomFilterPruningTest, NativeUint32BloomUsesPhysicalInt32Hash) {
     const auto column_schema = uint32_parquet_bloom_schema();
     format::parquet::native::BlockSplitBloomFilter bloom_filter;

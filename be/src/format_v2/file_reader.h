@@ -83,9 +83,6 @@ struct FileScanRequest {
     std::map<LocalColumnId, LocalIndex> non_predicate_positions;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
-    // Keep the residual expression as the semantic baseline when an integrator needs to compare
-    // or disable the optional multi-column OR raw-filter execution policy.
-    bool enable_multi_column_or_raw_filter = true;
     // Delete predicates converted to file-local expressions. A TRUE result means that the row is
     // deleted, so readers must invert each result when building their keep filter.
     VExprContextSPtrs delete_conjuncts;
