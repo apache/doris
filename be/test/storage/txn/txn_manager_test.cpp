@@ -245,6 +245,20 @@ TEST_F(TxnManagerTest, PrepareNewTxn) {
     EXPECT_TRUE(status == Status::OK());
 }
 
+TEST_F(TxnManagerTest, PrepareTxnRejectsOldShutdownTablet) {
+    auto tablet = k_engine->tablet_manager()->get_tablet(tablet_id);
+    ASSERT_NE(tablet, nullptr);
+    ASSERT_TRUE(tablet->set_tablet_state(TABLET_SHUTDOWN).ok());
+
+    auto status = tablet->prepare_txn(partition_id, transaction_id, load_id, false);
+    EXPECT_FALSE(status.ok()) << status;
+
+    std::map<TabletInfo, RowsetSharedPtr> related_tablets;
+    k_engine->txn_manager()->get_txn_related_tablets(transaction_id, partition_id,
+                                                     &related_tablets);
+    EXPECT_TRUE(related_tablets.empty());
+}
+
 // 1. prepare txn
 // 2. commit txn
 // 3. should be success
