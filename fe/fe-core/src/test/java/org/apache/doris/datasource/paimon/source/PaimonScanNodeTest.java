@@ -17,11 +17,13 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
@@ -104,6 +106,19 @@ public class PaimonScanNodeTest {
 
     @Mock
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
+
+    @Test
+    public void testVariantProjectionRequiresVariantV2() throws UserException {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(0), desc);
+        slot.setColumn(new Column("payload", VariantType.COMPUTE_V2_INSTANCE));
+        desc.addSlot(slot);
+
+        ExceptionChecker.expectThrowsWithMsg(UserException.class,
+                "Paimon VARIANT columns require enable_variant_v2=true",
+                () -> PaimonScanNode.checkVariantV2Enabled(desc, false));
+        PaimonScanNode.checkVariantV2Enabled(desc, true);
+    }
 
     @Test
     public void testSerializedTableCacheKeyIsStablePerScanNode() {

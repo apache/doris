@@ -345,6 +345,9 @@ public class PaimonUtil {
                 }
                 return ScalarType.createDatetimeV2Type(tsScale);
             case VARIANT:
+                // External-table schemas are cached and shared across sessions, so this mapping
+                // must not depend on enable_variant_v2. PaimonScanNode checks that
+                // session variable against the VARIANT slots projected by each query instead.
                 return VariantType.COMPUTE_V2_INSTANCE;
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;
@@ -375,6 +378,21 @@ public class PaimonUtil {
     public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type, boolean enableVarbinaryMapping,
             boolean enableTimestampTzMapping) {
         return paimonPrimitiveTypeToDorisType(type, enableVarbinaryMapping, enableTimestampTzMapping);
+    }
+
+    public static boolean containsVariant(Type type) {
+        if (type.isVariantType()) {
+            return true;
+        } else if (type.isArrayType()) {
+            return containsVariant(((org.apache.doris.catalog.ArrayType) type).getItemType());
+        } else if (type.isMapType()) {
+            org.apache.doris.catalog.MapType mapType = (org.apache.doris.catalog.MapType) type;
+            return containsVariant(mapType.getKeyType()) || containsVariant(mapType.getValueType());
+        } else if (type.isStructType()) {
+            return ((org.apache.doris.catalog.StructType) type).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getType()));
+        }
+        return false;
     }
 
     public static void updatePaimonColumnUniqueId(Column column, DataType dataType) {
