@@ -40,7 +40,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"

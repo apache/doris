@@ -35,6 +35,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "exec/sink/writer/vtablet_writer.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"

@@ -44,6 +44,7 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"

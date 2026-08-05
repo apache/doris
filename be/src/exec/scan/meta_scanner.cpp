@@ -38,6 +38,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "format/table/parquet_metadata_reader.h"
+#include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"

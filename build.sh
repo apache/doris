@@ -69,6 +69,10 @@ Usage: $0 <options>
      --enable-dynamic-arch      enable dynamic CPU detection in OpenBLAS. Default ON.
      --disable-dynamic-arch     disable dynamic CPU detection in OpenBLAS.
      --clean                    clean and build target
+     --compile-bench            BE compile-speed benchmark: cold, cache-free BE-only build
+                                (fresh dedicated build dir, ccache disabled) with a per-phase
+                                and per-file timing report. Implies --be; FE/cloud/java
+                                extensions/packaging are skipped. For build speed analysis only.
      --output                   specify the output directory
      -j                         build Backend parallel
 
@@ -85,6 +89,9 @@ Usage: $0 <options>
     EXTRA_FE_MODULES            Optional FE feature modules in feature=module_path format, separated by commas.
     EXTRA_BE_MODULES            Optional BE feature modules in feature=module_path format, separated by commas.
     EXTRA_CLOUD_MODULES         Optional CLOUD feature modules in feature=module_path format, separated by commas.
+    COMPILE_BENCH_TRACE         If set COMPILE_BENCH_TRACE=ON together with --compile-bench (clang only),
+                                compile with -ftime-trace and aggregate per-header/per-template costs
+                                into the benchmark report. Default is OFF.
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
@@ -100,6 +107,9 @@ Usage: $0 <options>
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
     $0 --be-extension-ignore paimon-scanner build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore paimon-scanner,hadoop-hudi-scanner
+
+    $0 --compile-bench                      benchmark a cold cache-free BE build and report the slowest files
+    COMPILE_BENCH_TRACE=ON $0 --compile-bench   benchmark and also collect clang -ftime-trace data
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -261,6 +271,7 @@ if ! OPTS="$(getopt \
     -l 'enable-dynamic-arch' \
     -l 'disable-dynamic-arch' \
     -l 'clean' \
+    -l 'compile-bench' \
     -l 'coverage' \
     -l 'help' \
     -l 'output:' \
@@ -287,6 +298,7 @@ BUILD_COS_DEPENDENCIES=1
 BUILD_HIVE_UDF=0
 ENABLE_DYNAMIC_ARCH='ON'
 CLEAN=0
+COMPILE_BENCH=0
 HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
@@ -391,6 +403,10 @@ else
             ;;           
         --clean)
             CLEAN=1
+            shift
+            ;;
+        --compile-bench)
+            COMPILE_BENCH=1
             shift
             ;;
         --coverage)
@@ -644,6 +660,7 @@ parse_extra_modules "BE_EXTRA" "${EXTRA_BE_MODULES}" "${DORIS_HOME}/be/src" "be"
 parse_extra_modules "CLOUD_EXTRA" "${EXTRA_CLOUD_MODULES}" "${DORIS_HOME}/cloud/src" "cloud"
 
 BE_EXTRA_CMAKE_ARGS=()
+COMPILE_BENCH_CMAKE_ARGS=()
 for ((i = 0; i < ${#BE_EXTRA_FEATURE_KEYS[@]}; i++)); do
     feature_name="$(feature_to_cmake_name "${BE_EXTRA_FEATURE_KEYS[i]}")"
     BE_EXTRA_CMAKE_ARGS+=("-DENABLE_${feature_name}=ON")
@@ -656,6 +673,22 @@ for ((i = 0; i < ${#CLOUD_EXTRA_FEATURE_KEYS[@]}; i++)); do
     CLOUD_EXTRA_CMAKE_ARGS+=("-DENABLE_${feature_name}=ON")
     CLOUD_EXTRA_CMAKE_ARGS+=("-D${feature_name}_MODULE_DIR=${CLOUD_EXTRA_MODULE_PATHS[i]}")
 done
+
+if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+    # BE compile benchmark mode: measure a cold, cache-free BE C++ build.
+    # Everything that is not the BE C++ build would only add noise, so force
+    # a BE-only build regardless of the other options.
+    BUILD_BE=1
+    BUILD_FE=0
+    BUILD_CLOUD=0
+    BUILD_HIVE_UDF=0
+    BUILD_BE_JAVA_EXTENSIONS=0
+    BUILD_BE_CDC_CLIENT=0
+    OUTPUT_BE_BINARY=0
+    # shellcheck source=build-support/compile-bench/bench-lib.sh
+    . "${DORIS_HOME}/build-support/compile-bench/bench-lib.sh"
+    compile_bench_init "${DORIS_HOME}"
+fi
 
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
@@ -705,7 +738,13 @@ echo "Feature List: ${DORIS_FEATURE_LIST}"
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
+if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+    compile_bench_phase_begin "gensrc"
+fi
 bash "${DORIS_HOME}"/generated-source.sh noclean
+if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+    compile_bench_phase_end
+fi
 
 # Assesmble FE modules
 FE_MODULES=''
@@ -772,17 +811,27 @@ FE_MODULES="$(
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
 
+    if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+        compile_bench_phase_begin "datasketches_install"
+    fi
     echo "install datasketches-cpp to thirdparty path before build be"
     update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
     cd "${DORIS_HOME}/contrib/datasketches-cpp"
     "${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
     "${CMAKE_CMD}" --build build/Release -t install
     cd "${DORIS_HOME}"
+    if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+        compile_bench_phase_end
+        compile_bench_phase_begin "contrib_submodules"
+    fi
 
     update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
     update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
+    if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+        compile_bench_phase_end
+    fi
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
@@ -791,6 +840,13 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_be
+    fi
+    if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+        # Dedicated always-cold build dir: no reused objects, no reused CMake
+        # cache, and the developer's normal build dir stays untouched.
+        CMAKE_BUILD_DIR="${COMPILE_BENCH_BUILD_DIR}"
+        echo "Compile-bench: recreating build dir ${CMAKE_BUILD_DIR} from scratch"
+        rm -rf "${CMAKE_BUILD_DIR}"
     fi
     MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 
@@ -815,6 +871,9 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
+    if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+        compile_bench_phase_begin "cmake_configure"
+    fi
     "${CMAKE_CMD}" -G "${GENERATOR}" \
         -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
@@ -846,7 +905,24 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         -DFAISS_ENABLE_GPU="${FAISS_ENABLE_GPU:-OFF}" \
         "${BE_EXTRA_CMAKE_ARGS[@]}" \
+        "${COMPILE_BENCH_CMAKE_ARGS[@]}" \
         "${DORIS_HOME}/be"
+
+    if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+        compile_bench_phase_end
+
+        compile_bench_phase_begin "build"
+        set +e
+        "${BUILD_SYSTEM}" -j "${PARALLEL}"
+        compile_bench_build_rc=$?
+        set -e
+        compile_bench_phase_end
+
+        # Generate the timing report even for a failed build, then stop:
+        # install/packaging is out of scope for a compile benchmark.
+        compile_bench_finish "${CMAKE_BUILD_DIR}" "${compile_bench_build_rc}"
+        exit "${compile_bench_build_rc}"
+    fi
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         "${BUILD_SYSTEM}" -j "${PARALLEL}"

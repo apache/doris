@@ -59,6 +59,7 @@
 #include "load/memtable/memtable_flush_executor.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
+#include "service/backend_options.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction_task_tracker.h"

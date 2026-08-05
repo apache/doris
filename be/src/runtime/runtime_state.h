@@ -43,14 +43,16 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "exec/scan/vector_search_user_params.h"
-#include "io/fs/s3_file_system.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "util/debug_util.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace io {
+class S3FileSystem;
+} // namespace io
 class RuntimeFilter;
 
 inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
