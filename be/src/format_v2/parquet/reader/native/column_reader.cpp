@@ -1391,6 +1391,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_dictionary_filter_
     DORIS_CHECK(survivor_count != nullptr);
     DORIS_CHECK(projected_directly != nullptr);
     _null_run_lengths.clear();
+    size_t num_nulls = 0;
     if (_chunk_reader->max_def_level() > 0) {
         LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
         size_t has_read = 0;
@@ -1403,6 +1404,9 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_dictionary_filter_
                         "Parquet definition level stream ended while filtering dictionary ids");
             }
             const bool is_null = def_level < _field_schema->definition_level;
+            if (is_null) {
+                num_nulls += loop_read;
+            }
             if (!(prev_is_null ^ is_null)) {
                 _null_run_lengths.emplace_back(0);
             }
@@ -1425,13 +1429,33 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_dictionary_filter_
         }
         _null_run_lengths.emplace_back(cast_set<uint16_t>(remaining));
     }
-    RETURN_IF_ERROR(_select_vector.init(_null_run_lengths, num_values, nullptr, &filter_map,
-                                        _filter_map_index));
+    const bool use_fused_selection = should_use_fused_dictionary_selection(
+            num_values, num_nulls, filter_map, _filter_map_index);
+    size_t num_filtered = 0;
+    if (use_fused_selection) {
+        RETURN_IF_ERROR(build_filtered_nullable_selection(
+                _null_run_lengths, num_values, num_nulls, nullptr, &filter_map, _filter_map_index,
+                &_materialization_state.selection, &_fused_nullable_selection_nulls,
+                &num_filtered));
+    } else {
+        RETURN_IF_ERROR(_select_vector.init(_null_run_lengths, num_values, nullptr, &filter_map,
+                                            _filter_map_index));
+    }
     _filter_map_index += num_values;
     bool used_filter = false;
-    RETURN_IF_ERROR(_chunk_reader->filter_dictionary_indices(
-            dictionary_filter, _select_vector, typed_dictionary, projected_values,
-            matched_dictionary_ids, row_filter, survivor_count, projected_directly, &used_filter));
+    if (use_fused_selection) {
+        DORIS_CHECK_EQ(_fused_nullable_selection_nulls.size(), num_values - num_filtered);
+        RETURN_IF_ERROR(_chunk_reader->filter_prepared_dictionary_indices(
+                dictionary_filter, num_values, _materialization_state.selection,
+                _fused_nullable_selection_nulls, typed_dictionary, projected_values,
+                matched_dictionary_ids, row_filter, survivor_count, projected_directly,
+                &used_filter));
+    } else {
+        RETURN_IF_ERROR(_chunk_reader->filter_dictionary_indices(
+                dictionary_filter, _select_vector, typed_dictionary, projected_values,
+                matched_dictionary_ids, row_filter, survivor_count, projected_directly,
+                &used_filter));
+    }
     // Pure-dictionary chunks are prevalidated before definition levels are consumed.
     DORIS_CHECK(used_filter);
     return Status::OK();

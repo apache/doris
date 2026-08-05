@@ -107,15 +107,17 @@ inline std::vector<uint16_t> build_nullable_runs(const NullMap& nulls) {
 inline Status run_legacy_nullable_selection(NullableSelectionScratch* scratch,
                                             const std::vector<uint16_t>& null_runs,
                                             size_t num_values,
-                                            format::parquet::native::FilterMap* filter) {
+                                            format::parquet::native::FilterMap* filter,
+                                            bool materialize_output_nulls = true) {
     using ReadType = format::parquet::native::ColumnSelectVector::DataReadType;
     scratch->output_nulls.clear();
     scratch->selected_nulls.clear();
     scratch->physical_selection.ranges.clear();
     scratch->physical_selection.total_values = 0;
     scratch->physical_selection.selected_values = 0;
-    RETURN_IF_ERROR(scratch->legacy_selection.init(null_runs, num_values, &scratch->output_nulls,
-                                                   filter, 0));
+    RETURN_IF_ERROR(scratch->legacy_selection.init(
+            null_runs, num_values, materialize_output_nulls ? &scratch->output_nulls : nullptr,
+            filter, 0));
     scratch->num_filtered = scratch->legacy_selection.num_filtered();
 
     size_t physical_cursor = 0;
@@ -148,6 +150,24 @@ inline Status run_legacy_nullable_selection(NullableSelectionScratch* scratch,
     }
     scratch->physical_selection.total_values = physical_cursor;
     return Status::OK();
+}
+
+inline Status run_dictionary_selection_once(NullableSelectionScratch* scratch,
+                                            const std::vector<uint16_t>& null_runs,
+                                            size_t num_values, size_t num_nulls,
+                                            format::parquet::native::FilterMap* filter,
+                                            NullableSelectionImplementation implementation) {
+    if (implementation == NullableSelectionImplementation::LEGACY) {
+        return run_legacy_nullable_selection(scratch, null_runs, num_values, filter, false);
+    }
+    if (!format::parquet::native::should_use_fused_dictionary_selection(num_values, num_nulls,
+                                                                        *filter, 0)) {
+        return run_legacy_nullable_selection(scratch, null_runs, num_values, filter, false);
+    }
+    scratch->output_nulls.clear();
+    return format::parquet::native::build_filtered_nullable_selection(
+            null_runs, num_values, num_nulls, nullptr, filter, 0, &scratch->physical_selection,
+            &scratch->selected_nulls, &scratch->num_filtered);
 }
 
 inline Status run_nullable_selection_once(NullableSelectionScratch* scratch,
@@ -241,6 +261,68 @@ inline void run_nullable_selection_kernel(benchmark::State& state,
         benchmark::ClobberMemory();
     }
 
+    state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) *
+                            static_cast<int64_t>(KERNEL_ROWS));
+    state.counters["rows"] = static_cast<double>(KERNEL_ROWS);
+    state.counters["selected_rows"] = static_cast<double>(selected.selected_rows);
+    state.counters["null_rows"] = static_cast<double>(null_plan.selected_rows);
+}
+
+inline void run_dictionary_selection_kernel(benchmark::State& state,
+                                            const NullableSelectionScenario& scenario) {
+    using format::parquet::native::FilterMap;
+
+    std::vector<uint8_t> filter_data(KERNEL_ROWS, 0);
+    const auto selected = make_selection_plan(KERNEL_ROWS, scenario.selectivity_percent,
+                                              scenario.selection_pattern);
+    visit_selected_rows(selected, [&](size_t row) { filter_data[row] = 1; });
+    FilterMap filter;
+    auto status = filter.init(filter_data.data(), filter_data.size(), false);
+    if (!status.ok()) {
+        state.SkipWithError(status.to_string().c_str());
+        return;
+    }
+
+    NullMap nulls;
+    nulls.resize_fill(KERNEL_ROWS, 0);
+    const auto null_plan =
+            make_selection_plan(KERNEL_ROWS, scenario.null_percent, scenario.null_pattern);
+    visit_selected_rows(null_plan, [&](size_t row) { nulls[row] = 1; });
+    const auto null_runs = build_nullable_runs(nulls);
+
+    NullableSelectionScratch legacy;
+    NullableSelectionScratch fused;
+    status = run_dictionary_selection_once(&legacy, null_runs, KERNEL_ROWS, null_plan.selected_rows,
+                                           &filter, NullableSelectionImplementation::LEGACY);
+    if (status.ok()) {
+        status = run_dictionary_selection_once(&fused, null_runs, KERNEL_ROWS,
+                                               null_plan.selected_rows, &filter,
+                                               NullableSelectionImplementation::FUSED);
+    }
+    if (!status.ok() || !equal_selection(legacy.physical_selection, fused.physical_selection) ||
+        legacy.selected_nulls != fused.selected_nulls ||
+        legacy.num_filtered != fused.num_filtered) {
+        if (status.ok()) {
+            state.SkipWithError("dictionary selection implementations disagree");
+        } else {
+            state.SkipWithError(status.to_string().c_str());
+        }
+        return;
+    }
+
+    NullableSelectionScratch scratch;
+    for (auto _ : state) {
+        status = run_dictionary_selection_once(&scratch, null_runs, KERNEL_ROWS,
+                                               null_plan.selected_rows, &filter,
+                                               scenario.implementation);
+        if (!status.ok()) {
+            state.SkipWithError(status.to_string().c_str());
+            return;
+        }
+        benchmark::DoNotOptimize(scratch.physical_selection.ranges.data());
+        benchmark::DoNotOptimize(scratch.selected_nulls.data());
+        benchmark::ClobberMemory();
+    }
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) *
                             static_cast<int64_t>(KERNEL_ROWS));
     state.counters["rows"] = static_cast<double>(KERNEL_ROWS);
@@ -693,9 +775,26 @@ inline bool register_nullable_selection_benchmarks() {
     return true;
 }
 
+inline bool register_dictionary_selection_benchmarks() {
+    for (const auto& scenario : nullable_selection_scenarios()) {
+        const std::string name = "ParquetKernel/dictionary_selection/sel_" +
+                                 std::to_string(scenario.selectivity_percent) + "/null_" +
+                                 std::to_string(scenario.null_percent) + "/selection_" +
+                                 to_string(scenario.selection_pattern) + "/nulls_" +
+                                 to_string(scenario.null_pattern) + "/impl_" +
+                                 to_string(scenario.implementation);
+        benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State& state) {
+            run_dictionary_selection_kernel(state, scenario);
+        })->Unit(benchmark::kNanosecond);
+    }
+    return true;
+}
+
 inline const bool KERNEL_BENCHMARKS_REGISTERED = register_kernel_benchmarks();
 inline const bool NULLABLE_SELECTION_BENCHMARKS_REGISTERED =
         register_nullable_selection_benchmarks();
+inline const bool DICTIONARY_SELECTION_BENCHMARKS_REGISTERED =
+        register_dictionary_selection_benchmarks();
 
 } // namespace detail
 } // namespace doris::parquet_benchmark

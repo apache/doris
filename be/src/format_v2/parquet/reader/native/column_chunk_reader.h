@@ -245,6 +245,15 @@ public:
                                      IColumn::Filter* row_filter, size_t* survivor_count,
                                      bool* projected_directly, bool* used_filter);
 
+    Status filter_prepared_dictionary_indices(const IColumn::Filter& dictionary_filter,
+                                              size_t num_values, const ParquetSelection& selection,
+                                              const NullMap& selected_nulls,
+                                              const IColumn* typed_dictionary,
+                                              IColumn* projected_values,
+                                              ColumnInt32* matched_dictionary_ids,
+                                              IColumn::Filter* row_filter, size_t* survivor_count,
+                                              bool* projected_directly, bool* used_filter);
+
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }
     // Get the definition level decoder of current page.

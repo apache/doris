@@ -81,15 +81,65 @@ bool should_use_fused_nullable_selection(size_t num_values, size_t num_nulls,
     return num_null_runs >= std::max(MIN_NULL_RUNS, num_values / MAX_AVERAGE_NULL_RUN);
 }
 
+namespace {
+
+struct FilterSample {
+    size_t selected = 0;
+    size_t transitions = 0;
+    size_t size = 0;
+};
+
+FilterSample sample_filter(const uint8_t* filter, size_t num_values) {
+    constexpr size_t MAX_SAMPLE_VALUES = 1024;
+    FilterSample sample {.size = std::min(num_values, MAX_SAMPLE_VALUES)};
+    if (sample.size == 0) {
+        return sample;
+    }
+    bool previous = filter[0] != 0;
+    sample.selected = previous;
+    for (size_t row = 1; row < sample.size; ++row) {
+        const bool current = filter[row] != 0;
+        sample.selected += current;
+        sample.transitions += current != previous;
+        previous = current;
+    }
+    return sample;
+}
+
+} // namespace
+
+bool should_use_fused_dictionary_selection(size_t num_values, size_t num_nulls,
+                                           const FilterMap& filter_map, size_t filter_map_index) {
+    constexpr size_t MIN_BATCH_VALUES = 1024;
+    if (num_values < MIN_BATCH_VALUES || !filter_map.has_filter()) {
+        return false;
+    }
+    if (filter_map.filter_all()) {
+        return true;
+    }
+    if (filter_map.filter_map_data() == nullptr ||
+        filter_map_index + num_values > filter_map.filter_map_size()) {
+        return false;
+    }
+    const auto sample = sample_filter(filter_map.filter_map_data() + filter_map_index, num_values);
+    // Nullable, highly selective clustered filters already collapse into a few cheap legacy runs.
+    // Keep that negative-control shape out of the fused path.
+    if (num_nulls == 0) {
+        return true;
+    }
+    // Dense nullable inputs remove too little downstream work to justify changing planners.
+    return sample.selected * 5 <= sample.size * 4 &&
+           (sample.transitions > 32 || sample.selected * 10 > sample.size);
+}
+
 Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length_null_map,
                                          size_t num_values, size_t num_nulls,
                                          NullMap* output_null_map, FilterMap* filter_map,
                                          size_t filter_map_index, ParquetSelection* selection,
                                          NullMap* selected_nulls, size_t* num_filtered) {
-    if (output_null_map == nullptr || filter_map == nullptr || selection == nullptr ||
-        selected_nulls == nullptr || num_filtered == nullptr) {
-        return Status::InvalidArgument(
-                "Nullable selection planning requires non-null output state");
+    if (filter_map == nullptr || selection == nullptr || selected_nulls == nullptr ||
+        num_filtered == nullptr) {
+        return Status::InvalidArgument("Nullable selection planning requires selection state");
     }
     if (!filter_map->has_filter()) {
         return Status::InvalidArgument("Nullable selection planning requires a row filter");
@@ -128,7 +178,42 @@ Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length
         selection->selected_values += count;
     };
 
-    if (num_nulls == 0) {
+    if (num_nulls == 0 && output_null_map == nullptr) {
+        // Dictionary filtering only needs physical ranges and the selected-row NULL layout. Find
+        // survivor runs directly so sparse clustered filters do not pay a branch for every row.
+        constexpr size_t MAX_SEARCHED_RUNS = 32;
+        size_t row = 0;
+        size_t searched_runs = 0;
+        // SelectionVector materializes normalized 0/1 bytes, so byte search preserves the same
+        // non-zero selection semantics as the generic loop. Bound the number of searches before
+        // switching to a single scan so fragmented filters cannot amplify memchr call overhead.
+        while (row < num_values && searched_runs < MAX_SEARCHED_RUNS) {
+            const size_t run_start = simd::find_one(filter, row, num_values);
+            *num_filtered += run_start - row;
+            if (run_start == num_values) {
+                row = num_values;
+                break;
+            }
+            const size_t run_end = simd::find_byte(filter, run_start, num_values, uint8_t {0});
+            select_physical_values(run_start, run_end - run_start);
+            row = run_end;
+            ++searched_runs;
+        }
+        while (row < num_values) {
+            const bool selected = filter[row] != 0;
+            const size_t run_start = row++;
+            while (row < num_values && (filter[row] != 0) == selected) {
+                ++row;
+            }
+            const size_t run_length = row - run_start;
+            if (selected) {
+                select_physical_values(run_start, run_length);
+            } else {
+                *num_filtered += run_length;
+            }
+        }
+        selected_nulls->resize_fill(selection->selected_values, 0);
+    } else if (num_nulls == 0) {
         size_t row = 0;
         while (row < num_values) {
             const bool selected = filter[row] != 0;
@@ -187,11 +272,13 @@ Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length
         }
     }
 
-    const size_t old_null_size = output_null_map->size();
-    output_null_map->resize(old_null_size + selected_nulls->size());
-    if (!selected_nulls->empty()) {
-        memcpy(output_null_map->data() + old_null_size, selected_nulls->data(),
-               selected_nulls->size());
+    if (output_null_map != nullptr) {
+        const size_t old_null_size = output_null_map->size();
+        output_null_map->resize(old_null_size + selected_nulls->size());
+        if (!selected_nulls->empty()) {
+            memcpy(output_null_map->data() + old_null_size, selected_nulls->data(),
+                   selected_nulls->size());
+        }
     }
     return Status::OK();
 }

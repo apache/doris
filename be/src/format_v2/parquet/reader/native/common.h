@@ -123,6 +123,9 @@ Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length
                                          size_t filter_map_index, ParquetSelection* selection,
                                          NullMap* selected_nulls, size_t* num_filtered);
 
+bool should_use_fused_dictionary_selection(size_t num_values, size_t num_nulls,
+                                           const FilterMap& filter_map, size_t filter_map_index);
+
 // Fusion pays for its additional planning branches only when definition levels are materially
 // nullable and fragmented. Keep compact/no-NULL batches on the run-oriented legacy path.
 bool should_use_fused_nullable_selection(size_t num_values, size_t num_nulls, size_t num_null_runs);

@@ -2146,23 +2146,13 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
     DORIS_CHECK(projected_directly != nullptr);
     DORIS_CHECK(used_filter != nullptr);
     DORIS_CHECK((typed_dictionary == nullptr) == (projected_values == nullptr));
+    *survivor_count = 0;
     *projected_directly = false;
     *used_filter = false;
-    // The top-level reader clears once and owns the final compact filter. Every fully validated
-    // page fragment appends here so page/range boundaries never require intermediate copies.
-    *survivor_count = 0;
     if (_current_encoding != tparquet::Encoding::RLE_DICTIONARY || _page_decoder == nullptr ||
         !_page_decoder->has_dictionary()) {
         return Status::OK();
     }
-    if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
-        return Status::IOError("Decode too many values in current page");
-    }
-    if (UNLIKELY(dictionary_filter.size() != _page_decoder->dictionary_size())) {
-        return Status::Corruption("Parquet predicate dictionary has {} entries, expected {}",
-                                  dictionary_filter.size(), _page_decoder->dictionary_size());
-    }
-
     ParquetSelection selection;
     _nullable_selection_nulls.clear();
     _nullable_selection_nulls.reserve(select_vector.num_values() - select_vector.num_filtered());
@@ -2205,6 +2195,40 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
     DORIS_CHECK_EQ(selection.total_values, select_vector.num_values() - select_vector.num_nulls());
     DORIS_CHECK_EQ(_nullable_selection_nulls.size(),
                    select_vector.num_values() - select_vector.num_filtered());
+    return filter_prepared_dictionary_indices(
+            dictionary_filter, select_vector.num_values(), selection, _nullable_selection_nulls,
+            typed_dictionary, projected_values, matched_dictionary_ids, row_filter, survivor_count,
+            projected_directly, used_filter);
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_prepared_dictionary_indices(
+        const IColumn::Filter& dictionary_filter, size_t num_values,
+        const ParquetSelection& selection, const NullMap& selected_nulls,
+        const IColumn* typed_dictionary, IColumn* projected_values,
+        ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter, size_t* survivor_count,
+        bool* projected_directly, bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(survivor_count != nullptr);
+    DORIS_CHECK(projected_directly != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK((typed_dictionary == nullptr) == (projected_values == nullptr));
+    *projected_directly = false;
+    *used_filter = false;
+    // The top-level reader clears once and owns the final compact filter. Every fully validated
+    // page fragment appends here so page/range boundaries never require intermediate copies.
+    *survivor_count = 0;
+    if (_current_encoding != tparquet::Encoding::RLE_DICTIONARY || _page_decoder == nullptr ||
+        !_page_decoder->has_dictionary()) {
+        return Status::OK();
+    }
+    if (UNLIKELY(_remaining_num_values < num_values)) {
+        return Status::IOError("Decode too many values in current page");
+    }
+    if (UNLIKELY(dictionary_filter.size() != _page_decoder->dictionary_size())) {
+        return Status::Corruption("Parquet predicate dictionary has {} entries, expected {}",
+                                  dictionary_filter.size(), _page_decoder->dictionary_size());
+    }
     if (UNLIKELY(_empty_value_section && selection.total_values != 0)) {
         return Status::Corruption(
                 "Parquet definition levels require {} values from an empty value section",
@@ -2222,18 +2246,18 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
     DORIS_CHECK_EQ(_selected_dictionary_indices.size(), selection.selected_values);
 
     const bool direct_fixed_width_projection = try_filter_and_project_fixed_width_dictionary(
-            typed_dictionary, projected_values, _selected_dictionary_indices,
-            _nullable_selection_nulls, dictionary_filter, row_filter, survivor_count);
+            typed_dictionary, projected_values, _selected_dictionary_indices, selected_nulls,
+            dictionary_filter, row_filter, survivor_count);
     auto* matched =
             matched_dictionary_ids == nullptr ? nullptr : &matched_dictionary_ids->get_data();
     if (!direct_fixed_width_projection && matched != nullptr) {
         matched->reserve(matched->size() + selection.selected_values);
     }
     if (!direct_fixed_width_projection) {
-        row_filter->reserve(row_filter->size() + _nullable_selection_nulls.size());
+        row_filter->reserve(row_filter->size() + selected_nulls.size());
         size_t physical_row = 0;
         size_t survivors = 0;
-        for (const uint8_t is_null : _nullable_selection_nulls) {
+        for (const uint8_t is_null : selected_nulls) {
             bool keep = false;
             if (is_null == 0) {
                 const uint32_t dictionary_id = _selected_dictionary_indices[physical_row++];
@@ -2251,7 +2275,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
         *survivor_count = survivors;
     }
     // Commit page progress only after every external dictionary id has been validated.
-    _remaining_num_values -= select_vector.num_values();
+    _remaining_num_values -= num_values;
     *projected_directly = direct_fixed_width_projection;
     *used_filter = true;
     return Status::OK();
