@@ -198,7 +198,8 @@ suite("paimon_system_table", "p0,external,doris,external_docker,external_docker_
                 @incr('startSnapshotId'='${firstSnapshotId}',
                       'endSnapshotId'='${latestSnapshotId}')
                 """
-        assertEquals(2L, ((Number) incrementalPartitions[0][0]).longValue())
+        // The partitions system table reports the aggregate at the selected end snapshot.
+        assertEquals(3L, ((Number) incrementalPartitions[0][0]).longValue())
 
         List<Long> incrementalRoIds = sql("""
                 select id from ${multiSnapshotTable}\$ro
