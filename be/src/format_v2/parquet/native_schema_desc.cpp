@@ -266,17 +266,21 @@ private:
     bool _original;
 };
 
-static Status validate_variant_layout(const tparquet::SchemaElement& group_schema,
-                                      const NativeFieldSchema& group_field) {
-    const auto& annotation = group_schema.logicalType.VARIANT;
-    if (annotation.__isset.specification_version && annotation.specification_version != 1) {
+Status validate_variant_layout(const NativeFieldSchema& group_field,
+                               std::optional<int8_t> specification_version) {
+    if (specification_version.has_value() && *specification_version != 1) {
         return Status::NotSupported("Parquet Variant specification version {} is not supported",
-                                    annotation.specification_version);
+                                    *specification_version);
+    }
+    if (group_field.parquet_schema.__isset.repetition_type &&
+        group_field.parquet_schema.repetition_type == tparquet::FieldRepetitionType::REPEATED) {
+        return Status::NotSupported("repeated Parquet Variant group {} is not supported",
+                                    group_field.name);
     }
     if (group_field.children.size() < 2 || group_field.children.size() > 3) {
         return Status::Corruption(
                 "Parquet Variant {} must contain metadata, value, and optional typed_value",
-                group_schema.name);
+                group_field.name);
     }
 
     const NativeFieldSchema* metadata = nullptr;
@@ -292,22 +296,22 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
             target = &typed_value;
         } else {
             return Status::Corruption("Parquet Variant {} has unexpected child {}",
-                                      group_schema.name, child.name);
+                                      group_field.name, child.name);
         }
         if (*target != nullptr) {
-            return Status::Corruption("Parquet Variant {} has duplicate child {}",
-                                      group_schema.name, child.name);
+            return Status::Corruption("Parquet Variant {} has duplicate child {}", group_field.name,
+                                      child.name);
         }
         *target = &child;
     }
     if (metadata == nullptr || value == nullptr) {
         return Status::Corruption("Parquet Variant {} requires metadata and value children",
-                                  group_schema.name);
+                                  group_field.name);
     }
     if (!metadata->children.empty() || metadata->physical_type != tparquet::Type::BYTE_ARRAY ||
         metadata->parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
         return Status::Corruption("Parquet Variant {} metadata must be a required BYTE_ARRAY",
-                                  group_schema.name);
+                                  group_field.name);
     }
     const auto expected_value_repetition = typed_value == nullptr
                                                    ? tparquet::FieldRepetitionType::REQUIRED
@@ -317,13 +321,13 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
     if (!value->children.empty() || value->physical_type != tparquet::Type::BYTE_ARRAY ||
         value->parquet_schema.repetition_type != expected_value_repetition) {
         return Status::Corruption("Parquet Variant {} value must be a {} BYTE_ARRAY",
-                                  group_schema.name,
+                                  group_field.name,
                                   typed_value == nullptr ? "required" : "optional");
     }
     if (typed_value != nullptr &&
         typed_value->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL) {
         return Status::Corruption("Parquet Variant {} typed_value must be optional",
-                                  group_schema.name);
+                                  group_field.name);
     }
 
     enum class WrapperContext : uint8_t { OBJECT_FIELD, ARRAY_ELEMENT };
@@ -945,7 +949,12 @@ Status NativeFieldDescriptor::parse_group_field(
             ScopedBoolOverride timestamp_tz_mapping(_enable_mapping_timestamp_tz, true);
             RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
         }
-        RETURN_IF_ERROR(validate_variant_layout(group_schema, *group_field));
+        const auto& annotation = group_schema.logicalType.VARIANT;
+        const auto specification_version =
+                annotation.__isset.specification_version
+                        ? std::optional<int8_t>(annotation.specification_version)
+                        : std::nullopt;
+        RETURN_IF_ERROR(validate_variant_layout(*group_field, specification_version));
         group_field->variant_physical_type = group_field->data_type;
         // Native page readers dispatch groups from data_type, so preserve the physical STRUCT
         // here. The public Parquet schema maps it to logical Variant without losing this shape.

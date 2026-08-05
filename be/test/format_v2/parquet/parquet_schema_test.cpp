@@ -227,6 +227,64 @@ TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
     }
 }
 
+TEST(ParquetSchemaTest, AppliesTableFormatVariantOverrideToUnannotatedGroup) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__isset.logicalType = false;
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    ASSERT_EQ(fields[0]->kind, ParquetColumnSchemaKind::STRUCT);
+
+    const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
+    EXPECT_TRUE(fields[0]->contains_variant);
+    EXPECT_EQ(remove_nullable(fields[0]->type)->get_primitive_type(), TYPE_VARIANT);
+    EXPECT_NE(fields[0]->variant_physical_type, nullptr);
+}
+
+TEST(ParquetSchemaTest, RejectsMalformedUnannotatedVariantOverride) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__isset.logicalType = false;
+    schema[2].__set_name("unexpected");
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("unexpected child"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, AppliesNestedTableFormatVariantOverride) {
+    auto schema = struct_with_variant_schema();
+    schema[3].__isset.logicalType = false;
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    ASSERT_EQ(fields[0]->kind, ParquetColumnSchemaKind::STRUCT);
+    ASSERT_EQ(fields[0]->children.size(), 2);
+    ASSERT_EQ(fields[0]->children[1]->kind, ParquetColumnSchemaKind::STRUCT);
+
+    auto root_override = format::LocalColumnIndex::partial_local(0);
+    root_override.children.push_back(format::LocalColumnIndex::local(1));
+    const auto status = apply_variant_schema_overrides(descriptor, {root_override}, &fields);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(fields[0]->contains_variant);
+    EXPECT_EQ(fields[0]->children[1]->kind, ParquetColumnSchemaKind::VARIANT);
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*remove_nullable(fields[0]->type));
+    EXPECT_EQ(remove_nullable(struct_type.get_element(1))->get_primitive_type(), TYPE_VARIANT);
+}
+
 TEST(ParquetSchemaTest, NativeSchemaAcceptsRequiredAndOptionalVariantGroups) {
     for (const auto repetition :
          {tparquet::FieldRepetitionType::REQUIRED, tparquet::FieldRepetitionType::OPTIONAL}) {

@@ -22,6 +22,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -85,6 +86,9 @@ struct NativeFieldSchema {
     void set_column_id(uint64_t id);
     uint64_t get_max_column_id() const;
 };
+
+Status validate_variant_layout(const NativeFieldSchema& group_field,
+                               std::optional<int8_t> specification_version = std::nullopt);
 
 // V2 owns this schema tree and parser so footer/schema planning never invokes the V1 reader path.
 class NativeFieldDescriptor {

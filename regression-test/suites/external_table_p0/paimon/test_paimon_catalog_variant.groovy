@@ -87,5 +87,59 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         """
 
         sql """set force_jni_scanner = false"""
+
+        explain {
+            sql "select * from variant_smoke order by id"
+            check { explainString ->
+                def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
+                // Paimon can change the physical split count; every planned split must stay native.
+                return nativeSplits.find()
+                        && nativeSplits.group(1).toInteger() > 0
+                        && nativeSplits.group(1) == nativeSplits.group(2)
+            }
+        }
+
+        order_qt_native_full_variant """
+            select id, payload
+            from variant_smoke
+            order by id
+        """
+
+        order_qt_native_object_subpaths """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['age'] as int),
+                   cast(payload['profile']['city'] as string),
+                   cast(payload['active'] as boolean)
+            from variant_smoke
+            order by id
+        """
+
+        order_qt_native_null_and_missing """
+            select id,
+                   payload['missing'] is null,
+                   payload['not_exist'] is null
+            from variant_smoke
+            order by id
+        """
+
+        order_qt_native_root_array """
+            select id,
+                   cast(payload[1] as int),
+                   cast(payload[2] as string),
+                   cast(payload[3] as boolean),
+                   cast(payload[4] as string),
+                   cast(payload[5]['k'] as string)
+            from variant_smoke
+            where id = 3
+            order by id
+        """
+
+        order_qt_native_subpath_predicate """
+            select id, cast(payload['name'] as string)
+            from variant_smoke
+            where cast(payload['age'] as int) >= 20
+            order by id
+        """
     }
 }

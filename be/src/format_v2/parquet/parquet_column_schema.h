@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_type.h"
 
 namespace doris::format::parquet {
@@ -80,5 +81,10 @@ struct ParquetColumnSchema {
 
 Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
                                    std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
+
+Status apply_variant_schema_overrides(
+        const NativeFieldDescriptor& native_schema,
+        const std::vector<format::LocalColumnIndex>& variant_schema_overrides,
+        std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
 
 } // namespace doris::format::parquet
