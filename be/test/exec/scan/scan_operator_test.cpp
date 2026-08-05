@@ -21,10 +21,55 @@
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "exec/operator/olap_scan_operator.h"
+#include "exprs/vexpr.h"
+#include "exprs/vslot_ref.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
+namespace {
+
+class ScanTestIdentityExpr final : public VExpr {
+public:
+    explicit ScanTestIdentityExpr(VExprSPtr child)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false) {
+        set_children({std::move(child)});
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        return get_child(0)->execute_column(context, block, selector, count, result_column);
+    }
+
+private:
+    std::string _expr_name = "scan_test_identity";
+};
+
+class ScanTestVirtualSlotRef final : public VExpr {
+public:
+    ScanTestVirtualSlotRef() : VExpr(std::make_shared<DataTypeUInt8>(), false) {
+        set_node_type(TExprNodeType::VIRTUAL_SLOT_REF);
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::NotSupported("not executed");
+    }
+
+private:
+    std::string _expr_name = "scan_test_virtual_slot";
+};
+
+} // namespace
+
 class ScanOperatorTest : public testing::Test {
 public:
     void SetUp() override {
@@ -108,5 +153,58 @@ TEST_F(ScanOperatorTest, adaptive_pipeline_task_serial_read_on_limit) {
     std::ignore = scan_operator->init(tnode, state.get());
     // Without conjuncts, enable_adaptive_pipeline_task_serial_read_on_limit is false
     ASSERT_EQ(scan_operator->_should_run_serial, false);
+}
+
+TEST_F(ScanOperatorTest, BinlogMergeKeepsCommonExprAboveStorage) {
+    TPlanNode tnode;
+    tnode.row_tuples.push_back(TTupleId(0));
+    tnode.row_tuples.push_back(TTupleId(1));
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs, 1,
+                                                             TQueryCacheParam {});
+    auto local_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+
+    auto slot_ref = VSlotRef::create_shared(1, 0, 1, std::make_shared<DataTypeInt32>(), "k2");
+    for (const auto scan_type : {TBinlogScanType::MIN_DELTA, TBinlogScanType::DETAIL}) {
+        local_state->_scan_ranges.clear();
+        auto scan_range = std::make_unique<TPaloScanRange>();
+        scan_range->__set_binlog_scan_type(scan_type);
+        local_state->_scan_ranges.emplace_back(std::move(scan_range));
+        EXPECT_FALSE(local_state->_should_push_down_common_expr(slot_ref));
+    }
+}
+
+TEST_F(ScanOperatorTest, LateRuntimeFilterRequiringFullMaterializationStaysResidual) {
+    TPlanNode tnode;
+    tnode.row_tuples.push_back(TTupleId(0));
+    tnode.row_tuples.push_back(TTupleId(1));
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs, 1,
+                                                             TQueryCacheParam {});
+    scan_operator->_olap_scan_node.keyType = TKeysType::DUP_KEYS;
+    auto local_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+
+    auto make_slot_expr = [](DataTypePtr type, std::string name) {
+        return std::make_shared<ScanTestIdentityExpr>(
+                VSlotRef::create_shared(1, 0, 1, std::move(type), std::move(name)));
+    };
+
+    auto scalar_expr = make_slot_expr(std::make_shared<DataTypeInt32>(), "scalar_col");
+    EXPECT_TRUE(local_state->_should_push_down_late_runtime_filter(scalar_expr));
+
+    const std::vector<VExprSPtr> full_materialization_exprs = {
+            make_slot_expr(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()),
+                           "array_col"),
+            make_slot_expr(std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
+                                                         std::make_shared<DataTypeInt32>()),
+                           "map_col"),
+            make_slot_expr(
+                    std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeInt32>()},
+                                                     Strings {"field"}),
+                    "struct_col"),
+            std::make_shared<ScanTestIdentityExpr>(std::make_shared<ScanTestVirtualSlotRef>())};
+
+    for (const auto& expr : full_materialization_exprs) {
+        EXPECT_FALSE(local_state->_should_push_down_late_runtime_filter(expr));
+        EXPECT_TRUE(local_state->_should_push_down_common_expr(expr));
+    }
 }
 } // namespace doris

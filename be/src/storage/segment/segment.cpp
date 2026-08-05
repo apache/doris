@@ -24,10 +24,13 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
+#include <unordered_map>
 #include <utility>
 
 #include "cloud/config.h"
@@ -35,6 +38,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -127,6 +131,16 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
         }
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
         slot_zone_map.data_type = data_type;
+        if (auto value = segment->get_read_time_constant_value(column_id, schema, read_options);
+            value.has_value()) {
+            auto zone_map = std::make_shared<ZoneMap>();
+            zone_map->min_value = *value;
+            zone_map->max_value = *value;
+            zone_map->has_not_null = true;
+            slot_zone_map.zone_map = std::move(zone_map);
+            ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+            continue;
+        }
         std::shared_ptr<ColumnReader> reader;
         Status st = segment->get_column_reader(*tablet_column, &reader, read_options.stats,
                                                &read_options.io_ctx);
@@ -379,6 +393,25 @@ bool Segment::is_tso_placeholder_col(int cid, const Schema& schema,
     return cid == schema.tso_col_idx();
 }
 
+std::optional<Field> Segment::get_read_time_constant_value(
+        int cid, const Schema& schema, const StorageReadOptions& read_options) const {
+    if (read_options.version.first != read_options.version.second) {
+        return std::nullopt;
+    }
+    if (cid == schema.version_col_idx()) {
+        return Field::create_field<TYPE_BIGINT>(read_options.version.second);
+    }
+    if (cid == schema.commit_tso_col_idx() && read_options.commit_tso.end_tso() != -1) {
+        return Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
+    }
+    if (is_tso_placeholder_col(cid, schema, read_options)) {
+        const Int64 commit_tso =
+                read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
+        return Field::create_field<TYPE_BIGINT>(commit_tso);
+    }
+    return std::nullopt;
+}
+
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
@@ -454,17 +487,31 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
     }
 
-    // Segment-level expr-zonemap runs before SegmentIterator can rebind storage expressions to
-    // the reader schema. Only apply it when scan tuple slot ordinals already match this schema.
+    // A late RF that was published before this lazy segment iterator is created can participate
+    // in the initial segment-level zonemap check. An RF published concurrently after this
+    // snapshot is still installed by SegmentIterator and applied to its remaining pages; Scanner
+    // retains the row-level residual conjunct.
+    VExprContextSPtrs segment_zonemap_conjuncts = read_options.common_expr_ctxs_push_down;
+    if (read_options.late_runtime_filter_container != nullptr) {
+        for (const auto& entry : read_options.late_runtime_filter_container->filters) {
+            if (!entry.valid.load(std::memory_order_acquire)) {
+                continue;
+            }
+            DORIS_CHECK(entry.expr != nullptr);
+            segment_zonemap_conjuncts.insert(segment_zonemap_conjuncts.end(), entry.expr->begin(),
+                                             entry.expr->end());
+        }
+    }
     if (expr_zonemap::is_expr_zonemap_filter_enabled(read_options.runtime_state) &&
-        !read_options.common_expr_ctxs_push_down.empty()) {
+        !segment_zonemap_conjuncts.empty()) {
         ZoneMapEvalContext ctx;
-        RETURN_IF_ERROR(build_segment_zonemap_context(
-                this, *schema, read_options, read_options.common_expr_ctxs_push_down, &ctx));
-        const auto result =
-                VExprContext::evaluate_zonemap_filter(read_options.common_expr_ctxs_push_down, ctx);
+        RETURN_IF_ERROR(build_segment_zonemap_context(this, *schema, read_options,
+                                                      segment_zonemap_conjuncts, &ctx));
+        const bool segment_filtered =
+                VExprContext::evaluate_zonemap_filter(segment_zonemap_conjuncts, ctx) ==
+                ZoneMapFilterResult::kNoMatch;
         ctx.stats.accumulate_to(read_options.stats);
-        if (result == ZoneMapFilterResult::kNoMatch) {
+        if (segment_filtered) {
             *iter = std::make_unique<EmptySegmentIterator>(*schema);
             read_options.stats->filtered_segment_number++;
             read_options.stats->expr_zonemap_filtered_segments++;

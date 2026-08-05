@@ -201,10 +201,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             if (!eos) {
-                Status rf_status = scanner->try_append_late_arrival_runtime_filter();
-                if (!rf_status.ok()) {
-                    LOG(WARNING) << "Failed to append late arrival runtime filter: "
-                                 << rf_status.to_string();
+                status = scanner->try_append_late_arrival_runtime_filter();
+                if (!status.ok()) {
+                    eos = true;
                 }
             }
 

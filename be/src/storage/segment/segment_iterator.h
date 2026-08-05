@@ -62,6 +62,7 @@ namespace doris {
 class ObjectPool;
 class MatchPredicate;
 
+struct LateRuntimeFilterContainer;
 class VExpr;
 class VExprContext;
 struct RowLocation;
@@ -70,6 +71,7 @@ namespace segment_v2 {
 
 class ColumnIterator;
 class InvertedIndexIterator;
+class RowRange;
 class RowRanges;
 class IndexIterator;
 
@@ -191,6 +193,16 @@ private:
     [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
                                                            rowid_t min_rowid,
                                                            RowRanges* row_ranges);
+    [[nodiscard]] static bool _page_intersects_row_ranges(const RowRange& page_range,
+                                                          const RowRanges& row_ranges,
+                                                          size_t& row_range_index);
+    [[nodiscard]] Status _apply_new_late_runtime_filter_page_zonemap(
+            const VExprContextSPtrs& new_contexts);
+    [[nodiscard]] Status _refresh_late_runtime_filters();
+    [[nodiscard]] Status _install_late_runtime_filter(const VExprContextSPtrs& expr_group,
+                                                      VExprContextSPtrs* installed_contexts);
+    size_t _intersect_remaining_row_bitmap(const RowRanges& row_ranges);
+    void _rebuild_range_iterator();
     [[nodiscard]] Status _apply_inverted_index();
     [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
             std::shared_ptr<ColumnPredicate> pred,
@@ -318,11 +330,16 @@ private:
     bool _has_delete_predicate(ColumnId cid);
     bool _can_skip_reading_extra_column(ColumnId cid);
 
-    bool _can_opt_limit_reads();
+    bool _can_opt_limit_reads() const;
+    bool _has_late_runtime_filter_candidates() const {
+        return _late_runtime_filter_container != nullptr &&
+               !_late_runtime_filter_container->filters.empty();
+    }
+    bool _has_arrived_late_runtime_filter() const;
 
     void _initialize_predicate_results();
     bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
-                                                                bool default_return = false);
+                                                                bool default_return = false) const;
 
     void _calculate_common_expr_index_exec_status();
 
@@ -365,6 +382,8 @@ private:
     bool _lazy_materialization_read;
     // columns to read after predicate evaluation and remaining expr execute
     std::vector<ColumnId> _non_predicate_columns;
+    // Union of storage columns referenced by common expressions and late runtime filters that were
+    // installed before lazy initialization.
     std::set<ColumnId> _common_expr_columns;
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
@@ -383,6 +402,8 @@ private:
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
     std::vector<bool> _is_pred_column; // columns hold _init segmentIter
     std::map<uint32_t, bool> _need_read_data_indices;
+    // Expression-filter dependency columns shared by common expressions and late runtime filters
+    // installed before lazy initialization.
     std::vector<bool> _is_common_expr_column;
     MutableColumns _current_return_columns;
     std::vector<std::shared_ptr<ColumnPredicate>> _pre_eval_block_predicate;
@@ -394,10 +415,11 @@ private:
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _predicate_column_ids;
+    // Columns used by common expressions or pre-lazy-init late runtime filters that are read after
+    // ordinary predicate columns but before the remaining output columns.
     std::vector<ColumnId> _common_expr_column_ids;
-    // Block slot indexes to filter after common expr evaluation. This is not
-    // tablet column ids because Block::filter_block_internal filters by block
-    // position.
+    // Block slot indexes to filter after common-expression evaluation. These are block positions
+    // rather than tablet column ids because Block::filter_block_internal filters by block position.
     std::vector<ColumnId> _columns_to_filter;
     std::vector<bool> _converted_column_ids;
 
@@ -418,6 +440,20 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
     VExprContextSPtrs _common_expr_ctxs_push_down;
+    // Contexts installed before lazy initialization form a suffix of the common-expression vector.
+    // The boundary keeps their row-filter statistics distinct from plan-time common expressions.
+    size_t _late_runtime_filter_common_expr_start = 0;
+
+    // The container is immutable after it is shared. Each iterator clones newly published
+    // expression contexts and tracks its own installation progress.
+    std::shared_ptr<const LateRuntimeFilterContainer> _late_runtime_filter_container;
+    uint32_t _last_late_runtime_filter_arrived_cnt = 0;
+    std::vector<uint8_t> _processed_late_runtime_filters;
+    // Filters installed before lazy initialization wait here to join the common-expression plan.
+    // After lazy initialization, new contexts are used only transiently for remaining-page pruning;
+    // Scanner retains their row-level residual conjuncts.
+    VExprContextSPtrs _late_runtime_filter_ctxs;
+
     std::set<ColumnId> _not_apply_index_pred;
 
     // row schema of the key to seek

@@ -24,6 +24,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <atomic>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cassert>
 #include <cstdint>
@@ -31,6 +32,7 @@
 #include <numeric>
 #include <optional>
 #include <set>
+#include <stack>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -63,6 +65,7 @@
 #include "core/types.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/array/function_array_index.h"
+#include "exprs/late_runtime_filter.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -210,11 +213,17 @@ public:
 
     explicit BitmapRangeIterator(const roaring::Roaring& bitmap) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
+        if (!bitmap.isEmpty()) {
+            _remaining_row_range =
+                    RowRange(bitmap.minimum(), static_cast<int64_t>(bitmap.maximum()) + 1);
+        }
     }
 
     bool has_more_range() const { return !_eof; }
 
     [[nodiscard]] static uint32_t get_batch_size() { return kBatchSize; }
+
+    RowRange remaining_row_range() const { return _remaining_row_range; }
 
     // read next range into [*from, *to) whose size <= max_range_size.
     // return false when there is no more range.
@@ -251,13 +260,22 @@ public:
             } while (range_size < max_range_size && _buf[_buf_pos] == _buf[_buf_pos - 1] + 1);
         }
         *to = *from + range_size;
+        _remaining_row_range = RowRange(*to, _remaining_row_range.to());
         return true;
     }
 
     // read batch_size of rowids from roaring bitmap into buf array
     virtual uint32_t read_batch_rowids(rowid_t* buf, uint32_t batch_size) {
-        return roaring::api::roaring_read_uint32_iterator(&_iter, buf, batch_size);
+        const auto rows_read = roaring::api::roaring_read_uint32_iterator(&_iter, buf, batch_size);
+        if (rows_read > 0) {
+            _remaining_row_range = RowRange(static_cast<int64_t>(buf[rows_read - 1]) + 1,
+                                            _remaining_row_range.to());
+        }
+        return rows_read;
     }
+
+protected:
+    RowRange _remaining_row_range;
 
 private:
     void _read_next_batch() {
@@ -281,7 +299,8 @@ private:
 //   output ranges: [17,20), [15,17), [10,11), [5,8), [4, 5), [0,2) (when max_range_size=3)
 class SegmentIterator::BackwardBitmapRangeIterator : public SegmentIterator::BitmapRangeIterator {
 public:
-    explicit BackwardBitmapRangeIterator(const roaring::Roaring& bitmap) {
+    explicit BackwardBitmapRangeIterator(const roaring::Roaring& bitmap)
+            : BitmapRangeIterator(bitmap) {
         roaring_init_iterator_last(&bitmap.roaring, &_riter);
         _rowid_count = cast_set<uint32_t>(roaring_bitmap_get_cardinality(&bitmap.roaring));
         _rowid_left = _rowid_count;
@@ -306,6 +325,7 @@ public:
         } while (range_size < max_range_size && _riter.has_value &&
                  _riter.current_value + 1 == *from);
 
+        _remaining_row_range = RowRange(_remaining_row_range.from(), *from);
         return true;
     }
     /**
@@ -331,7 +351,11 @@ public:
                                            buf); // Fill 'buf' with '_rowid_count' elements.
             uint32_t num_read = _rowid_left;     // Save the number of row IDs read.
             _rowid_left = 0;                     // No row IDs left after this operation.
-            return num_read;                     // Return the number of row IDs read.
+            if (num_read > 0) {
+                _remaining_row_range =
+                        RowRange(_remaining_row_range.from(), static_cast<int64_t>(buf[0]));
+            }
+            return num_read; // Return the number of row IDs read.
         }
 
         uint32_t read_size = std::min(batch_size, _rowid_left);
@@ -345,6 +369,10 @@ public:
             roaring_previous_uint32_iterator(&_riter);
         }
 
+        if (num_read > 0) {
+            _remaining_row_range =
+                    RowRange(_remaining_row_range.from(), static_cast<int64_t>(buf[0]));
+        }
         // Return the actual number of row IDs read.
         return num_read;
     }
@@ -365,6 +393,47 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _lazy_inited(false),
           _inited(false),
           _pool(new ObjectPool) {}
+
+void SegmentIterator::_rebuild_range_iterator() {
+    DORIS_CHECK(_range_iter == nullptr);
+    if (_opts.read_orderby_key_reverse) {
+        _range_iter = std::make_unique<BackwardBitmapRangeIterator>(_row_bitmap);
+    } else {
+        _range_iter = std::make_unique<BitmapRangeIterator>(_row_bitmap);
+    }
+}
+
+size_t SegmentIterator::_intersect_remaining_row_bitmap(const RowRanges& row_ranges) {
+    DORIS_CHECK(_range_iter != nullptr);
+    const auto remaining_row_range = _range_iter->remaining_row_range();
+    if (!remaining_row_range.is_valid()) {
+        return 0;
+    }
+
+    const auto remaining_window =
+            RowRanges::create_single(remaining_row_range.from(), remaining_row_range.to());
+    RowRanges retained_ranges;
+    RowRanges::ranges_intersection(remaining_window, row_ranges, &retained_ranges);
+
+    const auto rows_before = roaring::api::roaring_bitmap_range_cardinality(
+            &_row_bitmap.roaring, cast_set<uint64_t>(remaining_row_range.from()),
+            cast_set<uint64_t>(remaining_row_range.to()));
+    auto retained_bitmap = RowRanges::ranges_to_roaring(retained_ranges);
+    retained_bitmap &= _row_bitmap;
+    const auto rows_after = retained_bitmap.cardinality();
+    DORIS_CHECK_LE(rows_after, rows_before);
+    const auto rows_filtered = rows_before - rows_after;
+    if (rows_filtered == 0) {
+        return 0;
+    }
+
+    // The roaring iterator stores pointers into its bitmap. Destroy it before replacing the
+    // bitmap, then rebuild it in the original scan direction over the unconsumed rows only.
+    _range_iter.reset();
+    _row_bitmap = std::move(retained_bitmap);
+    _rebuild_range_iterator();
+    return cast_set<size_t>(rows_filtered);
+}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     auto status = _init_impl(opts);
@@ -412,6 +481,11 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         return Status::OK();
     }
     _opts = opts;
+    _late_runtime_filter_container = _opts.late_runtime_filter_container;
+    if (_late_runtime_filter_container != nullptr) {
+        _processed_late_runtime_filters.assign(_late_runtime_filter_container->filters.size(), 0);
+    }
+    DORIS_CHECK(!_has_late_runtime_filter_candidates() || _opts.read_limit == 0);
     SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     _inited = true;
     _file_reader = _segment->_file_reader;
@@ -491,6 +565,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     RETURN_IF_ERROR(init_iterators());
 
     RETURN_IF_ERROR(_construct_compound_expr_context());
+    RETURN_IF_ERROR(_refresh_late_runtime_filters());
     VLOG_DEBUG << fmt::format(
             "Segment iterator init, virtual_column_exprs size: {}, common_expr_pushdown size: {}",
             _opts.virtual_column_exprs.size(), _common_expr_ctxs_push_down.size());
@@ -529,6 +604,17 @@ Status SegmentIterator::_lazy_init(Block* block) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
+    // The scanner publishes only late RFs over scalar physical slots. Those visible at this point
+    // can share the common-expression materialization plan and run before non-predicate columns are
+    // read. Record the boundary after index evaluation, which may erase fully evaluated plan-time
+    // contexts. Filters installed after this point can only prune remaining pages here; Scanner
+    // keeps the row-level residual conjuncts.
+    _late_runtime_filter_common_expr_start = _common_expr_ctxs_push_down.size();
+    for (auto& expr_ctx : _late_runtime_filter_ctxs) {
+        DORIS_CHECK(expr_ctx != nullptr);
+        _common_expr_ctxs_push_down.emplace_back(std::move(expr_ctx));
+    }
+    _late_runtime_filter_ctxs.clear();
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
     // Remove rows that have been marked deleted
     if (_opts.delete_bitmap.count(segment_id()) > 0 &&
@@ -549,11 +635,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
 
-    if (_opts.read_orderby_key_reverse) {
-        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
-    } else {
-        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
-    }
+    _rebuild_range_iterator();
 
     // Reserve columns for _initial_block_row_max (the original max before any adaptive
     // prediction) because the predictor may increase block_row_max on subsequent batches
@@ -882,7 +964,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
-         !_common_expr_ctxs_push_down.empty())) {
+         !_common_expr_ctxs_push_down.empty() || !_late_runtime_filter_ctxs.empty())) {
         RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
         size_t pre_size = _row_bitmap.cardinality();
@@ -1175,6 +1257,21 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             _opts.stats->rows_stats_filtered +=
                     (pre_expr_zonemap_size - condition_row_ranges->count());
         }
+        if (!_late_runtime_filter_ctxs.empty() && !condition_row_ranges->is_empty()) {
+            const auto rows_before_zonemap = condition_row_ranges->count();
+            RETURN_IF_ERROR(_apply_expr_zonemap_to_row_ranges(_late_runtime_filter_ctxs, 0,
+                                                              condition_row_ranges));
+            const auto rows_after_zonemap = condition_row_ranges->count();
+            DORIS_CHECK_LE(rows_after_zonemap, rows_before_zonemap);
+            // This is a coarse informational count based on the condition ranges. It may include
+            // rows already removed from _row_bitmap by other indexes, or rows later excluded by
+            // delete bitmaps and parallel-scan ranges, so it can overestimate the rows this
+            // iterator would actually read. The direct delta avoids extra range and bitmap
+            // operations in the scan hot path while still reflecting late RF ZoneMap pruning.
+            const auto rows_filtered = rows_before_zonemap - rows_after_zonemap;
+            _opts.stats->rows_stats_filtered += rows_filtered;
+            _opts.stats->rows_late_runtime_filter_zonemap_filtered += rows_filtered;
+        }
     }
 
     return Status::OK();
@@ -1197,6 +1294,11 @@ bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
 }
 
 Status SegmentIterator::_extract_common_expr_columns(const VExprSPtr& expr) {
+    DORIS_CHECK(expr != nullptr);
+    if (auto impl = expr->get_impl(); impl != nullptr) {
+        return _extract_common_expr_columns(impl);
+    }
+
     auto& children = expr->children();
     for (int i = 0; i < children.size(); ++i) {
         RETURN_IF_ERROR(_extract_common_expr_columns(children[i]));
@@ -1205,12 +1307,14 @@ Status SegmentIterator::_extract_common_expr_columns(const VExprSPtr& expr) {
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
         auto slot_expr = std::dynamic_pointer_cast<doris::VSlotRef>(expr);
+        DORIS_CHECK(slot_expr != nullptr);
         auto cid = _schema->column_id(slot_expr->column_id());
         _is_common_expr_column[cid] = true;
         _common_expr_columns.insert(cid);
     } else if (node_type == TExprNodeType::VIRTUAL_SLOT_REF) {
         std::shared_ptr<VirtualSlotRef> virtual_slot_ref =
                 std::dynamic_pointer_cast<VirtualSlotRef>(expr);
+        DORIS_CHECK(virtual_slot_ref != nullptr);
         RETURN_IF_ERROR(_extract_common_expr_columns(virtual_slot_ref->get_virtual_column_expr()));
     }
 
@@ -1524,8 +1628,8 @@ Status SegmentIterator::_apply_inverted_index() {
  * @return false if any condition in either status map fails, or if the column is not found
  *         and `default_return` is false.
  */
-bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
-                                                                             bool default_return) {
+bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(
+        ColumnId cid, bool default_return) const {
     auto pred_it = _column_predicate_index_exec_status.find(cid);
     if (pred_it != _column_predicate_index_exec_status.end()) {
         const auto& pred_map = pred_it->second;
@@ -2004,7 +2108,8 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         _is_need_short_eval = true;
     }
 
-    // Step2: extract columns that can execute expr context
+    // Step2: extract columns needed by expression filters. Late runtime filters installed before
+    // lazy initialization have already been appended to the common-expression vector.
     _is_common_expr_column.resize(_schema->columns().size(), false);
     if (!_common_expr_ctxs_push_down.empty()) {
         for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
@@ -2039,10 +2144,6 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                         }
                     }
                 }
-            }
-
-            for (const auto& entry : _virtual_column_exprs) {
-                _columns_to_filter.push_back(_schema->column_index(entry.first));
             }
         }
     }
@@ -2789,7 +2890,8 @@ Status SegmentIterator::next_batch(Block* block) {
                     block->replace_by_position(idx, type->create_column());
                 }
 
-                if (_opts.condition_cache_digest && !_find_condition_cache) {
+                if (_opts.condition_cache_digest && !_find_condition_cache &&
+                    !_has_arrived_late_runtime_filter()) {
                     auto* condition_cache = ConditionCache::instance();
                     ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
                                                        _opts.condition_cache_digest);
@@ -2886,6 +2988,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 
+    RETURN_IF_ERROR(_refresh_late_runtime_filters());
     RETURN_IF_ERROR(_lazy_init(block));
 
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
@@ -2956,10 +3059,10 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                 RETURN_IF_ERROR(_output_column_by_sel_idx(block, _predicate_column_ids,
                                                           _sel_rowid_idx.data(), _selected_size));
 
-                // step 3.2: read remaining expr column and evaluate it.
+                // step 3.2: read remaining expression-filter columns and evaluate them.
                 if (_is_need_expr_eval) {
                     // The predicate column contains the remaining expr column, no need second read.
-                    if (_common_expr_column_ids.size() > 0) {
+                    if (!_common_expr_column_ids.empty()) {
                         SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
                                 _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
@@ -2970,8 +3073,10 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                     }
 
                     DCHECK(block->columns() > _schema->column_index(*_common_expr_columns.begin()));
-                    RETURN_IF_ERROR(
-                            _process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
+                    if (!_common_expr_ctxs_push_down.empty()) {
+                        RETURN_IF_ERROR(
+                                _process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
+                    }
                 }
             } else {
                 _fill_column_nothing();
@@ -2986,7 +3091,9 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
             for (uint16_t i = 0; i < _selected_size; ++i) {
                 _sel_rowid_idx[i] = i;
             }
-            RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
+            if (!_common_expr_ctxs_push_down.empty()) {
+                RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
+            }
         }
 
         RETURN_IF_ERROR(_apply_read_limit_to_selected_rows(block, _selected_size));
@@ -3124,6 +3231,7 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
                                              Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
     DCHECK(!_common_expr_ctxs_push_down.empty());
+    DCHECK_LE(_late_runtime_filter_common_expr_start, _common_expr_ctxs_push_down.size());
     _output_index_result_column(_common_expr_ctxs_push_down, sel_rowid_idx, selected_size);
 
     uint16_t original_size = selected_size;
@@ -3134,9 +3242,16 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     IColumn::Filter filter(selected_size, 1);
     bool can_filter_all = false;
     auto* __restrict filter_data = filter.data();
-    for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-        RETURN_IF_ERROR(expr_ctx->execute_filter(block, filter_data, selected_size, false,
-                                                 &can_filter_all));
+    size_t rows_before_late_runtime_filters = 0;
+    for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); ++i) {
+        if (i == _late_runtime_filter_common_expr_start) {
+            rows_before_late_runtime_filters =
+                    filter.size() -
+                    simd::count_zero_num(reinterpret_cast<const int8_t*>(filter.data()),
+                                         filter.size());
+        }
+        RETURN_IF_ERROR(_common_expr_ctxs_push_down[i]->execute_filter(
+                block, filter_data, selected_size, false, &can_filter_all));
         if (can_filter_all) {
             break;
         }
@@ -3145,6 +3260,10 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
 
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
     _opts.stats->rows_expr_cond_filtered += original_size - selected_size;
+    if (_late_runtime_filter_common_expr_start < _common_expr_ctxs_push_down.size()) {
+        _opts.stats->rows_late_runtime_filter_row_filtered +=
+                rows_before_late_runtime_filters - selected_size;
+    }
     return Status::OK();
 }
 
@@ -3296,6 +3415,74 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
     return Status::OK();
 }
 
+bool SegmentIterator::_has_arrived_late_runtime_filter() const {
+    return _late_runtime_filter_container != nullptr &&
+           _late_runtime_filter_container->arrived_cnt.load(std::memory_order_relaxed) > 0;
+}
+
+Status SegmentIterator::_install_late_runtime_filter(const VExprContextSPtrs& expr_group,
+                                                     VExprContextSPtrs* installed_contexts) {
+    DORIS_CHECK(installed_contexts != nullptr);
+    DORIS_CHECK(!expr_group.empty());
+
+    VExprContextSPtrs local_contexts;
+    local_contexts.reserve(expr_group.size());
+    for (const auto& base_context : expr_group) {
+        DORIS_CHECK(base_context != nullptr);
+        VExprContextSPtr local_context;
+        RETURN_IF_ERROR(base_context->clone(_opts.runtime_state, local_context));
+        local_contexts.emplace_back(std::move(local_context));
+    }
+    installed_contexts->insert(installed_contexts->end(), local_contexts.begin(),
+                               local_contexts.end());
+    return Status::OK();
+}
+
+Status SegmentIterator::_refresh_late_runtime_filters() {
+    if (_late_runtime_filter_container == nullptr) {
+        return Status::OK();
+    }
+
+    const auto current_arrived_cnt =
+            _late_runtime_filter_container->arrived_cnt.load(std::memory_order_acquire);
+    if (current_arrived_cnt == _last_late_runtime_filter_arrived_cnt) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK_EQ(_processed_late_runtime_filters.size(),
+                   _late_runtime_filter_container->filters.size());
+    DORIS_CHECK_LE(current_arrived_cnt, _late_runtime_filter_container->filters.size());
+    VExprContextSPtrs new_contexts;
+    auto* destination = _lazy_inited ? &new_contexts : &_late_runtime_filter_ctxs;
+    for (size_t i = 0; i < _late_runtime_filter_container->filters.size(); ++i) {
+        if (_processed_late_runtime_filters[i]) {
+            continue;
+        }
+
+        const auto& entry = _late_runtime_filter_container->filters[i];
+        if (!entry.valid.load(std::memory_order_acquire)) {
+            continue;
+        }
+
+        DORIS_CHECK(entry.expr != nullptr);
+        RETURN_IF_ERROR(_install_late_runtime_filter(*entry.expr, destination));
+        _processed_late_runtime_filters[i] = 1;
+        _opts.stats->late_runtime_filters_installed += 1;
+        if (_lazy_inited) {
+            _opts.stats->late_runtime_filters_installed_after_lazy_init += 1;
+        }
+    }
+
+    if (_lazy_inited && !new_contexts.empty()) {
+        RETURN_IF_ERROR(_apply_new_late_runtime_filter_page_zonemap(new_contexts));
+    }
+
+    // Keep the count observed at function entry. A concurrently published entry increments the
+    // count afterwards and will therefore trigger another scan on the next batch boundary.
+    _last_late_runtime_filter_arrived_cnt = current_arrived_cnt;
+    return Status::OK();
+}
+
 Status SegmentIterator::_construct_compound_expr_context() {
     ColumnIteratorOptions iter_opts {
             .use_page_cache = _opts.use_page_cache,
@@ -3325,6 +3512,44 @@ Status SegmentIterator::_construct_compound_expr_context() {
         expr_ctx = context;
     }
     return Status::OK();
+}
+
+Status SegmentIterator::_apply_new_late_runtime_filter_page_zonemap(
+        const VExprContextSPtrs& new_contexts) {
+    if (!_lazy_inited || new_contexts.empty() || _range_iter == nullptr) {
+        return Status::OK();
+    }
+    const auto remaining_row_range = _range_iter->remaining_row_range();
+    if (!remaining_row_range.is_valid()) {
+        return Status::OK();
+    }
+
+    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
+    auto remaining_row_ranges =
+            RowRanges::create_single(remaining_row_range.from(), remaining_row_range.to());
+    const auto rows_before_zonemap = remaining_row_ranges.count();
+    RETURN_IF_ERROR(_apply_expr_zonemap_to_row_ranges(
+            new_contexts, cast_set<rowid_t>(remaining_row_range.from()), &remaining_row_ranges));
+    if (remaining_row_ranges.count() == rows_before_zonemap) {
+        return Status::OK();
+    }
+    const auto rows_filtered = _intersect_remaining_row_bitmap(remaining_row_ranges);
+    _opts.stats->rows_stats_filtered += rows_filtered;
+    _opts.stats->rows_late_runtime_filter_zonemap_filtered += rows_filtered;
+    return Status::OK();
+}
+
+bool SegmentIterator::_page_intersects_row_ranges(const RowRange& page_range,
+                                                  const RowRanges& row_ranges,
+                                                  size_t& row_range_index) {
+    DCHECK(page_range.is_valid());
+    DCHECK_LE(row_range_index, row_ranges.range_size());
+    while (row_range_index < row_ranges.range_size() &&
+           row_ranges.get_range(row_range_index).is_before(page_range)) {
+        ++row_range_index;
+    }
+    return row_range_index < row_ranges.range_size() &&
+           !row_ranges.get_range(row_range_index).is_after(page_range);
 }
 
 Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
@@ -3368,6 +3593,12 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         if (tablet_column == nullptr) {
             continue;
         }
+        if (_segment->get_read_time_constant_value(cid, *_schema, _opts).has_value()) {
+            // The effective value is constant for this segment, while physical page zone maps
+            // contain placeholders. Keep row-level evaluation in the pre-lazy common-expression
+            // path or Scanner's residual conjunct instead of using those page zone maps.
+            continue;
+        }
         std::shared_ptr<ColumnReader> reader;
         Status st =
                 _segment->get_column_reader(*tablet_column, &reader, _opts.stats, &_opts.io_ctx);
@@ -3390,10 +3621,19 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
 
         RowRanges column_ranges;
         ZoneMapEvalStats page_stats;
+        size_t row_range_index = 0;
         for (uint32_t page_index = 0; page_index < page_zone_maps->size(); ++page_index) {
             RowRange page_range;
             RETURN_IF_ERROR(reader->get_row_range_for_page(page_index, iter_opts, &page_range));
             if (!page_range.is_valid() || page_range.to() <= min_rowid) {
+                continue;
+            }
+            const RowRange effective_page_range(std::max<int64_t>(page_range.from(), min_rowid),
+                                                page_range.to());
+            if (!_page_intersects_row_ranges(effective_page_range, *row_ranges, row_range_index)) {
+                if (row_range_index == row_ranges->range_size()) {
+                    break;
+                }
                 continue;
             }
             ZoneMapEvalContext ctx;
@@ -3407,8 +3647,7 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             const auto result = VExprContext::evaluate_zonemap_filter(slot_conjuncts, ctx);
             page_stats.merge_page_eval_stats(ctx.stats);
             if (result != ZoneMapFilterResult::kNoMatch) {
-                column_ranges.add(
-                        RowRange(std::max<int64_t>(page_range.from(), min_rowid), page_range.to()));
+                column_ranges.add(effective_page_range);
             } else {
                 ++_opts.stats->expr_zonemap_filtered_pages;
             }
@@ -3529,7 +3768,7 @@ bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
     return delete_columns_set.contains(cid);
 }
 
-bool SegmentIterator::_can_opt_limit_reads() {
+bool SegmentIterator::_can_opt_limit_reads() const {
     if (_opts.read_limit == 0) {
         return false;
     }

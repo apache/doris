@@ -22,6 +22,7 @@
 #include <set>
 #include <vector>
 
+#include "exprs/late_runtime_filter.h"
 #include "exprs/score_runtime.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -79,6 +80,7 @@ struct RowsetReaderContext {
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
     VExprContextSPtrs common_expr_ctxs_push_down;
+    std::shared_ptr<const LateRuntimeFilterContainer> late_runtime_filter_container;
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;

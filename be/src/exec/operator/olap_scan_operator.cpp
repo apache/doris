@@ -29,6 +29,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
+#include "core/data_type/primitive_type.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/scan/olap_scanner.h"
@@ -53,6 +54,26 @@
 #include "util/to_string.h"
 
 namespace doris {
+namespace {
+
+bool late_runtime_filter_requires_full_materialization(const VExprSPtr& expr) {
+    DORIS_CHECK(expr != nullptr);
+    if (expr->is_virtual_slot_ref()) {
+        return true;
+    }
+    if (expr->is_slot_ref()) {
+        DORIS_CHECK(expr->data_type() != nullptr);
+        return is_complex_type(expr->data_type()->get_primitive_type());
+    }
+    if (const auto impl = expr->get_impl(); impl != nullptr) {
+        return late_runtime_filter_requires_full_materialization(impl);
+    }
+    return std::ranges::any_of(expr->children(), [](const auto& child) {
+        return late_runtime_filter_requires_full_materialization(child);
+    });
+}
+
+} // namespace
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
@@ -206,6 +227,14 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "RowsShortCircuitPredFiltered", TUnit::UNIT);
     _rows_expr_cond_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsExprPredFiltered", TUnit::UNIT);
+    _late_runtime_filters_installed_counter =
+            ADD_COUNTER(_segment_profile, "LateRuntimeFiltersInstalled", TUnit::UNIT);
+    _late_runtime_filters_installed_after_lazy_init_counter =
+            ADD_COUNTER(_segment_profile, "LateRuntimeFiltersInstalledAfterLazyInit", TUnit::UNIT);
+    _rows_late_runtime_filter_row_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsLateRuntimeFilterRowFiltered", TUnit::UNIT);
+    _rows_late_runtime_filter_zonemap_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsLateRuntimeFilterZoneMapFiltered", TUnit::UNIT);
     _rows_vec_cond_input_counter =
             ADD_COUNTER(_segment_profile, "RowsVectorPredInput", TUnit::UNIT);
     _rows_short_circuit_cond_input_counter =
@@ -567,6 +596,13 @@ bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
         return false;
     }
 
+    // MIN_DELTA / DETAIL reconstruct rows above SegmentIterator and may widen the reader schema
+    // with storage keys that are absent from the scan tuple. Keep every late RF above BlockReader
+    // so its prepared slot ordinal is evaluated against the scan tuple it was bound to.
+    if (_is_binlog_merge_scan()) {
+        return false;
+    }
+
     // DUP and UNIQUE-MOW/MOR-as-DUP do not need storage aggregation/merge, so any slot-based common
     // expression can be evaluated together with SegmentIterator lazy materialization.
     if (_storage_no_merge()) {
@@ -576,6 +612,17 @@ bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
     // AGG and UNIQUE-MOR may still merge value columns above SegmentIterator. Push only key-column
     // expressions so filtering does not observe pre-merge values.
     return !_check_expr_storage_filter(expr, ExprStorageFilterCheckMode::HAS_NON_KEY_SLOT);
+}
+
+bool OlapScanLocalState::_should_push_down_late_runtime_filter(const VExprSPtr& expr) {
+    // SegmentIterator evaluates common expressions before all output columns are materialized.
+    // A late RF over ARRAY/MAP/STRUCT may need nested paths that were not part of the scanner-open
+    // access-path plan, while a virtual slot is materialized only near the end of the batch (and
+    // may depend on a segment-specific IndexExecContext). Keep both kinds in Scanner residual
+    // conjuncts. Scalar physical-slot RFs are safe to publish to SegmentIterator and can join the
+    // common-expression materialization plan when they arrive before lazy initialization.
+    return !late_runtime_filter_requires_full_materialization(expr) &&
+           _should_push_down_common_expr(expr);
 }
 
 bool OlapScanLocalState::_check_expr_storage_filter(const VExprSPtr& expr,
