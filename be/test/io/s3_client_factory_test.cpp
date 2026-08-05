@@ -33,6 +33,7 @@
 #include "cpp/client/s3_obj_storage_backend.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
 #include "cpp/sync_point.h"
+#include "io/fs/s3_file_system.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
