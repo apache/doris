@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
@@ -50,7 +51,10 @@ namespace {
 
 constexpr auto kTestDir = "./ut_dir/segment_iterator_expr_zonemap_test";
 constexpr int kNumRows = 8192;
-constexpr int kCommitTsoRows = 8;
+constexpr int kRuntimeColumnRows = 8;
+constexpr int kVersionCid = 1;
+constexpr int kBinlogTimestampCid = 2;
+constexpr int kCommitTsoCid = 3;
 const RowsetId kRowsetId {.version = 1};
 
 Field int_field(int32_t value) {
@@ -105,10 +109,38 @@ TabletSchemaSPtr make_tablet_schema() {
     return tablet_schema;
 }
 
-TabletSchemaSPtr make_commit_tso_tablet_schema() {
+TabletColumnPtr make_runtime_bigint_column(int32_t id, const std::string& name, bool is_nullable,
+                                           const std::string& default_value = "") {
+    auto column = std::make_shared<TabletColumn>();
+    column->set_unique_id(id);
+    column->set_name(name);
+    column->set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    column->set_is_key(false);
+    column->set_is_nullable(is_nullable);
+    column->set_length(8);
+    column->set_index_length(8);
+    column->set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+    if (!default_value.empty()) {
+        column->set_default_value(default_value);
+    }
+    return column;
+}
+
+TabletSchemaSPtr make_runtime_column_tablet_schema() {
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->append_column(*create_int_key(0, false));
-    tablet_schema->append_column(*create_commit_tso_column(1));
+    tablet_schema->append_column(*make_runtime_bigint_column(kVersionCid, VERSION_COL, false, "0"));
+    tablet_schema->append_column(
+            *make_runtime_bigint_column(kBinlogTimestampCid, BINLOG_TIMESTAMP_COL, true));
+    tablet_schema->append_column(
+            *make_runtime_bigint_column(kCommitTsoCid, COMMIT_TSO_COL, false, "0"));
+    tablet_schema->set_storage_page_size(4096);
+    return tablet_schema;
+}
+
+TabletSchemaSPtr make_key_only_tablet_schema() {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_key(0, false));
     tablet_schema->set_storage_page_size(4096);
     return tablet_schema;
 }
@@ -185,27 +217,33 @@ protected:
         ASSERT_EQ(kNumRows, (*segment)->num_rows());
     }
 
-    void build_commit_tso_segment(std::shared_ptr<Segment>* segment) {
-        const auto path = std::string(kTestDir) + "/commit_tso_segment.dat";
+    void build_runtime_column_segment(std::shared_ptr<Segment>* segment,
+                                      bool write_runtime_columns = true) {
+        const auto path = std::string(kTestDir) + "/runtime_column_segment.dat";
         auto fs = io::global_local_filesystem();
         io::FileWriterPtr file_writer;
         auto st = fs->create_file(path, &file_writer);
         ASSERT_TRUE(st.ok()) << st;
 
+        auto writer_schema = write_runtime_columns ? _tablet_schema : make_key_only_tablet_schema();
         SegmentWriterOptions opts;
         opts.num_rows_per_block = 4;
-        TestSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr, opts,
+        TestSegmentWriter writer(file_writer.get(), 0, writer_schema, nullptr, nullptr, opts,
                                  nullptr);
         st = writer.init();
         ASSERT_TRUE(st.ok()) << st;
 
         RowCursor row;
-        std::vector<Field> fields(_tablet_schema->num_columns(), Field(PrimitiveType::TYPE_NULL));
-        st = row.init_scan_key(_tablet_schema, std::move(fields));
+        std::vector<Field> fields(writer_schema->num_columns(), Field(PrimitiveType::TYPE_NULL));
+        st = row.init_scan_key(writer_schema, std::move(fields));
         ASSERT_TRUE(st.ok()) << st;
-        for (int rid = 0; rid < kCommitTsoRows; ++rid) {
+        for (int rid = 0; rid < kRuntimeColumnRows; ++rid) {
             row.mutable_field(0) = int_field(rid);
-            row.mutable_field(1) = Field::create_field<TYPE_BIGINT>(0);
+            if (write_runtime_columns) {
+                row.mutable_field(kVersionCid) = Field::create_field<TYPE_BIGINT>(0);
+                row.mutable_field(kBinlogTimestampCid) = Field();
+                row.mutable_field(kCommitTsoCid) = Field::create_field<TYPE_BIGINT>(0);
+            }
             st = writer.append_row(row);
             ASSERT_TRUE(st.ok()) << st;
         }
@@ -220,7 +258,58 @@ protected:
         st = Segment::open(fs, path, 100, 0, kRowsetId, _tablet_schema, io::FileReaderOptions {},
                            segment);
         ASSERT_TRUE(st.ok()) << st;
-        ASSERT_EQ(kCommitTsoRows, (*segment)->num_rows());
+        ASSERT_EQ(kRuntimeColumnRows, (*segment)->num_rows());
+    }
+
+    void read_column(const std::shared_ptr<Segment>& segment, int32_t cid,
+                     const StorageReadOptions& read_options, MutableColumnPtr* dst) {
+        ColumnIteratorUPtr iter;
+        auto st = segment->new_column_iterator(_tablet_schema->column(cid), &iter, &read_options);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_NE(nullptr, iter);
+
+        auto file_reader = segment->file_reader();
+        ColumnIteratorOptions iter_opts;
+        iter_opts.stats = &_stats;
+        iter_opts.file_reader = file_reader.get();
+        iter_opts.io_ctx = read_options.io_ctx;
+        st = iter->init(iter_opts);
+        ASSERT_TRUE(st.ok()) << st;
+        st = iter->seek_to_ordinal(0);
+        ASSERT_TRUE(st.ok()) << st;
+
+        *dst = Schema::get_data_type_ptr(_tablet_schema->column(cid))->create_column();
+        size_t n = kRuntimeColumnRows;
+        bool has_null = false;
+        st = iter->next_batch(&n, *dst, &has_null);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(kRuntimeColumnRows, n);
+        ASSERT_EQ(kRuntimeColumnRows, (*dst)->size());
+    }
+
+    void expect_bigint_values(const MutableColumnPtr& column, int64_t expected) {
+        ASSERT_NE(nullptr, column.get());
+        const IColumn* data_column = column.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(data_column)) {
+            for (size_t i = 0; i < nullable->size(); ++i) {
+                EXPECT_FALSE(nullable->is_null_at(i));
+            }
+            data_column = &nullable->get_nested_column();
+        }
+        const auto* bigint_column = check_and_get_column<ColumnInt64>(data_column);
+        ASSERT_NE(nullptr, bigint_column);
+        for (size_t i = 0; i < bigint_column->size(); ++i) {
+            EXPECT_EQ(expected, bigint_column->get_element(i));
+        }
+    }
+
+    void expect_all_null(const MutableColumnPtr& column) {
+        ASSERT_NE(nullptr, column.get());
+        const auto* nullable = check_and_get_column<ColumnNullable>(column.get());
+        ASSERT_NE(nullptr, nullable);
+        for (size_t i = 0; i < nullable->size(); ++i) {
+            EXPECT_TRUE(nullable->is_null_at(i));
+        }
     }
 
     void prepare_expr_context(const VExprContextSPtr& expr_ctx) {
@@ -303,52 +392,113 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     EXPECT_EQ(kNumRows, row_ranges.to());
 }
 
-TEST_F(SegmentIteratorExprZonemapTest, NewColumnIteratorReadsCommitTsoFromReadOptions) {
-    constexpr int64_t kCommitTso = 466872251335573505L;
-    _tablet_schema = make_commit_tso_tablet_schema();
+TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
+    constexpr int64_t kCommitTso1 = 466872251335573505L;
+    constexpr int64_t kCommitTso2 = kCommitTso1 + 100;
+    _tablet_schema = make_runtime_column_tablet_schema();
 
     std::shared_ptr<Segment> segment;
-    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(0, 0);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+    // Before publish, physical readers may already be created and cached.
+    MutableColumnPtr version_column;
+    MutableColumnPtr binlog_timestamp_column;
+    MutableColumnPtr commit_tso_column;
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
+    ASSERT_NO_FATAL_FAILURE(
+            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
+    ASSERT_NO_FATAL_FAILURE(expect_all_null(binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
+
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso1, kCommitTso1);
+    read_options.io_ctx.reader_type = ReaderType::READER_BINLOG;
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
+    ASSERT_NO_FATAL_FAILURE(
+            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 7));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(binlog_timestamp_column, kCommitTso1));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, kCommitTso1));
+
+    // A second read must observe the new request values instead of a cached constant reader.
+    read_options.version = Version(9, 9);
+    read_options.commit_tso = TsoRange(kCommitTso2, kCommitTso2);
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
+    ASSERT_NO_FATAL_FAILURE(
+            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 9));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(binlog_timestamp_column, kCommitTso2));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, kCommitTso2));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesPhysicalValues) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_runtime_column_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(7, 9);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.io_ctx.reader_type = ReaderType::READER_BINLOG;
+
+    MutableColumnPtr version_column;
+    MutableColumnPtr binlog_timestamp_column;
+    MutableColumnPtr commit_tso_column;
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
+    ASSERT_NO_FATAL_FAILURE(
+            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
+    ASSERT_NO_FATAL_FAILURE(expect_all_null(binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalColumnsUseSchemaDefaults) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_runtime_column_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
 
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
-    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.io_ctx.reader_type = ReaderType::READER_BINLOG;
 
-    ColumnIteratorUPtr iter;
-    auto st = segment->new_column_iterator(_tablet_schema->column(1), &iter, &read_options);
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_NE(nullptr, iter);
-
-    auto file_reader = segment->file_reader();
-    ColumnIteratorOptions iter_opts;
-    iter_opts.stats = &_stats;
-    iter_opts.file_reader = file_reader.get();
-    iter_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    st = iter->init(iter_opts);
-    ASSERT_TRUE(st.ok()) << st;
-
-    MutableColumnPtr dst = ColumnVector<TYPE_BIGINT>::create();
-    size_t n = kCommitTsoRows;
-    bool has_null = true;
-    st = iter->next_batch(&n, dst, &has_null);
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_FALSE(has_null);
-    ASSERT_EQ(kCommitTsoRows, dst->size());
-    auto* col = assert_cast<ColumnInt64*>(dst.get());
-    for (size_t i = 0; i < dst->size(); ++i) {
-        EXPECT_EQ(kCommitTso, col->get_element(i));
-    }
+    MutableColumnPtr version_column;
+    MutableColumnPtr binlog_timestamp_column;
+    MutableColumnPtr commit_tso_column;
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
+    ASSERT_NO_FATAL_FAILURE(
+            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
+    ASSERT_NO_FATAL_FAILURE(expect_all_null(binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionValue) {
     constexpr int64_t kCommitTso = 466872251335573505L;
-    _tablet_schema = make_commit_tso_tablet_schema();
+    _tablet_schema = make_runtime_column_tablet_schema();
 
     std::shared_ptr<Segment> segment;
-    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
     auto read_schema = make_read_schema(_tablet_schema);
 
     StorageReadOptions read_options;
@@ -357,7 +507,8 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-    read_options.col_id_to_predicates.emplace(1, make_commit_tso_gt_predicate(1, kCommitTso));
+    read_options.col_id_to_predicates.emplace(
+            kCommitTsoCid, make_commit_tso_gt_predicate(kCommitTsoCid, kCommitTso));
 
     std::unique_ptr<RowwiseIterator> iter;
     auto st = segment->new_iterator(read_schema, read_options, &iter);
