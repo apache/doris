@@ -108,5 +108,6 @@ jobs:
           export DORIS_CLANG_HOME="${LLVM_PREFIX}"
           export CC="${LLVM_PREFIX}/bin/clang"
           export CXX="${LLVM_PREFIX}/bin/clang++"
+          export EXTRA_CXX_FLAGS="-Wno-invalid-specialization ${EXTRA_CXX_FLAGS:-}"
 
           ./run-be-ut.sh --run -j "$(nproc)" --clean
