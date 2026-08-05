@@ -10554,4 +10554,74 @@ TEST_F(BlockFileCacheTest,
     EXPECT_FALSE(read_stats.from_peer_cache);
 }
 
+TEST_F(BlockFileCacheTest, external_reader_reuses_exact_cache_range_from_memory) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_cached_remote_reader_test_file("external_reader_memory_reuse", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ignore;
+        fs::remove(file_path, ignore);
+    }};
+
+    const fs::path cache_path = caches_dir / "external_reader_memory_reuse_cache";
+    clear_cached_remote_reader_factory();
+    Defer cleanup_cache {[&]() {
+        std::error_code ignore;
+        fs::remove_all(cache_path, ignore);
+        clear_cached_remote_reader_factory();
+    }};
+    create_cached_remote_reader_test_cache(cache_path, kCachedRemoteReaderTinyBlockSize);
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+    io::FileReaderOptions opts;
+    opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = false;
+    opts.cache_base_path = cache_path.string();
+    opts.mtime = 1;
+    CachedRemoteFileReader reader(local_reader, opts);
+
+    std::string warmup(4, '#');
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(2, Slice(warmup.data(), warmup.size()), &bytes_read).ok());
+    EXPECT_EQ(warmup, "cdef");
+
+    std::string first(4, '#');
+    bool cache_hit = false;
+    ASSERT_TRUE(
+            reader.read_at_from_cache(2, Slice(first.data(), first.size()), &bytes_read, &cache_hit)
+                    .ok());
+    ASSERT_TRUE(cache_hit);
+    EXPECT_EQ(first, "cdef");
+    EXPECT_TRUE(reader._memory_block_cache.empty());
+
+    std::string promoted(4, '#');
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        cache_hit = false;
+        ASSERT_TRUE(reader.read_at_from_cache(2, Slice(promoted.data(), promoted.size()),
+                                              &bytes_read, &cache_hit)
+                            .ok());
+        ASSERT_TRUE(cache_hit);
+    }
+    ASSERT_FALSE(reader._memory_block_cache.empty());
+
+    auto [align_left, align_size] =
+            CachedRemoteFileReader::s_align_size(2, first.size(), reader.size());
+    ReadStatistics cache_stats;
+    auto context = create_cached_remote_reader_context(&cache_stats);
+    auto holder = reader._cache->get_or_set(reader._cache_hash, align_left, align_size, context);
+    for (const auto& block : holder.file_blocks) {
+        std::error_code ignore;
+        fs::remove(block->get_cache_file(), ignore);
+    }
+
+    std::string second(4, '#');
+    cache_hit = false;
+    ASSERT_TRUE(reader.read_at_from_cache(2, Slice(second.data(), second.size()), &bytes_read,
+                                          &cache_hit)
+                        .ok());
+    EXPECT_TRUE(cache_hit);
+    EXPECT_EQ(second, "cdef");
+}
+
 } // namespace doris::io

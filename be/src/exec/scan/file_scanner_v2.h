@@ -87,6 +87,9 @@ public:
             int64_t* last_bytes_read_from_remote);
     static void TEST_report_file_cache_profile(
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
+    static int64_t TEST_cumulative_profile_delta(int64_t current, int64_t* reported) {
+        return _cumulative_profile_delta(current, reported);
+    }
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
     static Status TEST_contextualize_output_filter_status(Status status,
@@ -137,6 +140,7 @@ private:
     static bool _should_skip_empty(const Status& status, bool stopped);
     static Status _contextualize_output_filter_status(Status status,
                                                       TFileFormatType::type format_type);
+    static int64_t _cumulative_profile_delta(int64_t current, int64_t* reported);
     bool _should_enable_file_meta_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
             const TFileRangeDesc& range) const;
@@ -227,6 +231,7 @@ private:
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
     int64_t _reported_io_read_time = 0;
+    int64_t _reported_file_read_bytes = 0;
 };
 
 } // namespace doris

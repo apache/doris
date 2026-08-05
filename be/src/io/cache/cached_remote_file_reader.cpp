@@ -40,6 +40,7 @@
 #include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
@@ -771,9 +772,8 @@ bool CachedRemoteFileReader::_try_read_from_cached_files_directly(
             g_skip_local_cache_io_sum_bytes << reserve_bytes;
         } else {
             SCOPED_RAW_TIMER(&stats.local_read_timer);
-            if (!iter->second
-                         ->read(Slice(result.data + (current_offset - offset), reserve_bytes),
-                                file_offset)
+            if (!_read_local_block(iter->second, file_offset, current_offset,
+                                   Slice(result.data + (current_offset - offset), reserve_bytes))
                          .ok()) { // TODO: maybe read failed because block evict, should handle error
                 break;
             }
@@ -798,6 +798,67 @@ bool CachedRemoteFileReader::_try_read_from_cached_files_directly(
     g_read_cache_direct_partial_num << 1;
     g_read_cache_direct_partial_bytes << already_read;
     return false;
+}
+
+bool CachedRemoteFileReader::_read_from_memory_block_cache(size_t offset, Slice result) {
+    std::lock_guard lock(_memory_block_cache_mutex);
+    auto it = _memory_block_cache.upper_bound(offset);
+    if (it == _memory_block_cache.begin()) {
+        return false;
+    }
+    --it;
+    const size_t relative_offset = offset - it->first;
+    if (relative_offset > it->second->size() ||
+        result.size > it->second->size() - relative_offset) {
+        return false;
+    }
+    memcpy(result.data, it->second->data() + relative_offset, result.size);
+    return true;
+}
+
+Status CachedRemoteFileReader::_read_local_block(const FileBlockSPtr& block, size_t file_offset,
+                                                 size_t absolute_offset, Slice result) {
+    if (_read_from_memory_block_cache(absolute_offset, result)) {
+        return Status::OK();
+    }
+    if (_is_doris_table) {
+        return block->read(result, file_offset);
+    }
+
+    bool promote = false;
+    {
+        std::lock_guard lock(_memory_block_cache_mutex);
+        auto& accesses = _memory_block_access_counts[block->offset()];
+        accesses = std::min<uint8_t>(accesses + 1, MEMORY_BLOCK_PROMOTION_ACCESSES);
+        promote = accesses == MEMORY_BLOCK_PROMOTION_ACCESSES;
+        if (_memory_block_access_counts.size() > 128) {
+            _memory_block_access_counts.erase(_memory_block_access_counts.begin());
+        }
+    }
+    if (!promote || block->range().size() > MAX_MEMORY_BLOCK_CACHE_BYTES) {
+        return block->read(result, file_offset);
+    }
+
+    auto block_data = std::make_shared<std::vector<char>>(block->range().size());
+    RETURN_IF_ERROR(block->read(Slice(block_data->data(), block_data->size()), 0));
+    memcpy(result.data, block_data->data() + file_offset, result.size);
+    {
+        std::lock_guard lock(_memory_block_cache_mutex);
+        auto [it, inserted] = _memory_block_cache.emplace(block->offset(), block_data);
+        if (!inserted) {
+            _memory_block_cache_bytes -= it->second->size();
+            it->second = std::move(block_data);
+        }
+        _memory_block_cache_bytes += block->range().size();
+        while (_memory_block_cache_bytes > MAX_MEMORY_BLOCK_CACHE_BYTES &&
+               !_memory_block_cache.empty()) {
+            auto oldest = _memory_block_cache.begin();
+            _memory_block_cache_bytes -= oldest->second->size();
+            _memory_block_access_counts.erase(oldest->first);
+            _memory_block_cache.erase(oldest);
+        }
+    }
+    return Status::OK();
 }
 
 std::vector<FileBlockSPtr> CachedRemoteFileReader::_collect_remote_read_blocks(
@@ -1004,8 +1065,8 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
                 SCOPED_RAW_TIMER(&stats.local_read_timer);
                 SCOPED_CONCURRENCY_COUNT(
                         ConcurrencyStatsManager::instance().cached_remote_reader_local_read);
-                st = block->read(Slice(result.data + (current_offset - offset), read_size),
-                                 file_offset);
+                st = _read_local_block(block, file_offset, current_offset,
+                                       Slice(result.data + (current_offset - offset), read_size));
                 indirect_read_bytes += read_size;
                 if (st.ok()) {
                     source_read_breakdown.local_bytes += read_size;
@@ -1047,6 +1108,98 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
     if (need_self_heal && _cache != nullptr) {
         _cache->remove_if_cached_async(_cache_hash);
     }
+    return Status::OK();
+}
+
+Status CachedRemoteFileReader::read_at_from_cache(size_t offset, Slice result, size_t* bytes_read,
+                                                  bool* cache_hit, const IOContext* io_ctx) {
+    IOContext default_io_ctx;
+    if (io_ctx == nullptr) {
+        io_ctx = &default_io_ctx;
+    }
+    const auto read_type =
+            io_ctx->is_inverted_index
+                    ? FileCacheReadType::INVERTED_INDEX
+                    : (io_ctx->is_index_data ? FileCacheReadType::SEGMENT_FOOTER_INDEX
+                                             : FileCacheReadType::DATA);
+    auto publish_stats = [&](const ReadStatistics& stats,
+                             const SourceReadBreakdown& source_read_breakdown) {
+        if (io_ctx->is_dryrun) {
+            return;
+        }
+        if (io_ctx->file_cache_stats != nullptr) {
+            _update_stats(stats, source_read_breakdown, io_ctx->file_cache_stats, read_type);
+        }
+        if (!io_ctx->is_warmup) {
+            FileCacheStatistics increment;
+            _update_stats(stats, source_read_breakdown, &increment, read_type);
+            FileCacheMetrics::instance().update(&increment);
+        }
+    };
+    *bytes_read = 0;
+    *cache_hit = false;
+    const size_t bytes_req = std::min(result.size, size() - std::min(offset, size()));
+    if (bytes_req == 0) {
+        *cache_hit = true;
+        return Status::OK();
+    }
+    if (_read_from_memory_block_cache(offset, Slice(result.data, bytes_req))) {
+        *bytes_read = bytes_req;
+        *cache_hit = true;
+        ReadStatistics stats;
+        stats.bytes_read = cast_set<int64_t>(bytes_req);
+        SourceReadBreakdown source_read_breakdown;
+        source_read_breakdown.local_bytes = cast_set<int64_t>(bytes_req);
+        publish_stats(stats, source_read_breakdown);
+        return Status::OK();
+    }
+
+    ReadStatistics stats;
+    SourceReadBreakdown source_read_breakdown;
+    stats.bytes_read = cast_set<int64_t>(bytes_req);
+    const size_t block_size = cast_set<size_t>(config::file_cache_each_block_size);
+    const size_t align_left = offset / block_size * block_size;
+    const size_t request_end = offset + bytes_req;
+    const size_t align_end =
+            std::min((request_end + block_size - 1) / block_size * block_size, size());
+    const size_t align_size = align_end - align_left;
+    CacheContext cache_context(io_ctx);
+    cache_context.stats = &stats;
+    MonotonicStopWatch sw;
+    sw.start();
+    FileBlocksHolder holder =
+            _cache->get_or_set(_cache_hash, align_left, align_size, cache_context);
+    stats.cache_get_or_set_timer += sw.elapsed_time();
+    if (std::ranges::any_of(holder.file_blocks, [](const auto& block) {
+            return block->state() != FileBlock::State::DOWNLOADED;
+        })) {
+        return Status::OK();
+    }
+
+    for (const auto& block : holder.file_blocks) {
+        const size_t read_start = std::max(offset, block->range().left);
+        const size_t read_end = std::min(request_end, block->range().right + 1);
+        if (read_start >= read_end) {
+            continue;
+        }
+        const size_t read_size = read_end - read_start;
+        SCOPED_RAW_TIMER(&stats.local_read_timer);
+        const Status st = _read_local_block(block, read_start - block->range().left, read_start,
+                                            Slice(result.data + read_start - offset, read_size));
+        if (!st.ok()) {
+            // A cache file can be evicted between the state check and the read. Preserve the
+            // cache-only contract and let the normal path self-heal through remote storage.
+            *bytes_read = 0;
+            *cache_hit = false;
+            _cache->remove_if_cached_async(_cache_hash);
+            return Status::OK();
+        }
+        source_read_breakdown.local_bytes += cast_set<int64_t>(read_size);
+        _cache->add_need_update_lru_block(block);
+    }
+    *bytes_read = bytes_req;
+    *cache_hit = true;
+    publish_stats(stats, source_read_breakdown);
     return Status::OK();
 }
 

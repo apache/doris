@@ -37,6 +37,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_reader.h"
+#include "io/fs/tracing_file_reader.h"
 #include "io/io_common.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
@@ -230,6 +231,10 @@ public:
         int64_t merged_io = 0;
         int64_t request_bytes = 0;
         int64_t merged_bytes = 0;
+        int64_t cache_hit_bytes = 0;
+        int64_t merged_useful_bytes = 0;
+        int64_t merged_gap_bytes = 0;
+        int64_t future_predicate_prefetch_bytes = 0;
     };
 
     struct RangeCachedData {
@@ -288,7 +293,15 @@ public:
               _reader(std::move(reader)),
               _random_access_ranges(random_access_ranges) {
         _range_cached_data.resize(random_access_ranges.size());
+        _range_stages.resize(random_access_ranges.size(), 0);
         _size = _reader->size();
+        io::FileReaderSPtr exact_cache_candidate = _reader;
+        if (auto tracing_reader =
+                    std::dynamic_pointer_cast<io::TracingFileReader>(exact_cache_candidate)) {
+            _exact_cache_file_stats = tracing_reader->stats();
+            exact_cache_candidate = tracing_reader->inner_reader();
+        }
+        _exact_cache_reader = dynamic_cast<io::ExactCacheReader*>(exact_cache_candidate.get());
         _remaining = TOTAL_BUFFER_SIZE;
         _is_oss = typeid_cast<io::S3FileReader*>(_reader.get()) != nullptr;
         _max_amplified_ratio = config::max_amplified_read_ratio;
@@ -318,6 +331,14 @@ public:
                                                           random_profile, 1);
             _merged_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
                                                          random_profile, 1);
+            _cache_hit_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ExactCacheHitBytes",
+                                                            TUnit::BYTES, random_profile, 1);
+            _merged_useful_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedUsefulBytes",
+                                                                TUnit::BYTES, random_profile, 1);
+            _merged_gap_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedGapBytes",
+                                                             TUnit::BYTES, random_profile, 1);
+            _future_predicate_prefetch_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+                    _profile, "FuturePredicatePrefetchBytes", TUnit::BYTES, random_profile, 1);
         }
     }
 
@@ -350,6 +371,11 @@ public:
     // for test only
     const Statistics& statistics() const { return _statistics; }
 
+    // Make a predicate stage visible to coalescing only when execution reaches that stage. Ranges
+    // already consumed by earlier stages keep stable cache state while newly exposed ranges are
+    // inserted in file-offset order.
+    Status add_random_access_ranges(const std::vector<PrefetchRange>& ranges, uint32_t stage);
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
@@ -363,6 +389,11 @@ protected:
             COUNTER_UPDATE(_merged_io, _statistics.merged_io);
             COUNTER_UPDATE(_request_bytes, _statistics.request_bytes);
             COUNTER_UPDATE(_merged_bytes, _statistics.merged_bytes);
+            COUNTER_UPDATE(_cache_hit_bytes, _statistics.cache_hit_bytes);
+            COUNTER_UPDATE(_merged_useful_bytes, _statistics.merged_useful_bytes);
+            COUNTER_UPDATE(_merged_gap_bytes, _statistics.merged_gap_bytes);
+            COUNTER_UPDATE(_future_predicate_prefetch_bytes,
+                           _statistics.future_predicate_prefetch_bytes);
             if (_reader != nullptr) {
                 _reader->collect_profile_before_close();
             }
@@ -377,6 +408,10 @@ private:
     RuntimeProfile::Counter* _merged_io = nullptr;
     RuntimeProfile::Counter* _request_bytes = nullptr;
     RuntimeProfile::Counter* _merged_bytes = nullptr;
+    RuntimeProfile::Counter* _cache_hit_bytes = nullptr;
+    RuntimeProfile::Counter* _merged_useful_bytes = nullptr;
+    RuntimeProfile::Counter* _merged_gap_bytes = nullptr;
+    RuntimeProfile::Counter* _future_predicate_prefetch_bytes = nullptr;
 
     int _search_read_range(size_t start_offset, size_t end_offset);
     void _clean_cached_data(RangeCachedData& cached_data);
@@ -384,12 +419,14 @@ private:
                       size_t* bytes_read);
     Status _fill_box(int range_index, size_t start_offset, size_t to_read, size_t* bytes_read,
                      const IOContext* io_ctx);
+    void _record_merged_read(int range_index, size_t start_offset, size_t bytes_read);
     void _dec_box_ref(int16_t box_index);
 
     RuntimeProfile* _profile = nullptr;
     io::FileReaderSPtr _reader;
-    const std::vector<PrefetchRange> _random_access_ranges;
+    std::vector<PrefetchRange> _random_access_ranges;
     std::vector<RangeCachedData> _range_cached_data;
+    std::vector<uint32_t> _range_stages;
     size_t _size;
     bool _closed = false;
     size_t _remaining;
@@ -403,6 +440,8 @@ private:
     double _max_amplified_ratio;
     size_t _equivalent_io_size;
     int64_t _merged_read_slice_size;
+    io::ExactCacheReader* _exact_cache_reader = nullptr;
+    io::FileReaderStats* _exact_cache_file_stats = nullptr;
 
     Statistics _statistics;
 };
