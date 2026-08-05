@@ -137,6 +137,18 @@ be/output/lib/benchmark_test \
   --benchmark_min_time=1s
 ```
 
+The multi-column OR pair scans the same ColumnIndex/OffsetIndex fixture and changes only the Doris
+Page Index switch. Both variants retain the full residual expression, so the comparison measures
+metadata pruning without changing result semantics:
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetReader/multi_column_or/page_index_(off|on)$' \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true
+```
+
 Every result reports throughput plus `raw_rows`, `selected_rows`, `fixture_bytes`, `ns/raw_row`,
 and (when at least one row survives) `ns/selected_row`. Keep CPU frequency, build type, compiler,
 machine placement, and benchmark filters fixed when comparing two commits.

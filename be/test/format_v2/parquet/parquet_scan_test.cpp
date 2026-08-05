@@ -1678,6 +1678,17 @@ void write_page_index_parquet_file(const std::string& file_path) {
     write_table(file_path, table, ids.size(), false, true);
 }
 
+void write_multi_column_page_index_parquet_file(const std::string& file_path) {
+    std::vector<int32_t> ascending(128);
+    std::iota(ascending.begin(), ascending.end(), 0);
+    std::vector<int32_t> descending(ascending.rbegin(), ascending.rend());
+    auto schema = arrow::schema({arrow::field("ascending", arrow::int32(), false),
+                                 arrow::field("descending", arrow::int32(), false)});
+    auto table = arrow::Table::Make(schema,
+                                    {build_int32_array(ascending), build_int32_array(descending)});
+    write_table(file_path, table, ascending.size(), false, true);
+}
+
 void write_multi_row_group_page_index_parquet_file(const std::string& file_path) {
     std::vector<int32_t> ids(384);
     std::iota(ids.begin(), ids.end(), 0);
@@ -4191,6 +4202,52 @@ TEST_F(ParquetScanTest, ProfileCountersReflectPageIndexAndRangeGapPruning) {
     EXPECT_GT(profile.get_counter("PageIndexReadCalls")->value(), 0);
     EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), 64);
     EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
+}
+
+TEST_F(ParquetScanTest, MultiColumnOrUsesPageIndexAndResidualExpression) {
+    write_multi_column_page_index_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    const auto low_ascending = create_int32_function_conjunct(0, "lt", TExprOpcode::LT, 13);
+    const auto low_descending = create_int32_function_conjunct(1, "lt", TExprOpcode::LT, 13);
+    auto disjunction = create_compound_conjunct(TExprOpcode::COMPOUND_OR, low_ascending->root(),
+                                                low_descending->root());
+    ASSERT_TRUE(disjunction->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(disjunction->open(&state).ok());
+    request->conjuncts.push_back(disjunction);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> selected;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        const auto& values = int32_data_column(*block.get_by_position(0).column);
+        for (size_t row = 0; row < rows; ++row) {
+            selected.push_back(values.get_element(row));
+        }
+    }
+
+    std::vector<int32_t> expected(13);
+    std::iota(expected.begin(), expected.end(), 0);
+    for (int32_t value = 115; value < 128; ++value) {
+        expected.push_back(value);
+    }
+    EXPECT_EQ(selected, expected);
+    EXPECT_GT(counter_value(profile, "FilteredRowsByPage"), 0);
+    EXPECT_LT(counter_value(profile, "RawRowsRead"), 128);
+    EXPECT_GT(counter_value(profile, "RowsFilteredByConjunct"), 0);
+    disjunction->close();
 }
 
 TEST_F(ParquetScanTest, OpenDefersPageIndexProbeToCurrentRowGroup) {

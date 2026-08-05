@@ -1370,6 +1370,38 @@ std::vector<RowRange> intersect_ranges(const std::vector<RowRange>& left,
     return result;
 }
 
+std::vector<RowRange> union_ranges(const std::vector<RowRange>& left,
+                                   const std::vector<RowRange>& right) {
+    std::vector<RowRange> result;
+    result.reserve(left.size() + right.size());
+    auto append = [&](const RowRange& range) {
+        if (range.length == 0) {
+            return;
+        }
+        if (!result.empty()) {
+            auto& previous = result.back();
+            const int64_t previous_end = previous.start + previous.length;
+            if (range.start <= previous_end) {
+                previous.length =
+                        std::max(previous_end, range.start + range.length) - previous.start;
+                return;
+            }
+        }
+        result.push_back(range);
+    };
+    size_t left_idx = 0;
+    size_t right_idx = 0;
+    while (left_idx < left.size() || right_idx < right.size()) {
+        if (right_idx == right.size() ||
+            (left_idx < left.size() && left[left_idx].start <= right[right_idx].start)) {
+            append(left[left_idx++]);
+        } else {
+            append(right[right_idx++]);
+        }
+    }
+    return result;
+}
+
 int64_t count_range_rows(const std::vector<RowRange>& ranges) {
     int64_t rows = 0;
     for (const auto& range : ranges) {
@@ -1626,6 +1658,154 @@ RowRange native_page_row_range(const tparquet::OffsetIndex& offset_index, size_t
     return {.start = start, .length = end - start};
 }
 
+class NativePageIndexPredicateEvaluator {
+public:
+    NativePageIndexPredicateEvaluator(
+            const tparquet::FileMetaData& metadata,
+            const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const format::FileScanRequest& request, int64_t row_group_rows,
+            ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone)
+            : _metadata(metadata),
+              _page_indexes(page_indexes),
+              _file_schema(file_schema),
+              _request(request),
+              _row_group_rows(row_group_rows),
+              _pruning_stats(pruning_stats),
+              _timezone(timezone) {}
+
+    std::optional<std::vector<RowRange>> evaluate(const VExprSPtr& expr) const {
+        if (expr == nullptr || !expr->can_evaluate_zonemap_filter()) {
+            return std::nullopt;
+        }
+        if (expr->op() == TExprOpcode::COMPOUND_AND) {
+            return evaluate_compound(expr, true);
+        }
+        if (expr->op() == TExprOpcode::COMPOUND_OR) {
+            return evaluate_compound(expr, false);
+        }
+        return evaluate_leaf(expr);
+    }
+
+private:
+    struct SlotPageZoneMaps {
+        DataTypePtr data_type;
+        std::vector<RowRange> ranges;
+        std::vector<std::shared_ptr<segment_v2::ZoneMap>> zone_maps;
+    };
+
+    std::optional<std::vector<RowRange>> evaluate_compound(const VExprSPtr& expr,
+                                                           bool is_and) const {
+        std::optional<std::vector<RowRange>> ranges;
+        for (const auto& child : expr->children()) {
+            if (!child->can_evaluate_zonemap_filter()) {
+                if (!is_and) {
+                    return std::nullopt;
+                }
+                continue;
+            }
+            auto child_ranges = evaluate(child);
+            if (!child_ranges.has_value()) {
+                // An unavailable AND child can be ignored, while an unavailable OR branch must
+                // retain the complete range so metadata pruning cannot create a false negative.
+                if (!is_and) {
+                    return std::nullopt;
+                }
+                continue;
+            }
+            if (!ranges.has_value()) {
+                ranges = std::move(*child_ranges);
+            } else if (is_and) {
+                ranges = intersect_ranges(*ranges, *child_ranges);
+            } else {
+                ranges = union_ranges(*ranges, *child_ranges);
+            }
+            if (is_and && ranges->empty()) {
+                return ranges;
+            }
+        }
+        return ranges;
+    }
+
+    std::optional<std::vector<RowRange>> evaluate_leaf(const VExprSPtr& expr) const {
+        std::set<int> slot_indexes;
+        expr->collect_slot_column_ids(slot_indexes);
+        if (slot_indexes.size() != 1) {
+            return std::nullopt;
+        }
+        const int slot_index = *slot_indexes.begin();
+        const auto* pages = load_slot_pages(slot_index);
+        if (pages == nullptr) {
+            return std::nullopt;
+        }
+
+        std::vector<RowRange> ranges;
+        for (size_t page_idx = 0; page_idx < pages->ranges.size(); ++page_idx) {
+            ZoneMapEvalContext ctx;
+            add_slot_zonemap(&ctx, slot_index, pages->data_type, pages->zone_maps[page_idx]);
+            if (expr->evaluate_zonemap_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                append_row_range(pages->ranges[page_idx], &ranges);
+            }
+            accumulate_zonemap_stats(ctx, _pruning_stats);
+        }
+        return ranges;
+    }
+
+    const SlotPageZoneMaps* load_slot_pages(int slot_index) const {
+        const auto cached = _slot_page_zone_maps.find(slot_index);
+        if (cached != _slot_page_zone_maps.end()) {
+            return cached->second.has_value() ? &*cached->second : nullptr;
+        }
+        const auto file_column_id = file_column_id_by_block_position(_request, slot_index);
+        if (!file_column_id.has_value()) {
+            _slot_page_zone_maps.emplace(slot_index, std::nullopt);
+            return nullptr;
+        }
+        const auto* column_schema = resolve_local_leaf_schema(_file_schema, *file_column_id);
+        if (column_schema == nullptr || column_schema->type == nullptr ||
+            !native_metadata_predicate_is_type_safe(*column_schema) ||
+            !detail::has_supported_type_defined_order(_metadata, column_schema->leaf_column_id)) {
+            _slot_page_zone_maps.emplace(slot_index, std::nullopt);
+            return nullptr;
+        }
+        const auto index_it = _page_indexes.find(column_schema->leaf_column_id);
+        if (index_it == _page_indexes.end()) {
+            _slot_page_zone_maps.emplace(slot_index, std::nullopt);
+            return nullptr;
+        }
+
+        const auto& indexes = index_it->second;
+        SlotPageZoneMaps pages;
+        pages.data_type = column_schema->type;
+        pages.ranges.reserve(indexes.offset_index.page_locations.size());
+        pages.zone_maps.reserve(indexes.offset_index.page_locations.size());
+        for (size_t page_idx = 0; page_idx < indexes.offset_index.page_locations.size();
+             ++page_idx) {
+            const auto page_range =
+                    native_page_row_range(indexes.offset_index, page_idx, _row_group_rows);
+            ParquetColumnStatistics statistics;
+            if (!build_native_page_statistics(indexes.column_index, *column_schema, page_idx,
+                                              page_range.length, &statistics, _timezone)) {
+                _slot_page_zone_maps.emplace(slot_index, std::nullopt);
+                return nullptr;
+            }
+            pages.ranges.push_back(page_range);
+            pages.zone_maps.push_back(ParquetStatisticsUtils::MakeZoneMap(statistics));
+        }
+        const auto inserted = _slot_page_zone_maps.emplace(slot_index, std::move(pages));
+        return &*inserted.first->second;
+    }
+
+    const tparquet::FileMetaData& _metadata;
+    const std::unordered_map<int, NativeParquetPageIndex>& _page_indexes;
+    const std::vector<std::unique_ptr<ParquetColumnSchema>>& _file_schema;
+    const format::FileScanRequest& _request;
+    int64_t _row_group_rows;
+    ParquetPruningStats* _pruning_stats;
+    const cctz::time_zone* _timezone;
+    mutable std::unordered_map<int, std::optional<SlotPageZoneMaps>> _slot_page_zone_maps;
+};
+
 } // namespace
 
 Status select_row_group_ranges_by_native_page_index(
@@ -1654,10 +1834,14 @@ Status select_row_group_ranges_by_native_page_index(
     }
 
     std::map<int, VExprContextSPtrs> conjuncts_by_slot;
+    VExprContextSPtrs multi_slot_conjuncts;
     for (const auto& conjunct : request.conjuncts) {
         const auto slot_index = expr_zonemap::single_slot_zonemap_index(conjunct);
         if (slot_index >= 0) {
             conjuncts_by_slot[slot_index].push_back(conjunct);
+        } else if (conjunct != nullptr && conjunct->root() != nullptr &&
+                   conjunct->root()->can_evaluate_zonemap_filter()) {
+            multi_slot_conjuncts.push_back(conjunct);
         }
     }
     for (const auto& [slot_index, conjuncts] : conjuncts_by_slot) {
@@ -1695,17 +1879,29 @@ Status select_row_group_ranges_by_native_page_index(
                 ZoneMapFilterResult::kNoMatch) {
                 append_row_range(page_range, &filter_ranges);
             }
-            if (pruning_stats != nullptr) {
-                pruning_stats->expr_zonemap_unusable_evals += ctx.stats.unusable_zonemap_eval_count;
-                pruning_stats->in_zonemap_point_check_count +=
-                        ctx.stats.in_zonemap_point_check_count;
-                pruning_stats->in_zonemap_range_only_count += ctx.stats.in_zonemap_range_only_count;
-            }
+            accumulate_zonemap_stats(ctx, pruning_stats);
         }
         if (!usable) {
             continue;
         }
         *selected_ranges = intersect_ranges(*selected_ranges, filter_ranges);
+        if (selected_ranges->empty()) {
+            if (pruning_stats != nullptr) {
+                pruning_stats->filtered_page_rows += row_group_rows;
+                ++pruning_stats->filtered_row_groups_by_page_index;
+            }
+            return Status::OK();
+        }
+    }
+
+    NativePageIndexPredicateEvaluator evaluator(metadata, page_indexes, file_schema, request,
+                                                row_group_rows, pruning_stats, timezone);
+    for (const auto& conjunct : multi_slot_conjuncts) {
+        auto conjunct_ranges = evaluator.evaluate(conjunct->root());
+        if (!conjunct_ranges.has_value()) {
+            continue;
+        }
+        *selected_ranges = intersect_ranges(*selected_ranges, *conjunct_ranges);
         if (selected_ranges->empty()) {
             if (pruning_stats != nullptr) {
                 pruning_stats->filtered_page_rows += row_group_rows;

@@ -57,7 +57,7 @@ be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetSelection/' # currently 25
 
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -c '^ParquetReader/'   # currently 167
+  | grep -c '^ParquetReader/'   # currently 169
 
 be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^FileScannerExpr/' # currently 8
@@ -188,6 +188,10 @@ deduplication it contains 167 cases covering:
 Except for the axis being varied, reader cases inherit the baseline: nullable INT32, PLAIN,
 alternating 10% nulls, 10% selectivity, 32 columns, predicate at column zero, and predicate plus
 payload projection.
+
+Two dedicated multi-column OR cases scan the same Page Index fixture and change only the Doris Page
+Index switch. They retain the complete residual expression and validate the same selected row
+count before reporting throughput.
 
 ## How decoder data is generated
 
@@ -346,7 +350,7 @@ be simulated by silently changing the local reader benchmark.
 
 ## Current validation record
 
-The current expected registration counts are 228 decoder, 92 kernel, 25 selection, 167 reader, and
+The current expected registration counts are 228 decoder, 92 kernel, 25 selection, 169 reader, and
 8 expression-lifecycle cases. A smoke run is an execution record only, not a reviewed performance
 baseline, because repetitions, host isolation, warmups, cache control, `perf` data, variance, and
 before/after comparison are not collected.
