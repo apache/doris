@@ -50,6 +50,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -74,6 +75,45 @@ std::vector<int32_t> projection_ids(const std::vector<LocalColumnIndex>& project
         ids.push_back(projection.index);
     }
     return ids;
+}
+
+class VariantValidationTableReader final : public TableReader {
+public:
+    static Status validate(FileFormat format, const std::vector<ColumnMapping>& mappings) {
+        return validate_variant_file_mappings(format, mappings);
+    }
+};
+
+TEST(TableReaderTest, VariantFormatGateUsesPhysicalFileMappings) {
+    ColumnMapping missing_variant;
+    missing_variant.table_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    EXPECT_TRUE(VariantValidationTableReader::validate(FileFormat::ORC, {missing_variant}).ok());
+
+    ColumnMapping physical_variant = missing_variant;
+    physical_variant.file_local_id = 0;
+    const auto orc_status =
+            VariantValidationTableReader::validate(FileFormat::ORC, {physical_variant});
+    EXPECT_TRUE(orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << orc_status;
+    EXPECT_NE(orc_status.to_string().find("supported only for Parquet"), std::string::npos);
+    EXPECT_TRUE(
+            VariantValidationTableReader::validate(FileFormat::PARQUET, {physical_variant}).ok());
+
+    ColumnMapping projected_struct;
+    projected_struct.table_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeString>()),
+                       make_nullable(std::make_shared<DataTypeVariantV2>())},
+            Strings {"label", "payload"}));
+    projected_struct.file_local_id = 0;
+    ColumnMapping label;
+    label.table_type = make_nullable(std::make_shared<DataTypeString>());
+    label.file_local_id = 1;
+    projected_struct.child_mappings = {label, missing_variant};
+    EXPECT_TRUE(VariantValidationTableReader::validate(FileFormat::ORC, {projected_struct}).ok());
+
+    projected_struct.child_mappings[1] = physical_variant;
+    const auto nested_orc_status =
+            VariantValidationTableReader::validate(FileFormat::ORC, {projected_struct});
+    EXPECT_TRUE(nested_orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << nested_orc_status;
 }
 
 TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates) {

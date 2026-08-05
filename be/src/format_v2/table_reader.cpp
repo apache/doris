@@ -98,6 +98,43 @@ std::string file_format_to_string(FileFormat format) {
     return "UNKNOWN";
 }
 
+bool contains_variant_type(const DataTypePtr& input) {
+    if (input == nullptr) {
+        return false;
+    }
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
+}
+
+bool mapping_reads_variant(const ColumnMapping& mapping) {
+    if (!mapping.file_local_id.has_value()) {
+        return false;
+    }
+    if (contains_variant_type(mapping.original_file_type)) {
+        return true;
+    }
+    if (mapping.table_type != nullptr &&
+        remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_VARIANT) {
+        return true;
+    }
+    return std::ranges::any_of(mapping.child_mappings, mapping_reads_variant);
+}
+
 std::string push_down_agg_to_string(TPushAggOp::type op) {
     switch (op) {
     case TPushAggOp::NONE:
@@ -744,6 +781,29 @@ Status TableReader::init(TableReadOptions&& options) {
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
     _conjuncts = std::move(options.conjuncts);
     return Status::OK();
+}
+
+Status TableReader::validate_variant_file_mappings(FileFormat format,
+                                                   const std::vector<ColumnMapping>& mappings) {
+    if (format == FileFormat::PARQUET || !std::ranges::any_of(mappings, mapping_reads_variant)) {
+        return Status::OK();
+    }
+    // Gate on a physical mapping, not the table schema: an older file may legitimately omit a
+    // Variant field added by schema evolution, in which case the mapper synthesizes NULL.
+    return Status::NotSupported(
+            "External Variant is supported only for Parquet files in FileScannerV2; file format "
+            "{} is not supported",
+            file_format_to_string(format));
+}
+
+Status TableReader::validate_file_mapping(const TableColumnMapper& mapper) const {
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
+        _push_down_count_columns->empty()) {
+        // COUNT(*) may retain an arbitrary minimum-width slot, but that carrier is never a
+        // semantic physical read and must not trigger the Variant file-format capability gate.
+        return Status::OK();
+    }
+    return validate_variant_file_mappings(_format, mapper.mappings());
 }
 
 Status TableReader::_build_table_filters_from_conjuncts() {
