@@ -45,6 +45,38 @@ namespace doris {
 namespace io {
 struct IOContext;
 
+Status MergeRangeFileReader::add_random_access_ranges(const std::vector<PrefetchRange>& ranges,
+                                                      uint32_t stage) {
+    for (const auto& range : ranges) {
+        if (range.start_offset >= range.end_offset) {
+            return Status::InvalidArgument("Invalid merge-read range [{}, {})", range.start_offset,
+                                           range.end_offset);
+        }
+        auto it = std::lower_bound(_random_access_ranges.begin(), _random_access_ranges.end(),
+                                   range.start_offset,
+                                   [](const PrefetchRange& lhs, size_t start_offset) {
+                                       return lhs.start_offset < start_offset;
+                                   });
+        const size_t index = static_cast<size_t>(it - _random_access_ranges.begin());
+        if (it != _random_access_ranges.end() && it->start_offset == range.start_offset) {
+            if (it->end_offset != range.end_offset) {
+                return Status::InvalidArgument("Overlapping merge-read ranges");
+            }
+            _range_stages[index] = std::min(_range_stages[index], stage);
+            continue;
+        }
+        if ((it != _random_access_ranges.begin() &&
+             std::prev(it)->end_offset > range.start_offset) ||
+            (it != _random_access_ranges.end() && range.end_offset > it->start_offset)) {
+            return Status::InvalidArgument("Overlapping merge-read ranges");
+        }
+        _random_access_ranges.insert(it, range);
+        _range_cached_data.insert(_range_cached_data.begin() + index, RangeCachedData {});
+        _range_stages.insert(_range_stages.begin() + index, stage);
+    }
+    return Status::OK();
+}
+
 // add bvar to capture the download bytes per second by buffered reader
 bvar::Adder<uint64_t> g_bytes_downloaded("buffered_reader", "bytes_downloaded");
 bvar::PerSecond<bvar::Adder<uint64_t>> g_bytes_downloaded_per_second("buffered_reader",
@@ -65,6 +97,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         _statistics.merged_io++;
         _statistics.request_bytes += *bytes_read;
         _statistics.merged_bytes += *bytes_read;
+        _record_merged_read(-1, offset, *bytes_read);
         return st;
     }
     if (offset + result.size > _random_access_ranges[range_index].end_offset) {
@@ -93,6 +126,34 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     }
 
     size_t to_read = result.size - has_read;
+    if (_exact_cache_reader != nullptr) {
+        size_t cache_bytes_read = 0;
+        bool cache_hit = false;
+        const auto cache_read_start = std::chrono::steady_clock::now();
+        RETURN_IF_ERROR(_exact_cache_reader->read_at_from_cache(
+                offset + has_read, Slice(result.data + has_read, to_read), &cache_bytes_read,
+                &cache_hit, io_ctx));
+        if (_exact_cache_file_stats != nullptr) {
+            _exact_cache_file_stats->read_time_ns +=
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::steady_clock::now() - cache_read_start)
+                            .count();
+        }
+        if (cache_hit) {
+            if (cache_bytes_read != to_read) {
+                return Status::IOError("Short exact cache read: expected {}, got {}", to_read,
+                                       cache_bytes_read);
+            }
+            *bytes_read = has_read + cache_bytes_read;
+            _statistics.request_bytes += cache_bytes_read;
+            _statistics.cache_hit_bytes += cache_bytes_read;
+            if (_exact_cache_file_stats != nullptr) {
+                _exact_cache_file_stats->read_calls++;
+                _exact_cache_file_stats->read_bytes += cache_bytes_read;
+            }
+            return Status::OK();
+        }
+    }
     if (to_read >= SMALL_IO || to_read >= _remaining) {
         SCOPED_RAW_TIMER(&_statistics.read_time);
         size_t read_size = 0;
@@ -102,6 +163,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         _statistics.merged_io++;
         _statistics.request_bytes += read_size;
         _statistics.merged_bytes += read_size;
+        _record_merged_read(range_index, offset + has_read, read_size);
         return Status::OK();
     }
 
@@ -197,6 +259,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         _statistics.merged_io++;
         _statistics.request_bytes += read_size;
         _statistics.merged_bytes += read_size;
+        _record_merged_read(range_index, offset + has_read, read_size);
         return Status::OK();
     }
 
@@ -327,11 +390,11 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         _statistics.merged_io++;
         _statistics.merged_bytes += *bytes_read;
     }
+    _record_merged_read(range_index, start_offset, *bytes_read);
 
     SCOPED_RAW_TIMER(&_statistics.copy_time);
     size_t copy_start = start_offset;
     const size_t copy_end = start_offset + *bytes_read;
-    // copy data into small boxes
     // tuple(box_index, box_start_offset, file_start_offset, file_end_offset)
     std::vector<std::tuple<int16_t, uint32_t, size_t, size_t>> filled_boxes;
 
@@ -358,7 +421,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         const PrefetchRange& fill_range = _random_access_ranges[fill_range_index];
         if (fill_range.start_offset > copy_start) {
             // don't copy hollow data
-            size_t hollow_size = fill_range.start_offset - copy_start;
+            const size_t hollow_size = fill_range.start_offset - copy_start;
             DCHECK_GT(copy_end - copy_start, hollow_size);
             copy_start += hollow_size;
         }
@@ -395,6 +458,39 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         }
     }
     return Status::OK();
+}
+
+void MergeRangeFileReader::_record_merged_read(int range_index, size_t start_offset,
+                                               size_t bytes_read) {
+    if (bytes_read == 0) {
+        return;
+    }
+    if (range_index < 0) {
+        _statistics.merged_useful_bytes += bytes_read;
+        return;
+    }
+    const size_t read_end = start_offset + bytes_read;
+    size_t useful_bytes = 0;
+    size_t future_predicate_bytes = 0;
+    for (size_t index = static_cast<size_t>(range_index);
+         index < _random_access_ranges.size() &&
+         _random_access_ranges[index].start_offset < read_end;
+         ++index) {
+        const auto& range = _random_access_ranges[index];
+        const size_t overlap_start = std::max(start_offset, range.start_offset);
+        const size_t overlap_end = std::min(read_end, range.end_offset);
+        if (overlap_start >= overlap_end) {
+            continue;
+        }
+        const size_t overlap = overlap_end - overlap_start;
+        useful_bytes += overlap;
+        if (_range_stages[index] > _range_stages[range_index]) {
+            future_predicate_bytes += overlap;
+        }
+    }
+    _statistics.merged_useful_bytes += useful_bytes;
+    _statistics.merged_gap_bytes += bytes_read - useful_bytes;
+    _statistics.future_predicate_prefetch_bytes += future_predicate_bytes;
 }
 
 // there exists occasions where the buffer is already closed but

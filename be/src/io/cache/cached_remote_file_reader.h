@@ -20,6 +20,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <unordered_set>
 #include <utility>
@@ -53,7 +55,15 @@ struct SourceReadBreakdown {
 };
 using PeerFetchedBlockSet = std::unordered_set<const FileBlock*>;
 
+class ExactCacheReader {
+public:
+    virtual ~ExactCacheReader() = default;
+    virtual Status read_at_from_cache(size_t offset, Slice result, size_t* bytes_read,
+                                      bool* cache_hit, const IOContext* io_ctx) = 0;
+};
+
 class CachedRemoteFileReader final : public FileReader,
+                                     public ExactCacheReader,
                                      public std::enable_shared_from_this<CachedRemoteFileReader> {
 public:
     /// Construct a cached reader on top of a remote reader.
@@ -94,6 +104,8 @@ public:
     static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
 
     int64_t mtime() const override { return _remote_file_reader->mtime(); }
+    Status read_at_from_cache(size_t offset, Slice result, size_t* bytes_read, bool* cache_hit,
+                              const IOContext* io_ctx = nullptr) override;
 
     // Asynchronously prefetch a range of file cache blocks.
     // This method triggers read file cache in dryrun mode to warm up the cache
@@ -319,6 +331,10 @@ private:
                        const SourceReadBreakdown& source_read_breakdown, FileCacheStatistics* state,
                        FileCacheReadType read_type) const;
 
+    bool _read_from_memory_block_cache(size_t offset, Slice result);
+    Status _read_local_block(const FileBlockSPtr& block, size_t file_offset, size_t absolute_offset,
+                             Slice result);
+
     bool _is_doris_table = false;
     int64_t _tablet_id = -1;
     std::string _storage_resource_id;
@@ -327,6 +343,14 @@ private:
     BlockFileCache* _cache = nullptr;
     std::shared_mutex _mtx;
     std::map<size_t, FileBlockSPtr> _cache_file_readers;
+    // External Parquet readers revisit several pages inside the same cache block. Promote only a
+    // repeatedly accessed block so a one-off page keeps the existing exact local-read cost.
+    static constexpr size_t MAX_MEMORY_BLOCK_CACHE_BYTES = 16 * 1024 * 1024;
+    static constexpr uint8_t MEMORY_BLOCK_PROMOTION_ACCESSES = 3;
+    std::mutex _memory_block_cache_mutex;
+    std::map<size_t, std::shared_ptr<std::vector<char>>> _memory_block_cache;
+    std::map<size_t, uint8_t> _memory_block_access_counts;
+    size_t _memory_block_cache_bytes = 0;
 };
 
 } // namespace doris::io

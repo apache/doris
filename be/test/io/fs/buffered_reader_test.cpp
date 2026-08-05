@@ -124,6 +124,41 @@ private:
     io::Path _path = "/tmp/mock";
 };
 
+class CacheAwareMockFileReader : public MockOffsetFileReader, public io::ExactCacheReader {
+public:
+    CacheAwareMockFileReader(size_t size, bool cache_hit)
+            : MockOffsetFileReader(size), _cache_hit(cache_hit) {}
+
+    size_t remote_read_calls() const { return _remote_read_calls; }
+    size_t cache_read_calls() const { return _cache_read_calls; }
+    size_t last_cache_read_size() const { return _last_cache_read_size; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        ++_remote_read_calls;
+        return MockOffsetFileReader::read_at_impl(offset, result, bytes_read, io_ctx);
+    }
+
+    Status read_at_from_cache(size_t offset, Slice result, size_t* bytes_read, bool* cache_hit,
+                              const io::IOContext* io_ctx) override {
+        ++_cache_read_calls;
+        _last_cache_read_size = result.size;
+        *cache_hit = _cache_hit;
+        if (!_cache_hit) {
+            *bytes_read = 0;
+            return Status::OK();
+        }
+        return MockOffsetFileReader::read_at_impl(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    bool _cache_hit;
+    size_t _remote_read_calls = 0;
+    size_t _cache_read_calls = 0;
+    size_t _last_cache_read_size = 0;
+};
+
 class BlockingFileReader : public io::FileReader {
 public:
     BlockingFileReader(size_t size, CountDownLatch* read_started, CountDownLatch* continue_read,
@@ -428,6 +463,72 @@ TEST_F(BufferedReaderTest, test_read_amplify) {
     static_cast<void>(merge_reader.read_at(7 * kb, result, &bytes_read, nullptr));
     EXPECT_EQ(merge_reader.statistics().request_bytes, 1024 * kb + 8 * kb);
     EXPECT_EQ(merge_reader.statistics().merged_bytes, 1024 * kb + 12 * kb);
+}
+
+TEST_F(BufferedReaderTest, cache_hit_bypasses_merged_read) {
+    constexpr size_t KB = 1024;
+    auto inner = std::make_shared<CacheAwareMockFileReader>(64 * KB, true);
+    std::vector<io::PrefetchRange> ranges {{0, KB}, {2 * KB, 3 * KB}, {4 * KB, 5 * KB}};
+    io::MergeRangeFileReader reader(nullptr, inner, ranges, 8 * KB);
+
+    std::vector<char> data(256);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(0, Slice(data.data(), data.size()), &bytes_read).ok());
+
+    EXPECT_EQ(bytes_read, data.size());
+    EXPECT_EQ(inner->cache_read_calls(), 1);
+    EXPECT_EQ(inner->last_cache_read_size(), data.size());
+    EXPECT_EQ(inner->remote_read_calls(), 0);
+    EXPECT_EQ(reader.statistics().cache_hit_bytes, data.size());
+    EXPECT_EQ(reader.statistics().merged_bytes, 0);
+}
+
+TEST_F(BufferedReaderTest, cache_miss_keeps_remote_range_merging) {
+    constexpr size_t KB = 1024;
+    auto inner = std::make_shared<CacheAwareMockFileReader>(64 * KB, false);
+    std::vector<io::PrefetchRange> ranges {{0, KB}, {2 * KB, 3 * KB}, {4 * KB, 5 * KB}};
+    io::MergeRangeFileReader reader(nullptr, inner, ranges, 8 * KB);
+
+    std::vector<char> data(256);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(0, Slice(data.data(), data.size()), &bytes_read).ok());
+
+    EXPECT_EQ(inner->cache_read_calls(), 1);
+    EXPECT_EQ(inner->remote_read_calls(), 1);
+    EXPECT_GT(reader.statistics().merged_bytes, data.size());
+    EXPECT_GT(reader.statistics().merged_gap_bytes, 0);
+    EXPECT_EQ(reader.statistics().merged_bytes,
+              reader.statistics().merged_useful_bytes + reader.statistics().merged_gap_bytes);
+}
+
+TEST_F(BufferedReaderTest, ranges_are_exposed_incrementally_by_predicate_stage) {
+    constexpr size_t KB = 1024;
+    auto inner = std::make_shared<CacheAwareMockFileReader>(64 * KB, false);
+    io::MergeRangeFileReader reader(nullptr, inner, {}, 8 * KB);
+    ASSERT_TRUE(reader.add_random_access_ranges({{0, KB}}, 0).ok());
+
+    std::vector<char> data(256);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(0, Slice(data.data(), data.size()), &bytes_read).ok());
+    EXPECT_EQ(reader.statistics().merged_useful_bytes, KB);
+    EXPECT_EQ(reader.statistics().future_predicate_prefetch_bytes, 0);
+
+    ASSERT_TRUE(reader.add_random_access_ranges({{2 * KB, 3 * KB}}, 1).ok());
+    ASSERT_TRUE(reader.read_at(2 * KB, Slice(data.data(), data.size()), &bytes_read).ok());
+    EXPECT_EQ(reader.statistics().future_predicate_prefetch_bytes, 0);
+}
+
+TEST_F(BufferedReaderTest, eager_later_stage_range_is_counted_as_future_prefetch) {
+    constexpr size_t KB = 1024;
+    auto inner = std::make_shared<CacheAwareMockFileReader>(64 * KB, false);
+    io::MergeRangeFileReader reader(nullptr, inner, {}, 8 * KB);
+    ASSERT_TRUE(reader.add_random_access_ranges({{0, KB}}, 0).ok());
+    ASSERT_TRUE(reader.add_random_access_ranges({{2 * KB, 3 * KB}}, 1).ok());
+
+    std::vector<char> data(256);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(0, Slice(data.data(), data.size()), &bytes_read).ok());
+    EXPECT_EQ(reader.statistics().future_predicate_prefetch_bytes, KB);
 }
 
 TEST_F(BufferedReaderTest, test_merged_io) {
