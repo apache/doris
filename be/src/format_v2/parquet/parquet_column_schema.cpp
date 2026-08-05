@@ -284,7 +284,7 @@ Status apply_variant_schema_override(const NativeFieldSchema& native_schema,
             return Status::Corruption("Parquet Variant {} must use a group carrier",
                                       native_schema.name);
         }
-        RETURN_IF_ERROR(validate_variant_layout(native_schema));
+        RETURN_IF_ERROR(validate_variant_layout(native_schema, std::nullopt, true));
         field->variant_physical_type = field->type;
         DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
         field->type = field->type->is_nullable() ? make_nullable(std::move(variant_type))

@@ -65,6 +65,8 @@ enum class VariantPrimitiveAnnotation : uint8_t {
     NONE,
     INT8,
     INT16,
+    INT32,
+    INT64,
     DECIMAL,
     DATE,
     TIME_MICROS,
@@ -90,6 +92,15 @@ static VariantPrimitiveAnnotation variant_logical_annotation(
         }
         if (logical.INTEGER.bitWidth == 16) {
             return VariantPrimitiveAnnotation::INT16;
+        }
+        // Iceberg 1.11 writes full-width signed INTEGER annotations even though the Variant
+        // specification represents these widths without an annotation. Keep the widths distinct
+        // so validation only accepts them with the matching physical type.
+        if (logical.INTEGER.bitWidth == 32) {
+            return VariantPrimitiveAnnotation::INT32;
+        }
+        if (logical.INTEGER.bitWidth == 64) {
+            return VariantPrimitiveAnnotation::INT64;
         }
         return VariantPrimitiveAnnotation::UNSUPPORTED;
     }
@@ -136,6 +147,11 @@ static VariantPrimitiveAnnotation variant_converted_annotation(
         return VariantPrimitiveAnnotation::INT8;
     case tparquet::ConvertedType::INT_16:
         return VariantPrimitiveAnnotation::INT16;
+    // Parquet Java mirrors full-width logical annotations into these legacy converted types.
+    case tparquet::ConvertedType::INT_32:
+        return VariantPrimitiveAnnotation::INT32;
+    case tparquet::ConvertedType::INT_64:
+        return VariantPrimitiveAnnotation::INT64;
     case tparquet::ConvertedType::DECIMAL:
         return VariantPrimitiveAnnotation::DECIMAL;
     case tparquet::ConvertedType::DATE:
@@ -215,11 +231,13 @@ static Status validate_variant_primitive_type(const NativeFieldSchema& typed) {
         valid = annotation == VariantPrimitiveAnnotation::NONE ||
                 annotation == VariantPrimitiveAnnotation::INT8 ||
                 annotation == VariantPrimitiveAnnotation::INT16 ||
+                annotation == VariantPrimitiveAnnotation::INT32 ||
                 annotation == VariantPrimitiveAnnotation::DECIMAL ||
                 annotation == VariantPrimitiveAnnotation::DATE;
         break;
     case tparquet::Type::INT64:
         valid = annotation == VariantPrimitiveAnnotation::NONE ||
+                annotation == VariantPrimitiveAnnotation::INT64 ||
                 annotation == VariantPrimitiveAnnotation::DECIMAL ||
                 annotation == VariantPrimitiveAnnotation::TIME_MICROS ||
                 annotation == VariantPrimitiveAnnotation::TIMESTAMP_MICROS ||
@@ -267,7 +285,8 @@ private:
 };
 
 Status validate_variant_layout(const NativeFieldSchema& group_field,
-                               std::optional<int8_t> specification_version) {
+                               std::optional<int8_t> specification_version,
+                               bool allow_optional_shredded_metadata) {
     if (specification_version.has_value() && *specification_version != 1) {
         return Status::NotSupported("Parquet Variant specification version {} is not supported",
                                     *specification_version);
@@ -308,8 +327,15 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
         return Status::Corruption("Parquet Variant {} requires metadata and value children",
                                   group_field.name);
     }
+    const auto metadata_repetition = metadata->parquet_schema.repetition_type;
+    // Paimon makes every field in its shredded carrier optional. Restrict that compatibility to
+    // unannotated overrides; row materialization still rejects null metadata for a non-null value.
+    const bool valid_metadata_repetition =
+            metadata_repetition == tparquet::FieldRepetitionType::REQUIRED ||
+            (allow_optional_shredded_metadata && typed_value != nullptr &&
+             metadata_repetition == tparquet::FieldRepetitionType::OPTIONAL);
     if (!metadata->children.empty() || metadata->physical_type != tparquet::Type::BYTE_ARRAY ||
-        metadata->parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
+        !valid_metadata_repetition) {
         return Status::Corruption("Parquet Variant {} metadata must be a required BYTE_ARRAY",
                                   group_field.name);
     }

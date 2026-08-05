@@ -44,3 +44,25 @@ payload	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable
 
 -- !native_subpath_predicate --
 2	bob
+
+-- !native_shredded_projection --
+2	bob	30	\N
+
+-- !native_mixed_us_partitions --
+1	2026-06-01	alice	18	unshredded
+2	2026-07-01	bob	30	shredded
+
+-- !native_mixed_us_root --
+1	{"age":18,"layout":"unshredded","name":"alice"}
+2	{"age":30,"layout":"shredded","name":"bob"}
+
+-- !native_mixed_su_partitions --
+1	2026-06-01	alice	18	shredded
+2	2026-07-01	bob	30	unshredded
+
+-- !native_mixed_su_root --
+1	{"age":18,"layout":"shredded","name":"alice"}
+2	{"age":30,"layout":"unshredded","name":"bob"}
+
+-- !native_mixed_us_mtmv --
+alice	1

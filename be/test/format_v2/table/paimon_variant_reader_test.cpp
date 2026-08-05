@@ -481,7 +481,7 @@ TEST(PaimonVariantReaderTest, ReadsProjectedLeafFromUnannotatedShreddedVariant) 
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(PaimonVariantReaderTest, AppendsUnshreddedAndShreddedPaimonFiles) {
+TEST(PaimonVariantReaderTest, AppendsUnshreddedAndShreddedPaimonFilesInEitherOrder) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_paimon_parquet_mixed_variant_override_test";
     std::filesystem::remove_all(test_dir);
@@ -491,44 +491,55 @@ TEST(PaimonVariantReaderTest, AppendsUnshreddedAndShreddedPaimonFiles) {
     write_unannotated_paimon_variant_file(unshredded_path, {5});
     write_unannotated_shredded_paimon_variant_file(shredded_path, {27});
 
-    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
-    Block block;
-    block.insert({variant_type->create_column(), variant_type, "payload"});
-    auto append_file = [&](const std::string& path) {
-        auto system_properties = std::make_shared<io::FileSystemProperties>();
-        system_properties->system_type = TFileType::FILE_LOCAL;
-        auto file_description = std::make_unique<io::FileDescription>();
-        file_description->path = path;
-        file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(path));
-        file_description->range_start_offset = 0;
-        file_description->range_size = -1;
-        auto reader = std::make_unique<parquet::ParquetReader>(
-                system_properties, file_description, std::shared_ptr<io::IOContext> {}, nullptr);
-        RuntimeState state {TQueryOptions(), TQueryGlobals()};
-        RETURN_IF_ERROR(reader->init(&state));
-        auto request = std::make_shared<FileScanRequest>();
-        request->non_predicate_columns.push_back(LocalColumnIndex::top_level(LocalColumnId(0)));
-        request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
-        request->variant_schema_overrides.push_back(LocalColumnIndex::top_level(LocalColumnId(0)));
-        RETURN_IF_ERROR(reader->open(request));
-        bool eof = false;
-        while (!eof) {
-            size_t rows = 0;
-            RETURN_IF_ERROR(reader->get_block(&block, &rows, &eof));
+    const auto assert_file_order = [&](const std::array<std::string, 2>& paths,
+                                       const std::array<StringRef, 2>& fields,
+                                       const std::array<int64_t, 2>& values) {
+        const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+        Block block;
+        block.insert({variant_type->create_column(), variant_type, "payload"});
+        const auto append_file = [&](const std::string& path) -> Status {
+            auto system_properties = std::make_shared<io::FileSystemProperties>();
+            system_properties->system_type = TFileType::FILE_LOCAL;
+            auto file_description = std::make_unique<io::FileDescription>();
+            file_description->path = path;
+            file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(path));
+            file_description->range_start_offset = 0;
+            file_description->range_size = -1;
+            auto reader = std::make_unique<parquet::ParquetReader>(
+                    system_properties, file_description, std::shared_ptr<io::IOContext> {},
+                    nullptr);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            RETURN_IF_ERROR(reader->init(&state));
+            auto request = std::make_shared<FileScanRequest>();
+            request->non_predicate_columns.push_back(LocalColumnIndex::top_level(LocalColumnId(0)));
+            request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+            request->variant_schema_overrides.push_back(
+                    LocalColumnIndex::top_level(LocalColumnId(0)));
+            RETURN_IF_ERROR(reader->open(request));
+            bool eof = false;
+            while (!eof) {
+                size_t rows = 0;
+                RETURN_IF_ERROR(reader->get_block(&block, &rows, &eof));
+            }
+            return reader->close();
+        };
+
+        ASSERT_TRUE(append_file(paths[0]).ok());
+        ASSERT_TRUE(append_file(paths[1]).ok());
+        ASSERT_EQ(block.rows(), 2);
+        const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+        for (size_t row = 0; row < 2; ++row) {
+            VariantRef field;
+            ASSERT_TRUE(variants.get_value_ref(row).object_find(fields[row], &field));
+            EXPECT_EQ(field.get_int(), values[row]);
         }
-        return reader->close();
     };
 
-    ASSERT_TRUE(append_file(unshredded_path).ok());
-    ASSERT_TRUE(append_file(shredded_path).ok());
-    ASSERT_EQ(block.rows(), 2);
-    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
-    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
-    VariantRef field;
-    ASSERT_TRUE(variants.get_value_ref(0).object_find(StringRef("n"), &field));
-    EXPECT_EQ(field.get_int(), 5);
-    ASSERT_TRUE(variants.get_value_ref(1).object_find(StringRef("age"), &field));
-    EXPECT_EQ(field.get_int(), 27);
+    assert_file_order({unshredded_path, shredded_path}, {StringRef("n"), StringRef("age")},
+                      {5, 27});
+    assert_file_order({shredded_path, unshredded_path}, {StringRef("age"), StringRef("n")},
+                      {27, 5});
 
     std::filesystem::remove_all(test_dir);
 }
