@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "cpp/client/obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "runtime/exec_env.h"

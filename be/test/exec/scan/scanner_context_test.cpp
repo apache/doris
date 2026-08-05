@@ -26,6 +26,7 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <tuple>
 
 #include "common/object_pool.h"

@@ -65,6 +65,7 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/index_policy/index_policy_mgr.h"

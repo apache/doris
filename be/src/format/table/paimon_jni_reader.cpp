@@ -26,6 +26,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "storage/options.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 

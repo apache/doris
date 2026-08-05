@@ -39,6 +39,7 @@
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "format/orc/vorc_reader.h"
 #include "format/table/iceberg/schema_parser.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"

@@ -123,6 +123,7 @@
 #include "exec/spill/spill_file.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_buffer_mgr.h"

@@ -65,7 +65,13 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     # The same library also duplicates zstd, lz4, snappy, bzip2 and zlib symbols. Those are C
     # ABIs, stable across versions and layout-free, so they are left alone until something
     # shows otherwise -- unlike RocksDB, whose C++ objects are what actually corrupt.
-    target_link_options(doris_be PRIVATE "-Wl,--exclude-libs,librocksdb.a")
+    #
+    # Linux-only: Apple's ld rejects --exclude-libs (a GNU ld option), and macOS does not
+    # need it -- dyld's two-level namespace already binds each loaded library to the copy
+    # it was linked against, so a JNI library carrying its own RocksDB never resolves to ours.
+    if (NOT OS_MACOSX)
+        target_link_options(doris_be PRIVATE "-Wl,--exclude-libs,librocksdb.a")
+    endif()
 
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}
