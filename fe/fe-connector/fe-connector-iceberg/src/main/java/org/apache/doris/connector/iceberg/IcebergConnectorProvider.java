@@ -17,11 +17,16 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.JdbcDriverUrlSecurity;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -65,5 +70,29 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     @Override
     public void validateProperties(Map<String, String> properties) {
         IcebergCatalogProperties.of(properties).checkCreateTimeOnlyRules();
+        // The mandatory, non-configurable driver_url rule shared with the jdbc and paimon-jdbc catalogs
+        // (all three reach the same URLClassLoader + Class.forName sink from a catalog property). This
+        // hook is what the engine runs on CREATE *and* ALTER CATALOG, so it is the one that keeps a
+        // traversal / non-bare-name driver jar out of IcebergConnector's class loader;
+        // preCreateValidation covers CREATE only. Never runs on replay.
+        driverUrlsToValidate(properties).forEach(JdbcDriverUrlSecurity::check);
+    }
+
+    /**
+     * Only the jdbc flavor loads a driver jar; on every other flavor {@code iceberg.jdbc.driver_url} is
+     * dead config that never reaches a class loader, so declaring it would turn a previously-accepted
+     * catalog into a CREATE/ALTER failure for no security gain. Declaring it here is what lets the
+     * engine apply the operator's {@code jdbc_driver_secure_path} / {@code jdbc_driver_url_white_list}
+     * policy on ALTER CATALOG, which never reaches {@code IcebergConnector#preCreateValidation} (where
+     * CREATE applies it). See {@link ConnectorProvider#driverUrlsToValidate}.
+     */
+    @Override
+    public List<String> driverUrlsToValidate(Map<String, String> properties) {
+        if (!IcebergCatalogProperties.TYPE_JDBC.equals(IcebergCatalogProperties.of(properties).getFlavor())) {
+            return Collections.emptyList();
+        }
+        String driverUrl = IcebergJdbcMetaStoreProperties.of(properties).getDriverUrl();
+        return StringUtils.isBlank(driverUrl)
+                ? Collections.emptyList() : Collections.singletonList(driverUrl);
     }
 }
