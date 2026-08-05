@@ -91,5 +91,12 @@ jobs:
           tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
           popd
 
+          # The branch-3.1 x86_64 archive predates libevent's OpenSSL library,
+          # which is required by the current BE test link. Rebuild only this
+          # dependency when the archived file is absent.
+          if [[ ! -f thirdparty/installed/lib/libevent_openssl.a ]]; then
+            ./thirdparty/build-thirdparty.sh -j "$(nproc)" libevent
+          fi
+
           export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
           ./run-be-ut.sh --run -j "$(nproc)" --clean
