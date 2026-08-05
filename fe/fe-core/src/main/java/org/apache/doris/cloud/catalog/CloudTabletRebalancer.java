@@ -544,16 +544,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 return;
             }
 
-            statRouteInfo();
-            boolean migrated = migrateTabletsForSmoothUpgrade();
-            if (migrated) {
-                statRouteInfo();
-            }
-
-            indexBalanced = true;
-            tableBalanced = true;
-
             try {
+                statRouteInfo();
+                boolean migrated = migrateTabletsForSmoothUpgrade();
+                if (migrated) {
+                    statRouteInfo();
+                }
+
+                indexBalanced = true;
+                tableBalanced = true;
                 performBalancing();
             } finally {
                 releaseSchedulingIndexes();
