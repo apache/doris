@@ -48,9 +48,23 @@ jobs:
               - 'be/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
+            arrow_paimon_changes:
+              - '.github/workflows/be-ut-mac.yml'
+              - 'build.sh'
+              - 'env.sh'
+              - 'thirdparty/arrow-paimon-vars.sh'
+              - 'thirdparty/vars.sh'
+              - 'thirdparty/download-thirdparty.sh'
+              - 'thirdparty/build-thirdparty.sh'
+              - 'thirdparty/paimon-cpp-cache.cmake'
+              - 'thirdparty/patches/apache-arrow-*.patch'
+              - 'thirdparty/patches/paimon-cpp-*.patch'
 
       - name: Ccache ${{ github.ref }}
-        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        if: |
+          github.event_name == 'schedule' ||
+          steps.filter.outputs.be_changes == 'true' ||
+          steps.filter.outputs.arrow_paimon_changes == 'true'
         uses: ./.github/actions/ccache-action
         with:
           key: BE-UT-macOS
@@ -58,7 +72,10 @@ jobs:
           restore-keys: BE-UT-macOS-
 
       - name: Build BE ${{ github.ref }}
-        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        if: |
+          github.event_name == 'schedule' ||
+          steps.filter.outputs.be_changes == 'true' ||
+          steps.filter.outputs.arrow_paimon_changes == 'true'
         run: |
           cellars=(
             'm4'
@@ -86,6 +103,16 @@ jobs:
           )
           brew install "${cellars[@]}" || true
 
+          # Paimon's bundled dependencies still require pre-CMake-4 policy
+          # compatibility. Match the supported version used by the full
+          # thirdparty jobs instead of relying on Homebrew's latest CMake.
+          brew unlink cmake || true
+          wget https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-macos-universal.tar.gz
+          tar -xzf cmake-3.25.3-macos-universal.tar.gz
+          sudo cp -r cmake-3.25.3-macos-universal/CMake.app/Contents/* /usr/local/
+          export CUSTOM_CMAKE=/usr/local/bin/cmake
+          "${CUSTOM_CMAKE}" --version
+
           # macos-15 runners are Apple Silicon (arm64), so download the arm64
           # prebuilt thirdparty. Using the x86_64 archive makes the linker ignore
           # every thirdparty static library ("found architecture 'x86_64',
@@ -101,6 +128,26 @@ jobs:
               -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
           tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
+
+          # Rebuild the Arrow/Paimon stack when its inputs change or the shared
+          # prebuilt predates the selected Arrow version/component closure.
+          # The artifact check also covers scheduled and later BE-only builds,
+          # where Paths Filter is skipped or reports no Arrow/Paimon changes.
+          # shellcheck source=thirdparty/arrow-paimon-vars.sh
+          . ./arrow-paimon-vars.sh
+          arrow_paimon_prebuilt_is_valid=false
+          if arrow_paimon_prebuilt_valid installed; then
+            arrow_paimon_prebuilt_is_valid=true
+          fi
+          if [[ "${{ steps.filter.outputs.arrow_paimon_changes }}" == "true" ||
+                "${arrow_paimon_prebuilt_is_valid}" != "true" ]]; then
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
+              -o doris-thirdparty-source.tgz
+            tar -zxvf doris-thirdparty-source.tgz
+            ./download-thirdparty.sh arrow paimon_cpp xsimd brotli
+            export MACOSX_DEPLOYMENT_TARGET=12.0
+            ./build-thirdparty.sh -j "$(nproc)" arrow paimon_cpp
+          fi
           popd
 
           # macos-15 runners are Apple Silicon (arm64), so the JDK env var is
