@@ -59,7 +59,7 @@ public class HiveConnectorMetadataFreshnessTest {
     private static final String TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
     private HiveConnectorMetadata metadata(FakeHmsClient client) {
-        return new HiveConnectorMetadata(client, Collections.emptyMap(), new FakeConnectorContext());
+        return new HiveConnectorMetadata(client, HiveTestProperties.minimal(), new FakeConnectorContext());
     }
 
     private HiveTableHandle partitionedHandle() {

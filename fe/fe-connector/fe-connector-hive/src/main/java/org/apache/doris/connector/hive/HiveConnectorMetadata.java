@@ -32,7 +32,6 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorColumnStatistics;
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -84,6 +83,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -124,6 +124,47 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * of the same name on every commit).
      */
     private static final String ICEBERG_TABLE_COMMENT_PARAM = "comment";
+
+    // ===== CREATE TABLE / CREATE DATABASE statement property keys =====
+    // These are statement properties, not catalog properties: they arrive on the DDL request, and this class
+    // is the only one that interprets them (legacy HiveMetadataOps did the same).
+
+    static final String CREATE_FILE_FORMAT = "file_format";
+    static final String CREATE_LOCATION = "location";
+    static final String CREATE_OWNER = "owner";
+    static final String CREATE_COMMENT = "comment";
+    static final String CREATE_TRANSACTIONAL = "transactional";
+
+    /**
+     * Statement property keys stamped into the metastore table parameters under a {@code doris.} prefix so
+     * they round-trip. Mirrors legacy {@code HiveMetadataOps.DORIS_HIVE_KEYS}.
+     */
+    private static final Set<String> DORIS_HIVE_KEYS = Collections.unmodifiableSet(
+            new HashSet<>(Arrays.asList(CREATE_FILE_FORMAT, CREATE_LOCATION)));
+    private static final String DORIS_PROP_PREFIX = "doris.";
+
+    /**
+     * Session variable read for a text table's compression default (legacy {@code hive_text_compression}),
+     * with the two value literals it can carry. Surfaced through
+     * {@code ConnectorSession.getSessionProperties()} (VariableMgr dumps all visible vars), so the name must
+     * stay byte-identical to the fe-core session variable.
+     */
+    static final String SESSION_HIVE_TEXT_COMPRESSION = "hive_text_compression";
+    static final String TEXT_COMPRESSION_UNCOMPRESSED = "uncompressed";
+    static final String TEXT_COMPRESSION_PLAIN = "plain";
+
+    /**
+     * Engine-injected environment value (not a plugin conf key): the running FE's version, stamped into the
+     * table parameters at CREATE. Threaded from fe-core's {@code DefaultConnectorContext}, where the name must
+     * stay byte-identical.
+     */
+    private static final String ENV_DORIS_VERSION = "doris_version";
+
+    /**
+     * Bucket algorithm string produced by {@code CreateTableInfoToConnectorRequestConverter} for a random
+     * (non-hash) distribution. Hive external tables only support hash bucketing.
+     */
+    private static final String BUCKET_ALGO_RANDOM = "doris_random";
 
     // FE-internal schema-control property key: a CSV of the RAW remote partition-column names. The generic
     // fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue) reads it to derive which of the emitted
@@ -242,11 +283,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // MTMV model already falls back to listPartitions for hive — there is no second enumeration hook to wrap.
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
-    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context) {
+    public HiveConnectorMetadata(HmsClient hmsClient, HiveCatalogProperties properties, ConnectorContext context) {
         this(hmsClient, properties, context, NO_ICEBERG_SIBLING, NO_HUDI_SIBLING, NO_SIBLING_OWNER);
     }
 
-    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
+    public HiveConnectorMetadata(HmsClient hmsClient, HiveCatalogProperties properties, ConnectorContext context,
             Supplier<Connector> icebergSiblingSupplier,
             Supplier<Connector> hudiSiblingSupplier,
             Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver) {
@@ -255,7 +296,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /** Convenience ctor without the PERF-06 derived partition-view cache (null -> listPartitions always live). */
-    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
+    public HiveConnectorMetadata(HmsClient hmsClient, HiveCatalogProperties properties, ConnectorContext context,
             Supplier<Connector> icebergSiblingSupplier,
             Supplier<Connector> hudiSiblingSupplier,
             Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver,
@@ -270,7 +311,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * {@code List<ConnectorPartitionInfo>}, keyed by {@code (db, table, -1, -1)}. {@code null} for the
      * convenience/test ctors (no cross-query derived layer -&gt; compute directly every call).
      */
-    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
+    public HiveConnectorMetadata(HmsClient hmsClient, HiveCatalogProperties properties, ConnectorContext context,
             Supplier<Connector> icebergSiblingSupplier,
             Supplier<Connector> hudiSiblingSupplier,
             Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver,
@@ -1548,8 +1589,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public void createDatabase(ConnectorSession session, String dbName, Map<String, String> dbProperties) {
         Map<String, String> params = new HashMap<>(dbProperties);
-        String location = params.remove(HiveConnectorProperties.CREATE_LOCATION);
-        String comment = params.getOrDefault(HiveConnectorProperties.CREATE_COMMENT, "");
+        String location = params.remove(CREATE_LOCATION);
+        String comment = params.getOrDefault(CREATE_COMMENT, "");
         try {
             hmsClient.createDatabase(new HmsCreateDatabaseRequest(dbName, location, comment, params));
         } catch (HmsClientException e) {
@@ -1607,27 +1648,24 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // to the same map before deriving the metastore parameters).
         Map<String, String> userProps = new HashMap<>(request.getProperties());
         if (session.getUser() != null) {
-            userProps.putIfAbsent(HiveConnectorProperties.CREATE_OWNER, session.getUser());
+            userProps.putIfAbsent(CREATE_OWNER, session.getUser());
         }
         // Reject a transactional table create (legacy parity: a hive transactional table only appears to
         // accept inserts). Matches legacy's case-sensitive "transactional" key check.
-        String transactional = userProps.get(HiveConnectorProperties.CREATE_TRANSACTIONAL);
+        String transactional = userProps.get(CREATE_TRANSACTIONAL);
         if (transactional != null && transactional.equalsIgnoreCase("true")) {
             throw new DorisConnectorException("Not support create hive transactional table.");
         }
         Map<String, String> env = context.getEnvironment();
-        String fileFormat = userProps.getOrDefault(HiveConnectorProperties.CREATE_FILE_FORMAT,
-                ConnectorConf.get(context, HiveConnectorProperties.CONF_DEFAULT_FILE_FORMAT,
-                        HiveConnectorProperties.ENV_HIVE_DEFAULT_FILE_FORMAT,
-                        HiveConnectorProperties.DEFAULT_FILE_FORMAT));
+        String fileFormat = userProps.getOrDefault(CREATE_FILE_FORMAT, HmsConf.defaultFileFormat(context));
 
         // Metastore table parameters: lower-case every key and stamp the file_format / location keys under a
         // doris. prefix so they round-trip (legacy HiveMetadataOps ddlProps loop).
         Map<String, String> tableParams = new HashMap<>();
         for (Map.Entry<String, String> entry : userProps.entrySet()) {
             String key = entry.getKey().toLowerCase(Locale.ROOT);
-            if (HiveConnectorProperties.DORIS_HIVE_KEYS.contains(key)) {
-                tableParams.put(HiveConnectorProperties.DORIS_PROP_PREFIX + key, entry.getValue());
+            if (DORIS_HIVE_KEYS.contains(key)) {
+                tableParams.put(DORIS_PROP_PREFIX + key, entry.getValue());
             } else {
                 tableParams.put(key, entry.getValue());
             }
@@ -1660,29 +1698,26 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         HmsCreateTableRequest.Builder builder = HmsCreateTableRequest.builder()
                 .dbName(request.getDbName())
                 .tableName(request.getTableName())
-                .location(userProps.get(HiveConnectorProperties.CREATE_LOCATION))
+                .location(userProps.get(CREATE_LOCATION))
                 .columns(request.getColumns())
                 .partitionKeys(partitionColNames)
                 .fileFormat(fileFormat)
                 .comment(request.getComment())
                 .properties(tableParams)
                 .defaultTextCompression(resolveTextCompressionDefault(session))
-                .dorisVersion(env.get(HiveConnectorProperties.ENV_DORIS_VERSION));
+                .dorisVersion(env.get(ENV_DORIS_VERSION));
 
         // Bucketing: gated on the FE-global toggle, and hive supports hash bucketing only. Legacy checks the
         // enable gate first, then the hash requirement.
         ConnectorBucketSpec bucketSpec = request.getBucketSpec();
         if (bucketSpec != null) {
-            boolean bucketEnabled = Boolean.parseBoolean(ConnectorConf.get(context,
-                    HiveConnectorProperties.CONF_ENABLE_CREATE_BUCKET_TABLE,
-                    HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "false"));
-            if (!bucketEnabled) {
+            if (!HmsConf.enableCreateBucketTable(context)) {
                 throw new DorisConnectorException("Create hive bucket table need set '"
-                        + HiveConnectorProperties.CONF_ENABLE_CREATE_BUCKET_TABLE + "' in hms.conf (or "
-                        + HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE
+                        + HmsConf.CONF_ENABLE_CREATE_BUCKET_TABLE + "' in hms.conf (or "
+                        + HmsConf.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE
                         + " in fe.conf) to true");
             }
-            if (HiveConnectorProperties.BUCKET_ALGO_RANDOM.equals(bucketSpec.getAlgorithm())) {
+            if (BUCKET_ALGO_RANDOM.equals(bucketSpec.getAlgorithm())) {
                 throw new DorisConnectorException("External hive table only supports hash bucketing");
             }
             builder.bucketCols(bucketSpec.getColumns()).numBuckets(bucketSpec.getNumBuckets());
@@ -2159,10 +2194,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (tableParameters == null) {
             return false;
         }
-        String value = tableParameters.get(HiveConnectorProperties.CREATE_TRANSACTIONAL);
+        String value = tableParameters.get(CREATE_TRANSACTIONAL);
         if (value == null) {
             value = tableParameters.get(
-                    HiveConnectorProperties.CREATE_TRANSACTIONAL.toUpperCase(Locale.ROOT));
+                    CREATE_TRANSACTIONAL.toUpperCase(Locale.ROOT));
         }
         return "true".equalsIgnoreCase(value);
     }
@@ -2174,9 +2209,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     private static String resolveTextCompressionDefault(ConnectorSession session) {
         String textCompression = session.getSessionProperties()
-                .get(HiveConnectorProperties.SESSION_HIVE_TEXT_COMPRESSION);
-        if (HiveConnectorProperties.TEXT_COMPRESSION_UNCOMPRESSED.equals(textCompression)) {
-            return HiveConnectorProperties.TEXT_COMPRESSION_PLAIN;
+                .get(SESSION_HIVE_TEXT_COMPRESSION);
+        if (TEXT_COMPRESSION_UNCOMPRESSED.equals(textCompression)) {
+            return TEXT_COMPRESSION_PLAIN;
         }
         return textCompression;
     }
@@ -2296,13 +2331,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // the catalog properties (enable.mapping.varbinary / enable.mapping.timestamp_tz). The client — not this
     // metadata — converts hive column types (ThriftHmsClient.convertFieldSchemas), so the options must be fed at
     // client construction; a metadata-local copy would be dead (that was the 5672d7c0209 gap).
-    static HmsTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {
-        boolean enableMappingVarbinary = Boolean.parseBoolean(
-                props.getOrDefault(HiveConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
-        boolean timestampTz = Boolean.parseBoolean(
-                props.getOrDefault(HiveConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
-        return new HmsTypeMapping.Options(
-                HmsTypeMapping.DEFAULT_TIME_SCALE, enableMappingVarbinary, timestampTz);
+    static HmsTypeMapping.Options buildTypeMappingOptions(HiveCatalogProperties props) {
+        return new HmsTypeMapping.Options(HmsTypeMapping.DEFAULT_TIME_SCALE,
+                props.isEnableMappingVarbinary(), props.isEnableMappingTimestampTz());
     }
 
     /**

@@ -68,7 +68,7 @@ public class HiveConnectorMetadataPartitionListTest {
     private static final List<String> PART_KEYS = Arrays.asList("year", "month");
 
     private HiveConnectorMetadata metadata(FakeHmsClient client) {
-        return new HiveConnectorMetadata(client, Collections.emptyMap(), new FakeConnectorContext());
+        return new HiveConnectorMetadata(client, HiveTestProperties.minimal(), new FakeConnectorContext());
     }
 
     private HiveTableHandle partitionedHandle() {

@@ -50,7 +50,7 @@ public final class HudiCatalogProperties {
 
     /**
      * The Hive Metastore thrift URI. Owned by the hive connector
-     * ({@code HiveConnectorProperties.HIVE_METASTORE_URIS}); the literal is copied here because the
+     * ({@code HiveCatalogProperties.HIVE_METASTORE_URIS}); the literal is copied here because the
      * gateway's plugin classes are not visible from this one.
      */
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
@@ -60,7 +60,7 @@ public final class HudiCatalogProperties {
 
     /**
      * Size of the metastore client pool. Owned by the hive connector
-     * ({@code HiveConnectorProperties.HMS_CLIENT_POOL_SIZE}) -- see {@link #HIVE_METASTORE_URIS} for why
+     * ({@code HiveCatalogProperties.HMS_CLIENT_POOL_SIZE}) -- see {@link #HIVE_METASTORE_URIS} for why
      * the literal is copied.
      */
     public static final String HMS_CLIENT_POOL_SIZE = "hive.metastore.client.pool.size";
