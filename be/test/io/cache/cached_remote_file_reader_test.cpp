@@ -60,6 +60,7 @@ public:
     size_t last_offset() const { return _last_offset; }
     size_t last_size() const { return _last_size; }
     bool last_bypass_peer_read() const { return _last_bypass_peer_read; }
+    const std::vector<std::pair<size_t, size_t>>& reads() const { return _reads; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -68,6 +69,7 @@ protected:
         _last_offset = offset;
         _last_size = result.size;
         _last_bypass_peer_read = io_ctx != nullptr && io_ctx->bypass_peer_read;
+        _reads.emplace_back(offset, result.size);
         return _delegate->read_at(offset, result, bytes_read, io_ctx);
     }
 
@@ -77,6 +79,7 @@ private:
     size_t _last_offset {0};
     size_t _last_size {0};
     bool _last_bypass_peer_read {false};
+    std::vector<std::pair<size_t, size_t>> _reads;
 };
 
 // Provides one isolated cache disk with phase-one async-read settings for concise end-to-end
@@ -175,7 +178,389 @@ private:
     int64_t _old_wait_timeout_ms = 0;
 };
 
+IOContext no_write_unaligned_context(FileCacheStatistics* stats) {
+    IOContext context;
+    context.file_cache_stats = stats;
+    context.bypass_peer_read = true;
+    context.cache_align_mode_override = CacheAlignMode::UNALIGNED;
+    context.cache_write_mode_override = CacheWriteMode::NO_WRITE;
+    return context;
+}
+
 } // namespace
+
+TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_reads_exact_remote_range_without_cache) {
+    create_cache("cached_remote_reader_no_write_unaligned_remote");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    constexpr size_t read_offset = 1_mb + 123;
+    constexpr size_t read_size = 4096;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context = no_write_unaligned_context(&stats);
+    ASSERT_EQ(cache()->_cur_cache_size, 0);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result, std::string(read_size, '1'));
+    ASSERT_EQ(counting_reader->reads().size(), 1);
+    EXPECT_EQ(counting_reader->reads()[0], std::make_pair(read_offset, read_size));
+    EXPECT_EQ(stats.bytes_read_from_local, 0);
+    EXPECT_EQ(stats.bytes_read_from_remote, read_size);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
+    EXPECT_EQ(cache()->async_write_service()->pending_count(), 0);
+    EXPECT_EQ(cache()->inflight_write_buffer_index()->count(), 0);
+    EXPECT_EQ(cache()->_cur_cache_size, 0);
+
+    ReadStatistics probe_stats;
+    CacheContext probe_context;
+    probe_context.stats = &probe_stats;
+    auto probe_result = cache()->probe(reader->_cache_hash, 1_mb, 1_mb, probe_context);
+    ASSERT_EQ(probe_result.file_blocks.size(), 1);
+    EXPECT_EQ(probe_result.file_blocks[0], nullptr);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest,
+       no_write_unaligned_combines_cache_inflight_and_exact_remote_spans) {
+    create_cache("cached_remote_reader_no_write_unaligned_mixed");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    auto holder = cache()->get_or_set(reader->_cache_hash, 1_mb, 1_mb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& cached_block = holder.file_blocks.front();
+    ASSERT_EQ(cached_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    const std::string cached_payload(1_mb, '1');
+    ASSERT_TRUE(cached_block->append(Slice(cached_payload.data(), cached_payload.size())).ok());
+    ASSERT_TRUE(cached_block->finalize().ok());
+
+    auto* service = cache()->async_write_service();
+    auto* inflight_index = cache()->inflight_write_buffer_index();
+    AsyncCacheWriteBufferPtr inflight_buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
+    const std::string inflight_payload(1_mb, '2');
+    memcpy(inflight_buffer->data(), inflight_payload.data(), inflight_payload.size());
+    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(
+            inflight_buffer, 2_mb, 1_mb, MonotonicMicros(), service->current_write_epoch());
+    ASSERT_EQ(inflight_index->insert_if_absent(reader->_cache_hash, 2_mb, inflight_entry), nullptr);
+    Defer remove_inflight {[&]() {
+        static_cast<void>(inflight_index->remove_if(reader->_cache_hash, 2_mb, inflight_entry));
+    }};
+
+    constexpr size_t read_offset = 512_kb;
+    constexpr size_t read_size = 3_mb;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context = no_write_unaligned_context(&stats);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result.substr(0, 512_kb), std::string(512_kb, '0'));
+    EXPECT_EQ(result.substr(512_kb, 1_mb), cached_payload);
+    EXPECT_EQ(result.substr(1536_kb, 1_mb), inflight_payload);
+    EXPECT_EQ(result.substr(2560_kb, 512_kb), std::string(512_kb, '3'));
+    EXPECT_EQ(counting_reader->reads(),
+              (std::vector<std::pair<size_t, size_t>> {{512_kb, 512_kb}, {3_mb, 512_kb}}));
+    EXPECT_EQ(stats.bytes_read_from_local, 2_mb);
+    EXPECT_EQ(stats.bytes_read_from_remote, 1_mb);
+    EXPECT_EQ(stats.inflight_write_buffer_index_hit, 1);
+    EXPECT_EQ(stats.inflight_write_buffer_index_miss, 3);
+    EXPECT_EQ(stats.probe_downloaded_hit, 1);
+    EXPECT_EQ(stats.probe_miss, 2);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
+    EXPECT_EQ(cache()->async_write_service()->pending_count(), 0);
+
+    auto probe_result = cache()->probe(reader->_cache_hash, 0, 4_mb, cache_context);
+    ASSERT_EQ(probe_result.file_blocks.size(), 4);
+    EXPECT_EQ(probe_result.file_blocks[0], nullptr);
+    EXPECT_EQ(probe_result.file_blocks[1], cached_block);
+    EXPECT_EQ(probe_result.file_blocks[2], nullptr);
+    EXPECT_EQ(probe_result.file_blocks[3], nullptr);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_does_not_wait_for_downloading_block) {
+    create_cache("cached_remote_reader_no_write_unaligned_downloading");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    auto holder = cache()->get_or_set(reader->_cache_hash, 1_mb, 1_mb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& downloading_block = holder.file_blocks.front();
+    ASSERT_EQ(downloading_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    ASSERT_EQ(downloading_block->state(), FileBlock::State::DOWNLOADING);
+
+    constexpr size_t read_offset = 1_mb + 64_kb;
+    constexpr size_t read_size = 4096;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context = no_write_unaligned_context(&stats);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result, std::string(read_size, '1'));
+    EXPECT_EQ(counting_reader->reads(),
+              (std::vector<std::pair<size_t, size_t>> {{read_offset, read_size}}));
+    EXPECT_EQ(downloading_block->state(), FileBlock::State::DOWNLOADING);
+    EXPECT_EQ(stats.bytes_read_from_local, 0);
+    EXPECT_EQ(stats.bytes_read_from_remote, read_size);
+    EXPECT_EQ(stats.probe_downloading_hit, 1);
+    EXPECT_EQ(stats.block_wait_success, 0);
+    EXPECT_EQ(stats.block_wait_timeout, 0);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
+
+    const std::string payload(1_mb, '1');
+    ASSERT_TRUE(downloading_block->append(Slice(payload.data(), payload.size())).ok());
+    ASSERT_TRUE(downloading_block->finalize().ok());
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest,
+       no_write_unaligned_remote_only_on_partial_hit_reads_whole_exact_range_remotely) {
+    create_cache("cached_remote_reader_no_write_unaligned_remote_only");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    auto holder = cache()->get_or_set(reader->_cache_hash, 1_mb, 1_mb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& cached_block = holder.file_blocks.front();
+    ASSERT_EQ(cached_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    const std::string payload(1_mb, '1');
+    ASSERT_TRUE(cached_block->append(Slice(payload.data(), payload.size())).ok());
+    ASSERT_TRUE(cached_block->finalize().ok());
+
+    constexpr size_t read_offset = 512_kb;
+    constexpr size_t read_size = 1_mb;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context = no_write_unaligned_context(&stats);
+    context.file_cache_miss_policy = FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result.substr(0, 512_kb), std::string(512_kb, '0'));
+    EXPECT_EQ(result.substr(512_kb), std::string(512_kb, '1'));
+    EXPECT_EQ(counting_reader->reads(),
+              (std::vector<std::pair<size_t, size_t>> {{read_offset, read_size}}));
+    EXPECT_EQ(stats.bytes_read_from_local, 0);
+    EXPECT_EQ(stats.bytes_read_from_remote, read_size);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest,
+       no_write_unaligned_remote_only_on_full_hit_reads_exact_range_locally) {
+    create_cache("cached_remote_reader_no_write_unaligned_remote_only_full_hit");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    auto holder = cache()->get_or_set(reader->_cache_hash, 1_mb, 1_mb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& cached_block = holder.file_blocks.front();
+    ASSERT_EQ(cached_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    const std::string payload(1_mb, 'x');
+    ASSERT_TRUE(cached_block->append(Slice(payload.data(), payload.size())).ok());
+    ASSERT_TRUE(cached_block->finalize().ok());
+
+    constexpr size_t read_offset = 1_mb + 123;
+    constexpr size_t read_size = 4096;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context = no_write_unaligned_context(&stats);
+    context.file_cache_miss_policy = FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result, std::string(read_size, 'x'));
+    EXPECT_EQ(counting_reader->read_count(), 0);
+    EXPECT_EQ(stats.bytes_read_from_local, read_size);
+    EXPECT_EQ(stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_reads_full_inflight_intersection) {
+    create_cache("cached_remote_reader_no_write_unaligned_inflight");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    auto* service = cache()->async_write_service();
+    auto* inflight_index = cache()->inflight_write_buffer_index();
+    AsyncCacheWriteBufferPtr inflight_buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
+    memset(inflight_buffer->data(), 'i', inflight_buffer->size());
+    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(
+            inflight_buffer, 1_mb, 1_mb, MonotonicMicros(), service->current_write_epoch());
+    ASSERT_EQ(inflight_index->insert_if_absent(reader->_cache_hash, 1_mb, inflight_entry), nullptr);
+    Defer remove_inflight {[&]() {
+        static_cast<void>(inflight_index->remove_if(reader->_cache_hash, 1_mb, inflight_entry));
+    }};
+
+    constexpr size_t read_offset = 1_mb + 123;
+    constexpr size_t read_size = 4096;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context = no_write_unaligned_context(&stats);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result, std::string(read_size, 'i'));
+    EXPECT_EQ(counting_reader->read_count(), 0);
+    EXPECT_EQ(stats.bytes_read_from_local, read_size);
+    EXPECT_EQ(stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(stats.inflight_write_buffer_index_hit, 1);
+    EXPECT_EQ(stats.probe_downloaded_hit, 0);
+    EXPECT_EQ(stats.probe_miss, 0);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_clips_remote_read_at_file_end) {
+    create_cache("cached_remote_reader_no_write_unaligned_eof");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+    ASSERT_EQ(reader->size(), 10_mb + 1);
+
+    constexpr size_t read_offset = 10_mb - 127;
+    constexpr size_t expected_size = 128;
+    std::string result(4096, '\0');
+    FileCacheStatistics stats;
+    IOContext context = no_write_unaligned_context(&stats);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, expected_size);
+    EXPECT_EQ(result.substr(0, expected_size - 1), std::string(expected_size - 1, '9'));
+    EXPECT_EQ(result[expected_size - 1], '0');
+    EXPECT_EQ(counting_reader->reads(),
+              (std::vector<std::pair<size_t, size_t>> {{read_offset, expected_size}}));
+    EXPECT_EQ(stats.bytes_read_from_local, 0);
+    EXPECT_EQ(stats.bytes_read_from_remote, expected_size);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
+    EXPECT_EQ(cache()->_cur_cache_size, 0);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, no_write_unaligned_ignores_stale_inflight_epoch) {
+    create_cache("cached_remote_reader_no_write_unaligned_stale_inflight");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    auto* service = cache()->async_write_service();
+    auto* inflight_index = cache()->inflight_write_buffer_index();
+    const uint64_t stale_epoch = service->current_write_epoch();
+    AsyncCacheWriteBufferPtr inflight_buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
+    memset(inflight_buffer->data(), 'i', inflight_buffer->size());
+    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(
+            inflight_buffer, 1_mb, 1_mb, MonotonicMicros(), stale_epoch);
+    ASSERT_EQ(inflight_index->insert_if_absent(reader->_cache_hash, 1_mb, inflight_entry), nullptr);
+    ASSERT_EQ(service->invalidate_pending_writes(), stale_epoch + 1);
+
+    constexpr size_t read_offset = 1_mb + 123;
+    constexpr size_t read_size = 4096;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context = no_write_unaligned_context(&stats);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result, std::string(read_size, '1'));
+    EXPECT_EQ(counting_reader->reads(),
+              (std::vector<std::pair<size_t, size_t>> {{read_offset, read_size}}));
+    EXPECT_EQ(inflight_index->count(), 0);
+    EXPECT_EQ(stats.bytes_read_from_local, 0);
+    EXPECT_EQ(stats.bytes_read_from_remote, read_size);
+    EXPECT_EQ(stats.inflight_write_buffer_index_hit, 0);
+    EXPECT_EQ(stats.inflight_write_buffer_index_miss, 1);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest,
+       no_write_unaligned_missing_cache_file_self_heals_and_reads_exact_remote_range) {
+    create_cache("cached_remote_reader_no_write_unaligned_self_heal");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    fs::path cache_file;
+    {
+        auto holder = cache()->get_or_set(reader->_cache_hash, 1_mb, 1_mb, cache_context);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        const auto& cached_block = holder.file_blocks.front();
+        ASSERT_EQ(cached_block->get_or_set_downloader(), FileBlock::get_caller_id());
+        const std::string payload(1_mb, 'x');
+        ASSERT_TRUE(cached_block->append(Slice(payload.data(), payload.size())).ok());
+        ASSERT_TRUE(cached_block->finalize().ok());
+        cache_file = cached_block->get_cache_file();
+    }
+    std::error_code remove_error;
+    ASSERT_TRUE(fs::remove(cache_file, remove_error));
+    ASSERT_FALSE(remove_error);
+
+    const uint64_t old_epoch = cache()->async_write_service()->current_write_epoch();
+    constexpr size_t read_offset = 1_mb + 123;
+    constexpr size_t read_size = 4096;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context = no_write_unaligned_context(&stats);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result, std::string(read_size, '1'));
+    EXPECT_EQ(counting_reader->reads(),
+              (std::vector<std::pair<size_t, size_t>> {{read_offset, read_size}}));
+    EXPECT_EQ(stats.bytes_read_from_local, 0);
+    EXPECT_EQ(stats.bytes_read_from_remote, read_size);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
+    EXPECT_EQ(cache()->async_write_service()->current_write_epoch(), old_epoch + 1);
+
+    bool removed = false;
+    for (int attempt = 0; attempt < 5000; ++attempt) {
+        auto probe_result = cache()->probe(reader->_cache_hash, 1_mb, 1_mb, cache_context);
+        if (probe_result.file_blocks.size() == 1 && probe_result.file_blocks[0] == nullptr) {
+            removed = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_TRUE(removed);
+}
 
 TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_short_file_tail) {
     create_cache("cached_remote_reader_async_preallocated_file_tail");

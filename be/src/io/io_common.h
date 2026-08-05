@@ -43,6 +43,7 @@ enum class ReaderType : uint8_t {
 namespace io {
 
 class RemoteScanCacheWriteLimiter;
+enum class CacheAlignMode : uint8_t;
 enum class CacheWriteMode : uint8_t;
 
 enum class FileCacheMissPolicy : uint8_t {
@@ -248,8 +249,9 @@ struct IOContext {
     int64_t predicate_filtered_rows = 0;
     // if true, bypass peer read / peer-vs-S3 race and read directly from remote storage
     bool bypass_peer_read {false};
-    // Per-call override for cache write completion semantics. An unset value follows the reader
-    // option and the global async file-cache write switch.
+    // Per-call overrides for cache alignment and write completion semantics. Unset values follow
+    // the reader options and the global async file-cache write switch.
+    std::optional<CacheAlignMode> cache_align_mode_override = std::nullopt;
     std::optional<CacheWriteMode> cache_write_mode_override = std::nullopt;
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
     // From session variable inverted_index_snii_read_no_write_file_cache: SNII index

@@ -1266,6 +1266,23 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
     }};
 
+    const CacheAlignMode cache_align_mode =
+            io_ctx->cache_align_mode_override.value_or(_cache_align_mode);
+    if (cache_align_mode == CacheAlignMode::UNALIGNED) {
+        DORIS_CHECK(io_ctx->cache_write_mode_override.has_value());
+        DORIS_CHECK(*io_ctx->cache_write_mode_override == CacheWriteMode::NO_WRITE);
+        DORIS_CHECK(!is_dryrun);
+        if (use_remote_only_on_cache_miss(io_ctx)) {
+            read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun,
+                                                      bytes_read, stats, source_read_breakdown,
+                                                      io_ctx);
+        } else {
+            read_st = _read_no_write_unaligned(offset, result, bytes_req, bytes_read, stats,
+                                               source_read_breakdown, io_ctx);
+        }
+        return read_st;
+    }
+
     if (use_remote_only_on_cache_miss(io_ctx)) {
         read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,
                                                   stats, source_read_breakdown, io_ctx);
@@ -1280,7 +1297,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
 
     const CacheWriteMode cache_write_mode = _resolve_cache_write_mode(io_ctx);
     TEST_SYNC_POINT("CachedRemoteFileReader::read_at_impl:after_resolve_cache_write_mode");
-    DORIS_CHECK(_cache_align_mode == CacheAlignMode::ALIGN_TO_BLOCK);
+    DORIS_CHECK(cache_align_mode == CacheAlignMode::ALIGN_TO_BLOCK);
     DORIS_CHECK(cache_write_mode == CacheWriteMode::SYNC_WRITE ||
                 cache_write_mode == CacheWriteMode::ASYNC_WRITE);
     if (cache_write_mode == CacheWriteMode::ASYNC_WRITE) {

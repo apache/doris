@@ -44,6 +44,7 @@ extern bvar::Adder<uint64_t> g_read_cache_indirect_num;
 extern bvar::Adder<uint64_t> g_read_cache_indirect_bytes;
 extern bvar::Adder<uint64_t> g_read_cache_indirect_total_bytes;
 extern bvar::Adder<uint64_t> g_read_cache_self_heal_on_not_found;
+extern bvar::Adder<uint64_t> s3_read_counter;
 
 namespace {
 
@@ -181,6 +182,92 @@ CacheWriteMode CachedRemoteFileReader::_resolve_cache_write_mode(const IOContext
     }
     return config::enable_async_file_cache_write ? CacheWriteMode::ASYNC_WRITE
                                                  : CacheWriteMode::SYNC_WRITE;
+}
+
+Status CachedRemoteFileReader::_read_no_write_unaligned(size_t offset, Slice result,
+                                                        size_t bytes_req, size_t* bytes_read,
+                                                        ReadStatistics& stats,
+                                                        SourceReadBreakdown& source_read_breakdown,
+                                                        const IOContext* io_ctx) {
+    DORIS_CHECK(io_ctx != nullptr);
+    DORIS_CHECK(io_ctx->cache_align_mode_override == CacheAlignMode::UNALIGNED);
+    DORIS_CHECK(io_ctx->cache_write_mode_override == CacheWriteMode::NO_WRITE);
+    DORIS_CHECK(!io_ctx->is_dryrun);
+    DORIS_CHECK(result.data != nullptr);
+    DORIS_CHECK(bytes_read != nullptr);
+    DORIS_CHECK(bytes_req > 0);
+    DORIS_CHECK(bytes_req <= result.size);
+    DORIS_CHECK(offset < size());
+    DORIS_CHECK(bytes_req <= size() - offset);
+
+    g_read_cache_indirect_num << 1;
+    auto* service = _cache->async_write_service();
+    DORIS_CHECK(service != nullptr);
+    auto plan = _build_async_read_plan(offset, bytes_req, service->current_write_epoch(), io_ctx,
+                                       stats);
+
+    CacheContext cache_context(io_ctx);
+    cache_context.stats = &stats;
+    cache_context.tablet_id = _tablet_id;
+
+    struct RemoteSpan {
+        size_t left = 0;
+        size_t size = 0;
+    };
+    std::vector<RemoteSpan> remote_spans;
+    size_t local_bytes = 0;
+    bool need_self_heal = false;
+    for (size_t index = 0; index < plan.blocks.size(); ++index) {
+        const auto& block = plan.blocks[index];
+        const size_t intersection_left = std::max(block.range.left, plan.user_left);
+        const size_t intersection_right = std::min(block.range.right, plan.user_right);
+        DORIS_CHECK(intersection_left <= intersection_right);
+
+        bool materialized = false;
+        if (block.source == AsyncReadBlock::Source::INFLIGHT ||
+            block.source == AsyncReadBlock::Source::CACHE) {
+            materialized = _materialize_async_block(plan, index, offset, result, cache_context,
+                                                    stats, &local_bytes, &need_self_heal);
+        }
+        if (materialized) {
+            continue;
+        }
+
+        const size_t intersection_size = intersection_right - intersection_left + 1;
+        if (!remote_spans.empty() &&
+            remote_spans.back().left + remote_spans.back().size == intersection_left) {
+            remote_spans.back().size += intersection_size;
+        } else {
+            remote_spans.push_back({intersection_left, intersection_size});
+        }
+    }
+
+    if (need_self_heal) {
+        _cache->remove_if_cached_async(_cache_hash);
+    }
+    size_t remote_bytes = 0;
+    for (const auto& span : remote_spans) {
+        stats.hit_cache = false;
+        stats.from_peer_cache = false;
+        size_t span_bytes_read = span.size;
+        s3_read_counter << 1;
+        {
+            SCOPED_RAW_TIMER(&stats.remote_read_timer);
+            RETURN_IF_ERROR(_remote_file_reader->read_at(
+                    span.left, Slice(result.data + span.left - offset, span.size), &span_bytes_read,
+                    io_ctx));
+        }
+        DCHECK_EQ(span_bytes_read, span.size);
+        remote_bytes += span_bytes_read;
+    }
+
+    DORIS_CHECK(local_bytes + remote_bytes == bytes_req);
+    source_read_breakdown.local_bytes += local_bytes;
+    source_read_breakdown.remote_bytes += remote_bytes;
+    *bytes_read = bytes_req;
+    g_read_cache_indirect_bytes << bytes_req;
+    g_read_cache_indirect_total_bytes << bytes_req;
+    return Status::OK();
 }
 
 // Build a deliberately small plan. The inflight index is checked first so a fully covered read

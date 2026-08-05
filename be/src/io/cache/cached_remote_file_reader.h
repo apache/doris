@@ -151,6 +151,14 @@ private:
     /// @return The effective synchronous or asynchronous cache-write mode for this read.
     CacheWriteMode _resolve_cache_write_mode(const IOContext* io_ctx) const;
 
+    /// Read exactly the caller range without creating file-cache cells or scheduling writeback.
+    /// Existing complete inflight and downloaded blocks are reused, while uncovered intersections
+    /// are read directly from remote storage without waiting for DOWNLOADING blocks.
+    Status _read_no_write_unaligned(size_t offset, Slice result, size_t bytes_req,
+                                    size_t* bytes_read, ReadStatistics& stats,
+                                    SourceReadBreakdown& source_read_breakdown,
+                                    const IOContext* io_ctx);
+
     /// Serve a normal read while moving cache-miss writes off the query thread. The method uses
     /// the first and last remotely covered blocks as one range, matching the synchronous path's
     /// preference for a single remote operation over fine-grained hole processing.
