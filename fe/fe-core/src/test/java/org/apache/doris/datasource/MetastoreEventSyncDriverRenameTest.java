@@ -19,9 +19,9 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor.Op;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import org.junit.jupiter.api.Test;

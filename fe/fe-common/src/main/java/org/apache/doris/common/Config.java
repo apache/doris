@@ -3163,6 +3163,11 @@ public class Config extends ConfigBase {
             + "FRONTEND CONFIG.")
     public static String[] s3_load_endpoint_white_list = {};
 
+    @ConfField(description = 
+            "The default scheme for S3 endpoints without an explicit scheme. Valid values are http and https."},
+            options = {"http", "https")
+    public static String s3_client_http_scheme = "https";
+
     @ConfField(mutable = true, description = "For deterministic S3 paths (without wildcards like *, ?), use HEAD "
             + "requests instead of ListObjects to avoid requiring ListBucket "
             + "permission. Brace patterns {1,2,3} and non-negated bracket patterns "

@@ -471,7 +471,21 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _state->scheduler.set_global_rowid_context(_global_rowid_context);
     _state->scheduler.set_scan_profile(_parquet_profile.scan_profile());
     _state->scheduler.set_plan(std::move(row_group_plan));
+    _state->scheduler.set_scan_request(request_snapshot);
     _eof = _state->scheduler.empty();
+    return Status::OK();
+}
+
+Status ParquetReader::queue_scan_request(std::shared_ptr<format::FileScanRequest> request) {
+    SCOPED_TIMER(_parquet_profile.total_time);
+    SCOPED_TIMER(_parquet_profile.refresh_scan_request_time);
+    if (_state == nullptr || _state->file_context.native_metadata == nullptr) {
+        return Status::Uninitialized("ParquetReader is not open");
+    }
+    DORIS_CHECK(request != nullptr);
+    RETURN_IF_ERROR(validate_requested_columns_supported(_state->file_schema, *request));
+    _state->scheduler.queue_scan_request(request);
+    _request = std::move(request);
     return Status::OK();
 }
 
@@ -489,15 +503,14 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         *eof = true;
         return Status::OK();
     }
-    auto request_snapshot = _request;
-    if (request_snapshot == nullptr) {
+    if (_request == nullptr) {
         return Status::Cancelled("ParquetReader is closed");
     }
 
     const auto predicate_filtered_rows_before = _state->scheduler.predicate_filtered_rows();
     const auto raw_rows_read_before = _state->scheduler.raw_rows_read();
     Status st = _state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
-                                                  *request_snapshot, file_block, rows, eof);
+                                                  file_block, rows, eof);
     if (!st.ok()) {
         if (_io_ctx != nullptr && _io_ctx->should_stop) {
             *rows = 0;

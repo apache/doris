@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -351,7 +351,7 @@ public class PaimonScanPlanProviderTest {
                 "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange range = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024, 0);
 
         // WHY: BE's scheme-dispatched S3 file factory only opens canonical s3://. An un-normalized
         // oss:// DATA-file path fails the native ORC/Parquet read outright; an un-normalized oss:// DV
@@ -376,7 +376,7 @@ public class PaimonScanPlanProviderTest {
 
         PaimonScanRange range = provider.buildNativeRange(
                 parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
-                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024);
+                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024, 0);
 
         // WHY: a DV-less native split must still normalize its data-file path and must NOT emit a DV
         // descriptor. MUTATION: emitting a deletion_file for a null DV, or skipping data normalization -> red.
@@ -396,7 +396,7 @@ public class PaimonScanPlanProviderTest {
 
         PaimonScanRange range = provider.buildNativeRange(
                 parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
-                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024);
+                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024, 0);
 
         // MUTATION: NPE on null context, or fabricating a normalized path from nothing -> red.
         Assertions.assertEquals("oss://bkt/a/part-0.parquet", range.getPath().orElse(null));
@@ -421,7 +421,7 @@ public class PaimonScanPlanProviderTest {
                 "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange range = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap(), vendedToken, 0L, 100L, 64L * 1024 * 1024);
+                file, dv, "parquet", Collections.emptyMap(), vendedToken, 0L, 100L, 64L * 1024 * 1024, 0);
 
         // WHY: the engine seam normalizes against the VENDED map (the REST static map is empty). If the
         // connector dropped the token (reverting to the 1-arg seam) or substituted an empty map, a REST
@@ -549,9 +549,10 @@ public class PaimonScanPlanProviderTest {
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
 
         // The connector boundary must keep one stable exception type while preserving the
-        // validation failure as its cause for diagnostics.
+        // actionable validation detail in the user-facing message and the original cause.
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.resolveScanTable(handle));
+        Assertions.assertTrue(e.getMessage().contains("scan.manifest.parallelism"));
         Assertions.assertInstanceOf(IllegalArgumentException.class, e.getCause());
         Assertions.assertTrue(e.getCause().getMessage().contains("scan.manifest.parallelism"));
     }
@@ -1733,7 +1734,7 @@ public class PaimonScanPlanProviderTest {
         long target = Math.max(1L, file.length() / 3);   // force the file to sub-split into >=2 ranges
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), target, 64L * 1024 * 1024);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), target, 64L * 1024 * 1024, 0);
 
         // WHY: the load-bearing correctness claim of FIX-NATIVE-SUBSPLIT — a paimon deletion vector is a
         // bitmap of GLOBAL file row positions, so EVERY sub-range of a DV-bearing file must carry the
@@ -1761,7 +1762,7 @@ public class PaimonScanPlanProviderTest {
         RawFile file = parquetRawFile("oss://bkt/a/part-0.parquet");
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L * 1024 * 1024);
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L * 1024 * 1024, 0);
 
         Assertions.assertEquals(1, ranges.size(),
                 "a non-positive target (COUNT(*) pushdown) must keep the file as one whole-file range");
@@ -2425,6 +2426,13 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertTrue(params.isSetSerializedTable(),
                 "the serialized paimon table must reach the scan-level thrift params");
         Assertions.assertEquals(scanProps.get("paimon.serialized_table"), params.getSerializedTable());
+        Assertions.assertTrue(params.isSetSerializedTableCacheKey());
+        Assertions.assertFalse(params.getSerializedTableCacheKey().isEmpty());
+
+        TFileScanRangeParams repeatedParams = new TFileScanRangeParams();
+        provider.populateScanLevelParams(repeatedParams, scanProps);
+        Assertions.assertEquals(params.getSerializedTableCacheKey(),
+                repeatedParams.getSerializedTableCacheKey());
     }
 
     @Test
@@ -2572,14 +2580,14 @@ public class PaimonScanPlanProviderTest {
         DeletionFile dv = new DeletionFile("/data/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange withDv = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L, 64 * MB);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L, 64 * MB, 0);
         Assertions.assertEquals(64L + dv.length(), withDv.getSelfSplitWeight(),
                 "native weight = sub-range length + the deletion-vector length");
         Assertions.assertEquals(64 * MB, withDv.getTargetSplitSize(),
                 "native range must carry the weight denominator");
 
         PaimonScanRange noDv = provider.buildNativeRange(
-                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 70L, 64 * MB);
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 70L, 64 * MB, 0);
         Assertions.assertEquals(70L, noDv.getSelfSplitWeight(),
                 "a DV-less native range weight is just the sub-range length");
     }
@@ -2597,7 +2605,7 @@ public class PaimonScanPlanProviderTest {
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
                 file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(),
-                fileSplitTarget, denominator);
+                fileSplitTarget, denominator, 0);
 
         Assertions.assertEquals(
                 PaimonScanPlanProvider.computeFileSplitOffsets(file.length(), fileSplitTarget).size(),
@@ -2620,7 +2628,7 @@ public class PaimonScanPlanProviderTest {
         RawFile file = parquetRawFile("/data/part-0.parquet");
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64 * MB);
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64 * MB, 0);
 
         Assertions.assertEquals(1, ranges.size(), "a non-positive target keeps the file whole");
         Assertions.assertEquals(64 * MB, ranges.get(0).getTargetSplitSize(),

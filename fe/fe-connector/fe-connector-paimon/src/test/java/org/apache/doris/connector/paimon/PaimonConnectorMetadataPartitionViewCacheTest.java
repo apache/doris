@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.types.DataTypes;

@@ -17,20 +17,21 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorValidationContext;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
@@ -252,6 +253,22 @@ public class PaimonConnector implements Connector {
         return new PaimonConnectorMetadata(
                 new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
                 properties, context, schemaAtMemo, latestSnapshotCache, partitionViewCache);
+    }
+
+    /**
+     * True for a handle this connector produced (a {@link PaimonTableHandle}). Tested against this connector's
+     * OWN in-loader type, so a gateway connector that embeds this one as a sibling can route a foreign paimon
+     * handle here without casting it across the plugin classloader split. Returns false for any other
+     * connector's handle, so the gateway keeps looking.
+     *
+     * <p>The default is {@code false}, which for a sibling means every one of the gateway's guards silently
+     * fails open and the first cast throws a ClassCastException instead — so this is required of any connector
+     * used as a sibling, not an optimization. Same implementation as the iceberg and hudi siblings behind the
+     * hms gateway.
+     */
+    @Override
+    public boolean ownsHandle(ConnectorTableHandle handle) {
+        return handle instanceof PaimonTableHandle;
     }
 
     @Override

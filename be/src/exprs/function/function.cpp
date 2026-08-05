@@ -296,6 +296,11 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
     check_number_of_arguments(arguments.size());
 
     if (!arguments.empty() && use_default_implementation_for_nulls()) {
+        if (std::ranges::any_of(arguments, [](const auto& argument) {
+                return argument.type->is_null_literal();
+            })) {
+            return make_nullable(std::make_shared<DataTypeNothing>());
+        }
         if (have_null_column(arguments)) {
             ColumnNumbers numbers(arguments.size());
             std::iota(numbers.begin(), numbers.end(), 0);

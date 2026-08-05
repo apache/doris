@@ -17,7 +17,8 @@
 
 package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -70,16 +71,19 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // ConnectorProvider gained detached property validation in this surface revision. Keeping
-        // major 1 would let pre-change plugins load while silently using the new default method.
-        Assertions.assertEquals("2.0", version.getProperty("api.version"));
+        // ConnectorWritePlanProvider and ConnectorColumnHandle gained public default methods in this
+        // surface revision. A plugin built against major 3 must be refused rather than silently run
+        // against an expanded contract it did not compile against.
+        Assertions.assertEquals("4.0", version.getProperty("api.version"));
     }
 
-    /** The types a connector plugin implements or calls. Everything reachable on them is the contract. */
+    /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorProvider.class,
             ConnectorContext.class,
             Connector.class,
+            ConnectorColumnHandle.class,
+            ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
             org.apache.doris.extension.spi.PluginContext.class);

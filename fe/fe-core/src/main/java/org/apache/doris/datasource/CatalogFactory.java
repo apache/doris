@@ -23,7 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.DefaultConnectorContext;
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;

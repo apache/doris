@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.BigintType;

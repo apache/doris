@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.hms.event;
 
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor.Op;
 import org.apache.doris.connector.hms.HmsNotificationEvent;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
 
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;

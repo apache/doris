@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.constraint.ConstraintManager;
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
