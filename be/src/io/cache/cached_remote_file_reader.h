@@ -86,6 +86,12 @@ public:
     /// @return Raw pointer to the underlying reader owned by this object.
     FileReader* get_remote_reader() { return _remote_file_reader.get(); }
 
+    /// Expose the immutable cache identity used by Phase 2 complete-block writeback.
+    const UInt128Wrapper& cache_hash() const { return _cache_hash; }
+
+    /// Expose the non-owning cache selected when this reader was constructed.
+    BlockFileCache* file_cache() const { return _cache; }
+
     /// Align a read range to file-cache block boundaries.
     /// @param[in] offset Requested read offset in bytes.
     /// @param[in] size Requested read size in bytes.

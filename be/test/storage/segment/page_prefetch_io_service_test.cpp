@@ -42,6 +42,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "storage/segment/file_cache_writeback_coordinator.h"
 #include "testutil/mock/mock_query_context.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
@@ -102,6 +103,33 @@ PageFetchRangeSpec make_service_spec(size_t offset, size_t size) {
                        .page_size = static_cast<uint32_t>(size),
                        .buffer_offset = 0}},
             .complete_blocks = {},
+    };
+}
+
+PageFetchRangeSpec make_complete_block_service_spec(size_t block_size) {
+    DORIS_CHECK(block_size <= std::numeric_limits<uint32_t>::max());
+    return PageFetchRangeSpec {
+            .offset = 0,
+            .size = 2 * block_size,
+            .requested_page_bytes = 2 * block_size,
+            .coalesced_gap_bytes = 0,
+            .block_fill_bytes = 0,
+            .pages = {{.page_index = 11,
+                       .page_offset = 0,
+                       .page_size = static_cast<uint32_t>(block_size),
+                       .buffer_offset = 0},
+                      {.page_index = 12,
+                       .page_offset = block_size,
+                       .page_size = static_cast<uint32_t>(block_size),
+                       .buffer_offset = block_size}},
+            .complete_blocks = {{.block_offset = 0,
+                                 .valid_size = block_size,
+                                 .buffer_offset = 0,
+                                 .source_page_indexes = {11}},
+                                {.block_offset = block_size,
+                                 .valid_size = block_size,
+                                 .buffer_offset = block_size,
+                                 .source_page_indexes = {12}}},
     };
 }
 
@@ -229,12 +257,14 @@ class PagePrefetchIOServiceTest : public io::BlockFileCacheTest {
 protected:
     void SetUp() override {
         _old_enable_async = config::enable_async_file_cache_write;
+        _old_enable_page_prefetch = config::enable_query_page_prefetch;
         _old_enable_inflight = config::enable_async_file_cache_write_inflight_write_buffer_index;
         _old_enable_direct = config::enable_read_cache_file_directly;
         _old_enable_peer = config::enable_cache_read_from_peer;
         _old_block_size = config::file_cache_each_block_size;
 
         config::enable_async_file_cache_write = true;
+        config::enable_query_page_prefetch = true;
         config::enable_async_file_cache_write_inflight_write_buffer_index = true;
         config::enable_read_cache_file_directly = false;
         config::enable_cache_read_from_peer = false;
@@ -251,6 +281,7 @@ protected:
             std::filesystem::remove_all(_cache_path, error);
         }
         config::enable_async_file_cache_write = _old_enable_async;
+        config::enable_query_page_prefetch = _old_enable_page_prefetch;
         config::enable_async_file_cache_write_inflight_write_buffer_index = _old_enable_inflight;
         config::enable_read_cache_file_directly = _old_enable_direct;
         config::enable_cache_read_from_peer = _old_enable_peer;
@@ -318,6 +349,7 @@ protected:
     io::BlockFileCache* _cache = nullptr;
     std::unique_ptr<ThreadPool> _pool;
     bool _old_enable_async = false;
+    bool _old_enable_page_prefetch = false;
     bool _old_enable_inflight = false;
     bool _old_enable_direct = false;
     bool _old_enable_peer = false;
@@ -444,6 +476,118 @@ TEST_F(PagePrefetchIOServiceTest, ReadsExactRangeWithWorkerOwnedContextAndBuffer
     EXPECT_TRUE(observed.bypass_peer_read);
     EXPECT_EQ(observed.align_mode, io::CacheAlignMode::UNALIGNED);
     EXPECT_EQ(observed.write_mode, io::CacheWriteMode::NO_WRITE);
+
+    range.reset();
+    EXPECT_EQ(query_context->resident_bytes(), 0);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), 0);
+    EXPECT_EQ(service.mem_tracker()->consumption(), 0);
+    service.shutdown();
+}
+
+TEST_F(PagePrefetchIOServiceTest, ConsumedPageWritesOnlyItsAssociatedValidCompleteBlock) {
+    create_cache("page_prefetch_writeback_usefulness");
+    create_pool(4);
+    const size_t block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    auto options = service_options();
+    options.query_limits.max_bytes = 4 * block_size;
+    PagePrefetchIOService service(_pool.get(), options);
+    auto reader = create_reader(open_remote_file());
+    const auto cache_hash = reader->cache_hash();
+    TUniqueId query_id = make_query_id(107, 109);
+    io::FileCacheStatistics query_file_cache_stats;
+    io::FileReaderStats query_file_reader_stats;
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    auto query_context = service.get_or_create_query_context(query_id, runtime_query_context);
+    auto submit = service.try_submit(
+            make_complete_block_service_spec(block_size), reader,
+            make_safe_context(query_id, &query_file_cache_stats, &query_file_reader_stats),
+            query_context);
+    ASSERT_EQ(submit.reject_reason, PagePrefetchRejectReason::NONE);
+    ASSERT_NE(submit.range, nullptr);
+    auto range = std::move(submit.range);
+    ASSERT_TRUE(range->wait_for_consume().ok());
+    _pool->wait();
+
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    std::mutex writeback_mutex;
+    std::condition_variable writeback_cv;
+    bool writeback_entered = false;
+    bool release_writeback = false;
+    sync_point->set_call_back(
+            "PagePrefetchIOService::_execute_writeback_copy:before_fixed_submit",
+            [&](auto&&) {
+                std::unique_lock lock(writeback_mutex);
+                writeback_entered = true;
+                writeback_cv.notify_all();
+                writeback_cv.wait(lock, [&]() { return release_writeback; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+    Defer release_blocked_writeback {[&]() {
+        {
+            std::lock_guard lock(writeback_mutex);
+            release_writeback = true;
+        }
+        writeback_cv.notify_all();
+    }};
+
+    FileCacheWritebackCoordinator coordinator(&service);
+    coordinator.mark_page_consumed(range, 11);
+    {
+        std::unique_lock lock(writeback_mutex);
+        ASSERT_TRUE(writeback_cv.wait_for(lock, std::chrono::seconds(5),
+                                          [&]() { return writeback_entered; }));
+    }
+    EXPECT_EQ(query_context->resident_bytes(), 3 * block_size);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), 3 * block_size);
+    EXPECT_EQ(service.outstanding_tasks(), 1);
+
+    coordinator.invalidate_page(range, 12);
+    coordinator.mark_page_consumed(range, 12);
+    {
+        std::lock_guard lock(writeback_mutex);
+        release_writeback = true;
+    }
+    writeback_cv.notify_all();
+    _pool->wait();
+    EXPECT_EQ(query_context->resident_bytes(), 2 * block_size);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), 2 * block_size);
+    EXPECT_EQ(service.outstanding_tasks(), 0);
+
+    coordinator.mark_page_consumed(range, 11);
+    EXPECT_EQ(service.outstanding_tasks(), 0);
+    for (size_t attempt = 0; attempt < 500 && _cache->async_write_service()->pending_count() != 0;
+         ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(_cache->async_write_service()->pending_count(), 0);
+
+    io::ReadStatistics read_stats;
+    io::CacheContext cache_context;
+    cache_context.stats = &read_stats;
+    io::FileBlocks blocks;
+    bool fully_covered = false;
+    ASSERT_TRUE(_cache->get_downloaded_blocks_if_fully_covered(
+                              cache_hash, 0, block_size, cache_context, &blocks, &fully_covered)
+                        .ok());
+    ASSERT_TRUE(fully_covered);
+    ASSERT_EQ(blocks.size(), 1);
+    std::string first_block(block_size, '\0');
+    ASSERT_TRUE(blocks.front()->read(Slice(first_block.data(), first_block.size()), 0).ok());
+    EXPECT_EQ(first_block, std::string(block_size, '0'));
+
+    blocks.clear();
+    fully_covered = false;
+    ASSERT_TRUE(_cache->get_downloaded_blocks_if_fully_covered(cache_hash, block_size, block_size,
+                                                               cache_context, &blocks,
+                                                               &fully_covered)
+                        .ok());
+    EXPECT_FALSE(fully_covered);
 
     range.reset();
     EXPECT_EQ(query_context->resident_bytes(), 0);

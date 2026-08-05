@@ -28,8 +28,17 @@ namespace doris::segment_v2 {
 /// Adds density-qualified complete cache blocks to an existing page read plan without performing IO.
 class FileCacheWritebackCoordinator {
 public:
+    FileCacheWritebackCoordinator() = default;
+    explicit FileCacheWritebackCoordinator(PagePrefetchIOService* io_service)
+            : _io_service(io_service) {}
+
     Status plan_block_completion(const std::vector<PageCandidate>& pages, uint64_t file_size,
                                  const PagePrefetchOptions& options, PageFetchPlan* plan) const;
+    void mark_page_consumed(const std::shared_ptr<PrefetchRange>& range, uint32_t page_index) const;
+    void invalidate_page(const std::shared_ptr<PrefetchRange>& range, uint32_t page_index) const;
+
+private:
+    PagePrefetchIOService* _io_service = nullptr;
 };
 
 } // namespace doris::segment_v2

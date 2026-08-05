@@ -23,10 +23,12 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/config.h"
 #include "core/allocator.h"
 #include "cpp/sync_point.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/fixed_block_async_write_submitter.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
@@ -373,8 +375,12 @@ Status PagePrefetchBuffer::create(size_t size, std::shared_ptr<MemTrackerLimiter
     return Status::OK();
 }
 
-PrefetchRange::PrefetchRange(PageFetchRangeSpec spec, std::shared_ptr<PagePrefetchBuffer> buffer)
-        : _spec(std::move(spec)), _buffer(std::move(buffer)) {
+PrefetchRange::PrefetchRange(PageFetchRangeSpec spec, std::shared_ptr<PagePrefetchBuffer> buffer,
+                             std::optional<PagePrefetchWritebackContext> writeback_ctx)
+        : _spec(std::move(spec)),
+          _buffer(std::move(buffer)),
+          _writeback_ctx(std::move(writeback_ctx)),
+          _complete_block_writeback_states(_spec.complete_blocks.size()) {
     DORIS_CHECK(_buffer != nullptr);
     DORIS_CHECK(_spec.size > 0);
     DORIS_CHECK(_spec.size == _buffer->size());
@@ -392,6 +398,12 @@ PrefetchRange::PrefetchRange(PageFetchRangeSpec spec, std::shared_ptr<PagePrefet
     for (const auto& block : _spec.complete_blocks) {
         DORIS_CHECK(block.buffer_offset <= _spec.size);
         DORIS_CHECK(block.valid_size <= _spec.size - block.buffer_offset);
+    }
+    DORIS_CHECK(_spec.complete_blocks.empty() || _writeback_ctx.has_value());
+    if (_writeback_ctx.has_value()) {
+        DORIS_CHECK(_writeback_ctx->cache != nullptr);
+        DORIS_CHECK(_writeback_ctx->file_size > 0);
+        DORIS_CHECK(_writeback_ctx->query_ctx != nullptr);
     }
 }
 
@@ -488,6 +500,63 @@ Slice PrefetchRange::page_slice(size_t descriptor_index) const {
     DORIS_CHECK(descriptor.buffer_offset <= _buffer->size());
     DORIS_CHECK(descriptor.page_size <= _buffer->size() - descriptor.buffer_offset);
     return Slice(_buffer->data() + descriptor.buffer_offset, descriptor.page_size);
+}
+
+Slice PrefetchRange::complete_block_slice(size_t block_index) const {
+    std::lock_guard lock(_mutex);
+    DORIS_CHECK(_state == State::READY);
+    DORIS_CHECK(block_index < _spec.complete_blocks.size());
+    const auto& block = _spec.complete_blocks[block_index];
+    DORIS_CHECK(block.buffer_offset <= _buffer->size());
+    DORIS_CHECK(block.valid_size <= _buffer->size() - block.buffer_offset);
+    return Slice(_buffer->data() + block.buffer_offset, block.valid_size);
+}
+
+std::vector<size_t> PrefetchRange::claim_complete_blocks_for_page(uint32_t page_index) {
+    std::lock_guard lock(_mutex);
+    DORIS_CHECK(_state == State::READY);
+    std::vector<size_t> claimed_blocks;
+    for (size_t block_index = 0; block_index < _spec.complete_blocks.size(); ++block_index) {
+        const auto& block = _spec.complete_blocks[block_index];
+        if (std::find(block.source_page_indexes.begin(), block.source_page_indexes.end(),
+                      page_index) == block.source_page_indexes.end()) {
+            continue;
+        }
+        auto& writeback_state = _complete_block_writeback_states[block_index];
+        if (writeback_state.claimed || writeback_state.invalid) {
+            continue;
+        }
+        writeback_state.claimed = true;
+        claimed_blocks.push_back(block_index);
+    }
+    return claimed_blocks;
+}
+
+void PrefetchRange::invalidate_complete_blocks_for_page(uint32_t page_index) {
+    std::lock_guard lock(_mutex);
+    DORIS_CHECK(_state == State::READY);
+    for (size_t block_index = 0; block_index < _spec.complete_blocks.size(); ++block_index) {
+        const auto& source_pages = _spec.complete_blocks[block_index].source_page_indexes;
+        if (std::find(source_pages.begin(), source_pages.end(), page_index) != source_pages.end()) {
+            _complete_block_writeback_states[block_index].invalid = true;
+        }
+    }
+}
+
+void PrefetchRange::mark_complete_block_writeback_skipped(size_t block_index) {
+    std::lock_guard lock(_mutex);
+    DORIS_CHECK(block_index < _complete_block_writeback_states.size());
+    auto& writeback_state = _complete_block_writeback_states[block_index];
+    DORIS_CHECK(writeback_state.claimed);
+    writeback_state.skipped = true;
+}
+
+bool PrefetchRange::complete_block_writeback_eligible(size_t block_index) const {
+    std::lock_guard lock(_mutex);
+    DORIS_CHECK(block_index < _complete_block_writeback_states.size());
+    const auto& writeback_state = _complete_block_writeback_states[block_index];
+    return _state == State::READY && writeback_state.claimed && !writeback_state.invalid &&
+           !writeback_state.skipped;
 }
 
 RangeReadStats PrefetchRange::read_stats() const {
@@ -681,6 +750,25 @@ PagePrefetchSubmitResult PagePrefetchIOService::try_submit(
     DORIS_CHECK(spec.offset < reader->size());
     DORIS_CHECK(spec.size <= reader->size() - spec.offset);
 
+    std::optional<PagePrefetchWritebackContext> writeback_ctx;
+    if (!spec.complete_blocks.empty()) {
+        DORIS_CHECK(!io_ctx.remote_only_on_miss);
+        auto* cache = reader->file_cache();
+        DORIS_CHECK(cache != nullptr);
+        auto* async_write_service = cache->async_write_service();
+        DORIS_CHECK(async_write_service != nullptr);
+        const auto cache_hash = reader->cache_hash();
+        writeback_ctx = PagePrefetchWritebackContext {
+                .cache = cache,
+                .cache_hash = cache_hash,
+                .file_size = reader->size(),
+                .admission_ctx = io_ctx.admission_ctx,
+                .write_epoch = async_write_service->current_write_epoch(cache_hash),
+                .remote_only_on_miss = io_ctx.remote_only_on_miss,
+                .query_ctx = query_ctx,
+        };
+    }
+
     PagePrefetchSubmitResult result;
     if (!_begin_submit()) {
         result.reject_reason = PagePrefetchRejectReason::SHUTTING_DOWN;
@@ -708,7 +796,8 @@ PagePrefetchSubmitResult PagePrefetchIOService::try_submit(
         return result;
     }
 
-    auto range = std::make_shared<PrefetchRange>(std::move(spec), std::move(buffer));
+    auto range = std::make_shared<PrefetchRange>(std::move(spec), std::move(buffer),
+                                                 std::move(writeback_ctx));
     _register_query_context(query_ctx);
     query_ctx->register_range(range);
     range->mark_queued();
@@ -732,6 +821,51 @@ PagePrefetchSubmitResult PagePrefetchIOService::try_submit(
 
     result.range = std::move(range);
     return result;
+}
+
+bool PagePrefetchIOService::try_submit_writeback_copy(WritebackCopyRequest request) {
+    DORIS_CHECK(request.range != nullptr);
+    DORIS_CHECK(request.complete_block_index < request.range->spec().complete_blocks.size());
+    const auto* writeback_ctx = request.range->writeback_context();
+    DORIS_CHECK(writeback_ctx != nullptr);
+    DORIS_CHECK(writeback_ctx->query_ctx != nullptr);
+
+    auto reject = [&request]() {
+        request.range->mark_complete_block_writeback_skipped(request.complete_block_index);
+        return false;
+    };
+    if (!_begin_submit()) {
+        return reject();
+    }
+    Defer finish_submit {[this]() { _finish_submit(); }};
+    if (!config::enable_query_page_prefetch || !config::enable_async_file_cache_write ||
+        writeback_ctx->remote_only_on_miss || writeback_ctx->query_ctx->cancelled() ||
+        !request.range->complete_block_writeback_eligible(request.complete_block_index)) {
+        return reject();
+    }
+
+    const size_t block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    DORIS_CHECK(block_size > 0);
+    PagePrefetchRejectReason reject_reason = PagePrefetchRejectReason::NONE;
+    auto reservation = PagePrefetchReservation::try_reserve_writeback(
+            writeback_ctx->query_ctx, _global_budget, block_size, &reject_reason);
+    if (!reservation.has_value()) {
+        return reject();
+    }
+    auto reservation_holder = std::make_shared<PagePrefetchReservation>(std::move(*reservation));
+
+    if (!_reserve_outstanding_task()) {
+        return reject();
+    }
+    Status submit_status = _pool->submit_func([this, request, reservation_holder]() mutable {
+        Defer finish_task {[this]() { _finish_outstanding_task(); }};
+        _execute_writeback_copy(request, reservation_holder);
+    });
+    if (!submit_status.ok()) {
+        _finish_outstanding_task();
+        return reject();
+    }
+    return true;
 }
 
 Status PagePrefetchIOService::update_options(const PagePrefetchIOServiceOptions& options) {
@@ -877,6 +1011,65 @@ void PagePrefetchIOService::_execute_range(
         range->publish_failed(std::move(status), std::move(read_stats));
     } else {
         range->publish_ready(std::move(read_stats));
+    }
+}
+
+void PagePrefetchIOService::_execute_writeback_copy(
+        const WritebackCopyRequest& request,
+        const std::shared_ptr<PagePrefetchReservation>& reservation) {
+    DORIS_CHECK(request.range != nullptr);
+    DORIS_CHECK(reservation != nullptr);
+    DORIS_CHECK(reservation->valid());
+    const size_t block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    DORIS_CHECK(reservation->bytes() == block_size);
+    DORIS_CHECK(request.complete_block_index < request.range->spec().complete_blocks.size());
+    const auto* writeback_ctx = request.range->writeback_context();
+    DORIS_CHECK(writeback_ctx != nullptr);
+    DORIS_CHECK(writeback_ctx->cache != nullptr);
+    DORIS_CHECK(writeback_ctx->query_ctx != nullptr);
+
+    auto skip = [&request]() {
+        request.range->mark_complete_block_writeback_skipped(request.complete_block_index);
+    };
+    auto* async_write_service = writeback_ctx->cache->async_write_service();
+    DORIS_CHECK(async_write_service != nullptr);
+    if (!accepting() || !config::enable_query_page_prefetch ||
+        !config::enable_async_file_cache_write || writeback_ctx->remote_only_on_miss ||
+        writeback_ctx->query_ctx->cancelled() ||
+        !request.range->complete_block_writeback_eligible(request.complete_block_index) ||
+        !async_write_service->is_current_write_epoch(writeback_ctx->write_epoch)) {
+        skip();
+        return;
+    }
+
+    const auto& block = request.range->spec().complete_blocks[request.complete_block_index];
+    DORIS_CHECK(block.block_offset % block_size == 0);
+    DORIS_CHECK(block.block_offset < writeback_ctx->file_size);
+    DORIS_CHECK(block.valid_size ==
+                std::min(block_size, writeback_ctx->file_size - block.block_offset));
+    const Slice payload = request.range->complete_block_slice(request.complete_block_index);
+    DORIS_CHECK(payload.size == block.valid_size);
+    TEST_SYNC_POINT("PagePrefetchIOService::_execute_writeback_copy:before_fixed_submit");
+    if (!config::enable_query_page_prefetch || !config::enable_async_file_cache_write ||
+        writeback_ctx->query_ctx->cancelled() ||
+        !request.range->complete_block_writeback_eligible(request.complete_block_index) ||
+        !async_write_service->is_current_write_epoch(writeback_ctx->write_epoch)) {
+        skip();
+        return;
+    }
+
+    const auto result = io::FixedBlockAsyncWriteSubmitter::try_submit({
+            .cache = writeback_ctx->cache,
+            .cache_hash = writeback_ctx->cache_hash,
+            .block_offset = block.block_offset,
+            .valid_size = block.valid_size,
+            .file_size = writeback_ctx->file_size,
+            .complete_payload = payload,
+            .admission_ctx = writeback_ctx->admission_ctx,
+            .write_epoch = writeback_ctx->write_epoch,
+    });
+    if (result != io::FixedBlockSubmitResult::SUBMITTED) {
+        skip();
     }
 }
 

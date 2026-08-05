@@ -291,4 +291,44 @@ Status FileCacheWritebackCoordinator::plan_block_completion(const std::vector<Pa
     return Status::OK();
 }
 
+void FileCacheWritebackCoordinator::mark_page_consumed(const std::shared_ptr<PrefetchRange>& range,
+                                                       uint32_t page_index) const {
+    DORIS_CHECK(range != nullptr);
+    DORIS_CHECK(std::any_of(range->spec().pages.begin(), range->spec().pages.end(),
+                            [page_index](const PageSliceDescriptor& page) {
+                                return page.page_index == page_index;
+                            }));
+    if (!config::enable_query_page_prefetch || !config::enable_async_file_cache_write ||
+        range->spec().complete_blocks.empty()) {
+        return;
+    }
+    const auto* writeback_ctx = range->writeback_context();
+    DORIS_CHECK(writeback_ctx != nullptr);
+    if (writeback_ctx->remote_only_on_miss) {
+        return;
+    }
+
+    auto claimed_blocks = range->claim_complete_blocks_for_page(page_index);
+    if (claimed_blocks.empty()) {
+        return;
+    }
+    DORIS_CHECK(_io_service != nullptr);
+    for (size_t block_index : claimed_blocks) {
+        _io_service->try_submit_writeback_copy({
+                .range = range,
+                .complete_block_index = block_index,
+        });
+    }
+}
+
+void FileCacheWritebackCoordinator::invalidate_page(const std::shared_ptr<PrefetchRange>& range,
+                                                    uint32_t page_index) const {
+    DORIS_CHECK(range != nullptr);
+    DORIS_CHECK(std::any_of(range->spec().pages.begin(), range->spec().pages.end(),
+                            [page_index](const PageSliceDescriptor& page) {
+                                return page.page_index == page_index;
+                            }));
+    range->invalidate_complete_blocks_for_page(page_index);
+}
+
 } // namespace doris::segment_v2

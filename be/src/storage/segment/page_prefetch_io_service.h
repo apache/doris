@@ -96,6 +96,7 @@ enum class PagePrefetchRejectReason : uint8_t {
 
 class PrefetchRange;
 class PagePrefetchReservation;
+class PagePrefetchQueryContext;
 
 class PagePrefetchGlobalBudget {
 public:
@@ -220,6 +221,16 @@ private:
     PagePrefetchReservation _reservation;
 };
 
+struct PagePrefetchWritebackContext {
+    io::BlockFileCache* cache = nullptr;
+    io::UInt128Wrapper cache_hash;
+    size_t file_size = 0;
+    io::CacheAdmissionContext admission_ctx;
+    io::AsyncCacheWriteEpoch write_epoch;
+    bool remote_only_on_miss = false;
+    std::shared_ptr<PagePrefetchQueryContext> query_ctx;
+};
+
 class PrefetchRange {
 public:
     enum class State : uint8_t {
@@ -232,7 +243,8 @@ public:
         REJECTED,
     };
 
-    PrefetchRange(PageFetchRangeSpec spec, std::shared_ptr<PagePrefetchBuffer> buffer);
+    PrefetchRange(PageFetchRangeSpec spec, std::shared_ptr<PagePrefetchBuffer> buffer,
+                  std::optional<PagePrefetchWritebackContext> writeback_ctx = std::nullopt);
 
     void mark_queued();
     bool mark_running();
@@ -246,17 +258,32 @@ public:
     State state() const;
     bool cancel_requested() const;
     Slice page_slice(size_t descriptor_index) const;
+    Slice complete_block_slice(size_t block_index) const;
+    std::vector<size_t> claim_complete_blocks_for_page(uint32_t page_index);
+    void invalidate_complete_blocks_for_page(uint32_t page_index);
+    void mark_complete_block_writeback_skipped(size_t block_index);
+    bool complete_block_writeback_eligible(size_t block_index) const;
     const PageFetchRangeSpec& spec() const { return _spec; }
     std::shared_ptr<PagePrefetchBuffer> buffer() const { return _buffer; }
+    const PagePrefetchWritebackContext* writeback_context() const {
+        return _writeback_ctx.has_value() ? &*_writeback_ctx : nullptr;
+    }
     RangeReadStats read_stats() const;
     bool take_read_stats_once(RangeReadStats* read_stats);
 
 private:
+    struct CompleteBlockWritebackState {
+        bool claimed = false;
+        bool invalid = false;
+        bool skipped = false;
+    };
+
     static bool _is_terminal(State state);
     void _publish_from_running(State state, Status status, RangeReadStats read_stats);
 
     const PageFetchRangeSpec _spec;
     const std::shared_ptr<PagePrefetchBuffer> _buffer;
+    const std::optional<PagePrefetchWritebackContext> _writeback_ctx;
     mutable std::mutex _mutex;
     std::condition_variable _cv;
     State _state = State::CREATED;
@@ -264,6 +291,7 @@ private:
     RangeReadStats _read_stats;
     bool _cancel_requested = false;
     bool _stats_merged = false;
+    std::vector<CompleteBlockWritebackState> _complete_block_writeback_states;
 };
 
 struct PagePrefetchSafeIOContext {
@@ -290,6 +318,11 @@ struct PagePrefetchSubmitResult {
     PagePrefetchRejectReason reject_reason = PagePrefetchRejectReason::NONE;
 };
 
+struct WritebackCopyRequest {
+    std::shared_ptr<PrefetchRange> range;
+    size_t complete_block_index = 0;
+};
+
 struct PagePrefetchIOServiceOptions {
     PagePrefetchBudgetLimits query_limits;
     PagePrefetchBudgetLimits global_limits;
@@ -310,6 +343,7 @@ public:
                                         std::shared_ptr<io::CachedRemoteFileReader> reader,
                                         PagePrefetchSafeIOContext io_ctx,
                                         std::shared_ptr<PagePrefetchQueryContext> query_ctx);
+    bool try_submit_writeback_copy(WritebackCopyRequest request);
     Status update_options(const PagePrefetchIOServiceOptions& options);
     PagePrefetchIOServiceOptions options() const;
     void shutdown();
@@ -329,6 +363,8 @@ private:
                         const std::shared_ptr<io::CachedRemoteFileReader>& reader,
                         PagePrefetchSafeIOContext io_ctx,
                         const std::shared_ptr<PagePrefetchQueryContext>& query_ctx);
+    void _execute_writeback_copy(const WritebackCopyRequest& request,
+                                 const std::shared_ptr<PagePrefetchReservation>& reservation);
 
     ThreadPool* const _pool;
     atomic_shared_ptr<const PagePrefetchIOServiceOptions> _options;
