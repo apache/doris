@@ -53,6 +53,9 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -64,6 +67,8 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -676,5 +681,51 @@ public class BackupJobTest {
         Assert.assertEquals("tbl", tableRef.getTableNameInfo().getTbl());
         Assert.assertEquals(Lists.newArrayList("p1", "p2"),
                 tableRef.getPartitionNamesInfo().getPartitionNames());
+    }
+
+    @Test
+    public void testCancelPendingJobWithMissingPersistedTableReference() throws IOException {
+        JsonObject jobJson = JsonParser.parseString(GsonUtils.GSON.toJson(job)).getAsJsonObject();
+        // This is the exact shape written while TableRefInfo lacked @SerializedName annotations.
+        JsonArray corruptedTableRefs = new JsonArray();
+        corruptedTableRefs.add(new JsonObject());
+        jobJson.add("ref", corruptedTableRefs);
+        String corruptedJobJson = jobJson.toString();
+
+        BackupJob replayedJob = GsonUtils.GSON.fromJson(corruptedJobJson, BackupJob.class);
+        replayedJob.setEnv(env);
+        Assert.assertEquals(BackupJobState.PENDING.name(), replayedJob.getInfo().get(3));
+        replayedJob.run();
+
+        Assert.assertTrue(replayedJob.isCancelled());
+        Assert.assertEquals(BackupJobState.CANCELLED.name(), replayedJob.getInfo().get(3));
+        Assert.assertTrue(replayedJob.getStatus().getErrMsg().contains(
+                "table reference metadata is missing from the edit log"));
+
+        BackupJob replayedCancelledJob = writeAndRead(replayedJob);
+        replayedCancelledJob.setEnv(env);
+        replayedCancelledJob.run();
+        Assert.assertTrue(replayedCancelledJob.isCancelled());
+
+        JsonObject finishedJobJson = JsonParser.parseString(corruptedJobJson).getAsJsonObject();
+        finishedJobJson.addProperty("st", BackupJobState.FINISHED.name());
+        BackupJob replayedFinishedJob = GsonUtils.GSON.fromJson(finishedJobJson.toString(), BackupJob.class);
+        replayedFinishedJob.setEnv(env);
+        replayedFinishedJob.run();
+        Assert.assertTrue(replayedFinishedJob.isFinished());
+
+        Mockito.verify(editLog, Mockito.times(1)).logBackupJob(ArgumentMatchers.any(BackupJob.class));
+        mockedAgentTaskExecutor.verifyNoInteractions();
+    }
+
+    private BackupJob writeAndRead(BackupJob backupJob) throws IOException {
+        ByteArrayOutputStream outputBytes = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(outputBytes)) {
+            backupJob.write(output);
+        }
+        try (DataInputStream input = new DataInputStream(
+                new ByteArrayInputStream(outputBytes.toByteArray()))) {
+            return BackupJob.read(input);
+        }
     }
 }

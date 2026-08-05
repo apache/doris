@@ -454,6 +454,17 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
+        // TableRefInfo fields were not persisted by some earlier versions. A PENDING job cannot
+        // reconstruct the requested tables after replay, so cancel it with an actionable error
+        // instead of repeatedly failing while preparing snapshot tasks.
+        if (state == BackupJobState.PENDING && hasMissingTableReference()) {
+            status = new Status(ErrCode.COMMON_ERROR,
+                    "failed to resume backup job because table reference metadata is missing from the edit log; "
+                            + "submit the backup again");
+            cancelInternal();
+            return;
+        }
+
         // check timeout
         if (System.currentTimeMillis() - createTime > timeoutMs) {
             status = new Status(ErrCode.TIMEOUT, "");
@@ -513,6 +524,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         if (!status.ok() && state != BackupJobState.UPLOAD_INFO) {
             cancelInternal();
         }
+    }
+
+    private boolean hasMissingTableReference() {
+        return tableRefs.stream().anyMatch(tableRef -> tableRef.getTableNameInfo() == null);
     }
 
     // cancel by user
