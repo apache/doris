@@ -165,6 +165,7 @@ public:
     void cancel();
 
     const PagePrefetcherStatistics& statistics() const { return _statistics; }
+    bool tracks(uint32_t page_index) const { return _entries.contains(page_index); }
     size_t tracked_pages() const { return _entries.size(); }
 
 private:

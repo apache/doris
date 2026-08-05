@@ -35,15 +35,21 @@
 #include <vector>
 
 #include "cloud/config.h"
+#include "core/assert_cast.h"
+#include "core/column/column_vector.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_test_common.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "storage/segment/column_reader.h"
+#include "storage/segment/column_writer.h"
 #include "storage/segment/file_cache_writeback_coordinator.h"
 #include "storage/segment/page_prefetcher.h"
+#include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_query_context.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
@@ -150,7 +156,7 @@ io::FileCacheSettings service_cache_settings() {
     settings.disposable_queue_size = 2 * 1024 * 1024;
     settings.disposable_queue_elements = 4;
     settings.capacity = 16 * 1024 * 1024;
-    settings.max_file_block_size = 1024 * 1024;
+    settings.max_file_block_size = static_cast<size_t>(config::file_cache_each_block_size);
     settings.max_query_cache_size = 0;
     return settings;
 }
@@ -165,6 +171,8 @@ struct ObservedIOContext {
     size_t offset = 0;
     size_t size = 0;
     size_t read_count = 0;
+    size_t page_prefetch_read_count = 0;
+    size_t normal_read_count = 0;
     const TUniqueId* query_id_pointer = nullptr;
     std::optional<TUniqueId> query_id_value;
     io::FileCacheStatistics* file_cache_stats = nullptr;
@@ -182,8 +190,12 @@ struct ObservedIOContext {
 
 class InspectingFileReader final : public io::FileReader {
 public:
-    InspectingFileReader(io::FileReaderSPtr delegate, bool block, bool fail)
-            : _delegate(std::move(delegate)), _released(!block), _fail(fail) {}
+    InspectingFileReader(io::FileReaderSPtr delegate, bool block, bool fail,
+                         bool corrupt_page_prefetch = false)
+            : _delegate(std::move(delegate)),
+              _released(!block),
+              _fail(fail),
+              _corrupt_page_prefetch(corrupt_page_prefetch) {}
 
     Status close() override { return _delegate->close(); }
     const io::Path& path() const override { return _delegate->path(); }
@@ -213,11 +225,19 @@ protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext* io_ctx) override {
         DORIS_CHECK(io_ctx != nullptr);
+        const bool is_page_prefetch =
+                io_ctx->cache_align_mode_override == io::CacheAlignMode::UNALIGNED &&
+                io_ctx->cache_write_mode_override == io::CacheWriteMode::NO_WRITE;
         {
             std::unique_lock lock(_mutex);
             _observed.offset = offset;
             _observed.size = result.size;
             ++_observed.read_count;
+            if (is_page_prefetch) {
+                ++_observed.page_prefetch_read_count;
+            } else {
+                ++_observed.normal_read_count;
+            }
             _observed.query_id_pointer = io_ctx->query_id;
             if (io_ctx->query_id != nullptr) {
                 _observed.query_id_value = *io_ctx->query_id;
@@ -241,7 +261,11 @@ protected:
             *bytes_read = 0;
             return Status::IOError("injected page prefetch read failure");
         }
-        return _delegate->read_at(offset, result, bytes_read, io_ctx);
+        auto status = _delegate->read_at(offset, result, bytes_read, io_ctx);
+        if (status.ok() && _corrupt_page_prefetch && is_page_prefetch && *bytes_read > 0) {
+            result.data[0] ^= 0x7f;
+        }
+        return status;
     }
 
 private:
@@ -252,6 +276,7 @@ private:
     bool _entered = false;
     bool _released = false;
     const bool _fail;
+    const bool _corrupt_page_prefetch;
 };
 
 class PagePrefetchIOServiceTest : public io::BlockFileCacheTest {
@@ -280,6 +305,10 @@ protected:
         if (!_cache_path.empty()) {
             std::error_code error;
             std::filesystem::remove_all(_cache_path, error);
+        }
+        for (const auto& path : _remote_file_paths) {
+            std::error_code error;
+            std::filesystem::remove(path, error);
         }
         config::enable_async_file_cache_write = _old_enable_async;
         config::enable_query_page_prefetch = _old_enable_page_prefetch;
@@ -317,6 +346,53 @@ protected:
         return reader;
     }
 
+    void create_encoded_int_column(std::string_view name, size_t num_rows, ColumnMetaPB* meta,
+                                   io::FileReaderSPtr* reader) {
+        auto path = _cache_path.parent_path() / name;
+        _remote_file_paths.push_back(path);
+        std::error_code error;
+        std::filesystem::remove(path, error);
+
+        io::FileWriterPtr file_writer;
+        auto status = io::global_local_filesystem()->create_file(path.string(), &file_writer);
+        ASSERT_TRUE(status.ok()) << status;
+
+        ColumnWriterOptions writer_options;
+        writer_options.meta = meta;
+        writer_options.meta->set_column_id(0);
+        writer_options.meta->set_unique_id(0);
+        writer_options.meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+        writer_options.meta->set_length(0);
+        writer_options.meta->set_encoding(PLAIN_ENCODING);
+        writer_options.meta->set_compression(CompressionTypePB::LZ4F);
+        writer_options.meta->set_is_nullable(false);
+        writer_options.data_page_size = 64;
+        writer_options.need_zone_map = false;
+
+        TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT);
+        std::unique_ptr<ColumnWriter> writer;
+        status = ColumnWriter::create(writer_options, &column, file_writer.get(), &writer);
+        ASSERT_TRUE(status.ok()) << status;
+        status = writer->init();
+        ASSERT_TRUE(status.ok()) << status;
+        for (int32_t value = 0; value < static_cast<int32_t>(num_rows); ++value) {
+            status = writer->append(false, &value);
+            ASSERT_TRUE(status.ok()) << status;
+        }
+        status = writer->finish();
+        ASSERT_TRUE(status.ok()) << status;
+        status = writer->write_data();
+        ASSERT_TRUE(status.ok()) << status;
+        status = writer->write_ordinal_index();
+        ASSERT_TRUE(status.ok()) << status;
+        status = file_writer->close();
+        ASSERT_TRUE(status.ok()) << status;
+
+        status = io::global_local_filesystem()->open_file(path.string(), reader);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+
     std::shared_ptr<io::CachedRemoteFileReader> create_reader(io::FileReaderSPtr remote_reader) {
         io::FileReaderOptions options;
         options.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
@@ -347,6 +423,7 @@ protected:
 
     static constexpr int64_t kTabletId = 10086;
     std::filesystem::path _cache_path;
+    std::vector<std::filesystem::path> _remote_file_paths;
     io::BlockFileCache* _cache = nullptr;
     std::unique_ptr<ThreadPool> _pool;
     bool _old_enable_async = false;
@@ -570,6 +647,141 @@ TEST_F(PagePrefetchIOServiceTest, PagePrefetcherTracksWindowConsumptionAndSkippe
     EXPECT_EQ(statistics.fetched_bytes, 64);
     EXPECT_EQ(statistics.coalesced_gap_bytes, 16);
     EXPECT_EQ(statistics.remote_bytes, 64);
+    service.shutdown();
+}
+
+TEST_F(PagePrefetchIOServiceTest, FileColumnIteratorConsumesPrefetchedSlices) {
+    const auto old_cloud_unique_id = config::cloud_unique_id;
+    Defer restore_cloud_unique_id {[&]() { config::cloud_unique_id = old_cloud_unique_id; }};
+    config::cloud_unique_id = "page-prefetch-io-service-test";
+    config::file_cache_each_block_size = 256;
+    create_cache("file_column_iterator_consumes_prefetched_slices");
+    create_pool(8);
+    PagePrefetchIOService service(_pool.get(), service_options());
+
+    constexpr size_t num_rows = 512;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr local_reader;
+    create_encoded_int_column("file_column_iterator_consumes_prefetched_slices.column", num_rows,
+                              &meta, &local_reader);
+    auto inspecting_reader =
+            std::make_shared<InspectingFileReader>(std::move(local_reader), false, false);
+    auto cached_reader = create_reader(inspecting_reader);
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> column_reader;
+    auto status =
+            ColumnReader::create(reader_options, meta, num_rows, cached_reader, &column_reader);
+    ASSERT_TRUE(status.ok()) << status;
+
+    TUniqueId query_id = make_query_id(307, 311);
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    io::IOContext io_context;
+    io_context.reader_type = ReaderType::READER_QUERY;
+    io_context.query_id = &query_id;
+    OlapReaderStatistics reader_statistics;
+    {
+        FileColumnIterator iterator(column_reader);
+        ColumnIteratorOptions iterator_options;
+        iterator_options.use_page_cache = false;
+        iterator_options.file_reader = cached_reader.get();
+        iterator_options.stats = &reader_statistics;
+        iterator_options.io_ctx = io_context;
+        iterator_options.query_ctx = runtime_query_context;
+        iterator_options.page_prefetch_io_service = &service;
+        iterator_options.tablet_id = kTabletId;
+        status = iterator.init(iterator_options);
+        ASSERT_TRUE(status.ok()) << status;
+        status = iterator.seek_to_ordinal(0);
+        ASSERT_TRUE(status.ok()) << status;
+
+        MutableColumnPtr destination = ColumnInt32::create();
+        size_t rows_to_read = 128;
+        bool has_null = false;
+        status = iterator.next_batch(&rows_to_read, destination, &has_null);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_FALSE(has_null);
+        ASSERT_EQ(rows_to_read, 128);
+        ASSERT_EQ(destination->size(), 128);
+        const auto& values = assert_cast<const ColumnInt32&>(*destination).get_data();
+        for (int32_t value = 0; value < 128; ++value) {
+            EXPECT_EQ(values[value], value);
+        }
+
+        const auto* statistics = iterator.page_prefetch_statistics_for_test();
+        ASSERT_NE(statistics, nullptr);
+        EXPECT_GT(statistics->submitted_pages, 0);
+        EXPECT_GT(statistics->consumed_pages, 0);
+        EXPECT_EQ(statistics->fallback_pages, 0);
+    }
+    _pool->wait();
+    EXPECT_GT(inspecting_reader->observed().page_prefetch_read_count, 0);
+    service.shutdown();
+}
+
+TEST_F(PagePrefetchIOServiceTest, FileColumnIteratorFallsBackAfterPrefetchedSliceCorruption) {
+    const auto old_cloud_unique_id = config::cloud_unique_id;
+    Defer restore_cloud_unique_id {[&]() { config::cloud_unique_id = old_cloud_unique_id; }};
+    config::cloud_unique_id = "page-prefetch-io-service-test";
+    config::file_cache_each_block_size = 256;
+    create_cache("file_column_iterator_prefetched_slice_corruption");
+    create_pool(8);
+    PagePrefetchIOService service(_pool.get(), service_options());
+
+    constexpr size_t num_rows = 512;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr local_reader;
+    create_encoded_int_column("file_column_iterator_prefetched_slice_corruption.column", num_rows,
+                              &meta, &local_reader);
+    auto inspecting_reader =
+            std::make_shared<InspectingFileReader>(std::move(local_reader), false, false, true);
+    auto cached_reader = create_reader(inspecting_reader);
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> column_reader;
+    auto status =
+            ColumnReader::create(reader_options, meta, num_rows, cached_reader, &column_reader);
+    ASSERT_TRUE(status.ok()) << status;
+
+    TUniqueId query_id = make_query_id(313, 317);
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    io::IOContext io_context;
+    io_context.reader_type = ReaderType::READER_QUERY;
+    io_context.query_id = &query_id;
+    OlapReaderStatistics reader_statistics;
+    {
+        FileColumnIterator iterator(column_reader);
+        ColumnIteratorOptions iterator_options;
+        iterator_options.use_page_cache = false;
+        iterator_options.file_reader = cached_reader.get();
+        iterator_options.stats = &reader_statistics;
+        iterator_options.io_ctx = io_context;
+        iterator_options.query_ctx = runtime_query_context;
+        iterator_options.page_prefetch_io_service = &service;
+        iterator_options.tablet_id = kTabletId;
+        status = iterator.init(iterator_options);
+        ASSERT_TRUE(status.ok()) << status;
+        status = iterator.seek_to_ordinal(0);
+        ASSERT_TRUE(status.ok()) << status;
+
+        MutableColumnPtr destination = ColumnInt32::create();
+        size_t rows_to_read = 1;
+        bool has_null = false;
+        status = iterator.next_batch(&rows_to_read, destination, &has_null);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_FALSE(has_null);
+        ASSERT_EQ(rows_to_read, 1);
+        ASSERT_EQ(destination->size(), 1);
+        EXPECT_EQ(assert_cast<const ColumnInt32&>(*destination).get_data()[0], 0);
+
+        const auto* statistics = iterator.page_prefetch_statistics_for_test();
+        ASSERT_NE(statistics, nullptr);
+        EXPECT_GT(statistics->submitted_pages, 0);
+        EXPECT_EQ(statistics->consumed_pages, 0);
+        EXPECT_GE(statistics->fallback_pages, 1);
+    }
+    _pool->wait();
+    const auto observed = inspecting_reader->observed();
+    EXPECT_GT(observed.page_prefetch_read_count, 0);
+    EXPECT_GT(observed.normal_read_count, 0);
     service.shutdown();
 }
 
