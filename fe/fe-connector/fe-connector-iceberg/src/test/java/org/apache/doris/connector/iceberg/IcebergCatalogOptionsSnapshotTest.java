@@ -56,11 +56,15 @@ public class IcebergCatalogOptionsSnapshotTest {
         return m;
     }
 
-    /** Sorted so an assertion failure renders as a readable diff of the whole option map. */
-    private static void assertOptions(Map<String, String> expected, Map<String, String> input, String flavor,
+    /**
+     * Sorted so an assertion failure renders as a readable diff of the whole option map. The flavor is no
+     * longer passed in: it is derived from the input map's {@code iceberg.catalog.type} exactly as a live
+     * catalog build derives it, so a fixture can no longer claim one flavor while its properties say another.
+     */
+    private static void assertOptions(Map<String, String> expected, Map<String, String> input,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
         Assertions.assertEquals(new TreeMap<>(expected),
-                new TreeMap<>(IcebergCatalogFactory.buildCatalogProperties(input, flavor, chosenS3)));
+                new TreeMap<>(IcebergCatalogFactory.buildCatalogProperties(IcebergCatalogProperties.of(input), chosenS3)));
     }
 
     private static Optional<S3CompatibleFileSystemProperties> s3(FakeS3CompatibleStorageProperties fake) {
@@ -90,8 +94,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "rest.client.socket-timeout-ms", "60000"),
                 props("iceberg.catalog.type", "rest",
                         "uri", "https://rest.example/api",
-                        "warehouse", "s3://bucket/wh"),
-                "rest", noS3());
+                        "warehouse", "s3://bucket/wh"), noS3());
     }
 
     /**
@@ -137,8 +140,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "iceberg.rest.oauth2.server-uri", "https://auth/token",
                         "iceberg.rest.oauth2.scope", "catalog",
                         "iceberg.rest.oauth2.token-refresh-enabled", "false",
-                        "s3.region", "us-west-2"),
-                "rest", noS3());
+                        "s3.region", "us-west-2"), noS3());
     }
 
     /** Pre-configured token flow: no credential, so the token branch fires and no scope/server-uri appear. */
@@ -156,8 +158,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                 props("iceberg.catalog.type", "rest",
                         "uri", "https://rest/api",
                         "iceberg.rest.security.type", "oauth2",
-                        "iceberg.rest.oauth2.token", "tkn-123"),
-                "rest", noS3());
+                        "iceberg.rest.oauth2.token", "tkn-123"), noS3());
     }
 
     /**
@@ -184,8 +185,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                 props("iceberg.catalog.type", "rest",
                         "iceberg.rest.uri", "  https://rest/api  ",
                         "iceberg.rest.security.type", "oauth2",
-                        "iceberg.rest.oauth2.token", " tkn-123 "),
-                "rest", noS3());
+                        "iceberg.rest.oauth2.token", " tkn-123 "), noS3());
     }
 
     /**
@@ -219,8 +219,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "uri", "https://rest/api",
                         "iceberg.rest.signing-name", "glue",
                         "iceberg.rest.signing-region", "us-east-1",
-                        "iceberg.rest.sigv4-enabled", "true"),
-                "rest", s3(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3")
+                        "iceberg.rest.sigv4-enabled", "true"), s3(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3")
                         .region("us-east-1").accessKey("AK").secretKey("SK").sessionToken("ST")
                         .usePathStyle("true")));
     }
@@ -254,8 +253,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "uri", "https://rest/api",
                         "iceberg.rest.signing-name", "glue",
                         "iceberg.rest.signing-region", "us-east-1",
-                        "iceberg.rest.sigv4-enabled", "true"),
-                "rest", s3(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")
+                        "iceberg.rest.sigv4-enabled", "true"), s3(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")
                         .roleArn("arn:aws:iam::1:role/r").externalId("eid")));
     }
 
@@ -292,8 +290,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "iceberg.rest.sigv4-enabled", "true",
                         "iceberg.rest.access-key-id", "RAK",
                         "iceberg.rest.secret-access-key", "RSK",
-                        "iceberg.rest.session-token", "RST"),
-                "rest", noS3());
+                        "iceberg.rest.session-token", "RST"), noS3());
     }
 
     /**
@@ -318,8 +315,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                 props("iceberg.catalog.type", "rest",
                         "uri", "https://rest/api",
                         "iceberg.rest.signing-name", "custom",
-                        "iceberg.rest.credentials_provider_type", "instance-profile"),
-                "rest", noS3());
+                        "iceberg.rest.credentials_provider_type", "instance-profile"), noS3());
     }
 
     // ---------------------------------------------------------------------
@@ -357,8 +353,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com",
                         "glue.access_key", "GAK",
                         "glue.secret_key", "GSK",
-                        "aws.glue.session-token", "GST"),
-                "glue", s3(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3")
+                        "aws.glue.session-token", "GST"), s3(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3")
                         .accessKey("AK").secretKey("SK").sessionToken("ST").usePathStyle("false")));
     }
 
@@ -385,8 +380,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                 props("iceberg.catalog.type", "glue",
                         "glue.endpoint", "https://glue.eu-west-1.amazonaws.com",
                         "glue.role_arn", "arn:aws:iam::1:role/r",
-                        "glue.external_id", "eid"),
-                "glue", noS3());
+                        "glue.external_id", "eid"), noS3());
     }
 
     /** An explicit region alias beats the endpoint-derived one; {@code aws.glue.region} is the last alias. */
@@ -410,8 +404,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com",
                         "aws.glue.region", "ap-southeast-1",
                         "glue.access_key", "GAK",
-                        "glue.secret_key", "GSK"),
-                "glue", noS3());
+                        "glue.secret_key", "GSK"), noS3());
     }
 
     /**
@@ -434,8 +427,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                 props("iceberg.catalog.type", "glue",
                         "warehouse", "s3://bucket/wh",
                         "glue.endpoint", "https://vpce-1234.glue.privatelink.aws",
-                        "glue.role_arn", "arn:aws:iam::1:role/r"),
-                "glue", noS3());
+                        "glue.role_arn", "arn:aws:iam::1:role/r"), noS3());
     }
 
     // ---------------------------------------------------------------------
@@ -456,8 +448,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "catalog-impl", "org.apache.iceberg.jdbc.JdbcCatalog"),
                 props("iceberg.catalog.type", "jdbc",
                         "warehouse", "s3://bucket/wh",
-                        "iceberg.jdbc.catalog_name", "mycat"),
-                "jdbc", noS3());
+                        "iceberg.jdbc.catalog_name", "mycat"), noS3());
     }
 
     /**
@@ -492,8 +483,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "iceberg.jdbc.init-catalog-tables", "true",
                         "iceberg.jdbc.schema-version", "V1",
                         "iceberg.jdbc.strict-mode", "false",
-                        "jdbc.useSSL", "false"),
-                "jdbc", noS3());
+                        "jdbc.useSSL", "false"), noS3());
     }
 
     /**
@@ -513,8 +503,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "uri", "jdbc:postgresql://plain/db",
                         "iceberg.jdbc.uri", "jdbc:postgresql://prefixed/db",
                         "warehouse", "s3://bucket/wh",
-                        "iceberg.jdbc.catalog_name", "mycat"),
-                "jdbc", noS3());
+                        "iceberg.jdbc.catalog_name", "mycat"), noS3());
     }
 
     // ---------------------------------------------------------------------
@@ -535,8 +524,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "catalog-impl", "org.apache.iceberg.hive.HiveCatalog"),
                 props("iceberg.catalog.type", "hms",
                         "hive.metastore.uris", "thrift://h:9083",
-                        "warehouse", "s3://bucket/wh"),
-                "hms", s3(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3")
+                        "warehouse", "s3://bucket/wh"), s3(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3")
                         .accessKey("AK").secretKey("SK")));
     }
 
@@ -555,8 +543,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "s3.access-key-id", "AK",
                         "s3.secret-access-key", "SK"),
                 props("iceberg.catalog.type", "hadoop",
-                        "warehouse", "oss://bucket/wh"),
-                "hadoop", s3(new FakeS3CompatibleStorageProperties("OSS").endpoint("https://oss")
+                        "warehouse", "oss://bucket/wh"), s3(new FakeS3CompatibleStorageProperties("OSS").endpoint("https://oss")
                         .region("cn-hangzhou").accessKey("AK").secretKey("SK")));
     }
 
@@ -579,8 +566,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "warehouse", "s3://bucket/wh",
                         "meta.cache.iceberg.manifest.enable", "true",
                         "meta.cache.iceberg.manifest.ttl-second", "3600",
-                        "meta.cache.iceberg.manifest.capacity", "512"),
-                "hadoop", noS3());
+                        "meta.cache.iceberg.manifest.capacity", "512"), noS3());
     }
 
     /**
@@ -596,9 +582,9 @@ public class IcebergCatalogOptionsSnapshotTest {
                 "s3.access-key-id", "AK",
                 "s3.secret-access-key", "SK");
         Map<String, String> actual = IcebergCatalogFactory.buildS3TablesCatalogProperties(
-                props("iceberg.catalog.type", "s3tables",
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables",
                         "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
-                        "s3.role_arn", "arn:aws:iam::1:role/ignored"),
+                        "s3.role_arn", "arn:aws:iam::1:role/ignored")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")
                         .accessKey("AK").secretKey("SK").roleArn("arn:aws:iam::1:role/ignored")));
         Assertions.assertEquals(new TreeMap<>(expected), new TreeMap<>(actual));
@@ -612,9 +598,9 @@ public class IcebergCatalogOptionsSnapshotTest {
                 "s3.region", "us-east-1",
                 "client.region", "us-east-1");
         Map<String, String> actual = IcebergCatalogFactory.buildS3TablesCatalogProperties(
-                props("iceberg.catalog.type", "s3tables",
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables",
                         "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
-                        "s3.region", "us-east-1"),
+                        "s3.region", "us-east-1")),
                 Optional.empty());
         Assertions.assertEquals(new TreeMap<>(expected), new TreeMap<>(actual));
     }

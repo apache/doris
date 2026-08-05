@@ -52,7 +52,7 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     private static final String ICEBERG_REST_EXTERNAL_ID = "iceberg.rest.external-id";
 
     // Per-user session (#63068 re-migration). Local literal copies (this metastore module does not depend on
-    // fe-connector-iceberg, so IcebergConnectorProperties' constants are not importable — same rationale as the
+    // fe-connector-iceberg, so IcebergCatalogProperties' constants are not importable — same rationale as the
     // "none"/"oauth2" security-type literals already inlined below).
     private static final String SESSION_NONE = "none";
     private static final String SESSION_USER = "user";

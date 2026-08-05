@@ -94,13 +94,13 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
             ConnectorMetadataCache<ConnectorMvccPartitionView> cache) {
         // 9-arg ctor: disabled latest-snapshot cache + null table/partition/comment caches so the loadTable count
         // reflects cache A alone; only the mvcc view cache under test is injected.
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext(),
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(),
                 new IcebergLatestSnapshotCache(0L, 1), null, null, null, cache, null);
     }
 
     private static IcebergConnectorMetadata metadataWithListCache(RecordingIcebergCatalogOps ops,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache) {
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext(),
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(),
                 new IcebergLatestSnapshotCache(0L, 1), null, null, null, null, cache);
     }
 

@@ -70,12 +70,12 @@ public class IcebergConnectorMetadataTest {
 
     private static IcebergConnectorMetadata metadataWith(
             RecordingIcebergCatalogOps ops, Map<String, String> props) {
-        return new IcebergConnectorMetadata(ops, props, new RecordingConnectorContext());
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(props), new RecordingConnectorContext());
     }
 
     private static IcebergConnectorMetadata metadataWith(
             RecordingIcebergCatalogOps ops, RecordingConnectorContext ctx) {
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
     /** A simple 2-column unpartitioned schema (id required, name optional). */
@@ -168,7 +168,7 @@ public class IcebergConnectorMetadataTest {
         ops.table = new FakeIcebergTable(
                 "t1", idNameSchema(), PartitionSpec.unpartitioned(), "s3://bucket/db1/t1", props);
         IcebergCommentCache cache = new IcebergCommentCache(100, 1000);
-        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, Collections.emptyMap(),
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()),
                 new RecordingConnectorContext(), new IcebergLatestSnapshotCache(0L, 1), null, null, cache);
 
         Assertions.assertEquals("sales fact", metadata.getTableComment(null, "db1", "t1"));

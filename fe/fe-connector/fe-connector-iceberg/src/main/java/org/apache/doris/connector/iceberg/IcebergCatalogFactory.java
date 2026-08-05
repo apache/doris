@@ -90,6 +90,50 @@ public final class IcebergCatalogFactory {
             "s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
             "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region"};
 
+    // ---------------------------------------------------------------------
+    // Catalog-option keys and values this factory EMITS that are not iceberg-SDK constants. Keys that ARE
+    // SDK constants (CatalogProperties / S3FileIOProperties / AwsProperties / AwsClientProperties /
+    // OAuth2Properties) are referenced through the SDK rather than copied. These are private because this
+    // class is the only writer of them -- an INPUT key a user writes is declared by the metastore
+    // properties for its flavor instead.
+    // ---------------------------------------------------------------------
+
+    // REST.
+    private static final String REST_PREFIX_KEY = "prefix";
+    private static final String REST_VENDED_CREDENTIALS_HEADER = "header.X-Iceberg-Access-Delegation";
+    private static final String REST_VENDED_CREDENTIALS_VALUE = "vended-credentials";
+    private static final String REST_CONNECTION_TIMEOUT_MS_KEY = "rest.client.connection-timeout-ms";
+    private static final String REST_SOCKET_TIMEOUT_MS_KEY = "rest.client.socket-timeout-ms";
+    private static final String REST_SIGNING_NAME_KEY = "rest.signing-name";
+    private static final String REST_SIGV4_ENABLED_KEY = "rest.sigv4-enabled";
+    private static final String REST_SIGNING_REGION_KEY = "rest.signing-region";
+    private static final String SECURITY_TYPE_OAUTH2 = "oauth2";
+    private static final String SIGNING_NAME_GLUE = "glue";
+    private static final String SIGNING_NAME_S3TABLES = "s3tables";
+
+    // GLUE.
+    private static final String GLUE_CREDENTIALS_PROVIDER_KEY = "client.credentials-provider";
+    private static final String GLUE_CREDENTIALS_PROVIDER_2X =
+            "org.apache.doris.connector.iceberg.glue.ConfigurationAWSCredentialsProvider2x";
+    private static final String GLUE_CREDENTIALS_PROVIDER_ACCESS_KEY =
+            "client.credentials-provider.glue.access_key";
+    private static final String GLUE_CREDENTIALS_PROVIDER_SECRET_KEY =
+            "client.credentials-provider.glue.secret_key";
+    private static final String GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN =
+            "client.credentials-provider.glue.session_token";
+    private static final String AWS_REGION_KEY = "aws.region";
+    private static final String GLUE_CHECKED_WAREHOUSE = "s3://doris";
+    private static final String GLUE_DEFAULT_REGION = "us-east-1";
+
+    // JDBC. iceberg.jdbc.catalog_name is the one INPUT key named here: the assembly does not read it, it
+    // REMOVES it from the options map (it is passed positionally as the catalog name instead).
+    private static final String JDBC_CATALOG_NAME = "iceberg.jdbc.catalog_name";
+    private static final String JDBC_USER_KEY = "jdbc.user";
+    private static final String JDBC_PASSWORD_KEY = "jdbc.password";
+    private static final String JDBC_INIT_CATALOG_TABLES_KEY = "jdbc.init-catalog-tables";
+    private static final String JDBC_SCHEMA_VERSION_KEY = "jdbc.schema-version";
+    private static final String JDBC_STRICT_MODE_KEY = "jdbc.strict-mode";
+
     private IcebergCatalogFactory() {
     }
 
@@ -127,9 +171,9 @@ public final class IcebergCatalogFactory {
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_MAX_CONTENT_LENGTH);
         if (!hasExplicitEnabled) {
             CacheSpec spec = CacheSpec.fromProperties(props,
-                    IcebergConnectorProperties.MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
-                    IcebergConnectorProperties.MANIFEST_CACHE_TTL, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
-                    IcebergConnectorProperties.MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
+                    IcebergConnector.MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
+                    IcebergConnector.MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
+                    IcebergConnector.MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
             if (CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity())) {
                 opts.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true");
             }
@@ -275,15 +319,6 @@ public final class IcebergCatalogFactory {
         }
     }
 
-    /** Resolves the lower-cased flavor from {@code iceberg.catalog.type}; null/blank stays null. */
-    public static String resolveFlavor(Map<String, String> props) {
-        String catalogType = props.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE);
-        if (catalogType == null || catalogType.isEmpty()) {
-            return null;
-        }
-        return catalogType.toLowerCase(Locale.ROOT);
-    }
-
     /**
      * Resolve the Iceberg catalog implementation class name from the catalog type string. PURE:
      * depends only on {@code catalogType}. Lifted verbatim from the former
@@ -292,24 +327,24 @@ public final class IcebergCatalogFactory {
     public static String resolveCatalogImpl(String catalogType) {
         if (catalogType == null) {
             throw new DorisConnectorException(
-                    "Missing '" + IcebergConnectorProperties.ICEBERG_CATALOG_TYPE + "' property");
+                    "Missing '" + IcebergCatalogProperties.ICEBERG_CATALOG_TYPE + "' property");
         }
         switch (catalogType.toLowerCase(Locale.ROOT)) {
-            case IcebergConnectorProperties.TYPE_REST:
+            case IcebergCatalogProperties.TYPE_REST:
                 return "org.apache.iceberg.rest.RESTCatalog";
-            case IcebergConnectorProperties.TYPE_HMS:
+            case IcebergCatalogProperties.TYPE_HMS:
                 return "org.apache.iceberg.hive.HiveCatalog";
-            case IcebergConnectorProperties.TYPE_GLUE:
+            case IcebergCatalogProperties.TYPE_GLUE:
                 return "org.apache.iceberg.aws.glue.GlueCatalog";
-            case IcebergConnectorProperties.TYPE_HADOOP:
+            case IcebergCatalogProperties.TYPE_HADOOP:
                 return "org.apache.iceberg.hadoop.HadoopCatalog";
-            case IcebergConnectorProperties.TYPE_JDBC:
+            case IcebergCatalogProperties.TYPE_JDBC:
                 return "org.apache.iceberg.jdbc.JdbcCatalog";
-            case IcebergConnectorProperties.TYPE_S3_TABLES:
+            case IcebergCatalogProperties.TYPE_S3_TABLES:
                 return "software.amazon.s3tables.iceberg.S3TablesCatalog";
             default:
                 throw new DorisConnectorException(
-                        "Unknown " + IcebergConnectorProperties.ICEBERG_CATALOG_TYPE + ": " + catalogType
+                        "Unknown " + IcebergCatalogProperties.ICEBERG_CATALOG_TYPE + ": " + catalogType
                                 + ". Supported types: rest, hms, glue, hadoop, jdbc, s3tables");
         }
     }
@@ -328,34 +363,36 @@ public final class IcebergCatalogFactory {
      * of this options map. {@code s3tables} is bespoke and falls through to the base +
      * impl only here (the existing skeleton behavior), so this method covers exactly the five SDK-built flavors.
      */
-    public static Map<String, String> buildCatalogProperties(Map<String, String> props, String flavor,
+    public static Map<String, String> buildCatalogProperties(IcebergCatalogProperties catalogProps,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        Map<String, String> props = catalogProps.getRaw();
+        String flavor = catalogProps.getFlavor();
         Map<String, String> opts = buildBaseCatalogProperties(props);
         opts.put(CatalogProperties.CATALOG_IMPL, resolveCatalogImpl(flavor));
         switch (flavor) {
-            case IcebergConnectorProperties.TYPE_REST:
+            case IcebergCatalogProperties.TYPE_REST:
                 // Bound directly rather than through MetaStoreProviders: the flavor is already decided here, and
                 // this class stays a PURE offline-testable function (a ServiceLoader lookup is neither).
                 appendRestProperties(opts, IcebergRestMetaStoreProperties.of(props), props, chosenS3);
                 appendS3FileIO(opts, props, chosenS3);
                 break;
-            case IcebergConnectorProperties.TYPE_GLUE:
+            case IcebergCatalogProperties.TYPE_GLUE:
                 // glue emits its OWN s3.* (unconditional) + glue-client creds; it does NOT use the base
                 // S3FileIO path (legacy IcebergGlueMetaStoreProperties ignores storagePropertiesList).
                 appendGlueProperties(opts, IcebergGlueMetaStoreProperties.of(props), chosenS3);
                 break;
-            case IcebergConnectorProperties.TYPE_JDBC:
+            case IcebergCatalogProperties.TYPE_JDBC:
                 appendJdbcProperties(opts, IcebergJdbcMetaStoreProperties.of(props));
                 appendS3FileIO(opts, props, chosenS3);
                 // iceberg.jdbc.catalog_name is the positional catalog NAME (see resolveCatalogName); legacy
                 // removes it from the options map before building.
-                opts.remove(IcebergConnectorProperties.JDBC_CATALOG_NAME);
+                opts.remove(JDBC_CATALOG_NAME);
                 break;
-            case IcebergConnectorProperties.TYPE_HMS:
+            case IcebergCatalogProperties.TYPE_HMS:
                 // No S3FileIO options: legacy iceberg HMS does not call toFileIOProperties; object-store access
                 // rides the HiveConf (fs.s3a.* from storage), built by the connector via assembleHiveConf.
                 break;
-            case IcebergConnectorProperties.TYPE_HADOOP:
+            case IcebergCatalogProperties.TYPE_HADOOP:
                 appendS3FileIO(opts, props, chosenS3);
                 break;
             default:
@@ -384,8 +421,9 @@ public final class IcebergCatalogFactory {
      * The control-plane {@code S3TablesClient} (region + credentials + endpoint + http) is built LIVE by the
      * connector ({@code IcebergConnector.buildS3TablesClient}); it is not part of this pure options map.
      */
-    public static Map<String, String> buildS3TablesCatalogProperties(Map<String, String> props,
+    public static Map<String, String> buildS3TablesCatalogProperties(IcebergCatalogProperties catalogProps,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        Map<String, String> props = catalogProps.getRaw();
         Map<String, String> opts = buildBaseCatalogProperties(props);
         if (chosenS3.isPresent()) {
             appendS3TablesFileIOProperties(opts, chosenS3.get(), props);
@@ -404,12 +442,12 @@ public final class IcebergCatalogFactory {
      * the required {@code iceberg.jdbc.catalog_name} (legacy passes it as the positional {@code catalogName} arg,
      * overriding the Doris catalog name); every other flavor uses {@code defaultName} (the Doris catalog name).
      */
-    public static String resolveCatalogName(Map<String, String> props, String flavor, String defaultName) {
-        if (IcebergConnectorProperties.TYPE_JDBC.equals(flavor)) {
-            String name = IcebergJdbcMetaStoreProperties.of(props).getJdbcCatalogName();
+    public static String resolveCatalogName(IcebergCatalogProperties catalogProps, String defaultName) {
+        if (IcebergCatalogProperties.TYPE_JDBC.equals(catalogProps.getFlavor())) {
+            String name = IcebergJdbcMetaStoreProperties.of(catalogProps.getRaw()).getJdbcCatalogName();
             if (StringUtils.isBlank(name)) {
                 throw new DorisConnectorException(
-                        IcebergConnectorProperties.JDBC_CATALOG_NAME + " is required for an iceberg jdbc catalog");
+                        JDBC_CATALOG_NAME + " is required for an iceberg jdbc catalog");
             }
             return name;
         }
@@ -435,20 +473,20 @@ public final class IcebergCatalogFactory {
         // Core: uri is put UNCONDITIONALLY (legacy field default ""), alias priority iceberg.rest.uri > uri.
         opts.put(CatalogProperties.URI, rest.getUri());
         // Optional.
-        putIfNotBlank(opts, IcebergConnectorProperties.REST_PREFIX_KEY, rest.getPrefix());
+        putIfNotBlank(opts, REST_PREFIX_KEY, rest.getPrefix());
         if (rest.isVendedCredentialsEnabled()) {
-            opts.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_HEADER,
-                    IcebergConnectorProperties.REST_VENDED_CREDENTIALS_VALUE);
+            opts.put(REST_VENDED_CREDENTIALS_HEADER,
+                    REST_VENDED_CREDENTIALS_VALUE);
         }
         // Timeouts: legacy fields default non-blank, so they are effectively always emitted.
-        opts.put(IcebergConnectorProperties.REST_CONNECTION_TIMEOUT_MS_KEY, rest.getConnectionTimeoutMs());
-        opts.put(IcebergConnectorProperties.REST_SOCKET_TIMEOUT_MS_KEY, rest.getSocketTimeoutMs());
+        opts.put(REST_CONNECTION_TIMEOUT_MS_KEY, rest.getConnectionTimeoutMs());
+        opts.put(REST_SOCKET_TIMEOUT_MS_KEY, rest.getSocketTimeoutMs());
         appendRestOAuth2Properties(opts, rest);
         appendRestSigningProperties(opts, rest, props, chosenS3);
     }
 
     private static void appendRestOAuth2Properties(Map<String, String> opts, IcebergRestMetaStoreProperties rest) {
-        if (!IcebergConnectorProperties.SECURITY_TYPE_OAUTH2.equalsIgnoreCase(rest.getSecurityType())) {
+        if (!SECURITY_TYPE_OAUTH2.equalsIgnoreCase(rest.getSecurityType())) {
             return;
         }
         String credential = rest.getOauth2Credential();
@@ -474,11 +512,11 @@ public final class IcebergCatalogFactory {
             return;
         }
         // signing-name is case-sensitive; do not lower-case it.
-        opts.put(IcebergConnectorProperties.REST_SIGNING_NAME_KEY, signingName);
-        opts.put(IcebergConnectorProperties.REST_SIGV4_ENABLED_KEY, rest.getSigV4Enabled());
-        opts.put(IcebergConnectorProperties.REST_SIGNING_REGION_KEY, rest.getSigningRegion());
-        if (IcebergConnectorProperties.SIGNING_NAME_GLUE.equals(signingName)
-                || IcebergConnectorProperties.SIGNING_NAME_S3TABLES.equals(signingName)) {
+        opts.put(REST_SIGNING_NAME_KEY, signingName);
+        opts.put(REST_SIGV4_ENABLED_KEY, rest.getSigV4Enabled());
+        opts.put(REST_SIGNING_REGION_KEY, rest.getSigningRegion());
+        if (SIGNING_NAME_GLUE.equals(signingName)
+                || SIGNING_NAME_S3TABLES.equals(signingName)) {
             // glue/s3tables: credentials come from the chosen S3 store, switching on its credential type
             // (legacy getCredentialType precedence: EXPLICIT before ASSUME_ROLE before PROVIDER_CHAIN).
             if (chosenS3.isPresent()) {
@@ -548,24 +586,24 @@ public final class IcebergCatalogFactory {
         String glueAccessKey = glue.getGlueAccessKey();
         String glueSecretKey = glue.getGlueSecretKey();
         if (StringUtils.isNotBlank(glueAccessKey) && StringUtils.isNotBlank(glueSecretKey)) {
-            opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_KEY,
-                    IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_2X);
-            opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_ACCESS_KEY, glueAccessKey);
-            opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SECRET_KEY, glueSecretKey);
-            putIfNotBlank(opts, IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN,
+            opts.put(GLUE_CREDENTIALS_PROVIDER_KEY,
+                    GLUE_CREDENTIALS_PROVIDER_2X);
+            opts.put(GLUE_CREDENTIALS_PROVIDER_ACCESS_KEY, glueAccessKey);
+            opts.put(GLUE_CREDENTIALS_PROVIDER_SECRET_KEY, glueSecretKey);
+            putIfNotBlank(opts, GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN,
                     glue.getGlueSessionToken());
         } else {
             String glueIamRole = glue.getGlueIamRole();
             if (StringUtils.isNotBlank(glueIamRole)) {
                 opts.put(AwsProperties.CLIENT_FACTORY, AssumeRoleAwsClientFactory.class.getName());
-                opts.put(IcebergConnectorProperties.AWS_REGION_KEY, glueRegion);
+                opts.put(AWS_REGION_KEY, glueRegion);
                 opts.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, glueIamRole);
                 opts.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, glueRegion);
                 putIfNotBlank(opts, AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, glue.getGlueExternalId());
             }
         }
         opts.put(AwsClientProperties.CLIENT_REGION, glueRegion);
-        opts.putIfAbsent(CatalogProperties.WAREHOUSE_LOCATION, IcebergConnectorProperties.GLUE_CHECKED_WAREHOUSE);
+        opts.putIfAbsent(CatalogProperties.WAREHOUSE_LOCATION, GLUE_CHECKED_WAREHOUSE);
     }
 
     /**
@@ -582,7 +620,7 @@ public final class IcebergCatalogFactory {
                 return matcher.group(1);
             }
         }
-        return IcebergConnectorProperties.GLUE_DEFAULT_REGION;
+        return GLUE_DEFAULT_REGION;
     }
 
     // ---------------------------------------------------------------------
@@ -599,11 +637,11 @@ public final class IcebergCatalogFactory {
      */
     public static void appendJdbcProperties(Map<String, String> opts, IcebergJdbcMetaStoreProperties jdbc) {
         opts.put(CatalogProperties.URI, jdbc.getUri());
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_USER_KEY, jdbc.getUser());
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_PASSWORD_KEY, jdbc.getPassword());
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_INIT_CATALOG_TABLES_KEY, jdbc.getInitCatalogTables());
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_SCHEMA_VERSION_KEY, jdbc.getSchemaVersion());
-        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_STRICT_MODE_KEY, jdbc.getStrictMode());
+        putIfNotBlank(opts, JDBC_USER_KEY, jdbc.getUser());
+        putIfNotBlank(opts, JDBC_PASSWORD_KEY, jdbc.getPassword());
+        putIfNotBlank(opts, JDBC_INIT_CATALOG_TABLES_KEY, jdbc.getInitCatalogTables());
+        putIfNotBlank(opts, JDBC_SCHEMA_VERSION_KEY, jdbc.getSchemaVersion());
+        putIfNotBlank(opts, JDBC_STRICT_MODE_KEY, jdbc.getStrictMode());
     }
 
     // ---------------------------------------------------------------------

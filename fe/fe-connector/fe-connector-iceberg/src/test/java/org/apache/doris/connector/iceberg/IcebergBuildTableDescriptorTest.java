@@ -56,9 +56,9 @@ public class IcebergBuildTableDescriptorTest {
     private static IcebergConnectorMetadata metadataWithCatalogType(String catalogType) {
         Map<String, String> props = new HashMap<>();
         if (catalogType != null) {
-            props.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, catalogType);
+            props.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, catalogType);
         }
-        return new IcebergConnectorMetadata(null, props, new RecordingConnectorContext());
+        return new IcebergConnectorMetadata(null, IcebergCatalogProperties.of(props), new RecordingConnectorContext());
     }
 
     private static TTableDescriptor build(IcebergConnectorMetadata metadata) {
@@ -70,7 +70,7 @@ public class IcebergBuildTableDescriptorTest {
     public void buildsHiveTableDescriptorForHmsCatalog() {
         // hms branch: legacy IcebergSysExternalTable.toThrift / IcebergExternalTable.toThrift send
         // TTableType.HIVE_TABLE + THiveTable. MUTATION: dropping the hms fork -> ICEBERG_TABLE here -> red.
-        TTableDescriptor desc = build(metadataWithCatalogType(IcebergConnectorProperties.TYPE_HMS));
+        TTableDescriptor desc = build(metadataWithCatalogType(IcebergCatalogProperties.TYPE_HMS));
 
         Assertions.assertNotNull(desc,
                 "buildTableDescriptor must return a typed descriptor, never null (null -> SCHEMA_TABLE fallback)");
@@ -89,7 +89,7 @@ public class IcebergBuildTableDescriptorTest {
     public void buildsIcebergTableDescriptorForRestCatalog() {
         // non-hms (rest) branch: legacy sends TTableType.ICEBERG_TABLE + TIcebergTable.
         // MUTATION: always emitting HIVE_TABLE (paimon-style single type) -> red here.
-        TTableDescriptor desc = build(metadataWithCatalogType(IcebergConnectorProperties.TYPE_REST));
+        TTableDescriptor desc = build(metadataWithCatalogType(IcebergCatalogProperties.TYPE_REST));
 
         Assertions.assertNotNull(desc, "non-hms catalog descriptor must not be null");
         Assertions.assertEquals(TTableType.ICEBERG_TABLE, desc.getTableType(),
