@@ -702,6 +702,7 @@ public:
     }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -739,6 +740,7 @@ public:
         return _offsets_iterator->get_current_ordinal();
     }
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -818,6 +820,7 @@ public:
     void remove_pruned_sub_iterators() override;
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -886,6 +889,7 @@ public:
     void remove_pruned_sub_iterators() override;
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
