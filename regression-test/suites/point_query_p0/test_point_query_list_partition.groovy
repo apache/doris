@@ -75,8 +75,10 @@ suite("test_point_query_list_partition") {
     // The point query covers the full unique key, so it must be planned as a
     // short-circuit point query. Confirm the short-circuit path is taken so
     // this test actually exercises the buggy code path.
-    def explain = sql """EXPLAIN SELECT * FROM ${tableName} WHERE pk = 'abcd' AND _id = 1"""
-    assertTrue(explain.toString().contains("SHORT-CIRCUIT"))
+    explain {
+        sql("""SELECT * FROM ${tableName} WHERE pk = 'abcd' AND _id = 1""")
+        contains "SHORT-CIRCUIT"
+    }
 
     // Before the fix this threw: (1105, 'IllegalStateException, msg: null').
     // The point query must succeed and return exactly the matched row.
