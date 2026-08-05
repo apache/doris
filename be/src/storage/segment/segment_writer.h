@@ -33,6 +33,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/olap_define.h"
+#include "storage/partial_update_info.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/tablet/tablet.h"
@@ -65,6 +66,7 @@ extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
 
 class VariantStatsCaculator;
+class MowKeyProbe;
 
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
@@ -92,15 +94,18 @@ public:
     virtual Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
     virtual Status append_block(const Block* block, size_t row_pos, size_t num_rows);
-    Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
-                             bool have_delete_sign,
-                             const std::vector<RowsetSharedPtr>& specified_rowsets,
-                             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                             bool& has_default_or_nullable,
-                             std::vector<bool>& use_default_or_null_flag,
-                             const std::function<void(const RowLocation& loc)>& found_cb,
-                             const std::function<Status()>& not_found_cb,
-                             PartialUpdateStats& stats);
+    // Thin wrapper over MowKeyProbe that translates a ProbeOutcome back into the out-parameters the
+    // partial update fill loop uses. `found_cb` receives the rowset that holds `loc` and must keep
+    // it alive for the historical read.
+    Status probe_key_for_mow(
+            const MowKeyProbe& probe, std::string key, std::size_t segment_pos,
+            bool have_input_seq_column, bool have_delete_sign,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
+            const std::function<void(const RowLocation& loc, const RowsetSharedPtr& rowset)>&
+                    found_cb,
+            const std::function<Status()>& not_found_cb, PartialUpdateStats& stats);
     Status partial_update_preconditions_check(size_t row_pos);
     Status append_block_with_partial_content(const Block* block, size_t row_pos, size_t num_rows);
 
@@ -167,7 +172,6 @@ private:
     Status _write_primary_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
-    void _maybe_invalid_row_cache(const std::string& key);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
@@ -237,8 +241,6 @@ protected:
     faststring _max_key;
 
     std::shared_ptr<MowContext> _mow_context;
-    // group every rowset-segment row id to speed up reader
-    std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
     std::vector<std::string> _primary_keys;
     uint64_t _primary_keys_size = 0;
     // variant statistics calculator for efficient stats collection
