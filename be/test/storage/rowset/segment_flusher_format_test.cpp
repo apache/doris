@@ -2121,7 +2121,7 @@ Status verify_segment_field(const Block& block, std::string_view column_name, si
 
 Result<Block> read_row_binlog_segment(const TabletSharedPtr& tablet, std::string_view case_name,
                                       uint32_t segment_id) {
-    const auto schema = tablet->row_binlog_tablet_schema();
+    const auto schema = tablet->tablet_schema();
     RowsetWriterContext read_context;
     read_context.tablet_schema = schema;
     read_context.tablet_id = tablet->tablet_id();
@@ -2781,8 +2781,11 @@ protected:
             request.__set_enable_unique_key_merge_on_write(true);
         }
         testutil::enable_row_binlog(&request);
+        request.tablet_schema = testutil::create_row_binlog_tablet_schema(
+                request.tablet_schema, request.tablet_schema.schema_hash + 1);
+        request.__set_tablet_role(TTabletRole::TABLET_ROLE_ROW_BINLOG);
         auto erase_binlog_column = [&](std::string_view name) {
-            auto& columns = request.row_binlog_schema.columns;
+            auto& columns = request.tablet_schema.columns;
             const auto it =
                     std::find_if(columns.begin(), columns.end(),
                                  [&](const TColumn& column) { return column.column_name == name; });
@@ -2791,18 +2794,18 @@ protected:
         };
         if (enable_mow) {
             erase_binlog_column(DELETE_SIGN);
-            request.row_binlog_schema.__set_delete_sign_idx(-1);
+            request.tablet_schema.__set_delete_sign_idx(-1);
             erase_binlog_column(VERSION_COL);
-            request.row_binlog_schema.__set_version_col_idx(-1);
+            request.tablet_schema.__set_version_col_idx(-1);
         }
         erase_binlog_column(COMMIT_TSO_COL);
-        request.row_binlog_schema.__set_commit_tso_col_idx(-1);
+        request.tablet_schema.__set_commit_tso_col_idx(-1);
         if (with_sequence) {
             erase_binlog_column(SEQUENCE_COL);
-            request.row_binlog_schema.__set_sequence_col_idx(-1);
+            request.tablet_schema.__set_sequence_col_idx(-1);
         }
         auto find_binlog_column = [&](std::string_view name) -> TColumn& {
-            auto& columns = request.row_binlog_schema.columns;
+            auto& columns = request.tablet_schema.columns;
             const auto it =
                     std::find_if(columns.begin(), columns.end(),
                                  [&](const TColumn& column) { return column.column_name == name; });
@@ -2815,7 +2818,7 @@ protected:
         find_binlog_column(BINLOG_TSO_COL).__set_visible(false);
         find_binlog_column(BINLOG_LSN_COL).__set_visible(false);
         find_binlog_column(BINLOG_OP_COL).__set_visible(false);
-        int32_t binlog_tso_idx = static_cast<int32_t>(request.row_binlog_schema.columns.size()) -
+        int32_t binlog_tso_idx = static_cast<int32_t>(request.tablet_schema.columns.size()) -
                                  kRowBinlogSystemColumnCount;
         if (include_before_columns) {
             auto before_v1 = find_binlog_column("v1");
@@ -2826,17 +2829,17 @@ protected:
             before_v2.__set_column_name("__BEFORE__v2__");
             before_v2.__set_is_key(false);
             before_v2.__set_is_allow_null(true);
-            request.row_binlog_schema.columns.insert(
-                    request.row_binlog_schema.columns.begin() + binlog_tso_idx,
+            request.tablet_schema.columns.insert(
+                    request.tablet_schema.columns.begin() + binlog_tso_idx,
                     std::move(before_v2));
-            request.row_binlog_schema.columns.insert(
-                    request.row_binlog_schema.columns.begin() + binlog_tso_idx,
+            request.tablet_schema.columns.insert(
+                    request.tablet_schema.columns.begin() + binlog_tso_idx,
                     std::move(before_v1));
             binlog_tso_idx += 2;
         }
-        request.row_binlog_schema.__set_binlog_tso_idx(binlog_tso_idx);
-        request.row_binlog_schema.__set_binlog_lsn_idx(binlog_tso_idx + 1);
-        request.row_binlog_schema.__set_binlog_op_idx(binlog_tso_idx + 2);
+        request.tablet_schema.__set_binlog_tso_idx(binlog_tso_idx);
+        request.tablet_schema.__set_binlog_lsn_idx(binlog_tso_idx + 1);
+        request.tablet_schema.__set_binlog_op_idx(binlog_tso_idx + 2);
 
         RuntimeProfile profile("SegmentFlusherTransformFormatTest");
         EXPECT_TRUE(_engine->create_tablet(request, &profile).ok());
@@ -3540,7 +3543,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         plain_binlog_blocks.push_back(std::move(block_result).value());
     }
     ASSERT_TRUE(record(flush_twice(
-            "plain_row_binlog_horizontal", plain_binlog_tablet->row_binlog_tablet_schema(),
+            "plain_row_binlog_horizontal", plain_binlog_tablet->tablet_schema(),
             std::move(plain_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
             [this, plain_binlog_tablet](RowsetWriterContext& context) {
                 configure_row_binlog_context(context, plain_binlog_tablet);
@@ -3556,7 +3559,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         plain_mow_binlog_blocks.push_back(std::move(block_result).value());
     }
     ASSERT_TRUE(record(flush_twice(
-            "plain_mow_row_binlog_horizontal", mow_binlog_tablet->row_binlog_tablet_schema(),
+            "plain_mow_row_binlog_horizontal", mow_binlog_tablet->tablet_schema(),
             std::move(plain_mow_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
             [this, mow_binlog_tablet](RowsetWriterContext& context) {
                 configure_row_binlog_context(context, mow_binlog_tablet);
@@ -3581,7 +3584,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         mow_binlog_blocks.push_back(std::move(block_result).value());
     }
     ASSERT_TRUE(record(
-            flush_twice("mow_row_binlog_horizontal", mow_binlog_tablet->row_binlog_tablet_schema(),
+            flush_twice("mow_row_binlog_horizontal", mow_binlog_tablet->tablet_schema(),
                         std::move(mow_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
                         [this, mow_binlog_tablet, binlog_partial_update,
                          binlog_history](RowsetWriterContext& context) {
@@ -3644,7 +3647,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                 &lookup_guard);
         ASSERT_TRUE(record(flush_twice(
                 "mow_sequence_row_binlog_horizontal",
-                sequence_binlog_tablet->row_binlog_tablet_schema(),
+                sequence_binlog_tablet->tablet_schema(),
                 std::move(sequence_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
                 [this, sequence_binlog_tablet, sequence_binlog_partial_update,
                  sequence_binlog_history](RowsetWriterContext& context) {
@@ -3692,7 +3695,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         before_binlog_blocks.push_back(std::move(block_result).value());
     }
     auto before_result = flush_twice(
-            "mow_row_binlog_before", before_binlog_tablet->row_binlog_tablet_schema(),
+            "mow_row_binlog_before", before_binlog_tablet->tablet_schema(),
             before_binlog_blocks, false, 0, DataWriteType::TYPE_DIRECT, false,
             [this, before_binlog_tablet, before_upsert_info,
              before_binlog_history](RowsetWriterContext& context) {
@@ -3709,13 +3712,13 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
     std::vector<Block> compacted_binlog_blocks;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
         auto block_result =
-                create_integer_tablet_block(plain_binlog_tablet->row_binlog_tablet_schema(),
+                create_integer_tablet_block(plain_binlog_tablet->tablet_schema(),
                                             segment_id, {.include_binlog_columns = true});
         ASSERT_TRUE(block_result.has_value()) << block_result.error();
         compacted_binlog_blocks.push_back(std::move(block_result).value());
     }
     ASSERT_TRUE(record(flush_twice(
-            "compacted_row_binlog_horizontal", plain_binlog_tablet->row_binlog_tablet_schema(),
+            "compacted_row_binlog_horizontal", plain_binlog_tablet->tablet_schema(),
             std::move(compacted_binlog_blocks), false, 0, DataWriteType::TYPE_COMPACTION, false,
             [this, plain_binlog_tablet](RowsetWriterContext& context) {
                 configure_row_binlog_context(context, plain_binlog_tablet);
