@@ -36,6 +36,7 @@ import com.google.common.collect.Sets;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -68,10 +69,25 @@ class ProfileManagerTest {
     private File tempDir;
     private String originalPath;
     private int originMaxProfiles;
+    // ProfileManager instances constructed inside a single test; their thread pools are released in
+    // @AfterEach so the unit-test JVM does not accumulate ~30 live threads per instance.
+    private final List<ProfileManager> managersToShutdown = new ArrayList<>();
+
+    private ProfileManager register(ProfileManager pm) {
+        managersToShutdown.add(pm);
+        return pm;
+    }
 
     @BeforeAll
     static void setUp() throws Exception {
         profileManager = new ProfileManager();
+    }
+
+    @AfterAll
+    static void tearDownAll() {
+        if (profileManager != null) {
+            profileManager.shutdown();
+        }
     }
 
     @BeforeEach
@@ -80,12 +96,16 @@ class ProfileManagerTest {
         originalPath = ProfileManager.PROFILE_STORAGE_PATH;
         ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
         profileManager.cleanProfile();
-        profileManager.isProfileLoaded = false;
+        profileManager.resetLoadStateForTest();
         originMaxProfiles = Config.max_query_profile_num;
     }
 
     @AfterEach
     void cleanup() {
+        for (ProfileManager pm : managersToShutdown) {
+            pm.shutdown();
+        }
+        managersToShutdown.clear();
         ProfileManager.PROFILE_STORAGE_PATH = originalPath;
         FileUtils.deleteQuietly(tempDir);
         Config.max_query_profile_num = originMaxProfiles;
@@ -521,7 +541,7 @@ class ProfileManagerTest {
 
     @Test
     void testLoadProfile() throws IOException {
-        profileManager.isProfileLoaded = false;
+        profileManager.resetLoadStateForTest();
 
         try {
             // Create some test profile files
@@ -532,7 +552,7 @@ class ProfileManagerTest {
             }
 
             profileManager.loadProfilesFromStorageIfFirstTime(true);
-            Assertions.assertTrue(profileManager.isProfileLoaded);
+            Assertions.assertTrue(profileManager.isProfileLoadedForTest());
             Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
             Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
         } catch (InterruptedException e) {
@@ -685,7 +705,7 @@ class ProfileManagerTest {
             }
 
             // Execute deletion
-            profileManager.isProfileLoaded = true;
+            profileManager.forceLoadedForTest();
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify correct profiles were deleted
@@ -767,7 +787,7 @@ class ProfileManagerTest {
         }
 
         // Delete broken profiles
-        profileManager.isProfileLoaded = true;
+        profileManager.forceLoadedForTest();
         profileManager.deleteBrokenProfiles();
 
         // Verify normal files still exist
@@ -822,7 +842,7 @@ class ProfileManagerTest {
         }
 
         // Trigger cleanup
-        profileManager.isProfileLoaded = true;
+        profileManager.forceLoadedForTest();
         profileManager.deleteOutdatedProfilesFromStorage();
 
         // Verify number of profiles is within limits
@@ -847,7 +867,7 @@ class ProfileManagerTest {
         brokenFile.createNewFile();
 
         // Trigger cleanup
-        profileManager.isProfileLoaded = true;
+        profileManager.forceLoadedForTest();
         profileManager.deleteBrokenProfiles();
 
         // Verify broken profile is removed but valid one remains
@@ -1021,7 +1041,7 @@ class ProfileManagerTest {
             }
 
             // Trigger cleanup - should move old profiles to pending and possibly archive
-            profileManager.isProfileLoaded = true;
+            profileManager.forceLoadedForTest();
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify storage directory only has max allowed profiles
@@ -1089,7 +1109,7 @@ class ProfileManagerTest {
             }
 
             // Trigger cleanup - should directly delete old profiles
-            profileManager.isProfileLoaded = true;
+            profileManager.forceLoadedForTest();
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify delete invocations
@@ -1146,7 +1166,7 @@ class ProfileManagerTest {
 
             // Simulate periodic cleanup via runAfterCatalogReady
             // Note: The first call will trigger cleanup since lastArchiveCleanupTime is 0
-            profileManager.isProfileLoaded = true;
+            profileManager.forceLoadedForTest();
             profileManager.runAfterCatalogReady();
 
             // Verify that the old archive was deleted by runAfterCatalogReady
@@ -1242,7 +1262,8 @@ class ProfileManagerTest {
                 return super.getOnStorageProfileInfos();
             }
         };
-        pm.isProfileLoaded = false;
+        pm.resetLoadStateForTest();
+        register(pm);
 
         int concurrentTriggers = 20;
         CountDownLatch startLatch = new CountDownLatch(1);
@@ -1272,11 +1293,11 @@ class ProfileManagerTest {
         releaseLoader.countDown();
 
         long waitStart = System.currentTimeMillis();
-        while (!pm.isProfileLoaded && System.currentTimeMillis() - waitStart < 30000) {
+        while (!pm.isProfileLoadedForTest() && System.currentTimeMillis() - waitStart < 30000) {
             Thread.sleep(100);
         }
 
-        Assertions.assertTrue(pm.isProfileLoaded);
+        Assertions.assertTrue(pm.isProfileLoadedForTest());
         Assertions.assertEquals(1, loadEntries.get(),
                 "No second cold load should start after the first one completes");
         Assertions.assertEquals(numProfiles, pm.queryIdToProfileMap.size());
@@ -1300,7 +1321,8 @@ class ProfileManagerTest {
                 return super.getOnStorageProfileInfos();
             }
         };
-        pm.isProfileLoaded = false;
+        pm.resetLoadStateForTest();
+        register(pm);
 
         Thread asyncLoader = new Thread(() -> pm.loadProfilesFromStorageIfFirstTime(false));
         asyncLoader.start();
@@ -1325,7 +1347,7 @@ class ProfileManagerTest {
         asyncLoader.join(10000);
 
         Assertions.assertTrue(syncReturned.get(), "sync load should return after the async load finishes");
-        Assertions.assertTrue(pm.isProfileLoaded);
+        Assertions.assertTrue(pm.isProfileLoadedForTest());
     }
 
     @Test
@@ -1346,7 +1368,8 @@ class ProfileManagerTest {
                 throw new RuntimeException("simulated load failure");
             }
         };
-        pm.isProfileLoaded = false;
+        pm.resetLoadStateForTest();
+        register(pm);
 
         pm.loadProfilesFromStorageIfFirstTime(true);
 
@@ -1355,7 +1378,7 @@ class ProfileManagerTest {
         // A failed load must NOT be promoted to the cleanup-authoritative "index complete" state,
         // otherwise deleteBrokenProfiles() would delete valid stored profiles missing from the
         // partial in-memory index.
-        Assertions.assertFalse(pm.isProfileLoaded, "failed load must not mark the disk index authoritative");
+        Assertions.assertFalse(pm.isProfileLoadedForTest(), "failed load must not mark the disk index authoritative");
         Assertions.assertTrue(pm.queryIdToProfileMap.isEmpty());
 
         // A second trigger inside the backoff window must NOT re-enter the load body -- this is the
@@ -1364,10 +1387,10 @@ class ProfileManagerTest {
         pm.loadProfilesFromStorageIfFirstTime(true);
         Assertions.assertFalse(pushProfileEntered.get(),
                 "a load in the backoff window must not be restarted by a later trigger");
-        Assertions.assertFalse(pm.isProfileLoaded);
+        Assertions.assertFalse(pm.isProfileLoadedForTest());
 
         // The invariant the failed-load handling really protects: valid stored profiles must survive
-        // a failed load. Because isProfileLoaded stayed false, destructive cleanup is a no-op.
+        // a failed load. Because the state never became LOADED, destructive cleanup is a no-op.
         File[] filesBefore = tempDir.listFiles();
         Assertions.assertNotNull(filesBefore);
         Assertions.assertEquals(1, filesBefore.length);
@@ -1380,9 +1403,52 @@ class ProfileManagerTest {
     }
 
     @Test
+    void testLoadRetriesWithBackoffThenTerminates() throws Exception {
+        // A load that always fails must NOT respawn a loader every tick (backoff gates re-entry) and
+        // must eventually reach the terminal FAILED state instead of retrying forever -- while never
+        // becoming LOADED, so destructive cleanup stays disabled the whole time.
+        UUID taskId = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+        constructProfile(DebugUtil.printId(queryId)).writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
+
+        AtomicInteger loadAttempts = new AtomicInteger(0);
+        ProfileManager pm = new ProfileManager() {
+            @Override
+            public void pushProfile(Profile profile) {
+                loadAttempts.incrementAndGet();
+                throw new RuntimeException("simulated load failure");
+            }
+        };
+        pm.resetLoadStateForTest();
+        register(pm);
+
+        // Drive many synchronous triggers. Backoff makes most of them no-ops; only the ones past the
+        // backoff window actually enter the load body, so attempts stay far below the trigger count.
+        for (int i = 0; i < 50; i++) {
+            pm.resetBackoffWindowForTest();
+            pm.loadProfilesFromStorageIfFirstTime(true);
+        }
+
+        Assertions.assertEquals("FAILED", pm.getProfileLoadState(),
+                "a load that always fails should terminate in FAILED after MAX_LOAD_RETRY attempts");
+        Assertions.assertFalse(pm.isProfileLoadedForTest());
+        // Bounded by MAX_LOAD_RETRY (10), not by the 50 triggers.
+        Assertions.assertTrue(loadAttempts.get() <= 10,
+                "load attempts must be bounded by MAX_LOAD_RETRY, got " + loadAttempts.get());
+
+        // Once terminal, no trigger re-enters the load body -- even outside the backoff window.
+        int attemptsAtTerminal = loadAttempts.get();
+        pm.resetBackoffWindowForTest();
+        pm.loadProfilesFromStorageIfFirstTime(true);
+        Assertions.assertEquals(attemptsAtTerminal, loadAttempts.get(),
+                "a terminally-failed load must not be restarted by a later trigger");
+    }
+
+    @Test
     void testReadProfileIOExceptionInBatch() throws Exception {
         ProfileManager pm = new ProfileManager();
-        pm.isProfileLoaded = false;
+        pm.resetLoadStateForTest();
+        register(pm);
 
         // Malformed (non-zip) profile files: real Profile.read tolerates them and returns null,
         // so the batch load must still finish and mark isProfileLoaded=true without loading any.
@@ -1393,7 +1459,7 @@ class ProfileManagerTest {
 
         pm.loadProfilesFromStorageIfFirstTime(true);
 
-        Assertions.assertTrue(pm.isProfileLoaded);
+        Assertions.assertTrue(pm.isProfileLoadedForTest());
         Assertions.assertEquals(0, pm.queryIdToProfileMap.size());
     }
 
@@ -1418,7 +1484,8 @@ class ProfileManagerTest {
                 }
             }
         };
-        pm.isProfileLoaded = false;
+        pm.resetLoadStateForTest();
+        register(pm);
 
         // asyncLoader only starts the daemon "profile-loader" and returns; joining it does NOT wait
         // for that loader. We must wait on the loader itself before returning so @AfterEach cannot
@@ -1440,9 +1507,9 @@ class ProfileManagerTest {
         // Wait for the real loader to leave getOnStorageProfileInfos, then for its terminal state.
         Assertions.assertTrue(loaderFinished.await(10, TimeUnit.SECONDS));
         long waitStart = System.currentTimeMillis();
-        while (!pm.isProfileLoaded && System.currentTimeMillis() - waitStart < 10000) {
+        while (!pm.isProfileLoadedForTest() && System.currentTimeMillis() - waitStart < 10000) {
             Thread.sleep(50);
         }
-        Assertions.assertTrue(pm.isProfileLoaded);
+        Assertions.assertTrue(pm.isProfileLoadedForTest());
     }
 }
