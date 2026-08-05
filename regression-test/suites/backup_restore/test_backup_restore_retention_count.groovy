@@ -43,8 +43,9 @@ suite("test_backup_restore_retention_count", "backup_restore") {
     // Auto-partition on-the-fly createPartition can race with DynamicPartitionScheduler's retention
     // cleanup (partition.retention_count) when a concurrent suite lowers the global
     // dynamic_partition_check_interval_seconds: the scheduler may drop a just-created history partition
-    // before the createPartition RPC finishes, surfacing as a transient createPartition RPC error.
-    // Retry the insert on that transient contention.
+    // before the createPartition RPC finishes. The race surfaces either as a transient createPartition
+    // RPC error, or as the FE guard's "partition ... was concurrently dropped, please retry" status
+    // (the load is cancelled with that reason). Retry the insert on both surfaces.
     def maxInsertRetries = 10
     for (int i = 0; i < maxInsertRetries; i++) {
         try {
@@ -55,10 +56,12 @@ suite("test_backup_restore_retention_count", "backup_restore") {
             """
             break
         } catch (Exception e) {
-            if (i == maxInsertRetries - 1 || !e.getMessage().contains("createPartition")) {
+            def msg = e.getMessage()
+            if (i == maxInsertRetries - 1
+                    || !(msg.contains("createPartition") || msg.contains("concurrently dropped"))) {
                 throw e
             }
-            logger.warn("insert raced with retention cleanup, retry ${i + 1}: ${e.getMessage()}")
+            logger.warn("insert raced with retention cleanup, retry ${i + 1}: ${msg}")
             sleep(2000)
         }
     }
