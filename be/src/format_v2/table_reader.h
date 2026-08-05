@@ -390,8 +390,12 @@ protected:
         _current_file_description->is_immutable = true;
     }
 
-    std::optional<ColumnDefinition> _find_current_table_column_by_field_id(int32_t field_id,
-                                                                           DataTypePtr type) const;
+    std::optional<ColumnDefinition> _find_table_column_by_field_id(
+            int32_t field_id, DataTypePtr type, bool include_historical_schemas) const;
+    std::optional<std::vector<ColumnDefinition>> _find_table_column_path_by_field_id(
+            int32_t field_id, DataTypePtr leaf_type, bool include_historical_schemas) const;
+    std::optional<std::vector<ColumnDefinition>> _find_table_column_identity_path_by_field_id(
+            int32_t field_id, bool include_historical_schemas) const;
 
     // Parse deletion vector information from table format specific file description.
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
@@ -1288,27 +1292,30 @@ protected:
         DORIS_CHECK(column->get() != nullptr);
         DORIS_CHECK(file_type != nullptr);
         DORIS_CHECK(table_type != nullptr);
-        if (file_type->equals(*table_type)) {
+        if (file_type->equals(*table_type) ||
+            remove_nullable(file_type)->equals(*remove_nullable(table_type))) {
             return Status::OK();
         }
 
         DataTypePtr input_type = file_type;
         // Cast wrappers unwrap nullable inputs according to the declared input type, so keep the
-        // root nullability of the declared type aligned with the actual column shape.
+        // root nullability of the declared input aligned with the actual column shape. When the
+        // runtime column is nullable, also keep the cast target nullable; the caller applies the
+        // table's final nullability after value conversion. Casting a nullable runtime column
+        // directly to a non-nullable target would pass ColumnNullable to CastToImpl.
         if ((*column)->is_nullable() && !input_type->is_nullable()) {
             input_type = make_nullable(input_type);
         } else if (!(*column)->is_nullable() && input_type->is_nullable()) {
             input_type = remove_nullable(input_type);
         }
+        DataTypePtr cast_type = table_type;
+        if ((*column)->is_nullable() && !cast_type->is_nullable()) {
+            cast_type = make_nullable(cast_type);
+        }
         Block cast_block;
         cast_block.insert({*column, input_type, column_name});
         auto slot_ref = VSlotRef::create_shared(0, 0, -1, input_type, column_name);
-        // Preserve the source null map through conversion; the caller validates and unwraps it
-        // against a required table field after the value conversion finishes.
-        const auto cast_target_type = input_type->is_nullable() && !table_type->is_nullable()
-                                              ? make_nullable(table_type)
-                                              : table_type;
-        auto cast_expr = Cast::create_shared(cast_target_type);
+        auto cast_expr = Cast::create_shared(cast_type);
         cast_expr->add_child(std::move(slot_ref));
         auto cast_ctx = VExprContext::create_shared(std::move(cast_expr));
         RowDescriptor row_desc;
@@ -1317,6 +1324,55 @@ protected:
         ColumnPtr cast_column;
         RETURN_IF_ERROR(cast_ctx->execute(&cast_block, cast_column));
         *column = std::move(cast_column);
+        return Status::OK();
+    }
+
+    Status _try_materialize_scalar_cast_with_runtime_nullability(const ColumnMapping& mapping,
+                                                                 const Block* current_block,
+                                                                 ColumnPtr* column,
+                                                                 bool* handled) const {
+        DORIS_CHECK(column != nullptr);
+        DORIS_CHECK(handled != nullptr);
+        *handled = false;
+        if (mapping.projection == nullptr || !mapping.file_local_id.has_value() ||
+            !mapping.child_mappings.empty()) {
+            return Status::OK();
+        }
+
+        const auto& root = mapping.projection->root();
+        if (root == nullptr || root->node_type() != TExprNodeType::CAST_EXPR) {
+            return Status::OK();
+        }
+        DORIS_CHECK(root->get_num_children() == 1);
+        const auto* slot = dynamic_cast<const VSlotRef*>(root->get_child(0).get());
+        DORIS_CHECK(slot != nullptr);
+        DORIS_CHECK(current_block != nullptr);
+        DORIS_CHECK(slot->column_id() >= 0);
+        DORIS_CHECK(cast_set<size_t>(slot->column_id()) < current_block->columns());
+        const auto& source = current_block->get_by_position(slot->column_id());
+        DORIS_CHECK(source.column.get() != nullptr);
+        DORIS_CHECK(slot->data_type() != nullptr);
+        DORIS_CHECK(mapping.table_type != nullptr);
+        const bool runtime_input_mismatch =
+                source.column->is_nullable() != slot->data_type()->is_nullable();
+        const bool nullable_input_to_required_table =
+                source.column->is_nullable() && !mapping.table_type->is_nullable();
+        if (!runtime_input_mismatch && !nullable_input_to_required_table) {
+            return Status::OK();
+        }
+
+        // File readers can return a nullable runtime column even when the physical schema marks the
+        // leaf required. A pre-built Cast binds to the declared file type and can therefore pass a
+        // ColumnNullable to a non-nullable CastToImpl. Rebuild only when that runtime shape differs
+        // from the declared input, or when a declared nullable file field maps to a required table
+        // field. Keep the cast target nullable while converting values, then let
+        // _align_column_nullability() reject an actual NULL before removing the wrapper.
+        ColumnPtr result_column = source.column;
+        RETURN_IF_ERROR(_cast_column_to_type(&result_column, slot->data_type(), mapping.table_type,
+                                             mapping.file_column_name));
+        RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
+        *column = _detach_column(std::move(result_column));
+        *handled = true;
         return Status::OK();
     }
 
@@ -1338,6 +1394,40 @@ protected:
         }
         RETURN_IF_ERROR(
                 _align_column_nullability(column, mapping.table_type, nullable_parent_null_map));
+        return Status::OK();
+    }
+
+    Status _materialize_default_or_missing_column(
+            const ColumnMapping& mapping, const Block* current_block, const size_t rows,
+            ColumnPtr* column, const NullMap* nullable_parent_null_map = nullptr) {
+        DORIS_CHECK(mapping.table_type != nullptr);
+        DORIS_CHECK(column != nullptr);
+        if (mapping.default_expr != nullptr) {
+            Block synthetic_block;
+            const Block* eval_block = current_block;
+            if (eval_block == nullptr || eval_block->rows() != rows) {
+                // Nested ARRAY/MAP children use element/entry cardinality rather than the root
+                // block's row count. Iceberg initial defaults are typed literals, so a synthetic
+                // block with the desired row count is sufficient and avoids a top-level
+                // ConstantMap dependency for nested mappings.
+                synthetic_block.insert(
+                        {mapping.table_type->create_column_const_with_default_value(rows),
+                         mapping.table_type, "__table_reader_nested_default_rows"});
+                eval_block = &synthetic_block;
+            }
+            ColumnWithTypeAndName result;
+            RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(mapping.default_expr,
+                                                                          eval_block, &result));
+            ColumnPtr result_column = result.column;
+            RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type,
+                                                      nullable_parent_null_map));
+            *column = _detach_column(std::move(result_column));
+            return Status::OK();
+        }
+        ColumnPtr result_column = mapping.table_type->create_column_const_with_default_value(rows);
+        RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type,
+                                                  nullable_parent_null_map));
+        *column = _detach_column(std::move(result_column));
         return Status::OK();
     }
 
@@ -1363,6 +1453,12 @@ protected:
                     _materialize_complex_mapping_column(mapping, result_column, rows, column));
             return Status::OK();
         }
+        bool runtime_nullability_cast_handled = false;
+        RETURN_IF_ERROR(_try_materialize_scalar_cast_with_runtime_nullability(
+                mapping, current_block, column, &runtime_nullability_cast_handled));
+        if (runtime_nullability_cast_handled) {
+            return Status::OK();
+        }
         if (mapping.projection != nullptr) {
             int res_id;
             auto st = mapping.projection->execute(current_block, &res_id);
@@ -1385,31 +1481,7 @@ protected:
             }
             return Status::OK();
         }
-        if (mapping.default_expr != nullptr) {
-            if (current_block->rows() == rows) {
-                ColumnWithTypeAndName result;
-                RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(
-                        mapping.default_expr, current_block, &result));
-                ColumnPtr result_column = result.column;
-                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
-            } else {
-                DORIS_CHECK(mapping.constant_index.has_value());
-                Block eval_block;
-                eval_block.insert({mapping.table_type->create_column_const_with_default_value(rows),
-                                   mapping.table_type, "__table_reader_const_rows"});
-                ColumnWithTypeAndName result;
-                RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(
-                        mapping.default_expr, &eval_block, &result));
-                ColumnPtr result_column = result.column;
-                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
-            }
-            return Status::OK();
-        }
-        ColumnPtr result_column = mapping.table_type->create_column_const_with_default_value(rows);
-        *column = _detach_column(std::move(result_column));
-        return Status::OK();
+        return _materialize_default_or_missing_column(mapping, current_block, rows, column);
     }
 
     Status _materialize_complex_mapping_column(const ColumnMapping& mapping,
@@ -1595,14 +1667,10 @@ protected:
         for (const auto* child_mapping : table_ordered_children) {
             DORIS_CHECK(child_mapping != nullptr);
             if (!child_mapping->file_local_id.has_value()) {
-                ColumnPtr child_column =
-                        (child_mapping->initial_default_column
-                                 ? child_mapping->initial_default_column->clone_resized(rows)
-                                 : child_mapping->table_type
-                                           ->create_column_const_with_default_value(rows))
-                                ->convert_to_full_column_if_const();
-                RETURN_IF_ERROR(_align_column_nullability(&child_column, child_mapping->table_type,
-                                                          descendant_parent_null_map));
+                ColumnPtr child_column;
+                RETURN_IF_ERROR(_materialize_default_or_missing_column(
+                        *child_mapping, nullptr, rows, &child_column, descendant_parent_null_map));
+                child_column = child_column->convert_to_full_column_if_const();
                 child_columns.push_back(std::move(child_column));
                 continue;
             }
@@ -1783,17 +1851,25 @@ protected:
         return Status::OK();
     }
 
+    Status _open_mapping_expr_tree(const ColumnMapping& mapping, const RowDescriptor& row_desc) {
+        if (mapping.projection != nullptr) {
+            RETURN_IF_ERROR(mapping.projection->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(mapping.projection->open(_runtime_state));
+        }
+        if (mapping.default_expr != nullptr) {
+            RETURN_IF_ERROR(mapping.default_expr->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(mapping.default_expr->open(_runtime_state));
+        }
+        for (const auto& child_mapping : mapping.child_mappings) {
+            RETURN_IF_ERROR(_open_mapping_expr_tree(child_mapping, row_desc));
+        }
+        return Status::OK();
+    }
+
     Status _open_mapping_exprs() {
         RowDescriptor row_desc;
         for (const auto& mapping : _data_reader.column_mapper->mappings()) {
-            if (mapping.projection != nullptr) {
-                RETURN_IF_ERROR(mapping.projection->prepare(_runtime_state, row_desc));
-                RETURN_IF_ERROR(mapping.projection->open(_runtime_state));
-            }
-            if (mapping.default_expr != nullptr) {
-                RETURN_IF_ERROR(mapping.default_expr->prepare(_runtime_state, row_desc));
-                RETURN_IF_ERROR(mapping.default_expr->open(_runtime_state));
-            }
+            RETURN_IF_ERROR(_open_mapping_expr_tree(mapping, row_desc));
         }
         return Status::OK();
     }

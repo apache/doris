@@ -32,6 +32,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -220,7 +222,9 @@ public class IcebergRowLevelDmlTransformTest {
         RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(table, ImmutableList.of("db", "t"), null,
                 false, ImmutableList.of(), query);
 
-        LogicalPlan plan = transform.synthesize(null, args, RowLevelDmlOp.DELETE);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getStatementContext()).thenReturn(new StatementContext());
+        LogicalPlan plan = transform.synthesize(context, args, RowLevelDmlOp.DELETE);
 
         Assertions.assertTrue(plan instanceof LogicalExternalRowLevelDeleteSink, plan.getClass().getName());
         Assertions.assertSame(table, ((LogicalExternalRowLevelDeleteSink<?>) plan).getTargetTable());

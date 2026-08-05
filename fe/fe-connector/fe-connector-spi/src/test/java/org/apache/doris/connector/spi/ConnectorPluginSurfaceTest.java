@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.spi;
 
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -68,18 +71,19 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // fe-connector-api was merged into fe-connector-spi in this surface revision, so every type on
-        // the contract changed its fully-qualified name (org.apache.doris.connector.api.* ->
-        // org.apache.doris.connector.spi.*). A plugin built against major 2 cannot resolve a single one
-        // of them; it must be refused at load time rather than fail later with NoClassDefFoundError.
-        Assertions.assertEquals("3.0", version.getProperty("api.version"));
+        // ConnectorWritePlanProvider and ConnectorColumnHandle gained public default methods in this
+        // surface revision. A plugin built against major 3 must be refused rather than silently run
+        // against an expanded contract it did not compile against.
+        Assertions.assertEquals("4.0", version.getProperty("api.version"));
     }
 
-    /** The types a connector plugin implements or calls. Everything reachable on them is the contract. */
+    /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorProvider.class,
             ConnectorContext.class,
             Connector.class,
+            ConnectorColumnHandle.class,
+            ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
             org.apache.doris.extension.spi.PluginContext.class);

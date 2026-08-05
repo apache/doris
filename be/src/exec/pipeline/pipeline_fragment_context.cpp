@@ -173,8 +173,8 @@ bool PipelineFragmentContext::is_timeout(timespec now) const {
 }
 
 // notify_close() transitions the PFC from "waiting for external close notification" to
-// "self-managed close". For recursive CTE fragments, the old PFC is kept alive until
-// the rerun_fragment(wait_for_destroy) RPC calls this to trigger shutdown.
+// "self-managed close". A recursive CTE PFC normally remains registered until rerun_fragment()
+// calls this for WAIT_FOR_DESTROY or FINAL_CLOSE; cancellation can also call it.
 // Returns true if all tasks have already closed (i.e., the PFC can be safely destroyed).
 bool PipelineFragmentContext::notify_close() {
     bool all_closed = false;
@@ -183,7 +183,7 @@ bool PipelineFragmentContext::notify_close() {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks >= _total_tasks) {
             if (_need_notify_close) {
-                // Fragment was cancelled and waiting for notify to close.
+                // The fragment finished while waiting for the external close notification.
                 // Record that we need to remove from fragment mgr, but do it
                 // after releasing _task_mutex to avoid ABBA deadlock with
                 // dump_pipeline_tasks() (which acquires _pipeline_map lock
@@ -192,7 +192,7 @@ bool PipelineFragmentContext::notify_close() {
             }
             all_closed = true;
         }
-        // make fragment release by self after cancel
+        // Allow the fragment to be removed now or after its remaining tasks close.
         _need_notify_close = false;
     }
     if (need_remove) {

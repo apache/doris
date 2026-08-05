@@ -67,6 +67,11 @@ public final class ConnectorColumn {
     // excluding them keeps every pre-existing equality unchanged.
     private final boolean nullableSpecified;
     private final boolean commentSpecified;
+    // Request-scoped SQL expression used when the engine expands an omitted column or DEFAULT. Unlike
+    // defaultValue, this is already valid Doris SQL and therefore supports typed binary and nested values.
+    // Connectors keep it null in their cached schema so DESCRIBE/SHOW CREATE never expose a remote write
+    // default that is only meaningful for a pinned write statement.
+    private final String defaultValueSql;
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue) {
@@ -87,13 +92,14 @@ public final class ConnectorColumn {
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated) {
         this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false, true,
-                UNSET_UNIQUE_ID, false, false, false);
+                UNSET_UNIQUE_ID, false, false, false, null);
     }
 
     private ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated, boolean withTimeZone, boolean visible, int uniqueId,
-            boolean reservedPassthrough, boolean nullableSpecified, boolean commentSpecified) {
+            boolean reservedPassthrough, boolean nullableSpecified, boolean commentSpecified,
+            String defaultValueSql) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
@@ -108,6 +114,7 @@ public final class ConnectorColumn {
         this.reservedPassthrough = reservedPassthrough;
         this.nullableSpecified = nullableSpecified;
         this.commentSpecified = commentSpecified;
+        this.defaultValueSql = defaultValueSql;
     }
 
     /**
@@ -118,7 +125,7 @@ public final class ConnectorColumn {
     public ConnectorColumn withTimeZone() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, true, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified);
+                nullableSpecified, commentSpecified, defaultValueSql);
     }
 
     /**
@@ -128,7 +135,7 @@ public final class ConnectorColumn {
     public ConnectorColumn invisible() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, false, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified);
+                nullableSpecified, commentSpecified, defaultValueSql);
     }
 
     /**
@@ -140,7 +147,7 @@ public final class ConnectorColumn {
     public ConnectorColumn reservedPassthrough() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, true,
-                nullableSpecified, commentSpecified);
+                nullableSpecified, commentSpecified, defaultValueSql);
     }
 
     /**
@@ -151,7 +158,7 @@ public final class ConnectorColumn {
     public ConnectorColumn withSpecified(boolean nullableSpecified, boolean commentSpecified) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified);
+                nullableSpecified, commentSpecified, defaultValueSql);
     }
 
     /**
@@ -163,7 +170,16 @@ public final class ConnectorColumn {
     public ConnectorColumn withUniqueId(int uniqueId) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified);
+                nullableSpecified, commentSpecified, defaultValueSql);
+    }
+
+    /**
+     * Returns a copy carrying a request-scoped Doris SQL expression for omitted-column/DEFAULT expansion.
+     */
+    public ConnectorColumn withDefaultValueSql(String defaultValueSql) {
+        return new ConnectorColumn(name, type, comment, nullable, defaultValue,
+                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
+                nullableSpecified, commentSpecified, defaultValueSql);
     }
 
     public String getName() {
@@ -224,6 +240,10 @@ public final class ConnectorColumn {
         return commentSpecified;
     }
 
+    public String getDefaultValueSql() {
+        return defaultValueSql;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -244,13 +264,14 @@ public final class ConnectorColumn {
                 && name.equals(that.name)
                 && type.equals(that.type)
                 && Objects.equals(comment, that.comment)
-                && Objects.equals(defaultValue, that.defaultValue);
+                && Objects.equals(defaultValue, that.defaultValue)
+                && Objects.equals(defaultValueSql, that.defaultValueSql);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated,
-                withTimeZone, visible, uniqueId, reservedPassthrough);
+                withTimeZone, visible, uniqueId, reservedPassthrough, defaultValueSql);
     }
 
     @Override

@@ -52,7 +52,6 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
-#include "service/point_query_executor.h"
 #include "storage/data_dir.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -61,6 +60,8 @@
 #include "storage/index/short_key_index.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/key_coder.h"
+#include "storage/mow/historical_row_fetcher.h"
+#include "storage/mow/key_probe.h"
 #include "storage/olap_common.h"
 #include "storage/partial_update_info.h"
 #include "storage/row_cursor.h" // RowCursor // IWYU pragma: keep
@@ -320,17 +321,6 @@ Status VerticalSegmentWriter::init() {
     return Status::OK();
 }
 
-void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) const {
-    // Just invalid row cache for simplicity, since the rowset is not visible at present.
-    // If we update/insert cache, if load failed rowset will not be visible but cached data
-    // will be visible, and lead to inconsistency.
-    if (!config::disable_storage_row_cache && _tablet_schema->has_row_store_for_all_columns() &&
-        _opts.write_type == DataWriteType::TYPE_DIRECT) {
-        // invalidate cache
-        RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
-    }
-}
-
 Status VerticalSegmentWriter::_append_row_store_column(const Block& block, size_t row_pos,
                                                        size_t num_rows, uint32_t cid) {
     DCHECK(_tablet_schema->column(cid).is_row_store_column());
@@ -371,66 +361,31 @@ Status VerticalSegmentWriter::_append_row_store_column(const Block& block, size_
 }
 
 Status VerticalSegmentWriter::_probe_key_for_mow(
-        std::string key, std::size_t segment_pos, bool have_input_seq_column, bool have_delete_sign,
+        const MowKeyProbe& probe, std::string key, std::size_t segment_pos,
+        bool have_input_seq_column, bool have_delete_sign,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-        const std::function<void(const RowLocation& loc)>& found_cb,
+        const std::function<void(const RowLocation& loc, const RowsetSharedPtr& rowset)>& found_cb,
         const std::function<Status()>& not_found_cb, PartialUpdateStats& stats) {
-    RowLocation loc;
-    // save rowset shared ptr so this rowset wouldn't delete
-    RowsetSharedPtr rowset;
-    auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
-                                      specified_rowsets, &loc, _mow_context->max_version,
-                                      segment_caches, &rowset);
-    if (st.is<KEY_NOT_FOUND>()) {
+    ProbeOutcome outcome =
+            DORIS_TRY(probe.probe(key, segment_pos, have_input_seq_column, have_delete_sign,
+                                  specified_rowsets, segment_caches, stats));
+    if (outcome.result == KeyProbeResult::NOT_FOUND) {
         if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
         }
-        ++stats.num_rows_new_added;
         has_default_or_nullable = true;
         use_default_or_null_flag.emplace_back(true);
         return Status::OK();
     }
-    if (!st.ok() && !st.is<KEY_ALREADY_EXISTS>()) {
-        LOG(WARNING) << "failed to lookup row key, error: " << st;
-        return st;
-    }
-
-    // 1. if the delete sign is marked, it means that the value columns of the row will not
-    //    be read. So we don't need to read the missing values from the previous rows.
-    // 2. the one exception is when there are sequence columns in the table, we need to read
-    //    the sequence columns, otherwise it may cause the merge-on-read based compaction
-    //    policy to produce incorrect results
-
-    // 3. In flexible partial update, we may delete the existing rows before if there exists
-    //    insert after delete in one load. In this case, the insert should also be treated
-    //    as newly inserted rows, note that the sequence column value is filled in
-    //    BlockAggregator::aggregate_for_insert_after_delete() if this row doesn't specify the sequence column
-    if (st.is<KEY_ALREADY_EXISTS>() || (have_delete_sign && !_tablet_schema->has_sequence_col()) ||
-        (_opts.rowset_ctx->partial_update_info->is_flexible_partial_update() &&
-         _mow_context->delete_bitmap->contains(
-                 {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id))) {
+    if (outcome.use_default_or_null) {
         has_default_or_nullable = true;
         use_default_or_null_flag.emplace_back(true);
     } else {
         // partial update should not contain invisible columns
         use_default_or_null_flag.emplace_back(false);
-        _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-        found_cb(loc);
-    }
-
-    if (st.is<KEY_ALREADY_EXISTS>()) {
-        // although we need to mark delete current row, we still need to read missing columns
-        // for this row, we need to ensure that each column is aligned
-        _mow_context->delete_bitmap->add(
-                {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                cast_set<uint32_t>(segment_pos));
-        ++stats.num_rows_deleted;
-    } else {
-        _mow_context->delete_bitmap->add(
-                {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
-        ++stats.num_rows_updated;
+        found_cb(outcome.loc, outcome.rowset);
     }
     return Status::OK();
 }
@@ -575,7 +530,11 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
-    FixedReadPlan read_plan;
+    MowKeyProbe probe = MowKeyProbe::for_partial_update(
+            _tablet.get(), _tablet_schema.get(), _tablet_schema->has_sequence_col(), _mow_context,
+            _opts.rowset_ctx->rowset_id, _segment_id, /*flexible=*/false);
+    // owns the rowset pins and the read plan for the historical read below
+    HistoricalRowFetcher fetcher {_opts.rowset_ctx->make_historical_row_retriever_context()};
 
     // locate rows in base data
     PartialUpdateStats stats;
@@ -589,11 +548,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         // here row_pos = 2, num_rows = 4.
         size_t delta_pos = block_pos - data.row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
-        std::string key = _key_encoder.full_encode(key_columns, delta_pos);
-        _maybe_invalid_row_cache(key);
-        if (have_input_seq_column) {
-            _key_encoder.append_seq_suffix(&key, seq_column, delta_pos);
-        }
+        std::string key = encode_mow_key_invalidate_cache(
+                _key_encoder, key_columns, seq_column, delta_pos, have_input_seq_column,
+                _opts.rowset_ctx->tablet_id, *_tablet_schema, _opts.write_type);
         // If the table have sequence column, and the include-cids don't contain the sequence
         // column, we need to update the primary key index builder at the end of this method.
         // At that time, we have a valid sequence column to encode the key with seq col.
@@ -611,13 +568,15 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                                 block_pos, cast_set<int>(_key_encoder.num_sort_key_columns()));
                     });
         };
-        auto update_read_plan = [&](const RowLocation& loc) {
-            read_plan.prepare_to_read(loc, segment_pos);
+        auto update_read_plan = [&](const RowLocation& loc, const RowsetSharedPtr& rowset) {
+            // keep the rowset alive until the historical read below is done
+            fetcher.pin_rowset(rowset);
+            fetcher.plan_fixed_read(loc, segment_pos);
         };
-        RETURN_IF_ERROR(_probe_key_for_mow(std::move(key), segment_pos, have_input_seq_column,
-                                           have_delete_sign, specified_rowsets, segment_caches,
-                                           has_default_or_nullable, use_default_or_null_flag,
-                                           update_read_plan, not_found_cb, stats));
+        RETURN_IF_ERROR(_probe_key_for_mow(
+                probe, std::move(key), segment_pos, have_input_seq_column, have_delete_sign,
+                specified_rowsets, segment_caches, has_default_or_nullable,
+                use_default_or_null_flag, update_read_plan, not_found_cb, stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), data.num_rows);
 
@@ -627,10 +586,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     }
 
     // read to fill full_block
-    RETURN_IF_ERROR(read_plan.fill_missing_columns(
-            _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
-            *_tablet_schema, full_block, use_default_or_null_flag, has_default_or_nullable,
-            segment_start_pos, data.block));
+    RETURN_IF_ERROR(fetcher.fill_missing_columns(*_tablet_schema, full_block,
+                                                 use_default_or_null_flag, has_default_or_nullable,
+                                                 segment_start_pos, data.block));
 
     if (_tablet_schema->num_variant_columns() > 0) {
         RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
@@ -918,18 +876,19 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
             (_tablet_schema->has_sequence_col()
                      ? _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id()
                      : -1);
+    MowKeyProbe probe = MowKeyProbe::for_partial_update(
+            _tablet.get(), _tablet_schema.get(), _tablet_schema->has_sequence_col(), _mow_context,
+            _opts.rowset_ctx->rowset_id, _segment_id, /*flexible=*/true);
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         size_t delta_pos = block_pos - data.row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
 
-        std::string key = _key_encoder.full_encode(key_columns, delta_pos);
-        _maybe_invalid_row_cache(key);
         bool row_has_sequence_col =
                 (schema_has_sequence_col && !skip_bitmap.contains(seq_col_unique_id));
-        if (row_has_sequence_col) {
-            _key_encoder.append_seq_suffix(&key, seq_column, delta_pos);
-        }
+        std::string key = encode_mow_key_invalidate_cache(
+                _key_encoder, key_columns, seq_column, delta_pos, row_has_sequence_col,
+                _opts.rowset_ctx->tablet_id, *_tablet_schema, _opts.write_type);
 
         // mark key with delete sign as deleted.
         bool have_delete_sign =
@@ -944,11 +903,14 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
                     },
                     &skip_bitmap);
         };
-        auto update_read_plan = [&](const RowLocation& loc) {
+        auto update_read_plan = [&](const RowLocation& loc, const RowsetSharedPtr& rowset) {
+            // the flexible fill still reads through the writer's pin map, which the block
+            // aggregator also feeds
+            _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
             read_plan.prepare_to_read(loc, segment_pos, skip_bitmap);
         };
 
-        RETURN_IF_ERROR(_probe_key_for_mow(std::move(key), segment_pos, row_has_sequence_col,
+        RETURN_IF_ERROR(_probe_key_for_mow(probe, std::move(key), segment_pos, row_has_sequence_col,
                                            have_delete_sign, specified_rowsets, segment_caches,
                                            has_default_or_nullable, use_default_or_null_flag,
                                            update_read_plan, not_found_cb, stats));
@@ -1125,11 +1087,10 @@ Status VerticalSegmentWriter::_generate_primary_key_index(
     if (!need_sort) { // mow table without cluster key
         std::string last_key;
         for (size_t pos = 0; pos < num_rows; pos++) {
-            std::string key = _key_encoder.full_encode(primary_key_columns, pos);
-            _maybe_invalid_row_cache(key);
-            if (_tablet_schema->has_sequence_col()) {
-                _key_encoder.append_seq_suffix(&key, seq_column, pos);
-            }
+            std::string key = encode_mow_key_invalidate_cache(
+                    _key_encoder, primary_key_columns, seq_column, pos,
+                    _tablet_schema->has_sequence_col(), _opts.rowset_ctx->tablet_id,
+                    *_tablet_schema, _opts.write_type);
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
                     << ", last key: " << last_key;
@@ -1141,7 +1102,8 @@ Status VerticalSegmentWriter::_generate_primary_key_index(
         std::vector<std::string> primary_keys;
         for (uint32_t pos = 0; pos < num_rows; pos++) {
             std::string key = _key_encoder.full_encode_primary_keys(primary_key_columns, pos);
-            _maybe_invalid_row_cache(key);
+            MowKeyProbe::maybe_invalidate_row_cache(_opts.rowset_ctx->tablet_id, *_tablet_schema,
+                                                    _opts.write_type, key);
             if (_tablet_schema->has_sequence_col()) {
                 _key_encoder.append_seq_suffix(&key, seq_column, pos);
             }

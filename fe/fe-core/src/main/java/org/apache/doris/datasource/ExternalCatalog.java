@@ -496,7 +496,7 @@ public abstract class ExternalCatalog
         }
 
         // 3. create access controller
-        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties, isDryRun);
+        Env.getCurrentEnv().getAccessManager().createAccessController(this, className, acProperties, isDryRun);
     }
 
     /**
@@ -599,12 +599,28 @@ public abstract class ExternalCatalog
      *                     and reloaded during the refresh process.
      */
     public void resetToUninitialized(boolean invalidCache) {
+        resetToUninitialized(invalidCache, false);
+    }
+
+    private Runnable resetToUninitialized(boolean invalidCache, boolean deferAccessControllerCleanup) {
+        Runnable accessControllerCleanup;
         synchronized (this) {
             this.objectCreated = false;
             this.initialized = false;
-            onClose();
+            accessControllerCleanup = detachAccessController();
+            closeResourcesQuietly("resetting catalog");
         }
-        onRefreshCache(invalidCache);
+        try {
+            onRefreshCache(invalidCache);
+        } catch (RuntimeException | Error e) {
+            accessControllerCleanup.run();
+            throw e;
+        }
+        if (!deferAccessControllerCleanup) {
+            accessControllerCleanup.run();
+            return () -> { };
+        }
+        return accessControllerCleanup;
     }
 
     /**
@@ -832,6 +848,25 @@ public abstract class ExternalCatalog
         notifyPropertiesUpdated(props);
     }
 
+    /**
+     * Apply property changes while atomically detaching the old access controller, but return its potentially
+     * blocking close operation to CatalogMgr so it can run after releasing the global catalog write lock.
+     */
+    public Runnable modifyCatalogPropsWithDeferredAccessControllerCleanup(Map<String, String> props) {
+        catalogProperty.modifyCatalogProps(props);
+        Runnable accessControllerCleanup = resetToUninitialized(false, true);
+        try {
+            String schemaCacheTtl = props.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
+            if (java.util.Objects.nonNull(schemaCacheTtl)) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(id);
+            }
+            return accessControllerCleanup;
+        } catch (RuntimeException | Error e) {
+            accessControllerCleanup.run();
+            throw e;
+        }
+    }
+
     public void tryModifyCatalogProps(Map<String, String> props) {
         catalogProperty.modifyCatalogProps(props);
     }
@@ -849,8 +884,29 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void onClose() {
-        removeAccessController();
+    public final void onClose() {
+        Runnable accessControllerCleanup = detachAccessController();
+        try {
+            closeResourcesQuietly("registered catalog");
+        } finally {
+            accessControllerCleanup.run();
+        }
+    }
+
+    @Override
+    public final void onCreateFailure() {
+        closeResourcesQuietly("unregistered catalog");
+    }
+
+    private void closeResourcesQuietly(String lifecycleStage) {
+        try {
+            closeResources();
+        } catch (Throwable t) {
+            LOG.warn("Failed to close resources for {} {}", lifecycleStage, name, t);
+        }
+    }
+
+    protected void closeResources() {
         if (threadPoolWithPreAuth != null) {
             ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
         }
@@ -862,8 +918,8 @@ public abstract class ExternalCatalog
         }
     }
 
-    private void removeAccessController() {
-        Env.getCurrentEnv().getAccessManager().removeAccessController(name);
+    private Runnable detachAccessController() {
+        return Env.getCurrentEnv().getAccessManager().detachAccessController(name, id);
     }
 
     /**

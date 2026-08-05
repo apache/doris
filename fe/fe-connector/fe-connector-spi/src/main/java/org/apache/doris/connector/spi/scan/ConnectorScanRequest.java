@@ -49,16 +49,18 @@ public final class ConnectorScanRequest {
     private final long limit;
     private final List<String> requiredPartitions;
     private final boolean countPushdown;
+    private final boolean explainOnly;
 
     private ConnectorScanRequest(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions,
-            boolean countPushdown) {
+            boolean countPushdown, boolean explainOnly) {
         this.tableHandle = tableHandle;
         this.columns = columns;
         this.filter = filter;
         this.limit = limit;
         this.requiredPartitions = requiredPartitions;
         this.countPushdown = countPushdown;
+        this.explainOnly = explainOnly;
     }
 
     /**
@@ -114,10 +116,26 @@ public final class ConnectorScanRequest {
         return countPushdown;
     }
 
+    /**
+     * Whether this plan is being built only to be shown ({@code EXPLAIN}), never run.
+     *
+     * <p>{@code EXPLAIN} plans a scan for real — that is where its {@code inputSplitNum} comes from — so a
+     * connector whose planning has a SIDE EFFECT on the source must read this and take a cheaper route. The
+     * ADBC connector is one: asking a driver to partition a query executes that query on the source, and an
+     * {@code EXPLAIN} that ran the query it was asked to describe would be a surprise the user cannot see.
+     * A connector that only lists files or builds a string ignores this and plans identically either way.</p>
+     *
+     * <p>It is not permission to plan something DIFFERENT from what would run: whatever is planned here is
+     * what {@code EXPLAIN} shows the user, so it must still describe the real scan.</p>
+     */
+    public boolean isExplainOnly() {
+        return explainOnly;
+    }
+
     /** This request with the partition set replaced — the batched scan's per-batch request. */
     public ConnectorScanRequest withRequiredPartitions(List<String> partitions) {
         return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                normalizePartitions(partitions), countPushdown);
+                normalizePartitions(partitions), countPushdown, explainOnly);
     }
 
     private static List<String> normalizePartitions(List<String> partitions) {
@@ -133,6 +151,7 @@ public final class ConnectorScanRequest {
         private long limit = -1;
         private List<String> requiredPartitions = Collections.emptyList();
         private boolean countPushdown;
+        private boolean explainOnly;
 
         private Builder(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns) {
             this.tableHandle = Objects.requireNonNull(tableHandle, "tableHandle");
@@ -160,9 +179,15 @@ public final class ConnectorScanRequest {
             return this;
         }
 
+        /** Defaults to false: a plan that will be run. */
+        public Builder explainOnly(boolean explainOnly) {
+            this.explainOnly = explainOnly;
+            return this;
+        }
+
         public ConnectorScanRequest build() {
             return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                    requiredPartitions, countPushdown);
+                    requiredPartitions, countPushdown, explainOnly);
         }
     }
 }
