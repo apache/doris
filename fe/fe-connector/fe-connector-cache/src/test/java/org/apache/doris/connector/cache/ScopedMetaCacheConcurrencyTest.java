@@ -222,6 +222,50 @@ public class ScopedMetaCacheConcurrencyTest {
     }
 
     @Test
+    public void failedBulkPublicationDoesNotFenceIndependentDirectLoader() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch allowLoaderReturn = new CountDownLatch(1);
+        CountDownLatch valueStaged = new CountDownLatch(1);
+        CountDownLatch allowBulkCommit = new CountDownLatch(1);
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test",
+                    ENABLED,
+                    null,
+                    null,
+                    () -> {
+                        valueStaged.countDown();
+                        await(allowBulkCommit);
+                    });
+            Future<String> directLoad = executor.submit(() -> cache.get("key", PARTITION, ignored -> {
+                loaderStarted.countDown();
+                await(allowLoaderReturn);
+                return "direct";
+            }));
+            await(loaderStarted);
+
+            try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
+                Future<Boolean> bulkPublication = executor.submit(
+                        () -> cache.publish(handle, "key", PARTITION, "stale"));
+                await(valueStaged);
+                registry.invalidate(ScopePath.partition("db", "tbl", "sibling"));
+
+                allowBulkCommit.countDown();
+                Assertions.assertFalse(bulkPublication.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            }
+            allowLoaderReturn.countDown();
+
+            Assertions.assertEquals("direct", directLoad.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            Assertions.assertEquals("direct", cache.getIfPresent("key", PARTITION));
+        } finally {
+            allowBulkCommit.countDown();
+            allowLoaderReturn.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void invalidationAfterPartialBulkPublicationRemovesPublishedPartAndFencesTheRest() {
         try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
             ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED);
