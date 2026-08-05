@@ -29,10 +29,10 @@ concurrency:
 jobs:
   run-ut:
     name: BE UT (macOS)
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           submodules: recursive
@@ -44,6 +44,7 @@ jobs:
         with:
           filters: |
             be_changes:
+              - '.github/workflows/be-ut-mac.yml'
               - 'be/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
@@ -81,20 +82,32 @@ jobs:
             'maven'
             'node'
             'llvm@16'
+            'libomp'
           )
           brew install "${cellars[@]}" || true
 
           pushd thirdparty
           branch="${{ github.base_ref }}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -fL https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           else
-            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -fL "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-arm64.tar.xz" \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
-          tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+          sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+
+          JAVA_HOME="${JAVA_HOME_17_arm64:-${JAVA_HOME_17_X64}}"
+          export JAVA_HOME="${JAVA_HOME%\/}"
+
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+          export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
+          export CFLAGS="-I${LIBOMP_PREFIX}/include ${CFLAGS:-}"
+          export CXXFLAGS="-I${LIBOMP_PREFIX}/include ${CXXFLAGS:-}"
+          export LDFLAGS="-L${LIBOMP_PREFIX}/lib ${LDFLAGS:-}"
+          export EXTRA_CXX_FLAGS="-I${LIBOMP_PREFIX}/include ${EXTRA_CXX_FLAGS:-}"
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean
