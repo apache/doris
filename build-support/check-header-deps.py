@@ -197,6 +197,26 @@ RULES = [
         "thrift and forward-declared); this was a dead include spreading PBlock "
         "and segment_v2.pb.h to ~595 TUs through thread_context.h",
     ),
+    (
+        "core/pod_array.h",
+        "runtime/thread_context.h",
+        set(),
+        "dead include left over from the PODArray memory-tracking experiment "
+        "(#50549); the tracking logic since moved into Allocator and pod_array.h "
+        "references no thread_context symbol, yet the edge dragged thread_context, "
+        "exec_env.h and mem_tracker_limiter.h into 203 TUs of core/",
+    ),
+    (
+        "core/column/column.h",
+        "exec/sort/",
+        set(),
+        "core must not depend on the exec sort machinery: column.h only names "
+        "HybridSorter in virtual signatures (forward-declared, bodies in "
+        "column.cpp); the old hybrid_sorter.h include was a layering violation "
+        "that pushed pdqsort/timsort into 808 TUs "
+        "(exec/common/endian.h still rides in via storage/olap_common.h -> "
+        "util/hash_util.hpp, a separate pre-existing wart)",
+    ),
 ]
 
 # Forward-declaration headers are the sanctioned way through a barrier: they carry
