@@ -34,7 +34,10 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vectorized_fn_call.h"
@@ -116,6 +119,47 @@ bool is_dictionary_data_encoding(tparquet::Encoding::type encoding) {
 
 bool is_level_encoding(tparquet::Encoding::type encoding) {
     return encoding == tparquet::Encoding::RLE || encoding == tparquet::Encoding::BIT_PACKED;
+}
+
+bool types_equal_ignoring_nested_nullability(const DataTypePtr& left, const DataTypePtr& right) {
+    const auto left_type = remove_nullable(left);
+    const auto right_type = remove_nullable(right);
+    if (left_type->get_primitive_type() != right_type->get_primitive_type()) {
+        return false;
+    }
+
+    switch (left_type->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        const auto& left_array = assert_cast<const DataTypeArray&>(*left_type);
+        const auto& right_array = assert_cast<const DataTypeArray&>(*right_type);
+        return types_equal_ignoring_nested_nullability(left_array.get_nested_type(),
+                                                       right_array.get_nested_type());
+    }
+    case TYPE_MAP: {
+        const auto& left_map = assert_cast<const DataTypeMap&>(*left_type);
+        const auto& right_map = assert_cast<const DataTypeMap&>(*right_type);
+        return types_equal_ignoring_nested_nullability(left_map.get_key_type(),
+                                                       right_map.get_key_type()) &&
+               types_equal_ignoring_nested_nullability(left_map.get_value_type(),
+                                                       right_map.get_value_type());
+    }
+    case TYPE_STRUCT: {
+        const auto& left_struct = assert_cast<const DataTypeStruct&>(*left_type);
+        const auto& right_struct = assert_cast<const DataTypeStruct&>(*right_type);
+        if (left_struct.get_elements().size() != right_struct.get_elements().size()) {
+            return false;
+        }
+        for (size_t i = 0; i < left_struct.get_elements().size(); ++i) {
+            if (!types_equal_ignoring_nested_nullability(left_struct.get_element(i),
+                                                         right_struct.get_element(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    default:
+        return left_type->equals(*right_type);
+    }
 }
 
 bool is_data_page_type(tparquet::PageType::type page_type) {
@@ -1961,8 +2005,10 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         DORIS_CHECK(used_direct_reader_filter != nullptr);
         *used_dictionary_filter = false;
         *used_direct_reader_filter = false;
-        DCHECK(remove_nullable(column_reader->type())
-                       ->equals(*remove_nullable(file_block->get_by_position(block_position).type)))
+        // External table schemas may make required Parquet descendants nullable. Preserve the
+        // recursive type and shape checks while ignoring only nullability at every nesting level.
+        DCHECK(types_equal_ignoring_nested_nullability(
+                column_reader->type(), file_block->get_by_position(block_position).type))
                 << column_reader->type()->get_name() << " "
                 << file_block->get_by_position(block_position).type->get_name() << " "
                 << column_reader->name() << " " << file_block->get_by_position(block_position).name;
