@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorTableStatistics;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;

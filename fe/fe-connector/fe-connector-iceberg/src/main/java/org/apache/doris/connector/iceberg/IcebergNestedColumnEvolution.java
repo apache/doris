@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;

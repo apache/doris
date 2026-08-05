@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,6 +42,7 @@ final class IcebergWriteContext {
     private final Map<String, String> staticPartitionValues;
     private final Optional<String> branchName;
     private final long readSnapshotId;
+    private final IcebergWriteSchemaContext writeSchemaContext;
 
     IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
             Map<String, String> staticPartitionValues, Optional<String> branchName) {
@@ -56,6 +57,19 @@ final class IcebergWriteContext {
                 ? Collections.emptyMap() : new HashMap<>(staticPartitionValues);
         this.branchName = branchName == null ? Optional.empty() : branchName;
         this.readSnapshotId = readSnapshotId;
+        this.writeSchemaContext = null;
+    }
+
+    IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
+            Map<String, String> staticPartitionValues, Optional<String> branchName,
+            long readSnapshotId, IcebergWriteSchemaContext writeSchemaContext) {
+        this.writeOperation = writeOperation;
+        this.overwrite = overwrite;
+        this.staticPartitionValues = staticPartitionValues == null
+                ? Collections.emptyMap() : new HashMap<>(staticPartitionValues);
+        this.branchName = branchName == null ? Optional.empty() : branchName;
+        this.readSnapshotId = readSnapshotId;
+        this.writeSchemaContext = writeSchemaContext;
     }
 
     WriteOperation getWriteOperation() {
@@ -88,5 +102,9 @@ final class IcebergWriteContext {
      */
     long getReadSnapshotId() {
         return readSnapshotId;
+    }
+
+    IcebergWriteSchemaContext getWriteSchemaContext() {
+        return writeSchemaContext;
     }
 }

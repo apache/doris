@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

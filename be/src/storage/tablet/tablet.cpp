@@ -3268,8 +3268,7 @@ Status Tablet::prepare_txn(TPartitionId partition_id, TTransactionId transaction
     }
 
     std::lock_guard<std::mutex> push_lock(get_push_lock());
-    return _engine.txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id(),
-                                              tablet_uid(), load_id, ingest);
+    return _engine.txn_manager()->prepare_txn(partition_id, *this, transaction_id, load_id, ingest);
 }
 
 } // namespace doris

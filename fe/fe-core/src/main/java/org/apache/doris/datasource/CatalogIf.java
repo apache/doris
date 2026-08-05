@@ -162,6 +162,11 @@ public interface CatalogIf<T extends DatabaseIf> {
     // Called when catalog is dropped
     void onClose();
 
+    // Called when catalog creation fails before the catalog is registered.
+    default void onCreateFailure() {
+        onClose();
+    }
+
     String getComment();
 
     default void setComment(String comment) {

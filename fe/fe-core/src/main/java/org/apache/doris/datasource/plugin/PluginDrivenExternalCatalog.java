@@ -38,20 +38,20 @@ import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.DefaultConnectorValidationContext;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.ConnectorTestResult;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.PartitionFieldChange;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTestResult;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogProperty;
@@ -94,7 +94,7 @@ import java.util.OptionalLong;
  *
  * <p>This adapter bridges the connector SPI ({@link Connector}) with the existing
  * ExternalCatalog hierarchy. Metadata operations are delegated to the connector's
- * {@link org.apache.doris.connector.api.ConnectorMetadata} implementation.</p>
+ * {@link org.apache.doris.connector.spi.ConnectorMetadata} implementation.</p>
  *
  * <p>When created via {@link CatalogFactory}, the Connector instance is provided
  * directly. After GSON deserialization (FE restart), the Connector is recreated
@@ -1513,21 +1513,29 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         try {
             context.close();
-        } catch (IOException e) {
+        } catch (Throwable e) {
             LOG.warn("Failed to close connector context filesystem for catalog {}", name, e);
         }
     }
 
     @Override
-    public void onClose() {
-        super.onClose();
-        if (connector != null) {
+    protected void closeResources() {
+        try {
+            super.closeResources();
+        } catch (Throwable e) {
+            LOG.warn("Failed to close common resources for plugin-driven catalog {}", name, e);
+        }
+
+        // Detach every stage before invoking external code. A throwing connector must not remain reachable
+        // for another close attempt or prevent the connector-context stage from running.
+        Connector connectorToClose = connector;
+        connector = null;
+        if (connectorToClose != null) {
             try {
-                connector.close();
-            } catch (IOException e) {
+                connectorToClose.close();
+            } catch (Throwable e) {
                 LOG.warn("Failed to close connector for catalog {}", name, e);
             }
-            connector = null;
         }
         // Close the shared context's cached engine FileSystem AFTER the connector(s) release their borrowed
         // reference to it. No-op when no FS was ever built (e.g. non-hive plugin catalogs never call

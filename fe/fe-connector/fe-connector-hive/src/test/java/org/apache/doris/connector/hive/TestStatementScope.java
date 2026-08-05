@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;

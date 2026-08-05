@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -31,26 +32,26 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
-import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
-import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
-import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanProfile;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
-import org.apache.doris.connector.api.scan.ConnectorSplitSource;
-import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.pushdown.ProjectionApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
+import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.connector.converter.ExprToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -70,6 +71,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileAttributes;
@@ -628,6 +630,29 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Asks the connector which columns BE must read for this scan even when the query references none of them
+     * ({@link ConnectorScanPlanProvider#getMustReadColumns}), so the translator can keep their slots instead of
+     * pruning them ({@code PhysicalPlanTranslator.preserveConnectorMustReadSlots}, the plugin-table counterpart
+     * of {@code preserveExtraStorageKeySlots} for aggregate / merge-on-read unique-key OLAP tables).
+     *
+     * <p>Asked through the SAME memoized provider the rest of the scan uses, so a connector that memoizes the
+     * decision on its provider instance answers this question and plans its splits from one decision — the
+     * whole point, since a column preserved here and a split plan that assumes otherwise disagree silently.
+     * A connector with no scan provider (no scan capability) needs nothing. Public + overridable because the
+     * caller is the translator, in another package, and so the preservation is unit-testable without a live
+     * connector (mirrors {@link #classifyColumnByConnector}, whose caller is this class).</p>
+     */
+    public Set<String> mustReadColumnsFromConnector() {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null) {
+            return Collections.emptySet();
+        }
+        Set<String> columns = onPluginClassLoader(scanProvider,
+                () -> scanProvider.getMustReadColumns(connectorSession, currentHandle));
+        return columns == null ? Collections.emptySet() : columns;
+    }
+
+    /**
      * Lets the owning connector adjust the compression type this node inferred from the split's file path
      * before it is shipped to BE, WITHOUT any source-specific code here: the base inference runs first, then
      * the connector's {@link ConnectorScanPlanProvider#adjustFileCompressType} (identity by default) gets the
@@ -865,6 +890,30 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
 
         return attrs;
+    }
+
+    /**
+     * Drops the connector's cached scan-node properties before finalizing, because they were computed
+     * against a tuple that no longer describes this scan.
+     *
+     * <p>The cache is first filled during {@code init()} — {@code FileQueryScanNode.initSchemaParams()}
+     * asks for {@link #getPathPartitionKeys()}, which loads the whole property bundle. That happens while
+     * {@code PhysicalPlanTranslator} is still translating THIS scan, i.e. strictly BEFORE the project
+     * above it prunes the tuple down to the columns the query actually reads
+     * ({@code updateScanSlotsMaterialization}). So everything the connector derived from the projection at
+     * that point — the jdbc remote {@code SELECT} list, per-column dictionaries — describes the FULL
+     * schema. Finalize is the first moment the tuple is final, so the bundle is rebuilt from here.</p>
+     *
+     * <p>Queries with a filter were getting this by accident: {@link #convertPredicate()} invalidates the
+     * same cache for its own reason, and it runs first. Filter-less queries hit its empty-conjuncts early
+     * return and kept the pre-pruning bundle, which is why {@code EXPLAIN} reported a full-width remote
+     * query for e.g. {@code select count(*) from tbl} while the scan itself read one column.</p>
+     */
+    @Override
+    protected void doFinalize() throws UserException {
+        scanNodeProperties = null;
+        cachedPropertiesResult = null;
+        super.doFinalize();
     }
 
     @Override
@@ -1399,6 +1448,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .limit(sourceLimit)
                 .requiredPartitions(requiredPartitions)
                 .countPushdown(countPushdown)
+                // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
+                // connector whose planning has a side effect on the source (ADBC: asking the driver to
+                // partition a query EXECUTES it) needs to know the plan is only going to be shown.
+                // Connectors that just list files are unaffected: they never read this.
+                .explainOnly(isExplainOnly())
                 .build();
         List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
                 () -> scanProvider.planScan(connectorSession, request));
@@ -1484,6 +1538,21 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         }
         return splits.subList(0, index);
+    }
+
+    /**
+     * Whether the statement being planned is an {@code EXPLAIN}, so this plan will be shown and never run.
+     *
+     * <p>Read from the executor's parsed statement, which {@code ExplainCommand} marks before it plans. Any
+     * path without a live executor answers false, which is the safe way round: a connector then plans what
+     * it would have planned anyway.</p>
+     */
+    private static boolean isExplainOnly() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || ctx.getExecutor() == null || ctx.getExecutor().getParsedStmt() == null) {
+            return false;
+        }
+        return ctx.getExecutor().getParsedStmt().isExplain();
     }
 
     /**
@@ -1862,6 +1931,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
+        String requiredSemantics =
+                getOrLoadScanNodeProperties().get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS);
+        if (requiredSemantics != null) {
+            for (Backend backend : backendPolicy.getBackends()) {
+                if (backend.isSmoothUpgradeSrc()) {
+                    throw new UserException(requiredSemantics + " are unavailable while backend "
+                            + backend.getId() + " is a smooth upgrade source");
+                }
+            }
+        }
         super.createScanRangeLocations();
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         // Prune BEFORE delegating: "the connector took ALL the filtering" is only true of the pruned set, and
@@ -2015,7 +2094,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     /**
      * Maps a file format name string to the corresponding TFileFormatType.
      */
-    private static TFileFormatType mapFileFormatType(String format) {
+    /** Package-visible and static so the mapping is unit-testable without a planner. */
+    static TFileFormatType mapFileFormatType(String format) {
         switch (format.toLowerCase()) {
             case "parquet":
                 return TFileFormatType.FORMAT_PARQUET;
@@ -2033,6 +2113,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 return TFileFormatType.FORMAT_AVRO;
             case "es_http":
                 return TFileFormatType.FORMAT_ES_HTTP;
+            case "arrow":
+                // A connector whose reader hands BE Arrow record batches rather than a file (adbc, and the
+                // remote_doris scan node already outside this switch). Without this the format falls to
+                // FORMAT_JNI below and BE never enters the Arrow reader path.
+                return TFileFormatType.FORMAT_ARROW;
             default:
                 return TFileFormatType.FORMAT_JNI;
         }
@@ -2097,7 +2182,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 String name = slot.getColumn().getName();
                 ConnectorColumnHandle ch = allHandles.get(name);
                 if (ch != null) {
-                    selected.add(ch);
+                    selected.add(withProjectedFieldIds(ch, slot));
                 } else if (pinnedNames.contains(name)) {
                     throw new UserException("Column '" + name + "' of table "
                             + getTargetTable().getName() + " resolves in the pinned time-travel schema"
@@ -2107,6 +2192,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         }
         return selected;
+    }
+
+    static ConnectorColumnHandle withProjectedFieldIds(
+            ConnectorColumnHandle handle, SlotDescriptor slot) {
+        Set<Integer> projectedFieldIds = new HashSet<>();
+        for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
+            for (String component : accessPath.getPath()) {
+                if (component.chars().allMatch(Character::isDigit)) {
+                    projectedFieldIds.add(Integer.parseInt(component));
+                }
+            }
+        }
+        return projectedFieldIds.isEmpty()
+                ? handle : handle.withProjectedFieldIds(projectedFieldIds);
     }
 
     /**

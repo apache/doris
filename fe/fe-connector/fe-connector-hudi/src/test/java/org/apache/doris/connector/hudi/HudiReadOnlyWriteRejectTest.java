@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

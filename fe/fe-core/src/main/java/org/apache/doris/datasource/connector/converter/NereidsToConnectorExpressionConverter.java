@@ -17,15 +17,15 @@
 
 package org.apache.doris.datasource.connector.converter;
 
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorBetween;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorIsNull;
-import org.apache.doris.connector.api.pushdown.ConnectorNot;
-import org.apache.doris.connector.api.pushdown.ConnectorOr;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorBetween;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -68,7 +68,7 @@ import java.util.List;
  * dropped disjunct would narrow it). See deviations-log DV-T07b-matrix.</p>
  *
  * <p>Literal encoding routes through {@link ExprToConnectorExpressionConverter#convert} on
- * {@link Literal#toLegacyLiteral()}, so the neutral {@link org.apache.doris.connector.api.ConnectorType}
+ * {@link Literal#toLegacyLiteral()}, so the neutral {@link org.apache.doris.connector.spi.ConnectorType}
  * tokens (uppercase {@code INT}/{@code BIGINT}/... + decimal precision/scale) are byte-identical to the scan
  * side — the connector's shared {@code IcebergPredicateConverter} type matrix then behaves the same for both
  * paths. Column types likewise go through {@link ExprToConnectorExpressionConverter#typeToConnectorType}.</p>

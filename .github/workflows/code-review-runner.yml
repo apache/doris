@@ -55,10 +55,9 @@ permissions:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    # Every pre-finalization step has its own timeout. Their worst-case budget,
-    # including review/failure/status handling and best-effort cleanup, is 153
-    # minutes, leaving 12 minutes for runner setup and post-job cleanup.
-    timeout-minutes: 165
+    # Pre-finalization steps can use 153 minutes and auth sync can use 8 more,
+    # leaving 12 minutes for runner setup and post-job cleanup.
+    timeout-minutes: 173
     if: >-
       inputs.pr_number != '' ||
       (
@@ -215,6 +214,8 @@ jobs:
         id: auth
         timeout-minutes: 5
         run: |
+          set -o pipefail
+
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
@@ -277,6 +278,9 @@ jobs:
             and (.tokens.access_token | type == "string" and length > 0)
             and (.tokens.refresh_token | type == "string" and length > 0)
           ' "$RUNNER_TEMP/codex-home/auth.json" >/dev/null
+          sha256sum "$RUNNER_TEMP/codex-home/auth.json" \
+            | awk '{print $1}' \
+            > "$RUNNER_TEMP/codex-auth-original.sha256"
 
           cat > "$RUNNER_TEMP/codex-home/config.toml" <<EOF
           cli_auth_credentials_store = "file"
@@ -946,27 +950,51 @@ jobs:
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
           OSS_CODEX_SESSION_PREFIX: oss://doris-community-ci/session
 
-      - name: Sync Codex auth back to OSS
-        if: ${{ always() }}
-        continue-on-error: true
-        timeout-minutes: 5
+      - name: Sync refreshed Codex auth back to OSS
+        if: ${{ always() && steps.auth.outcome == 'success' }}
+        timeout-minutes: 8
         run: |
-          if [ -z "$CODEX_AUTH_OSS_OBJECT" ]; then
-            echo "No selected Codex auth object found; skipping OSS auth sync."
-            exit 0
-          fi
+          set -o pipefail
 
-          if [ ! -s "$CODEX_HOME/auth.json" ]; then
-            echo "No Codex auth file found; skipping OSS auth sync."
-            exit 0
-          fi
-
-          jq -e '
+          if ! jq -e '
             .auth_mode == "chatgpt"
             and (.tokens.access_token | type == "string" and length > 0)
             and (.tokens.refresh_token | type == "string" and length > 0)
-          ' "$CODEX_HOME/auth.json" >/dev/null
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"
+          ' "$CODEX_HOME/auth.json" >/dev/null; then
+            echo "::error::Refreshed Codex auth is invalid; refusing OSS auth sync."
+            exit 1
+          fi
+
+          original_hash="$(<"$RUNNER_TEMP/codex-auth-original.sha256")"
+          local_hash="$(sha256sum "$CODEX_HOME/auth.json" | awk '{print $1}')"
+          if [ "$local_hash" = "$original_hash" ]; then
+            echo "Codex auth was not refreshed; skipping OSS auth sync."
+            exit 0
+          fi
+
+          umask 077
+          remote_auth="$(mktemp "$RUNNER_TEMP/codex-auth-current.XXXXXX")"
+          trap 'rm -f "$remote_auth" "${remote_auth}.temp"' EXIT
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            --retry-times=3 --connect-timeout=10 --read-timeout=30 \
+            cp -f "$CODEX_AUTH_OSS_OBJECT" "$remote_auth"; then
+            echo "::error::Could not verify the current OSS auth after 3 attempts."
+            exit 1
+          fi
+
+          remote_hash="$(sha256sum "$remote_auth" | awk '{print $1}')"
+          if [ "$remote_hash" != "$original_hash" ]; then
+            echo "::warning::OSS auth changed during this job; skipping stale auth sync."
+            exit 0
+          fi
+
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            --retry-times=3 --connect-timeout=10 --read-timeout=30 \
+            cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"; then
+            echo "::error::Could not persist the refreshed Codex auth after 3 attempts."
+            exit 1
+          fi
+          echo "Uploaded refreshed Codex auth: ${CODEX_AUTH_OSS_OBJECT##*/}"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}

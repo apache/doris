@@ -17,17 +17,17 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorBetween;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorIsNull;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorBetween;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
@@ -126,8 +126,16 @@ public class IcebergConnectorTransactionTest {
         return new IcebergWriteContext(WriteOperation.OVERWRITE, true, Collections.emptyMap(), Optional.empty());
     }
 
-    private static IcebergWriteContext overwriteStaticCtx(Map<String, String> staticValues) {
-        return new IcebergWriteContext(WriteOperation.OVERWRITE, true, staticValues, Optional.empty());
+    private static IcebergWriteContext overwriteToBranch(String branch) {
+        return new IcebergWriteContext(
+                WriteOperation.OVERWRITE, true, Collections.emptyMap(), Optional.of(branch));
+    }
+
+    private static IcebergWriteContext overwriteStaticCtx(Table table, Map<String, String> staticValues) {
+        IcebergWriteSchemaContext schemaContext =
+                IcebergWriteSchemaContext.create(table, table.name(), Optional.empty(), false, false);
+        return new IcebergWriteContext(
+                WriteOperation.OVERWRITE, true, staticValues, Optional.empty(), -1L, schemaContext);
     }
 
     private static IcebergWriteContext deleteCtx() {
@@ -598,6 +606,36 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void overwriteEmptyUnpartitionedBranchClearsOnlyBranchFiles() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        DataFile seed = dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 9L);
+        table.newAppend().appendFile(seed).commit();
+        table.manageSnapshots().createBranch("b1", table.currentSnapshot().snapshotId()).commit();
+        DataFile mainOnly = dataFile(table.spec(), "s3://b/db1/t1/main.parquet", 5L);
+        table.newAppend().appendFile(mainOnly).commit();
+
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteToBranch("b1"));
+        txn.commit();
+
+        Table after = catalog.loadTable(id);
+        List<DataFile> mainFiles = currentDataFiles(after);
+        Assertions.assertEquals(new HashSet<>(Arrays.asList(seed.path(), mainOnly.path())),
+                mainFiles.stream().map(DataFile::path).collect(java.util.stream.Collectors.toSet()),
+                "empty branch overwrite must leave main untouched");
+        try (CloseableIterable<FileScanTask> branchTasks = after.newScan().useRef("b1").planFiles()) {
+            Assertions.assertFalse(branchTasks.iterator().hasNext(),
+                    "empty branch overwrite must delete the branch files, not main's files");
+        } catch (IOException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @Test
     public void overwriteStaticPartitionUsesRowFilter() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -606,7 +644,8 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
 
         // INSERT OVERWRITE ... PARTITION(region='us') -> OverwriteFiles.overwriteByRowFilter(region == 'us').
-        txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(Collections.singletonMap("region", "us")));
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(table, Collections.singletonMap("region", "us")));
         txn.addCommitData(commitBytes(
                 dataFileItem("s3://b/db1/t1/region=us/f1.parquet", 4L, 1024L, Collections.singletonList("us"))));
         txn.commit();

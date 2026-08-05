@@ -579,12 +579,12 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             // Step 2: Prepare columns - pre-fill NULL for fixed-width, reserve for others
             std::vector<ColumnNullable*> nullable_dst_cols;
             std::vector<bool> supports_replace;
+            const size_t old_rows = target_columns.empty() ? 0 : target_columns.front()->size();
             _prepare_sparse_columns(target_columns, actual_rows, nullable_dst_cols,
                                     supports_replace);
 
             // Step 3: Process each batch
-            size_t dst_offset =
-                    target_columns.empty() ? 0 : target_columns[0]->size() - actual_rows;
+            size_t dst_offset = old_rows;
             for (const auto& batch : batches) {
                 Block* src_block = batch.block.get();
                 DCHECK(src_block != nullptr);

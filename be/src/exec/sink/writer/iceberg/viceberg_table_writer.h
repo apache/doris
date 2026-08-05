@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/DataSinks_types.h>
+#include <gtest/gtest_prod.h>
 
 #include "common/atomic_shared_ptr.h"
 #include "core/block/block.h"
@@ -81,6 +82,8 @@ public:
     std::shared_ptr<IPartitionWriterBase> current_writer() const { return _current_writer.load(); }
 
 private:
+    FRIEND_TEST(VIcebergTableWriterTest, RejectMissingPartitionSource);
+
     // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
     // Updated during write() to track which writer received the most recent data.
     // Wrapped in atomic_shared_ptr because revoke_memory / get_revocable_mem_size run on

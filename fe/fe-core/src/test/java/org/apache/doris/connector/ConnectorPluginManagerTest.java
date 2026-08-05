@@ -17,11 +17,11 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.datasource.CatalogFactory;
 
 import org.junit.jupiter.api.Assertions;
@@ -40,6 +40,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
@@ -238,20 +239,39 @@ public class ConnectorPluginManagerTest {
 
     @Test
     void classpathProviderMustDeclareTheKernelApiMajor(@TempDir Path tempDir) throws Exception {
-        Path apiOneJar = createClasspathProviderJar(tempDir.resolve("api-one.jar"), "1.0");
+        // Both majors are derived from the kernel's own declared version rather than written as literals.
+        // Bumping connector.plugin.api.version is a routine part of any SPI surface change, and what this
+        // test asserts is the GATE — stale major refused, current major admitted — not which number happens
+        // to be current. ConnectorPluginSurfaceTest is where the number is deliberately pinned; pinning it
+        // here as well only produced a second, uninformative failure on every bump.
+        int kernelMajor = kernelApiMajor();
+        Path staleJar = createClasspathProviderJar(tempDir.resolve("api-stale.jar"), (kernelMajor - 1) + ".0");
         ConnectorPluginManager incompatible = new ConnectorPluginManager();
-        try (URLClassLoader loader = providerClassLoader(apiOneJar)) {
+        try (URLClassLoader loader = providerClassLoader(staleJar)) {
             incompatible.loadBuiltins(loader);
         }
         Assertions.assertFalse(incompatible.getRegisteredTypes().contains("classpath-test"),
-                "an API-1 provider must not enter an API-2 kernel through classpath discovery");
+                "a provider one major behind the kernel must not enter through classpath discovery");
 
-        Path apiTwoJar = createClasspathProviderJar(tempDir.resolve("api-two.jar"), "2.0");
+        Path currentJar = createClasspathProviderJar(tempDir.resolve("api-current.jar"), kernelMajor + ".0");
         ConnectorPluginManager compatible = new ConnectorPluginManager();
-        try (URLClassLoader loader = providerClassLoader(apiTwoJar)) {
+        try (URLClassLoader loader = providerClassLoader(currentJar)) {
             compatible.loadBuiltins(loader);
         }
         Assertions.assertTrue(compatible.getRegisteredTypes().contains("classpath-test"));
+    }
+
+    /** The connector plugin API major this FE build serves — the same value {@code ApiVersionGate} compares against. */
+    private static int kernelApiMajor() throws IOException {
+        Properties version = new Properties();
+        try (InputStream in = ConnectorProvider.class.getResourceAsStream(
+                "/META-INF/doris/connector-plugin-api-version.properties")) {
+            Assertions.assertNotNull(in, "missing connector plugin API version resource");
+            version.load(in);
+        }
+        String declared = version.getProperty("api.version");
+        Assertions.assertNotNull(declared, "api.version must be declared by the kernel resource");
+        return Integer.parseInt(declared.substring(0, declared.indexOf('.')));
     }
 
     @Test

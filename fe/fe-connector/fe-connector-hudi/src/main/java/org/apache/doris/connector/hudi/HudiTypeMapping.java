@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;

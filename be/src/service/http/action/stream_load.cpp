@@ -55,6 +55,7 @@
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_common.h"

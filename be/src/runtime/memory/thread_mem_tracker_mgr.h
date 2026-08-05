@@ -34,7 +34,7 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "util/stack_util.h"
 
 namespace doris {
@@ -301,89 +301,6 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     _limiter_tracker->consume(_old_untracked_mem);
     _untracked_mem -= _old_untracked_mem;
     _stop_consume = false;
-}
-
-inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, TryReserveChecker checker) {
-    DCHECK(size >= 0);
-    CHECK(init());
-    DCHECK(_limiter_tracker);
-    memory_orphan_check();
-    // if _reserved_mem not equal to 0, repeat reserve,
-    // _untracked_mem store bytes that not synchronized to process reserved memory.
-    flush_untracked_mem();
-    auto wg_ptr = _wg_wptr.lock();
-
-    bool task_limit_checker = static_cast<int>(checker) & 1;
-    bool workload_group_limit_checker = static_cast<int>(checker) & 2;
-    bool process_limit_checker = static_cast<int>(checker) & 4;
-
-    if (task_limit_checker) {
-        if (!_limiter_tracker->try_reserve(size)) {
-            auto err_msg = fmt::format(
-                    "reserve memory failed, size: {}, because query memory exceeded, memory "
-                    "tracker: {}, "
-                    "consumption: {}, limit: {}, peak: {}",
-                    PrettyPrinter::print_bytes(size), _limiter_tracker->label(),
-                    PrettyPrinter::print_bytes(_limiter_tracker->consumption()),
-                    PrettyPrinter::print_bytes(_limiter_tracker->limit()),
-                    PrettyPrinter::print_bytes(_limiter_tracker->peak_consumption()));
-            return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
-        }
-    } else {
-        _limiter_tracker->reserve(size);
-    }
-
-    if (wg_ptr) {
-        if (workload_group_limit_checker) {
-            if (!wg_ptr->try_add_wg_refresh_interval_memory_growth(size)) {
-                auto err_msg = fmt::format(
-                        "reserve memory failed, size: {}, because workload group memory exceeded, "
-                        "workload group: {}",
-                        PrettyPrinter::print_bytes(size), wg_ptr->memory_debug_string());
-                _limiter_tracker->release(size);         // rollback
-                _limiter_tracker->shrink_reserved(size); // rollback
-                return doris::Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(err_msg);
-            }
-        } else {
-            wg_ptr->add_wg_refresh_interval_memory_growth(size);
-        }
-    }
-
-    if (process_limit_checker) {
-        if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
-            auto err_msg = fmt::format(
-                    "reserve memory failed, size: {}, because proccess memory exceeded, {}",
-                    PrettyPrinter::print_bytes(size),
-                    GlobalMemoryArbitrator::process_mem_log_str());
-            _limiter_tracker->release(size);         // rollback
-            _limiter_tracker->shrink_reserved(size); // rollback
-            if (wg_ptr) {
-                wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
-            }
-            return doris::Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>(err_msg);
-        }
-    } else {
-        doris::GlobalMemoryArbitrator::reserve_process_memory(size);
-    }
-
-    _reserved_mem += size;
-    DCHECK(_reserved_mem >= 0);
-    return doris::Status::OK();
-}
-
-inline void ThreadMemTrackerMgr::shrink_reserved() {
-    if (_reserved_mem != 0) {
-        memory_orphan_check();
-        doris::GlobalMemoryArbitrator::shrink_process_reserved(_reserved_mem + _untracked_mem);
-        _limiter_tracker->shrink_reserved(_reserved_mem + _untracked_mem);
-        _limiter_tracker->release(_reserved_mem);
-        auto wg_ptr = _wg_wptr.lock();
-        if (wg_ptr) {
-            wg_ptr->sub_wg_refresh_interval_memory_growth(_reserved_mem);
-        }
-        _untracked_mem = 0;
-        _reserved_mem = 0;
-    }
 }
 
 } // namespace doris

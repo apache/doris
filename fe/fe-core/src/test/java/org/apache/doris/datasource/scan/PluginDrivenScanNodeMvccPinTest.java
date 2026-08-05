@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.scan;
 
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 

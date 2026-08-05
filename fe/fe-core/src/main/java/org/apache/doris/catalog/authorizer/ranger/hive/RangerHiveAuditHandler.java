@@ -29,9 +29,11 @@ import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -66,7 +68,12 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
     private static final Logger LOG = LoggerFactory.getLogger(RangerDefaultAuditHandler.class);
 
     private final int requestQuerySize;
+    private final Object auditBufferLock = new Object();
+    private final Object flushLock = new Object();
     private final Collection<AuthzAuditEvent> auditEvents = new ArrayList<>();
+    // Only accessed while holding flushLock. Successfully delivered events are removed one by one, so a
+    // provider exception leaves the failed event and every later event available for the next periodic tick.
+    private final Deque<AuthzAuditEvent> pendingAuditEvents = new ArrayDeque<>();
     private boolean deniedExists = false;
 
     public RangerHiveAuditHandler() {
@@ -240,21 +247,55 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
     }
 
     public void flushAudit() {
-        for (AuthzAuditEvent auditEvent : auditEvents) {
-            if (deniedExists && auditEvent.getAccessResult() != 0) { // if deny exists, skip logging for allowed results
-                continue;
+        synchronized (flushLock) {
+            Collection<AuthzAuditEvent> eventsToFlush;
+            boolean deniedExistsForEvents;
+            // Keep the producer critical section limited to snapshot/reset. Provider delivery can block, but
+            // authorization callbacks remain free to enqueue into the next batch.
+            synchronized (auditBufferLock) {
+                eventsToFlush = new ArrayList<>(auditEvents);
+                deniedExistsForEvents = deniedExists;
+                auditEvents.clear();
+                deniedExists = false;
             }
 
-            super.logAuthzAudit(auditEvent);
+            for (AuthzAuditEvent auditEvent : eventsToFlush) {
+                // If a deny exists, skip logging allowed results from the same drained batch.
+                if (!deniedExistsForEvents || auditEvent.getAccessResult() == 0) {
+                    pendingAuditEvents.addLast(auditEvent);
+                }
+            }
+
+            while (!pendingAuditEvents.isEmpty()) {
+                AuthzAuditEvent auditEvent = pendingAuditEvents.peekFirst();
+                logAuditEvent(auditEvent);
+                // Remove only after the provider confirms delivery by returning normally.
+                pendingAuditEvents.removeFirst();
+            }
         }
     }
 
-    private void addAuthzAuditEvent(AuthzAuditEvent auditEvent) {
-        if (auditEvent != null) {
+    protected void logAuditEvent(AuthzAuditEvent auditEvent) {
+        super.logAuthzAudit(auditEvent);
+    }
+
+    void addAuthzAuditEvent(AuthzAuditEvent auditEvent) {
+        if (auditEvent == null) {
+            return;
+        }
+        synchronized (auditBufferLock) {
             auditEvents.add(auditEvent);
 
             if (auditEvent.getAccessResult() == 0) {
                 deniedExists = true;
+            }
+        }
+    }
+
+    int getPendingAuditEventCountForTest() {
+        synchronized (flushLock) {
+            synchronized (auditBufferLock) {
+                return pendingAuditEvents.size() + auditEvents.size();
             }
         }
     }

@@ -113,6 +113,66 @@ public class CatalogMgrTest {
         }
     }
 
+    @Test
+    void testAlterControllerCleanupRunsOutsideCatalogWriteLock() throws Exception {
+        CatalogMgr catalogMgr = new CatalogMgr();
+        ExternalCatalog blockingCatalog = Mockito.mock(ExternalCatalog.class);
+        ExternalCatalog otherCatalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(blockingCatalog.getId()).thenReturn(44L);
+        Mockito.when(otherCatalog.getId()).thenReturn(45L);
+        Mockito.when(blockingCatalog.validatePropertiesBeforeUpdate(Mockito.anyMap(), Mockito.anyMap()))
+                .thenReturn(true);
+        Mockito.when(otherCatalog.validatePropertiesBeforeUpdate(Mockito.anyMap(), Mockito.anyMap()))
+                .thenReturn(true);
+        addCatalog(catalogMgr, blockingCatalog);
+        addCatalog(catalogMgr, otherCatalog);
+
+        CountDownLatch cleanupStarted = new CountDownLatch(1);
+        CountDownLatch allowCleanup = new CountDownLatch(1);
+        Mockito.when(blockingCatalog.modifyCatalogPropsWithDeferredAccessControllerCleanup(Mockito.anyMap()))
+                .thenReturn(() -> {
+                    cleanupStarted.countDown();
+                    try {
+                        if (!allowCleanup.await(10, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("timed out waiting to release controller cleanup");
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                });
+        Mockito.when(otherCatalog.modifyCatalogPropsWithDeferredAccessControllerCleanup(Mockito.anyMap()))
+                .thenReturn(() -> { });
+
+        CatalogLog blockingLog = new CatalogLog();
+        blockingLog.setCatalogId(44L);
+        blockingLog.setNewProps(ImmutableMap.of("k", "v1"));
+        CatalogLog otherLog = new CatalogLog();
+        otherLog.setCatalogId(45L);
+        otherLog.setNewProps(ImmutableMap.of("k", "v2"));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> blockingAlter = executor.submit(() -> {
+                catalogMgr.replayAlterCatalogProps(blockingLog, Collections.emptyMap(), false);
+                return null;
+            });
+            Assertions.assertTrue(cleanupStarted.await(10, TimeUnit.SECONDS));
+
+            Future<?> unrelatedAlter = executor.submit(() -> {
+                catalogMgr.replayAlterCatalogProps(otherLog, Collections.emptyMap(), false);
+                return null;
+            });
+            unrelatedAlter.get(2, TimeUnit.SECONDS);
+
+            allowCleanup.countDown();
+            blockingAlter.get(10, TimeUnit.SECONDS);
+        } finally {
+            allowCleanup.countDown();
+            executor.shutdownNow();
+        }
+    }
+
     private static class LatchingValidationCatalog extends ExternalCatalog {
         private final CountDownLatch validationStarted = new CountDownLatch(1);
         private final CountDownLatch initializationReadProperties = new CountDownLatch(1);

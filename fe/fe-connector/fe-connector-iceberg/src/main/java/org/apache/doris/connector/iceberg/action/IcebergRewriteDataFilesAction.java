@@ -17,14 +17,14 @@
 
 package org.apache.doris.connector.iceberg.action;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
-import org.apache.doris.connector.api.procedure.ConnectorRewriteStatistics;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.rewrite.RewriteDataFilePlanner;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.spi.procedure.ConnectorRewriteStatistics;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.foundation.util.ArgumentParsers;
 
 import com.google.common.collect.ImmutableList;

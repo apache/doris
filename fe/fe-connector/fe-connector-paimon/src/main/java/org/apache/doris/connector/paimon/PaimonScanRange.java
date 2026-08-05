@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
@@ -90,6 +90,19 @@ public class PaimonScanRange implements ConnectorScanRange {
         }
         if (builder.rowCount != null) {
             props.put("paimon.row_count", String.valueOf(builder.rowCount));
+        }
+        // FE-ONLY (never reaches BE, see populateRangeParams): the paimon bucket this range's data
+        // belongs to, = DataSplit.bucket(). Read by a sibling connector that plans paimon splits on
+        // behalf of its own table and has to line them up with its own per-bucket state — today the
+        // fluss connector, whose lake half is planned here (it binds a fluss log tail to the lake
+        // splits of the SAME bucket; a lake table tiered from fluss has bucket-identical layout).
+        // Set on every DataSplit-backed range, native and JNI alike. NOT set on the collapsed
+        // COUNT(*) range (it stands for splits from many buckets, so any single number would be a
+        // lie) nor on a non-DataSplit system split (no bucket exists). Consumers must fail loud when
+        // it is absent on a range they expected to bind — silently treating that as "no state for
+        // this bucket" is a wrong-results bug, not a degradation.
+        if (builder.bucket != null) {
+            props.put("paimon.bucket", String.valueOf(builder.bucket));
         }
         // FIX-A3: emit the self-split-weight for every JNI split, incl. weight 0. Legacy
         // PaimonScanNode.setPaimonParams:274 sets it unconditionally on the JNI branch (never on
@@ -307,6 +320,9 @@ public class PaimonScanRange implements ConnectorScanRange {
         // COUNT pushdown
         private Long rowCount;
 
+        // Bucket of the backing DataSplit; null for splits that have none (see the props comment).
+        private Integer bucket;
+
         public Builder path(String path) {
             this.path = path;
             return this;
@@ -366,6 +382,11 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         public Builder rowCount(long rowCount) {
             this.rowCount = rowCount;
+            return this;
+        }
+
+        public Builder bucket(int bucket) {
+            this.bucket = bucket;
             return this;
         }
 

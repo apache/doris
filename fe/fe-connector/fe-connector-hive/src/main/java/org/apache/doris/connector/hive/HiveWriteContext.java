@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.thrift.TFileType;
 
 import java.util.Collections;

@@ -17,20 +17,20 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.write.ConnectorSinkPlan;
-import org.apache.doris.connector.api.write.ConnectorWritePartitionField;
-import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
-import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
+import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
+import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
+import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -53,6 +53,8 @@ import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
@@ -62,7 +64,9 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
@@ -71,6 +75,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -223,6 +228,146 @@ public class IcebergWritePlanProviderTest {
         ConnectorSinkPlan plan = providerFor(table, ctx).planWrite(sessionFor(table, ctx), handle);
         Assertions.assertEquals(TDataSinkType.ICEBERG_TABLE_SINK, plan.getDataSink().getType());
         return plan.getDataSink().getIcebergTableSink();
+    }
+
+    @Test
+    public void getWriteColumnsCarriesPinnedTypedDefaultsAndNullability() {
+        Schema writeSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional("value")
+                        .withId(2).ofType(Types.IntegerType.get()).withWriteDefault(42).build(),
+                Types.NestedField.optional("text")
+                        .withId(3).ofType(Types.StringType.get()).withWriteDefault("O'Reilly").build(),
+                Types.NestedField.optional("windows_path")
+                        .withId(7).ofType(Types.StringType.get()).withWriteDefault("C:\\new").build(),
+                Types.NestedField.optional("payload")
+                        .withId(4).ofType(Types.BinaryType.get())
+                        .withWriteDefault(ByteBuffer.wrap(new byte[] {0x00, 0x0f, (byte) 0xff})).build(),
+                Types.NestedField.optional(5, "nullable_value", Types.IntegerType.get()),
+                Types.NestedField.required(6, "required_value", Types.IntegerType.get()));
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "defaults"), writeSchema,
+                PartitionSpec.unpartitioned());
+        RecordingConnectorContext context = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, context);
+
+        List<ConnectorColumn> writeColumns = provider.getWriteColumns(
+                sessionFor(table, context), new IcebergTableHandle("db1", "defaults"),
+                Optional.empty()).orElseThrow(AssertionError::new);
+        Map<String, ConnectorColumn> columns = new HashMap<>();
+        for (ConnectorColumn column : writeColumns) {
+            columns.put(column.getName(), column);
+        }
+
+        Assertions.assertFalse(columns.get("id").isNullable());
+        Assertions.assertEquals("42", columns.get("value").getDefaultValueSql());
+        Assertions.assertEquals("'O''Reilly'", columns.get("text").getDefaultValueSql());
+        Assertions.assertEquals("UNHEX('433A5C6E6577')",
+                columns.get("windows_path").getDefaultValueSql());
+        Assertions.assertEquals("UNHEX('000FFF')", columns.get("payload").getDefaultValueSql());
+        Assertions.assertEquals("NULL", columns.get("nullable_value").getDefaultValueSql());
+        Assertions.assertNull(columns.get("required_value").getDefaultValueSql());
+        for (ConnectorColumn column : writeColumns) {
+            Assertions.assertNull(column.getDefaultValue(),
+                    "request-scoped Iceberg defaults must not leak into cached metadata");
+        }
+    }
+
+    @Test
+    public void floatingPointDefaultsUseTypedSqlForNonFiniteValuesRecursively() {
+        Assertions.assertEquals("CAST('NaN' AS FLOAT)",
+                IcebergWriteSchemaContext.toDorisSql(
+                        Types.FloatType.get(), Float.NaN, false, false));
+        Assertions.assertEquals("CAST('Infinity' AS FLOAT)",
+                IcebergWriteSchemaContext.toDorisSql(
+                        Types.FloatType.get(), Float.POSITIVE_INFINITY, false, false));
+        Assertions.assertEquals("CAST('-Infinity' AS DOUBLE)",
+                IcebergWriteSchemaContext.toDorisSql(
+                        Types.DoubleType.get(), Double.NEGATIVE_INFINITY, false, false));
+
+        Types.StructType nestedType = Types.StructType.of(
+                Types.NestedField.optional(20, "float_value", Types.FloatType.get()),
+                Types.NestedField.optional(21, "double_values",
+                        Types.ListType.ofOptional(22, Types.DoubleType.get())));
+        GenericRecord nestedDefault = GenericRecord.create(nestedType);
+        nestedDefault.setField("float_value", Float.NaN);
+        nestedDefault.setField("double_values",
+                Arrays.asList(Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY));
+
+        Assertions.assertEquals(
+                "named_struct('float_value', CAST('NaN' AS FLOAT), "
+                        + "'double_values', array(CAST('Infinity' AS DOUBLE), "
+                        + "CAST('-Infinity' AS DOUBLE)))",
+                IcebergWriteSchemaContext.toDorisSql(nestedType, nestedDefault, false, false));
+    }
+
+    @Test
+    public void branchWritePinsBranchHeadSchema() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().renameColumn("name", "renamed_name").commit();
+
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.t2", Optional.of("old_schema"), false, false);
+
+        Assertions.assertNotEquals(table.schema().schemaId(), writeContext.getSchema().schemaId());
+        Assertions.assertNotNull(writeContext.getSchema().findField("name"));
+        Assertions.assertNull(writeContext.getSchema().findField("renamed_name"));
+        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
+    }
+
+    @Test
+    public void branchWriteRejectsCurrentRequiredFieldAbsentWithoutDefault() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().allowIncompatibleChanges()
+                .addRequiredColumn("required_value", Types.IntegerType.get()).commit();
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWriteSchemaContext.create(
+                        table, "db1.t2", Optional.of("old_schema"), false, false));
+
+        Assertions.assertTrue(exception.getMessage().contains("required field required_value"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "is absent from the pinned branch schema and has no initial default"));
+    }
+
+    @Test
+    public void branchWriteRevalidatesFieldMadeRequiredAfterPlanning() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.t2", Optional.of("old_schema"), false, false);
+        table.updateSchema().allowIncompatibleChanges().requireColumn("name").commit();
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> writeContext.validateCurrentSchema(table, false));
+
+        Assertions.assertTrue(exception.getMessage().contains("required field name"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "is optional in the pinned branch schema and can contain explicit nulls"));
+    }
+
+    @Test
+    public void branchWriteAllowsCurrentRequiredFieldWithInitialDefault() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = formatVersionThreeTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().addRequiredColumn(
+                "required_value", Types.IntegerType.get(), Literal.of(7)).commit();
+
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.tv3", Optional.of("old_schema"), false, false);
+
+        Assertions.assertNull(writeContext.getSchema().findField("required_value"));
+        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
     }
 
     // ───────────────────────────── INSERT: table-derived fields ─────────────────────────────
@@ -445,9 +590,8 @@ public class IcebergWritePlanProviderTest {
         // (AWS_*), winning over a colliding static key — mirroring the scan path. The token here is non-empty so
         // RecordingConnectorContext.vendStorageCredentials yields the configured BE-canonical vended creds.
         //
-        // We drive a FakeIcebergTable whose io() carries a (non-empty) vended token; beginWrite needs a live SDK
-        // transaction, so we inject one from a throwaway real catalog table (the planning path stores but never
-        // dereferences it).
+        // Wrap a real table's operations with a FileIO carrying a non-empty vended token. Keeping the real table
+        // operations also exercises the statement-pinned writer identity and fresh-metadata validation.
         InMemoryCatalog catalog = freshCatalog();
         Map<String, String> tableProps = new HashMap<>();
         tableProps.put("write.format.default", "parquet");
@@ -455,10 +599,11 @@ public class IcebergWritePlanProviderTest {
         Table real = catalog.createTable(TableIdentifier.of("db1", "tvend"), SCHEMA,
                 PartitionSpec.unpartitioned(), tableProps);
 
-        FakeIcebergTable fake = new FakeIcebergTable("tvend", SCHEMA, PartitionSpec.unpartitioned(),
-                "oss://bucket/wh/db1/tvend", tableProps);
-        fake.setIo(new PropsFileIO(Collections.singletonMap("s3.access-key-id", "vended-raw")));
-        fake.setNewTransaction(real.newTransaction());
+        Table vendedTable = new BaseTable(
+                new IcebergAuthenticatedTableOperations(
+                        ((HasTableOperations) real).operations(),
+                        new PropsFileIO(Collections.singletonMap("s3.access-key-id", "vended-raw"))),
+                real.name());
 
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         Map<String, String> staticCreds = new HashMap<>();
@@ -471,7 +616,7 @@ public class IcebergWritePlanProviderTest {
         ctx.vendedBeProps = vendedCreds;
 
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-        ops.table = fake;
+        ops.table = vendedTable;
         IcebergWritePlanProvider provider = new IcebergWritePlanProvider(restVendedProps(), ops, ctx);
         WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
 

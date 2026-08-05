@@ -111,8 +111,16 @@ public class ExternalRowLevelUpdatePlanBuilder {
         String tableName = tableAlias != null
                 ? tableAlias
                 : Util.getTempTableDisplayName(icebergTable.getName());
-        LogicalPlan queryPlan = buildMergeProjectPlan(ctx, logicalQuery, assignments,
-                icebergTable.getBaseSchema(true), tableName);
+        List<Column> writeColumns = ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable);
+        List<EqualTo> resolvedAssignments = assignments.stream()
+                .map(assignment -> (EqualTo) assignment.withChildren(ImmutableList.of(
+                        assignment.left(),
+                        ConnectorWriteSchemaUtils.resolveDefaultReferences(
+                                assignment.right(), writeColumns, icebergTable,
+                                ctx, nameParts, tableAlias))))
+                .collect(Collectors.toList());
+        LogicalPlan queryPlan = buildMergeProjectPlan(
+                ctx, logicalQuery, resolvedAssignments, writeColumns, tableName);
 
         List<NamedExpression> outputExprs;
         if (!RowLevelDmlRowIdUtils.hasUnboundPlan(queryPlan)) {
@@ -128,7 +136,7 @@ public class ExternalRowLevelUpdatePlanBuilder {
         return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
-                icebergTable.getBaseSchema(true),
+                writeColumns,
                 outputExprs,
                 false,
                 Optional.empty(),

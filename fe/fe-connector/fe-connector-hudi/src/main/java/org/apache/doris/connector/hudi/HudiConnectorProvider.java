@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 

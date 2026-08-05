@@ -19,12 +19,12 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.connector.converter.WriteConstraintExtractor;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;

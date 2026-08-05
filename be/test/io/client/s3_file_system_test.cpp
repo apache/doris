@@ -30,6 +30,7 @@
 
 #include "common/config.h"
 #include "cpp/sync_point.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/obj_storage_client.h"
