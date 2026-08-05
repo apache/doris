@@ -275,6 +275,14 @@ Status adapt_runtime_filter_for_table_reader(VExprSPtr* expr) {
 
 } // namespace
 
+int64_t FileScannerV2::_cumulative_profile_delta(int64_t current, int64_t* reported) {
+    DORIS_CHECK(reported != nullptr);
+    DORIS_CHECK(current >= *reported);
+    const int64_t delta = current - *reported;
+    *reported = current;
+    return delta;
+}
+
 #ifdef BE_TEST
 FileScannerV2::FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
                              std::unique_ptr<format::TableReader> table_reader)
@@ -1083,7 +1091,10 @@ void FileScannerV2::update_realtime_counters() {
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
             deltas.scan_bytes_from_remote_storage);
 
-    COUNTER_SET(_file_read_bytes_counter, bytes_read);
+    // Scanner instances share the profile counter, so publishing an absolute value would erase
+    // bytes already reported by sibling scanners.
+    COUNTER_UPDATE(_file_read_bytes_counter,
+                   _cumulative_profile_delta(bytes_read, &_reported_file_read_bytes));
     COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
     COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
 
@@ -1180,7 +1191,9 @@ void FileScannerV2::_collect_profile_before_close() {
         _reported_file_cache_statistics = *_file_cache_statistics;
     }
     if (_file_reader_stats != nullptr) {
-        COUNTER_SET(_file_read_bytes_counter, cast_set<int64_t>(_file_reader_stats->read_bytes));
+        COUNTER_UPDATE(_file_read_bytes_counter,
+                       _cumulative_profile_delta(cast_set<int64_t>(_file_reader_stats->read_bytes),
+                                                 &_reported_file_read_bytes));
         COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
         COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
         const auto read_time = cast_set<int64_t>(_file_reader_stats->read_time_ns);

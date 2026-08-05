@@ -556,9 +556,18 @@ void ParquetFileContext::prefetch_ranges(const std::vector<ParquetPageCacheRange
     }
 }
 
+bool ParquetFileContext::native_file_should_defer_merge_ranges() const {
+    io::FileReaderSPtr reader = native_file;
+    if (auto tracing_reader = std::dynamic_pointer_cast<io::TracingFileReader>(reader)) {
+        reader = tracing_reader->inner_reader();
+    }
+    return dynamic_cast<io::ExactCacheReader*>(reader.get()) != nullptr ||
+           reader->get_data_dir_path() == io::FileReader::VIRTUAL_REMOTE_DATA_DIR;
+}
+
 bool ParquetFileContext::set_native_random_access_ranges(
         const std::vector<ParquetPageCacheRange>& ranges, size_t avg_io_size,
-        RuntimeProfile* profile, int64_t merge_read_slice_size) {
+        RuntimeProfile* profile, int64_t merge_read_slice_size, bool expose_ranges_immediately) {
     DORIS_CHECK(native_file != nullptr);
     if (!detail::should_use_merge_range_reader(
                 ranges, avg_io_size,
@@ -576,7 +585,9 @@ bool ParquetFileContext::set_native_random_access_ranges(
     }
     std::ranges::sort(native_ranges, {}, &io::PrefetchRange::start_offset);
     native_row_group_file = std::make_shared<io::MergeRangeFileReader>(
-            profile, native_file, native_ranges, merge_read_slice_size);
+            profile, native_file,
+            expose_ranges_immediately ? native_ranges : std::vector<io::PrefetchRange> {},
+            merge_read_slice_size);
     return true;
 }
 

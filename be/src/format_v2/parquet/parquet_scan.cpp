@@ -966,6 +966,35 @@ void ParquetScanScheduler::reset_current_row_group() {
     _current_predicate_prefetched = false;
     _current_non_predicate_prefetched = false;
     _current_merge_range_active = false;
+    _current_merge_range_reader = nullptr;
+    _current_merge_ranges_by_column.clear();
+    _activated_merge_range_columns.clear();
+    _current_merge_range_stage = 0;
+}
+
+Status ParquetScanScheduler::activate_merge_ranges_for_columns(
+        const std::vector<format::LocalColumnId>& column_ids) {
+    if (_current_merge_range_reader == nullptr) {
+        return Status::OK();
+    }
+    std::vector<io::PrefetchRange> ranges;
+    for (const auto column_id : column_ids) {
+        if (!_activated_merge_range_columns.emplace(column_id).second) {
+            continue;
+        }
+        const auto it = _current_merge_ranges_by_column.find(column_id);
+        if (it == _current_merge_ranges_by_column.end()) {
+            continue;
+        }
+        for (const auto& [start, end] : it->second) {
+            ranges.emplace_back(start, end);
+        }
+    }
+    if (ranges.empty()) {
+        return Status::OK();
+    }
+    return _current_merge_range_reader->add_random_access_ranges(ranges,
+                                                                 _current_merge_range_stage++);
 }
 
 void ParquetScanScheduler::flush_current_reader_profiles() {
@@ -1177,16 +1206,37 @@ Status ParquetScanScheduler::open_next_row_group(
     RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
             thrift_metadata, file_schema, request_scan_columns(request), row_group_idx,
             file_context.native_file->size(), compat.parquet_816_padding, &native_ranges));
+    // Local readers benefit from one eager coalescing plan; splitting their ranges by predicate
+    // stage only adds small reads. Remote readers can avoid future-stage IO, and exact cache hits
+    // can bypass their merge path altogether.
+    const bool defer_merge_ranges = file_context.native_file_should_defer_merge_ranges();
     if (request.non_predicate_positions.empty()) {
         _current_merge_range_active = file_context.set_native_random_access_ranges(
                 native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
-                _merge_read_slice_size);
+                _merge_read_slice_size, !defer_merge_ranges);
     } else {
         // Independent predicate/output readers may revisit the same physical leaf at different
         // cursors. MergeRangeFileReader has one consumptive cache per range, so use the random
         // access reader for this layout instead of sharing one sequential range cache.
         _current_merge_range_active = file_context.set_native_random_access_ranges(
                 {}, 0, _profile, _merge_read_slice_size);
+    }
+    if (_current_merge_range_active && defer_merge_ranges) {
+        _current_merge_range_reader =
+                typeid_cast<io::MergeRangeFileReader*>(file_context.native_data_file().get());
+        DORIS_CHECK(_current_merge_range_reader != nullptr);
+        for (const auto& column : request.predicate_columns) {
+            std::vector<ParquetPageCacheRange> column_ranges;
+            RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
+                    thrift_metadata, file_schema, {column}, row_group_idx,
+                    file_context.native_file->size(), compat.parquet_816_padding, &column_ranges));
+            auto& stored_ranges = _current_merge_ranges_by_column[column.column_id()];
+            stored_ranges.reserve(column_ranges.size());
+            for (const auto& range : detail::valid_prefetch_ranges(column_ranges)) {
+                stored_ranges.emplace_back(cast_set<size_t>(range.offset),
+                                           cast_set<size_t>(range.end_offset()));
+            }
+        }
     }
 
     for (const auto& col : request.predicate_columns) {
@@ -2264,6 +2314,14 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     };
 
     auto read_all_predicate_columns = [&]() -> Status {
+        if (_current_merge_range_reader != nullptr) {
+            std::vector<format::LocalColumnId> stage_columns;
+            stage_columns.reserve(_current_predicate_columns.size());
+            for (const auto& fid : _current_predicate_columns | std::views::keys) {
+                stage_columns.push_back(fid);
+            }
+            RETURN_IF_ERROR(activate_merge_ranges_for_columns(stage_columns));
+        }
         for (const auto& [fid, column_reader] : _current_predicate_columns) {
             auto position_it = request.local_positions.find(fid);
             DORIS_CHECK(position_it != request.local_positions.end());
@@ -2310,6 +2368,9 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             const size_t idx = _predicate_indices_by_position_scratch.at(position);
             const auto& col = request.predicate_columns[idx];
             const auto fid = col.column_id();
+            if (_current_merge_range_reader != nullptr) {
+                RETURN_IF_ERROR(activate_merge_ranges_for_columns({fid}));
+            }
             auto reader_it = _current_predicate_columns.find(fid);
             DORIS_CHECK(reader_it != _current_predicate_columns.end());
             auto position_it = request.local_positions.find(col.column_id());
@@ -2370,6 +2431,19 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     };
 
     auto materialize_predicate_positions = [&](const std::vector<size_t>& positions) -> Status {
+        if (_current_merge_range_reader != nullptr) {
+            std::vector<format::LocalColumnId> stage_columns;
+            stage_columns.reserve(positions.size());
+            for (const size_t position : positions) {
+                if (materialized_positions.contains(position)) {
+                    continue;
+                }
+                const auto index_it = _predicate_indices_by_position_scratch.find(position);
+                DORIS_CHECK(index_it != _predicate_indices_by_position_scratch.end());
+                stage_columns.push_back(request.predicate_columns[index_it->second].column_id());
+            }
+            RETURN_IF_ERROR(activate_merge_ranges_for_columns(stage_columns));
+        }
         for (const size_t position : positions) {
             if (materialized_positions.contains(position)) {
                 continue;
