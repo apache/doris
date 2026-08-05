@@ -53,8 +53,8 @@ struct AwsCredentialOptions {
 };
 
 struct AwsCredentialResult {
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;
-    std::string error;
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider {};
+    std::string error {};
 
     explicit operator bool() const { return provider != nullptr; }
 };
