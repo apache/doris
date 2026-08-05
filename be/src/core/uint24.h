@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <fmt/compile.h>
-
 #include <cstdint>
 #include <cstring>
 #include <iostream>

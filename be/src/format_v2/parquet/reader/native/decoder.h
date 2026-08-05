@@ -37,7 +37,6 @@
 #include "core/custom_allocator.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
-#include "util/rle_encoding.h"
 #include "util/slice.h"
 
 namespace doris {

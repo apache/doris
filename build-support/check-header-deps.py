@@ -217,7 +217,34 @@ RULES = [
         "(exec/common/endian.h still rides in via storage/olap_common.h -> "
         "util/hash_util.hpp, a separate pre-existing wart)",
     ),
+    (
+        "format/parquet/decoder.h",
+        "util/rle_encoding.h",
+        set(),
+        "BaseDictDecoder holds RleBatchDecoder<uint32_t> behind a unique_ptr "
+        "(forward-declared; the dtor and every member that dereferences it are "
+        "defined in decoder.cpp); the old include made every one of ~530 TUs "
+        "that transitively see a parquet decoder instantiate the whole "
+        "RLE/BitPacking decode chain at ~0.4 CPU s each",
+    ),
+    (
+        "format_v2/parquet/reader/native/decoder.h",
+        "util/rle_encoding.h",
+        set(),
+        "same contract as format/parquet/decoder.h: the dictionary index "
+        "decoder is forward-declared and only decoder.cpp needs the complete "
+        "RleBatchDecoder type; keeping rle_encoding.h (and the unrolled "
+        "bit_packing.inline.h it carries) out of this header keeps the RLE "
+        "instantiation chain out of the native-reader include tree",
+    ),
 ]
+
+# Not expressible as RULES entries (the scanner only follows quoted project
+# includes and <gen_cpp/...>): core/uint24.h and core/value/large_int_value.h
+# must not regain <fmt/compile.h> / <fmt/format.h>. Their to_string/to_buffer
+# bodies live in the matching .cpp files precisely so the FMT_COMPILE formatter
+# templates (53.5 CPU s over ~1150 TUs for the uint24 date format alone) are
+# instantiated once instead of in every includer.
 
 # Forward-declaration headers are the sanctioned way through a barrier: they carry
 # declarations only, so they cost nothing to include.
