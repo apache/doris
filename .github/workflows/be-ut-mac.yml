@@ -81,7 +81,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@18'
             'libomp'
           )
           brew install "${cellars[@]}" || true
@@ -98,10 +98,14 @@ jobs:
           tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           popd
 
-          sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
-
           JAVA_HOME="${JAVA_HOME_17_arm64:-${JAVA_HOME_17_X64}}"
           export JAVA_HOME="${JAVA_HOME%\/}"
+
+          LLVM_PREFIX="$(brew --prefix llvm@18)"
+          export PATH="${LLVM_PREFIX}/bin:${PATH}"
+          export DORIS_CLANG_HOME="${LLVM_PREFIX}"
+          export CC="${LLVM_PREFIX}/bin/clang"
+          export CXX="${LLVM_PREFIX}/bin/clang++"
 
           LIBOMP_PREFIX="$(brew --prefix libomp)"
           export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
