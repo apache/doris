@@ -61,7 +61,7 @@ TDataSink make_sink() {
 
 } // namespace
 
-class VIcebergTableWriterTest : public testing::Test {
+class VIcebergTableWriterLifecycleTest : public testing::Test {
 protected:
     static Status select_block(VIcebergTableWriter* writer, Block& input,
                                const IColumn::Permutation& rows, Block* selected) {
@@ -87,7 +87,7 @@ protected:
     }
 };
 
-TEST_F(VIcebergTableWriterTest, RejectsCoordinatorWithoutExternalFileReportAck) {
+TEST_F(VIcebergTableWriterLifecycleTest, RejectsCoordinatorWithoutExternalFileReportAck) {
     VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
     RuntimeState state;
     RuntimeProfile profile("test");
@@ -98,7 +98,7 @@ TEST_F(VIcebergTableWriterTest, RejectsCoordinatorWithoutExternalFileReportAck) 
     EXPECT_NE(std::string::npos, status.to_string().find("acknowledges external-file reports"));
 }
 
-TEST_F(VIcebergTableWriterTest, SelectBlockUsesRowPermutation) {
+TEST_F(VIcebergTableWriterLifecycleTest, SelectBlockUsesRowPermutation) {
     VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
     auto values = ColumnInt32::create();
     values->insert_value(10);
@@ -117,7 +117,7 @@ TEST_F(VIcebergTableWriterTest, SelectBlockUsesRowPermutation) {
     EXPECT_EQ(result.get_element(1), 10);
 }
 
-TEST_F(VIcebergTableWriterTest, ActiveWriterSnapshotContainsEveryOpenPartition) {
+TEST_F(VIcebergTableWriterLifecycleTest, ActiveWriterSnapshotContainsEveryOpenPartition) {
     VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
     add_writer(&writer, "p=1");
     add_writer(&writer, "p=2");
@@ -128,7 +128,7 @@ TEST_F(VIcebergTableWriterTest, ActiveWriterSnapshotContainsEveryOpenPartition) 
     EXPECT_EQ(writer.active_writers()->size(), 2);
 }
 
-TEST_F(VIcebergTableWriterTest, LoadedSnapshotRetainsWritersDuringConcurrentPublication) {
+TEST_F(VIcebergTableWriterLifecycleTest, LoadedSnapshotRetainsWritersDuringConcurrentPublication) {
     VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
     std::atomic<int> destroyed = 0;
     add_writer(&writer, "p=1", std::make_shared<FakePartitionWriter>(&destroyed));

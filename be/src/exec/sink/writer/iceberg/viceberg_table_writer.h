@@ -79,7 +79,8 @@ public:
 private:
     FRIEND_TEST(VIcebergTableWriterTest, RejectMissingPartitionSource);
     FRIEND_TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource);
-    friend class VIcebergTableWriterTest;
+    // The lifecycle fixture inspects snapshots to verify that cross-thread writer ownership stays stable.
+    friend class VIcebergTableWriterLifecycleTest;
 
     // The spill thread needs a stable view of every partition sorter, while the async writer owns the map.
     doris::atomic_shared_ptr<ActiveWriterSnapshot> _active_writers;
