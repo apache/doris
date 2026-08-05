@@ -20,15 +20,31 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
+#include <filesystem>
 #include <future>
+#include <limits>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <string_view>
+#include <thread>
+#include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "cpp/sync_point.h"
+#include "io/cache/block_file_cache_test_common.h"
+#include "io/cache/cached_remote_file_reader.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "testutil/mock/mock_query_context.h"
 #include "util/defer_op.h"
+#include "util/threadpool.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -73,6 +89,509 @@ RangeFixture make_range() {
     return fixture;
 }
 
+PageFetchRangeSpec make_service_spec(size_t offset, size_t size) {
+    DORIS_CHECK(size <= std::numeric_limits<uint32_t>::max());
+    return PageFetchRangeSpec {
+            .offset = offset,
+            .size = size,
+            .requested_page_bytes = size,
+            .coalesced_gap_bytes = 0,
+            .block_fill_bytes = 0,
+            .pages = {{.page_index = 11,
+                       .page_offset = offset,
+                       .page_size = static_cast<uint32_t>(size),
+                       .buffer_offset = 0}},
+            .complete_blocks = {},
+    };
+}
+
+TUniqueId make_query_id(int64_t hi, int64_t lo) {
+    TUniqueId query_id;
+    query_id.hi = hi;
+    query_id.lo = lo;
+    return query_id;
+}
+
+io::FileCacheSettings service_cache_settings() {
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 8 * 1024 * 1024;
+    settings.query_queue_elements = 16;
+    settings.index_queue_size = 2 * 1024 * 1024;
+    settings.index_queue_elements = 4;
+    settings.disposable_queue_size = 2 * 1024 * 1024;
+    settings.disposable_queue_elements = 4;
+    settings.capacity = 16 * 1024 * 1024;
+    settings.max_file_block_size = 1024 * 1024;
+    settings.max_query_cache_size = 0;
+    return settings;
+}
+
+void reset_service_cache_factory() {
+    io::FileCacheFactory::instance()->_caches.clear();
+    io::FileCacheFactory::instance()->_path_to_cache.clear();
+    io::FileCacheFactory::instance()->_capacity = 0;
+}
+
+struct ObservedIOContext {
+    size_t offset = 0;
+    size_t size = 0;
+    size_t read_count = 0;
+    const TUniqueId* query_id_pointer = nullptr;
+    std::optional<TUniqueId> query_id_value;
+    io::FileCacheStatistics* file_cache_stats = nullptr;
+    io::FileReaderStats* file_reader_stats = nullptr;
+    io::RemoteScanCacheWriteLimiter* limiter = nullptr;
+    bool is_index_data = true;
+    bool is_inverted_index = true;
+    bool is_dryrun = true;
+    bool is_warmup = true;
+    bool bypass_peer_read = false;
+    std::optional<io::CacheAlignMode> align_mode;
+    std::optional<io::CacheWriteMode> write_mode;
+    io::FileCacheMissPolicy miss_policy = io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+};
+
+class InspectingFileReader final : public io::FileReader {
+public:
+    InspectingFileReader(io::FileReaderSPtr delegate, bool block, bool fail)
+            : _delegate(std::move(delegate)), _released(!block), _fail(fail) {}
+
+    Status close() override { return _delegate->close(); }
+    const io::Path& path() const override { return _delegate->path(); }
+    size_t size() const override { return _delegate->size(); }
+    bool closed() const override { return _delegate->closed(); }
+    int64_t mtime() const override { return _delegate->mtime(); }
+
+    bool wait_until_entered(std::chrono::milliseconds timeout) {
+        std::unique_lock lock(_mutex);
+        return _cv.wait_for(lock, timeout, [this]() { return _entered; });
+    }
+
+    void release() {
+        {
+            std::lock_guard lock(_mutex);
+            _released = true;
+        }
+        _cv.notify_all();
+    }
+
+    ObservedIOContext observed() const {
+        std::lock_guard lock(_mutex);
+        return _observed;
+    }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        DORIS_CHECK(io_ctx != nullptr);
+        {
+            std::unique_lock lock(_mutex);
+            _observed.offset = offset;
+            _observed.size = result.size;
+            ++_observed.read_count;
+            _observed.query_id_pointer = io_ctx->query_id;
+            if (io_ctx->query_id != nullptr) {
+                _observed.query_id_value = *io_ctx->query_id;
+            }
+            _observed.file_cache_stats = io_ctx->file_cache_stats;
+            _observed.file_reader_stats = io_ctx->file_reader_stats;
+            _observed.limiter = io_ctx->remote_scan_cache_write_limiter;
+            _observed.is_index_data = io_ctx->is_index_data;
+            _observed.is_inverted_index = io_ctx->is_inverted_index;
+            _observed.is_dryrun = io_ctx->is_dryrun;
+            _observed.is_warmup = io_ctx->is_warmup;
+            _observed.bypass_peer_read = io_ctx->bypass_peer_read;
+            _observed.align_mode = io_ctx->cache_align_mode_override;
+            _observed.write_mode = io_ctx->cache_write_mode_override;
+            _observed.miss_policy = io_ctx->file_cache_miss_policy;
+            _entered = true;
+            _cv.notify_all();
+            _cv.wait(lock, [this]() { return _released; });
+        }
+        if (_fail) {
+            *bytes_read = 0;
+            return Status::IOError("injected page prefetch read failure");
+        }
+        return _delegate->read_at(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    const io::FileReaderSPtr _delegate;
+    mutable std::mutex _mutex;
+    std::condition_variable _cv;
+    ObservedIOContext _observed;
+    bool _entered = false;
+    bool _released = false;
+    const bool _fail;
+};
+
+class PagePrefetchIOServiceTest : public io::BlockFileCacheTest {
+protected:
+    void SetUp() override {
+        _old_enable_async = config::enable_async_file_cache_write;
+        _old_enable_inflight = config::enable_async_file_cache_write_inflight_write_buffer_index;
+        _old_enable_direct = config::enable_read_cache_file_directly;
+        _old_enable_peer = config::enable_cache_read_from_peer;
+        _old_block_size = config::file_cache_each_block_size;
+
+        config::enable_async_file_cache_write = true;
+        config::enable_async_file_cache_write_inflight_write_buffer_index = true;
+        config::enable_read_cache_file_directly = false;
+        config::enable_cache_read_from_peer = false;
+        config::file_cache_each_block_size = 1024 * 1024;
+        reset_service_cache_factory();
+        ExecEnv::GetInstance()->set_file_cache_open_fd_cache(std::make_unique<io::FDCache>());
+    }
+
+    void TearDown() override {
+        _pool.reset();
+        reset_service_cache_factory();
+        if (!_cache_path.empty()) {
+            std::error_code error;
+            std::filesystem::remove_all(_cache_path, error);
+        }
+        config::enable_async_file_cache_write = _old_enable_async;
+        config::enable_async_file_cache_write_inflight_write_buffer_index = _old_enable_inflight;
+        config::enable_read_cache_file_directly = _old_enable_direct;
+        config::enable_cache_read_from_peer = _old_enable_peer;
+        config::file_cache_each_block_size = _old_block_size;
+    }
+
+    void create_cache(std::string_view name) {
+        _cache_path = io::caches_dir / name;
+        std::error_code error;
+        std::filesystem::remove_all(_cache_path, error);
+        std::filesystem::create_directories(_cache_path);
+        ASSERT_TRUE(io::FileCacheFactory::instance()
+                            ->create_file_cache(_cache_path.string(), service_cache_settings())
+                            .ok());
+        _cache = io::FileCacheFactory::instance()->_path_to_cache[_cache_path.string()];
+        ASSERT_NE(_cache, nullptr);
+        io::wait_until_cache_ready(*_cache);
+    }
+
+    void create_pool(int max_queue_size) {
+        ASSERT_TRUE(ThreadPoolBuilder("PagePrefetchIOServiceTestPool")
+                            .set_min_threads(1)
+                            .set_max_threads(1)
+                            .set_max_queue_size(max_queue_size)
+                            .build(&_pool)
+                            .ok());
+    }
+
+    io::FileReaderSPtr open_remote_file() {
+        io::FileReaderSPtr reader;
+        EXPECT_TRUE(io::global_local_filesystem()->open_file(io::tmp_file, &reader).ok());
+        return reader;
+    }
+
+    std::shared_ptr<io::CachedRemoteFileReader> create_reader(io::FileReaderSPtr remote_reader) {
+        io::FileReaderOptions options;
+        options.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+        options.is_doris_table = true;
+        options.tablet_id = kTabletId;
+        return std::make_shared<io::CachedRemoteFileReader>(std::move(remote_reader), options);
+    }
+
+    PagePrefetchSafeIOContext make_safe_context(
+            const TUniqueId& query_id, io::FileCacheStatistics* file_cache_stats,
+            io::FileReaderStats* file_reader_stats,
+            io::RemoteScanCacheWriteLimiter* limiter = nullptr) {
+        io::IOContext source;
+        source.reader_type = ReaderType::READER_QUERY;
+        source.query_id = &query_id;
+        source.file_cache_stats = file_cache_stats;
+        source.file_reader_stats = file_reader_stats;
+        source.remote_scan_cache_write_limiter = limiter;
+        return PagePrefetchSafeIOContext::from_query_thread(source, kTabletId);
+    }
+
+    PagePrefetchIOServiceOptions service_options() const {
+        return PagePrefetchIOServiceOptions {
+                .query_limits = {.max_ranges = 16, .max_bytes = 2 * 1024 * 1024},
+                .global_limits = {.max_ranges = 64, .max_bytes = 8 * 1024 * 1024},
+        };
+    }
+
+    static constexpr int64_t kTabletId = 10086;
+    std::filesystem::path _cache_path;
+    io::BlockFileCache* _cache = nullptr;
+    std::unique_ptr<ThreadPool> _pool;
+    bool _old_enable_async = false;
+    bool _old_enable_inflight = false;
+    bool _old_enable_direct = false;
+    bool _old_enable_peer = false;
+    int64_t _old_block_size = 0;
+};
+
+TEST(PagePrefetchSafeIOContextTest, OwnsValuesAndStripsQueryThreadPointers) {
+    TUniqueId query_id = make_query_id(17, 19);
+    const TUniqueId captured_query_id = query_id;
+    io::FileCacheStatistics query_file_cache_stats;
+    io::FileReaderStats query_file_reader_stats;
+    io::RemoteScanCacheWriteLimiter limiter(query_id, 0);
+    io::IOContext source;
+    source.reader_type = ReaderType::READER_QUERY;
+    source.is_disposable = true;
+    source.is_index_data = true;
+    source.expiration_time = 12345;
+    source.query_id = &query_id;
+    source.file_cache_stats = &query_file_cache_stats;
+    source.file_reader_stats = &query_file_reader_stats;
+    source.is_inverted_index = true;
+    source.is_dryrun = true;
+    source.is_warmup = true;
+    source.condition_cache_filtered_rows = 31;
+    source.predicate_filtered_rows = 37;
+    source.remote_scan_cache_write_limiter = &limiter;
+
+    auto safe = PagePrefetchSafeIOContext::from_query_thread(source, 10086);
+    query_id.hi = 23;
+    query_id.lo = 29;
+
+    ASSERT_TRUE(safe.query_id_value.has_value());
+    EXPECT_EQ(*safe.query_id_value, captured_query_id);
+    EXPECT_EQ(safe.io_ctx.query_id, &*safe.query_id_value);
+    EXPECT_NE(safe.io_ctx.query_id, source.query_id);
+    EXPECT_EQ(safe.io_ctx.file_cache_stats, nullptr);
+    EXPECT_EQ(safe.io_ctx.file_reader_stats, nullptr);
+    EXPECT_EQ(safe.io_ctx.remote_scan_cache_write_limiter, nullptr);
+    EXPECT_EQ(safe.io_ctx.reader_type, ReaderType::READER_QUERY);
+    EXPECT_TRUE(safe.io_ctx.is_disposable);
+    EXPECT_EQ(safe.io_ctx.expiration_time, 12345);
+    EXPECT_FALSE(safe.io_ctx.is_index_data);
+    EXPECT_FALSE(safe.io_ctx.is_inverted_index);
+    EXPECT_FALSE(safe.io_ctx.is_dryrun);
+    EXPECT_FALSE(safe.io_ctx.is_warmup);
+    EXPECT_EQ(safe.io_ctx.condition_cache_filtered_rows, 0);
+    EXPECT_EQ(safe.io_ctx.predicate_filtered_rows, 0);
+    EXPECT_TRUE(safe.io_ctx.bypass_peer_read);
+    EXPECT_EQ(safe.io_ctx.cache_align_mode_override, io::CacheAlignMode::UNALIGNED);
+    EXPECT_EQ(safe.io_ctx.cache_write_mode_override, io::CacheWriteMode::NO_WRITE);
+    EXPECT_EQ(safe.io_ctx.file_cache_miss_policy, io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS);
+    EXPECT_TRUE(safe.remote_only_on_miss);
+    EXPECT_EQ(safe.admission_ctx.query_id, captured_query_id);
+    EXPECT_EQ(safe.admission_ctx.cache_type, io::FileCacheType::TTL);
+    EXPECT_EQ(safe.admission_ctx.expiration_time, 12345);
+    EXPECT_EQ(safe.admission_ctx.tablet_id, 10086);
+    EXPECT_FALSE(safe.admission_ctx.is_warmup);
+
+    PagePrefetchSafeIOContext copied = safe;
+    EXPECT_EQ(copied.io_ctx.query_id, &*copied.query_id_value);
+    EXPECT_NE(copied.io_ctx.query_id, safe.io_ctx.query_id);
+    PagePrefetchSafeIOContext moved = std::move(copied);
+    EXPECT_EQ(copied.io_ctx.query_id, nullptr);
+    EXPECT_EQ(moved.io_ctx.query_id, &*moved.query_id_value);
+    EXPECT_EQ(*moved.query_id_value, captured_query_id);
+}
+
+TEST_F(PagePrefetchIOServiceTest, ReadsExactRangeWithWorkerOwnedContextAndBuffer) {
+    create_cache("page_prefetch_io_service_exact_range");
+    create_pool(4);
+    PagePrefetchIOService service(_pool.get(), service_options());
+    auto inspecting_reader =
+            std::make_shared<InspectingFileReader>(open_remote_file(), false, false);
+    auto reader = create_reader(inspecting_reader);
+    TUniqueId query_id = make_query_id(41, 43);
+    io::FileCacheStatistics query_file_cache_stats;
+    io::FileReaderStats query_file_reader_stats;
+    auto safe_context =
+            make_safe_context(query_id, &query_file_cache_stats, &query_file_reader_stats);
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    auto query_context = service.get_or_create_query_context(query_id, runtime_query_context);
+    EXPECT_EQ(service.get_or_create_query_context(query_id, runtime_query_context), query_context);
+
+    constexpr size_t read_offset = 1024 * 1024 + 123;
+    constexpr size_t read_size = 4096;
+    auto submit = service.try_submit(make_service_spec(read_offset, read_size), reader,
+                                     std::move(safe_context), query_context);
+    ASSERT_EQ(submit.reject_reason, PagePrefetchRejectReason::NONE);
+    ASSERT_NE(submit.range, nullptr);
+    auto range = std::move(submit.range);
+    ASSERT_TRUE(range->wait_for_consume().ok());
+    _pool->wait();
+
+    EXPECT_EQ(range->state(), PrefetchRange::State::READY);
+    Slice page = range->page_slice(0);
+    EXPECT_EQ(std::string_view(page.data, page.size), std::string(read_size, '1'));
+    const auto stats = range->read_stats();
+    EXPECT_EQ(stats.cache_or_inflight_bytes, 0);
+    EXPECT_EQ(stats.remote_bytes, read_size);
+    EXPECT_EQ(query_file_cache_stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(query_file_reader_stats.read_calls, 0);
+    EXPECT_EQ(query_context->inflight_ranges(), 0);
+    EXPECT_EQ(query_context->resident_bytes(), read_size);
+    EXPECT_EQ(service.global_budget()->inflight_ranges(), 0);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), read_size);
+    EXPECT_EQ(service.outstanding_tasks(), 0);
+
+    const auto observed = inspecting_reader->observed();
+    EXPECT_EQ(observed.offset, read_offset);
+    EXPECT_EQ(observed.size, read_size);
+    EXPECT_EQ(observed.read_count, 1);
+    ASSERT_TRUE(observed.query_id_value.has_value());
+    EXPECT_EQ(*observed.query_id_value, query_id);
+    EXPECT_NE(observed.query_id_pointer, &query_id);
+    EXPECT_NE(observed.file_cache_stats, nullptr);
+    EXPECT_NE(observed.file_cache_stats, &query_file_cache_stats);
+    EXPECT_NE(observed.file_reader_stats, nullptr);
+    EXPECT_NE(observed.file_reader_stats, &query_file_reader_stats);
+    EXPECT_EQ(observed.limiter, nullptr);
+    EXPECT_FALSE(observed.is_index_data);
+    EXPECT_FALSE(observed.is_inverted_index);
+    EXPECT_FALSE(observed.is_dryrun);
+    EXPECT_FALSE(observed.is_warmup);
+    EXPECT_TRUE(observed.bypass_peer_read);
+    EXPECT_EQ(observed.align_mode, io::CacheAlignMode::UNALIGNED);
+    EXPECT_EQ(observed.write_mode, io::CacheWriteMode::NO_WRITE);
+
+    range.reset();
+    EXPECT_EQ(query_context->resident_bytes(), 0);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), 0);
+    EXPECT_EQ(service.mem_tracker()->consumption(), 0);
+    service.shutdown();
+}
+
+TEST_F(PagePrefetchIOServiceTest, PoolRejectionRollsBackEveryRejectedRangeResource) {
+    create_cache("page_prefetch_io_service_pool_rejection");
+    create_pool(0);
+    PagePrefetchIOService service(_pool.get(), service_options());
+    auto inspecting_reader =
+            std::make_shared<InspectingFileReader>(open_remote_file(), true, false);
+    Defer release_reader {[&]() { inspecting_reader->release(); }};
+    auto reader = create_reader(inspecting_reader);
+    TUniqueId query_id = make_query_id(47, 53);
+    io::FileCacheStatistics query_file_cache_stats;
+    io::FileReaderStats query_file_reader_stats;
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    auto query_context = service.get_or_create_query_context(query_id, runtime_query_context);
+
+    constexpr size_t read_offset = 2 * 1024 * 1024 + 17;
+    constexpr size_t read_size = 4096;
+    auto first = service.try_submit(
+            make_service_spec(read_offset, read_size), reader,
+            make_safe_context(query_id, &query_file_cache_stats, &query_file_reader_stats),
+            query_context);
+    ASSERT_NE(first.range, nullptr);
+    ASSERT_TRUE(inspecting_reader->wait_until_entered(std::chrono::seconds(5)));
+    auto rejected = service.try_submit(
+            make_service_spec(read_offset + read_size, read_size), reader,
+            make_safe_context(query_id, &query_file_cache_stats, &query_file_reader_stats),
+            query_context);
+
+    EXPECT_EQ(rejected.range, nullptr);
+    EXPECT_EQ(rejected.reject_reason, PagePrefetchRejectReason::THREAD_POOL_REJECTED);
+    EXPECT_EQ(query_context->inflight_ranges(), 1);
+    EXPECT_EQ(query_context->resident_bytes(), read_size);
+    EXPECT_EQ(service.global_budget()->inflight_ranges(), 1);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), read_size);
+    EXPECT_EQ(service.outstanding_tasks(), 1);
+
+    inspecting_reader->release();
+    ASSERT_TRUE(first.range->wait_for_consume().ok());
+    _pool->wait();
+    first.range.reset();
+    EXPECT_EQ(query_context->inflight_ranges(), 0);
+    EXPECT_EQ(query_context->resident_bytes(), 0);
+    EXPECT_EQ(service.global_budget()->inflight_ranges(), 0);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), 0);
+    EXPECT_EQ(service.outstanding_tasks(), 0);
+    EXPECT_EQ(service.mem_tracker()->consumption(), 0);
+    service.shutdown();
+}
+
+TEST_F(PagePrefetchIOServiceTest, ShutdownCancelsWaitersAndWaitsForRunningIOWithoutOwningPool) {
+    create_cache("page_prefetch_io_service_shutdown");
+    create_pool(4);
+    PagePrefetchIOService service(_pool.get(), service_options());
+    auto inspecting_reader =
+            std::make_shared<InspectingFileReader>(open_remote_file(), true, false);
+    Defer release_reader {[&]() { inspecting_reader->release(); }};
+    auto reader = create_reader(inspecting_reader);
+    TUniqueId query_id = make_query_id(59, 61);
+    io::FileCacheStatistics query_file_cache_stats;
+    io::FileReaderStats query_file_reader_stats;
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    auto query_context = service.get_or_create_query_context(query_id, runtime_query_context);
+    auto submit = service.try_submit(
+            make_service_spec(3 * 1024 * 1024 + 71, 4096), reader,
+            make_safe_context(query_id, &query_file_cache_stats, &query_file_reader_stats),
+            query_context);
+    ASSERT_NE(submit.range, nullptr);
+    ASSERT_TRUE(inspecting_reader->wait_until_entered(std::chrono::seconds(5)));
+    auto submitted_range = submit.range;
+    auto waiter = std::async(std::launch::async,
+                             [submitted_range]() { return submitted_range->wait_for_consume(); });
+    auto shutdown_future = std::async(std::launch::async, [&service]() { service.shutdown(); });
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (service.accepting() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+    }
+    EXPECT_FALSE(service.accepting());
+    EXPECT_EQ(waiter.wait_for(std::chrono::seconds(1)), std::future_status::ready);
+    EXPECT_EQ(shutdown_future.wait_for(std::chrono::milliseconds(100)),
+              std::future_status::timeout);
+    EXPECT_EQ(submit.range->state(), PrefetchRange::State::RUNNING);
+    EXPECT_TRUE(submit.range->cancel_requested());
+
+    auto rejected = service.try_submit(
+            make_service_spec(4 * 1024 * 1024 + 73, 4096), reader,
+            make_safe_context(query_id, &query_file_cache_stats, &query_file_reader_stats),
+            query_context);
+    EXPECT_EQ(rejected.range, nullptr);
+    EXPECT_EQ(rejected.reject_reason, PagePrefetchRejectReason::SHUTTING_DOWN);
+
+    inspecting_reader->release();
+    shutdown_future.get();
+    const Status wait_status = waiter.get();
+    EXPECT_TRUE(wait_status.is<ErrorCode::CANCELLED>());
+    EXPECT_EQ(submit.range->state(), PrefetchRange::State::CANCELLED);
+    EXPECT_EQ(service.outstanding_tasks(), 0);
+
+    auto pool_task_done = std::make_shared<std::promise<void>>();
+    auto pool_task_future = pool_task_done->get_future();
+    ASSERT_TRUE(_pool->submit_func([pool_task_done]() { pool_task_done->set_value(); }).ok());
+    EXPECT_EQ(pool_task_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+}
+
+TEST_F(PagePrefetchIOServiceTest, ReadFailurePublishesStableErrorAndReleasesActiveSlot) {
+    create_cache("page_prefetch_io_service_read_failure");
+    create_pool(4);
+    PagePrefetchIOService service(_pool.get(), service_options());
+    auto inspecting_reader =
+            std::make_shared<InspectingFileReader>(open_remote_file(), false, true);
+    auto reader = create_reader(inspecting_reader);
+    TUniqueId query_id = make_query_id(67, 71);
+    io::FileCacheStatistics query_file_cache_stats;
+    io::FileReaderStats query_file_reader_stats;
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    auto query_context = service.get_or_create_query_context(query_id, runtime_query_context);
+    auto submit = service.try_submit(
+            make_service_spec(5 * 1024 * 1024 + 79, 4096), reader,
+            make_safe_context(query_id, &query_file_cache_stats, &query_file_reader_stats),
+            query_context);
+    ASSERT_NE(submit.range, nullptr);
+
+    const Status first = submit.range->wait_for_consume();
+    const Status second = submit.range->wait_for_consume();
+    _pool->wait();
+    EXPECT_TRUE(first.is<ErrorCode::IO_ERROR>());
+    EXPECT_EQ(first, second);
+    EXPECT_EQ(submit.range->state(), PrefetchRange::State::FAILED);
+    EXPECT_EQ(query_file_cache_stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(query_file_reader_stats.read_calls, 0);
+    EXPECT_EQ(query_context->inflight_ranges(), 0);
+    EXPECT_EQ(query_context->resident_bytes(), 4096);
+    EXPECT_EQ(service.outstanding_tasks(), 0);
+
+    submit.range.reset();
+    EXPECT_EQ(query_context->resident_bytes(), 0);
+    EXPECT_EQ(service.global_budget()->resident_bytes(), 0);
+    EXPECT_EQ(service.mem_tracker()->consumption(), 0);
+    service.shutdown();
+}
+
 TEST(PagePrefetchAdmissionTest, QueryRangeAndByteLimitsRollbackCompletely) {
     auto global = std::make_shared<PagePrefetchGlobalBudget>(kWideLimits);
     auto range_limited_query = std::make_shared<PagePrefetchQueryContext>(
@@ -109,6 +628,26 @@ TEST(PagePrefetchAdmissionTest, QueryRangeAndByteLimitsRollbackCompletely) {
     EXPECT_EQ(byte_limited_query->resident_bytes(), 6);
     EXPECT_EQ(global->inflight_ranges(), 1);
     EXPECT_EQ(global->resident_bytes(), 6);
+}
+
+TEST(PagePrefetchAdmissionTest, ExpiredRuntimeQueryRejectsNewReservations) {
+    const TUniqueId query_id = make_query_id(73, 79);
+    auto runtime_query_context = MockQueryContext::create(query_id);
+    auto query = std::make_shared<PagePrefetchQueryContext>(query_id, runtime_query_context,
+                                                            kWideLimits);
+    auto global = std::make_shared<PagePrefetchGlobalBudget>(kWideLimits);
+    EXPECT_FALSE(query->cancelled());
+
+    runtime_query_context.reset();
+    EXPECT_TRUE(query->cancelled());
+    PagePrefetchRejectReason reject_reason = PagePrefetchRejectReason::NONE;
+    auto rejected = PagePrefetchReservation::try_reserve_range(query, global, 64, &reject_reason);
+    EXPECT_FALSE(rejected.has_value());
+    EXPECT_EQ(reject_reason, PagePrefetchRejectReason::QUERY_CANCELLED);
+    EXPECT_EQ(query->inflight_ranges(), 0);
+    EXPECT_EQ(query->resident_bytes(), 0);
+    EXPECT_EQ(global->inflight_ranges(), 0);
+    EXPECT_EQ(global->resident_bytes(), 0);
 }
 
 TEST(PagePrefetchAdmissionTest, GlobalRangeAndByteLimitsRollbackQueryReservation) {

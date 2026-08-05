@@ -25,8 +25,14 @@
 
 #include "core/allocator.h"
 #include "cpp/sync_point.h"
+#include "io/cache/cached_remote_file_reader.h"
+#include "io/cache/file_cache_common.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/query_context.h"
 #include "runtime/thread_context.h"
+#include "util/defer_op.h"
+#include "util/threadpool.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -54,6 +60,12 @@ void release_counter(std::atomic<size_t>* current, size_t amount) {
     DORIS_CHECK(amount > 0);
     const size_t previous = current->fetch_sub(amount, std::memory_order_relaxed);
     DORIS_CHECK(previous >= amount);
+}
+
+template <typename T>
+bool weak_ptr_has_owner(const std::weak_ptr<T>& pointer) {
+    const std::weak_ptr<T> empty;
+    return pointer.owner_before(empty) || empty.owner_before(pointer);
 }
 
 } // namespace
@@ -88,9 +100,32 @@ void PagePrefetchGlobalBudget::_release(size_t bytes, bool release_range) {
 }
 
 PagePrefetchQueryContext::PagePrefetchQueryContext(PagePrefetchBudgetLimits limits)
-        : _limits(limits) {
+        : _query_id(), _query_ctx(), _tracks_runtime_query(false), _limits(limits) {
     DORIS_CHECK(_limits.max_ranges > 0);
     DORIS_CHECK(_limits.max_bytes > 0);
+}
+
+PagePrefetchQueryContext::PagePrefetchQueryContext(TUniqueId query_id,
+                                                   std::weak_ptr<QueryContext> query_ctx,
+                                                   PagePrefetchBudgetLimits limits)
+        : _query_id(query_id),
+          _query_ctx(std::move(query_ctx)),
+          _tracks_runtime_query(weak_ptr_has_owner(_query_ctx)),
+          _limits(limits) {
+    DORIS_CHECK(_limits.max_ranges > 0);
+    DORIS_CHECK(_limits.max_bytes > 0);
+}
+
+bool PagePrefetchQueryContext::cancelled() const {
+    return _cancelled.load(std::memory_order_acquire) || _runtime_query_cancelled();
+}
+
+bool PagePrefetchQueryContext::_runtime_query_cancelled() const {
+    if (!_tracks_runtime_query) {
+        return false;
+    }
+    auto query_ctx = _query_ctx.lock();
+    return query_ctx == nullptr || query_ctx->is_cancelled();
 }
 
 PagePrefetchRejectReason PagePrefetchQueryContext::_try_reserve(size_t bytes, bool is_range) {
@@ -131,7 +166,7 @@ void PagePrefetchQueryContext::register_range(const std::shared_ptr<PrefetchRang
         _ranges.erase(std::remove_if(_ranges.begin(), _ranges.end(),
                                      [](const auto& weak_range) { return weak_range.expired(); }),
                       _ranges.end());
-        if (_cancelled.load(std::memory_order_acquire)) {
+        if (cancelled()) {
             cancel_range = true;
         } else {
             _ranges.emplace_back(range);
@@ -468,6 +503,316 @@ void PrefetchRange::_publish_from_running(State state, Status status, RangeReadS
     }
     _buffer->_release_range_slot();
     _cv.notify_all();
+}
+
+PagePrefetchSafeIOContext::PagePrefetchSafeIOContext(const PagePrefetchSafeIOContext& other)
+        : io_ctx(other.io_ctx),
+          query_id_value(other.query_id_value),
+          admission_ctx(other.admission_ctx),
+          remote_only_on_miss(other.remote_only_on_miss) {
+    _rebind_query_id();
+}
+
+PagePrefetchSafeIOContext& PagePrefetchSafeIOContext::operator=(
+        const PagePrefetchSafeIOContext& other) {
+    if (this != &other) {
+        io_ctx = other.io_ctx;
+        query_id_value = other.query_id_value;
+        admission_ctx = other.admission_ctx;
+        remote_only_on_miss = other.remote_only_on_miss;
+        _rebind_query_id();
+    }
+    return *this;
+}
+
+PagePrefetchSafeIOContext::PagePrefetchSafeIOContext(PagePrefetchSafeIOContext&& other) noexcept
+        : io_ctx(std::move(other.io_ctx)),
+          query_id_value(std::move(other.query_id_value)),
+          admission_ctx(std::move(other.admission_ctx)),
+          remote_only_on_miss(other.remote_only_on_miss) {
+    _rebind_query_id();
+    other.io_ctx.query_id = nullptr;
+}
+
+PagePrefetchSafeIOContext& PagePrefetchSafeIOContext::operator=(
+        PagePrefetchSafeIOContext&& other) noexcept {
+    if (this != &other) {
+        io_ctx = std::move(other.io_ctx);
+        query_id_value = std::move(other.query_id_value);
+        admission_ctx = std::move(other.admission_ctx);
+        remote_only_on_miss = other.remote_only_on_miss;
+        _rebind_query_id();
+        other.io_ctx.query_id = nullptr;
+    }
+    return *this;
+}
+
+PagePrefetchSafeIOContext PagePrefetchSafeIOContext::from_query_thread(const io::IOContext& source,
+                                                                       int64_t tablet_id) {
+    PagePrefetchSafeIOContext result;
+    result.io_ctx = source;
+    if (source.query_id != nullptr) {
+        result.query_id_value = *source.query_id;
+    }
+
+    io::CacheContext cache_context(&source);
+    result.admission_ctx = {
+            .query_id = cache_context.query_id,
+            .cache_type = cache_context.cache_type,
+            .expiration_time = cache_context.expiration_time,
+            .tablet_id = tablet_id,
+            .is_warmup = false,
+    };
+    result.remote_only_on_miss =
+            source.file_cache_miss_policy == io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS ||
+            (source.remote_scan_cache_write_limiter != nullptr &&
+             source.remote_scan_cache_write_limiter->remote_only_on_miss());
+
+    result.io_ctx.file_cache_stats = nullptr;
+    result.io_ctx.file_reader_stats = nullptr;
+    result.io_ctx.remote_scan_cache_write_limiter = nullptr;
+    result.io_ctx.is_index_data = false;
+    result.io_ctx.is_inverted_index = false;
+    result.io_ctx.is_dryrun = false;
+    result.io_ctx.is_warmup = false;
+    result.io_ctx.condition_cache_filtered_rows = 0;
+    result.io_ctx.predicate_filtered_rows = 0;
+    result.io_ctx.bypass_peer_read = true;
+    result.io_ctx.cache_align_mode_override = io::CacheAlignMode::UNALIGNED;
+    result.io_ctx.cache_write_mode_override = io::CacheWriteMode::NO_WRITE;
+    if (result.remote_only_on_miss) {
+        result.io_ctx.file_cache_miss_policy = io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+    }
+    result._rebind_query_id();
+    return result;
+}
+
+void PagePrefetchSafeIOContext::_rebind_query_id() {
+    io_ctx.query_id = query_id_value.has_value() ? &*query_id_value : nullptr;
+}
+
+PagePrefetchIOService::PagePrefetchIOService(ThreadPool* pool, PagePrefetchIOServiceOptions options)
+        : _pool(pool),
+          _options(options),
+          _global_budget(std::make_shared<PagePrefetchGlobalBudget>(options.global_limits)),
+          _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::CACHE,
+                                                        "PagePrefetchBuffer")) {
+    DORIS_CHECK(_pool != nullptr);
+    DORIS_CHECK(_options.query_limits.max_ranges > 0);
+    DORIS_CHECK(_options.query_limits.max_bytes > 0);
+}
+
+PagePrefetchIOService::~PagePrefetchIOService() {
+    shutdown();
+}
+
+std::shared_ptr<PagePrefetchQueryContext> PagePrefetchIOService::get_or_create_query_context(
+        const TUniqueId& query_id, std::weak_ptr<QueryContext> query_ctx) {
+    DORIS_CHECK(weak_ptr_has_owner(query_ctx));
+    std::lock_guard lock(_query_contexts_mutex);
+    auto existing = _query_contexts.find(query_id);
+    if (existing != _query_contexts.end()) {
+        if (auto context = existing->second.lock()) {
+            return context;
+        }
+        _query_contexts.erase(existing);
+    }
+
+    auto context = std::make_shared<PagePrefetchQueryContext>(query_id, std::move(query_ctx),
+                                                              _options.query_limits);
+    if (accepting()) {
+        _query_contexts.emplace(query_id, context);
+    } else {
+        context->cancel();
+    }
+    return context;
+}
+
+PagePrefetchSubmitResult PagePrefetchIOService::try_submit(
+        PageFetchRangeSpec spec, std::shared_ptr<io::CachedRemoteFileReader> reader,
+        PagePrefetchSafeIOContext io_ctx, std::shared_ptr<PagePrefetchQueryContext> query_ctx) {
+    DORIS_CHECK(reader != nullptr);
+    DORIS_CHECK(query_ctx != nullptr);
+    DORIS_CHECK(spec.size > 0);
+    DORIS_CHECK(spec.offset < reader->size());
+    DORIS_CHECK(spec.size <= reader->size() - spec.offset);
+
+    PagePrefetchSubmitResult result;
+    if (!_begin_submit()) {
+        result.reject_reason = PagePrefetchRejectReason::SHUTTING_DOWN;
+        return result;
+    }
+    Defer finish_submit {[this]() { _finish_submit(); }};
+    if (query_ctx->cancelled()) {
+        result.reject_reason = PagePrefetchRejectReason::QUERY_CANCELLED;
+        return result;
+    }
+
+    PagePrefetchRejectReason reject_reason = PagePrefetchRejectReason::NONE;
+    auto reservation = PagePrefetchReservation::try_reserve_range(query_ctx, _global_budget,
+                                                                  spec.size, &reject_reason);
+    if (!reservation.has_value()) {
+        result.reject_reason = reject_reason;
+        return result;
+    }
+
+    std::shared_ptr<PagePrefetchBuffer> buffer;
+    Status allocation_status =
+            PagePrefetchBuffer::create(spec.size, _mem_tracker, std::move(*reservation), &buffer);
+    if (!allocation_status.ok()) {
+        result.reject_reason = PagePrefetchRejectReason::ALLOC_FAILED;
+        return result;
+    }
+
+    auto range = std::make_shared<PrefetchRange>(std::move(spec), std::move(buffer));
+    _register_query_context(query_ctx);
+    query_ctx->register_range(range);
+    range->mark_queued();
+    if (!_reserve_outstanding_task()) {
+        range->mark_rejected(Status::Cancelled("page prefetch service is shutting down"));
+        result.reject_reason = PagePrefetchRejectReason::SHUTTING_DOWN;
+        return result;
+    }
+
+    Status submit_status = _pool->submit_func([this, range, reader = std::move(reader),
+                                               io_ctx = std::move(io_ctx), query_ctx]() mutable {
+        Defer finish_task {[this]() { _finish_outstanding_task(); }};
+        _execute_range(range, reader, std::move(io_ctx), query_ctx);
+    });
+    if (!submit_status.ok()) {
+        range->mark_rejected(std::move(submit_status));
+        _finish_outstanding_task();
+        result.reject_reason = PagePrefetchRejectReason::THREAD_POOL_REJECTED;
+        return result;
+    }
+
+    result.range = std::move(range);
+    return result;
+}
+
+void PagePrefetchIOService::shutdown() {
+    {
+        std::unique_lock lock(_lifecycle_mutex);
+        _accepting.store(false, std::memory_order_release);
+        _lifecycle_cv.wait(lock, [this]() { return _active_submitters == 0; });
+    }
+
+    std::vector<std::shared_ptr<PagePrefetchQueryContext>> query_contexts;
+    {
+        std::lock_guard lock(_query_contexts_mutex);
+        query_contexts.reserve(_query_contexts.size());
+        for (auto& [query_id, weak_context] : _query_contexts) {
+            static_cast<void>(query_id);
+            if (auto context = weak_context.lock()) {
+                query_contexts.emplace_back(std::move(context));
+            }
+        }
+        _query_contexts.clear();
+    }
+    for (const auto& query_context : query_contexts) {
+        query_context->cancel();
+    }
+
+    std::unique_lock lock(_lifecycle_mutex);
+    _lifecycle_cv.wait(lock, [this]() { return _outstanding_tasks == 0; });
+}
+
+size_t PagePrefetchIOService::outstanding_tasks() const {
+    std::lock_guard lock(_lifecycle_mutex);
+    return _outstanding_tasks;
+}
+
+bool PagePrefetchIOService::_begin_submit() {
+    std::lock_guard lock(_lifecycle_mutex);
+    if (!_accepting.load(std::memory_order_acquire)) {
+        return false;
+    }
+    ++_active_submitters;
+    return true;
+}
+
+void PagePrefetchIOService::_finish_submit() {
+    std::lock_guard lock(_lifecycle_mutex);
+    DORIS_CHECK(_active_submitters > 0);
+    --_active_submitters;
+    if (_active_submitters == 0) {
+        _lifecycle_cv.notify_all();
+    }
+}
+
+bool PagePrefetchIOService::_reserve_outstanding_task() {
+    std::lock_guard lock(_lifecycle_mutex);
+    if (!_accepting.load(std::memory_order_acquire)) {
+        return false;
+    }
+    ++_outstanding_tasks;
+    return true;
+}
+
+void PagePrefetchIOService::_finish_outstanding_task() {
+    std::lock_guard lock(_lifecycle_mutex);
+    DORIS_CHECK(_outstanding_tasks > 0);
+    --_outstanding_tasks;
+    if (_outstanding_tasks == 0) {
+        _lifecycle_cv.notify_all();
+    }
+}
+
+void PagePrefetchIOService::_register_query_context(
+        const std::shared_ptr<PagePrefetchQueryContext>& query_ctx) {
+    DORIS_CHECK(query_ctx != nullptr);
+    std::lock_guard lock(_query_contexts_mutex);
+    auto [iterator, inserted] = _query_contexts.emplace(query_ctx->query_id(), query_ctx);
+    if (!inserted) {
+        auto existing = iterator->second.lock();
+        DORIS_CHECK(existing == nullptr || existing == query_ctx);
+        iterator->second = query_ctx;
+    }
+}
+
+void PagePrefetchIOService::_execute_range(
+        const std::shared_ptr<PrefetchRange>& range,
+        const std::shared_ptr<io::CachedRemoteFileReader>& reader, PagePrefetchSafeIOContext io_ctx,
+        const std::shared_ptr<PagePrefetchQueryContext>& query_ctx) {
+    DORIS_CHECK(range != nullptr);
+    DORIS_CHECK(reader != nullptr);
+    DORIS_CHECK(query_ctx != nullptr);
+    if (!range->mark_running()) {
+        return;
+    }
+    if (!accepting() || query_ctx->cancelled()) {
+        range->publish_cancelled();
+        return;
+    }
+
+    io::FileCacheStatistics file_cache_stats;
+    io::FileReaderStats file_reader_stats;
+    io_ctx.io_ctx.file_cache_stats = &file_cache_stats;
+    io_ctx.io_ctx.file_reader_stats = &file_reader_stats;
+    io_ctx.io_ctx.remote_scan_cache_write_limiter = nullptr;
+    size_t bytes_read = 0;
+    auto buffer = range->buffer();
+    Status status = reader->read_at(range->spec().offset, Slice(buffer->data(), buffer->size()),
+                                    &bytes_read, &io_ctx.io_ctx);
+    if (status.ok()) {
+        DORIS_CHECK(bytes_read == buffer->size());
+    }
+    DORIS_CHECK(file_cache_stats.bytes_read_from_local >= 0);
+    DORIS_CHECK(file_cache_stats.bytes_read_from_remote >= 0);
+    RangeReadStats read_stats {
+            .cache_or_inflight_bytes = static_cast<size_t>(file_cache_stats.bytes_read_from_local),
+            .remote_bytes = static_cast<size_t>(file_cache_stats.bytes_read_from_remote),
+            .remote_io_time_ns = file_cache_stats.remote_io_timer,
+            .self_heal_count = 0,
+    };
+
+    if (!accepting() || query_ctx->cancelled()) {
+        range->publish_cancelled(std::move(read_stats));
+    } else if (!status.ok()) {
+        range->publish_failed(std::move(status), std::move(read_stats));
+    } else {
+        range->publish_ready(std::move(read_stats));
+    }
 }
 
 static_assert(std::is_nothrow_move_constructible_v<PagePrefetchReservation>);

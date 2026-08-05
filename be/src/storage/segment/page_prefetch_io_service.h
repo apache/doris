@@ -24,14 +24,23 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
+#include "io/cache/async_cache_write_service.h"
+#include "io/io_common.h"
 #include "util/slice.h"
 
 namespace doris {
 
 class MemTrackerLimiter;
+class QueryContext;
+class ThreadPool;
+
+namespace io {
+class CachedRemoteFileReader;
+}
 
 namespace segment_v2 {
 
@@ -108,10 +117,13 @@ private:
 class PagePrefetchQueryContext {
 public:
     explicit PagePrefetchQueryContext(PagePrefetchBudgetLimits limits);
+    PagePrefetchQueryContext(TUniqueId query_id, std::weak_ptr<QueryContext> query_ctx,
+                             PagePrefetchBudgetLimits limits);
 
     void register_range(const std::shared_ptr<PrefetchRange>& range);
     void cancel();
-    bool cancelled() const { return _cancelled.load(std::memory_order_acquire); }
+    bool cancelled() const;
+    const TUniqueId& query_id() const { return _query_id; }
 
     size_t inflight_ranges() const { return _inflight_ranges.load(std::memory_order_relaxed); }
     size_t resident_bytes() const { return _resident_bytes.load(std::memory_order_relaxed); }
@@ -121,7 +133,11 @@ private:
 
     PagePrefetchRejectReason _try_reserve(size_t bytes, bool is_range);
     void _release(size_t bytes, bool release_range);
+    bool _runtime_query_cancelled() const;
 
+    const TUniqueId _query_id;
+    const std::weak_ptr<QueryContext> _query_ctx;
+    const bool _tracks_runtime_query;
     const PagePrefetchBudgetLimits _limits;
     std::atomic<size_t> _resident_bytes {0};
     std::atomic<size_t> _inflight_ranges {0};
@@ -243,6 +259,81 @@ private:
     RangeReadStats _read_stats;
     bool _cancel_requested = false;
     bool _stats_merged = false;
+};
+
+struct PagePrefetchSafeIOContext {
+    io::IOContext io_ctx;
+    std::optional<TUniqueId> query_id_value;
+    io::CacheAdmissionContext admission_ctx;
+    bool remote_only_on_miss = false;
+
+    PagePrefetchSafeIOContext() = default;
+    PagePrefetchSafeIOContext(const PagePrefetchSafeIOContext& other);
+    PagePrefetchSafeIOContext& operator=(const PagePrefetchSafeIOContext& other);
+    PagePrefetchSafeIOContext(PagePrefetchSafeIOContext&& other) noexcept;
+    PagePrefetchSafeIOContext& operator=(PagePrefetchSafeIOContext&& other) noexcept;
+
+    static PagePrefetchSafeIOContext from_query_thread(const io::IOContext& source,
+                                                       int64_t tablet_id);
+
+private:
+    void _rebind_query_id();
+};
+
+struct PagePrefetchSubmitResult {
+    std::shared_ptr<PrefetchRange> range;
+    PagePrefetchRejectReason reject_reason = PagePrefetchRejectReason::NONE;
+};
+
+struct PagePrefetchIOServiceOptions {
+    PagePrefetchBudgetLimits query_limits;
+    PagePrefetchBudgetLimits global_limits;
+};
+
+/// Executes admitted exact-range reads on a shared thread pool. The pool is non-owning and must
+/// outlive this service; shutdown waits only for this service's tasks and never shuts down the pool.
+class PagePrefetchIOService {
+public:
+    PagePrefetchIOService(ThreadPool* pool, PagePrefetchIOServiceOptions options);
+    ~PagePrefetchIOService();
+
+    std::shared_ptr<PagePrefetchQueryContext> get_or_create_query_context(
+            const TUniqueId& query_id, std::weak_ptr<QueryContext> query_ctx);
+    PagePrefetchSubmitResult try_submit(PageFetchRangeSpec spec,
+                                        std::shared_ptr<io::CachedRemoteFileReader> reader,
+                                        PagePrefetchSafeIOContext io_ctx,
+                                        std::shared_ptr<PagePrefetchQueryContext> query_ctx);
+    void shutdown();
+
+    bool accepting() const { return _accepting.load(std::memory_order_acquire); }
+    size_t outstanding_tasks() const;
+    std::shared_ptr<PagePrefetchGlobalBudget> global_budget() const { return _global_budget; }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return _mem_tracker; }
+
+private:
+    bool _begin_submit();
+    void _finish_submit();
+    bool _reserve_outstanding_task();
+    void _finish_outstanding_task();
+    void _register_query_context(const std::shared_ptr<PagePrefetchQueryContext>& query_ctx);
+    void _execute_range(const std::shared_ptr<PrefetchRange>& range,
+                        const std::shared_ptr<io::CachedRemoteFileReader>& reader,
+                        PagePrefetchSafeIOContext io_ctx,
+                        const std::shared_ptr<PagePrefetchQueryContext>& query_ctx);
+
+    ThreadPool* const _pool;
+    const PagePrefetchIOServiceOptions _options;
+    const std::shared_ptr<PagePrefetchGlobalBudget> _global_budget;
+    const std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::atomic<bool> _accepting {true};
+
+    mutable std::mutex _lifecycle_mutex;
+    std::condition_variable _lifecycle_cv;
+    size_t _active_submitters = 0;
+    size_t _outstanding_tasks = 0;
+
+    std::mutex _query_contexts_mutex;
+    std::unordered_map<TUniqueId, std::weak_ptr<PagePrefetchQueryContext>> _query_contexts;
 };
 
 } // namespace segment_v2
