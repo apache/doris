@@ -128,6 +128,13 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
                                             ColumnSelectVector& select_vector,
                                             bool is_dict_filter) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
+    if (_dict_items.empty() && non_null_size > 0) [[unlikely]] {
+        // Data pages reference a dictionary that was never decoded (missing or corrupt
+        // dictionary page); indexing into an empty _dict_items dereferences a null StringRef
+        // and SIGSEGVs the whole BE process (#61225, pattern A). Report corruption instead.
+        return Status::Corruption(
+                "parquet byte-array dictionary is empty but {} values reference it", non_null_size);
+    }
     if (doris_column->is_column_dictionary()) {
         ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
         if (dict_column.dict_size() == 0 && !_dict_items.empty()) {

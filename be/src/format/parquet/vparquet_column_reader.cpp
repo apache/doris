@@ -817,6 +817,16 @@ Status StructColumnReader::read_column_data(
         ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
         auto& doris_type = doris_struct_type->get_element(i);
         auto& doris_name = doris_struct_type->get_element_name(i);
+        // A projected nested field absent from the table-side schema tree means the schema info
+        // from FE is inconsistent with the table column type. Fail the query instead of aborting
+        // the whole BE process via children.at()'s std::out_of_range (release) or DCHECK
+        // (debug). See #61225.
+        if (!root_node->has_children_column(doris_name)) {
+            return Status::InternalError(
+                    "schema mapping is missing projected nested field '{}' of column '{}'; the "
+                    "schema info from FE is inconsistent with the scan projection",
+                    doris_name, _field_schema->name);
+        }
         if (!root_node->children_column_exists(doris_name)) {
             missing_column_idxs.push_back(i);
             VLOG_DEBUG << "[ParquetReader] Missing column in schema: column_idx[" << i

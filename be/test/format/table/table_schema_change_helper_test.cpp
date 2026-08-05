@@ -204,6 +204,75 @@ TEST(MockTableSchemaChangeHelper, HasChildrenColumnGuardsAbsentProjectedColumn) 
             TableSchemaChangeHelper::ConstNode::get_instance()->has_children_column("anything"));
 }
 
+TEST(MockTableSchemaChangeHelper, HasChildrenColumnGuardsNestedStructField) {
+    // Nested analog of HasChildrenColumnGuardsAbsentProjectedColumn (#61225): the struct-field
+    // readers resolve each projected nested field through the column's child StructNode, so a
+    // nested field that is absent from that tree must be detectable via has_children_column
+    // BEFORE children_column_exists / children_file_column_name, whose children.at() throws
+    // std::out_of_range (release) / DCHECK-aborts (debug).
+    SlotDescriptor slot1;
+    slot1._type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true),
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true)},
+            Strings {"a", "b"});
+    slot1._col_name = "struct_col";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<struct_col:struct<a:int,b:int>>"));
+    std::shared_ptr<TableSchemaChangeHelper::Node> node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(&tuple_desc,
+                                                                         orc_type.get(), node)
+                        .ok());
+
+    ASSERT_TRUE(node->has_children_column("struct_col"));
+    const auto& struct_child = node->get_children_node("struct_col");
+
+    // Nested fields that ARE in the table-side tree -> present.
+    EXPECT_TRUE(struct_child->has_children_column("a"));
+    EXPECT_TRUE(struct_child->has_children_column("b"));
+    // A nested field the tree does not know (FE/BE contract mismatch, e.g. the table column
+    // type carries a field the schema info from FE never registered) must be reported absent
+    // WITHOUT triggering children.at(). MUTATION: dropping the has_children_column guard at the
+    // nested struct readers -> std::out_of_range/DCHECK instead of a per-query error.
+    EXPECT_FALSE(struct_child->has_children_column("renamed_away_field"));
+}
+
+TEST(MockTableSchemaChangeHelper, NestedStructFieldMissingInFileKeepsKey) {
+    // The legitimate schema-evolution counterpart of the guard (#61225): a nested field added
+    // after the data file was written IS registered in the table-side tree (key present,
+    // exists=false), so the readers classify it as fill-missing (initial default / NULL) rather
+    // than failing the query. The has_children_column guard must NOT swallow this case.
+    SlotDescriptor slot1;
+    slot1._type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true),
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true)},
+            Strings {"a", "b"});
+    slot1._col_name = "struct_col";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+
+    // The file only stores field 'a'; table field 'b' was added later.
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<struct_col:struct<a:int>>"));
+    std::shared_ptr<TableSchemaChangeHelper::Node> node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(&tuple_desc,
+                                                                         orc_type.get(), node)
+                        .ok());
+
+    const auto& struct_child = node->get_children_node("struct_col");
+    EXPECT_TRUE(struct_child->has_children_column("a"));
+    EXPECT_TRUE(struct_child->children_column_exists("a"));
+    // 'b' is known to the table schema but absent from the file: key stays, exists=false.
+    EXPECT_TRUE(struct_child->has_children_column("b"));
+    EXPECT_FALSE(struct_child->children_column_exists("b"));
+}
+
 TEST(MockTableSchemaChangeHelper, OrcNameSchemaChange1) {
     std::vector<DataTypePtr> data_types;
     std::vector<std::string> column_names;
