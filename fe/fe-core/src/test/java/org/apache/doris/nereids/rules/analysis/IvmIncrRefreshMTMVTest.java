@@ -149,6 +149,28 @@ class IvmIncrRefreshMTMVTest {
     }
 
     @Test
+    void testDryRunLimitZeroIsAllowedLikeSelectLimit() {
+        DryRunLimit dryRunLimit = new DryRunLimit(0, 0);
+        Assertions.assertEquals(0, dryRunLimit.getOffset());
+        Assertions.assertEquals(0, dryRunLimit.getCount());
+
+        LogicalProject<Plan> deltaPlan = new LogicalProject<>(
+                ImmutableList.of(new org.apache.doris.nereids.trees.expressions.Alias(
+                        scan.getOutput().get(0), scan.getOutput().get(0).getName())), scan);
+        RecordingRule rule = new RecordingRule(deltaPlan);
+
+        Plan result = rule.rewriteRoot(scan, newJobContext(scan,
+                IvmRewriteContext.incrementalDryRun(mtmv, Optional.of(dryRunLimit)),
+                newRewriteResult(SIGNATURE)));
+
+        Assertions.assertInstanceOf(LogicalResultSink.class, result);
+        LogicalLimit<?> limit = (LogicalLimit<?>) ((LogicalResultSink<?>) result).child();
+        Assertions.assertEquals(0, limit.getLimit());
+        Assertions.assertEquals(0, limit.getOffset());
+        Assertions.assertEquals(1, rule.rewriter.callCount);
+    }
+
+    @Test
     void testDryRunWithoutLimitWrapsDeltaPlanInResultSink() {
         LogicalProject<Plan> deltaPlan = new LogicalProject<>(
                 ImmutableList.of(new org.apache.doris.nereids.trees.expressions.Alias(

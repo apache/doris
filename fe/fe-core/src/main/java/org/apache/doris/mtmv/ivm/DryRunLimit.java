@@ -17,8 +17,6 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
-
 /**
  * Offset and row-count cap for REFRESH MATERIALIZED VIEW ... INCREMENTAL WITH DRY RUN
  * (LIMIT ...). Mirrors the LIMIT clause of a SELECT: {@code LIMIT n} (offset 0),
@@ -29,11 +27,6 @@ public class DryRunLimit {
     private final long count;
 
     public DryRunLimit(long offset, long count) {
-        if (offset < 0 || count < 1) {
-            throw new AnalysisException(
-                    "REFRESH MATERIALIZED VIEW ... INCREMENTAL WITH DRY RUN "
-                            + "requires offset >= 0 and LIMIT >= 1");
-        }
         this.offset = offset;
         this.count = count;
     }
