@@ -41,7 +41,6 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
-import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.ddl.BranchChange;
@@ -132,11 +131,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // stripped from the user-facing SHOW CREATE properties by fe-core. The central reserved-key definition
     // (namespaced under __internal.) lives in ConnectorTableSchema.
     private static final String PARTITION_COLUMNS_PROPERTY = ConnectorTableSchema.PARTITION_COLUMNS_KEY;
-
-    // Connector-side spelling of fe-type ScalarType.MAX_VARCHAR_LENGTH (the connector must not import fe-type);
-    // a hive `string` partition column is widened to varchar(65533) for legacy parity. Paimon hardcodes the
-    // identical 65533.
-    private static final int MAX_VARCHAR_LENGTH = 65533;
 
     // Hive-canonical partition text for a DATETIME/TIMESTAMP literal: space separator, full seconds. See
     // hiveDateTimeString / extractLiteralValue (H2: String.valueOf(LocalDateTime) would yield ISO "…T…" and drop
@@ -499,8 +493,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         String tableName = hiveHandle.getTableName();
 
         HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
-        List<ConnectorColumn> columns = buildColumns(tableInfo);
-        List<ConnectorColumn> partitionKeys = coercePartitionKeyStringToVarchar(buildPartitionKeys(tableInfo));
+        HiveWriteMetadataSnapshot writeMetadata = HiveWriteMetadataSnapshot.of(
+                tableInfo, getDefaultValues(tableInfo));
+        List<ConnectorColumn> columns = writeMetadata.getDataColumns();
+        List<ConnectorColumn> partitionKeys = writeMetadata.getPartitionColumns();
 
         // Merge: regular columns + partition columns (partition columns last, mirroring legacy
         // HMSExternalTable full-schema order: data columns then partition keys).
@@ -554,7 +550,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
 
         return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties,
-                perTableCapabilities, HiveWritePlanProvider.writeMetadataIdentity(tableInfo));
+                perTableCapabilities, writeMetadata.getIdentity());
     }
 
     /**
@@ -596,8 +592,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return siblingSchema;
         }
         inherited.addAll(siblingSchema.getTableCapabilities());
+        // Delegation may enrich capabilities, but it must preserve the sibling generation bound with the schema.
         return new ConnectorTableSchema(siblingSchema.getTableName(), siblingSchema.getColumns(),
-                siblingSchema.getTableFormatType(), siblingSchema.getProperties(), inherited);
+                siblingSchema.getTableFormatType(), siblingSchema.getProperties(), inherited,
+                siblingSchema.getWriteMetadataIdentity());
     }
 
     // ========== ConnectorTableOps: Column Handles ==========
@@ -2186,99 +2184,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // ========== Internal helpers ==========
 
     private List<ConnectorColumn> buildColumns(HmsTableInfo tableInfo) {
-        List<ConnectorColumn> spiColumns = tableInfo.getColumns();
-        if (spiColumns == null || spiColumns.isEmpty()) {
-            return Collections.emptyList();
-        }
-        // HmsTableInfo already returns ConnectorColumn with types mapped by HmsTypeMapping
-        // during ThriftHmsClient.getTable(). Enrich with default values if available.
-        List<ConnectorColumn> columns = spiColumns;
-        Map<String, String> defaults = getDefaultValues(tableInfo);
-        if (!defaults.isEmpty()) {
-            List<ConnectorColumn> enriched = new ArrayList<>(spiColumns.size());
-            for (ConnectorColumn col : spiColumns) {
-                String defaultVal = defaults.get(col.getName());
-                if (defaultVal != null && col.getDefaultValue() == null) {
-                    enriched.add(new ConnectorColumn(
-                            col.getName(), col.getType(), col.getComment(),
-                            col.isNullable(), defaultVal));
-                } else {
-                    enriched.add(col);
-                }
-            }
-            columns = enriched;
-        }
-        return coerceOpenCsvColumnsToString(tableInfo, columns);
-    }
-
-    private List<ConnectorColumn> buildPartitionKeys(HmsTableInfo tableInfo) {
-        List<ConnectorColumn> partKeys = tableInfo.getPartitionKeys();
-        if (partKeys == null) {
-            return Collections.emptyList();
-        }
-        return partKeys;
-    }
-
-    /**
-     * Widens a hive {@code string} partition column to {@code varchar(65533)}, replicating legacy
-     * {@code HMSExternalTable.initPartitionColumns}: a bare-string partition column is coerced to
-     * {@code varchar(ScalarType.MAX_VARCHAR_LENGTH)} "to be same as doris managed table", while every other
-     * declared type (int/date/timestamp/decimal/varchar(n)/char(n)/...) is kept exactly as
-     * {@code HmsTypeMapping} produced it. The gate is the mapped connector type name {@code STRING} (hive
-     * {@code string}, and {@code binary} when not mapped to varbinary, both land on it), matching legacy's
-     * {@code PrimitiveType.STRING} check. The widened column keeps the same name/comment/nullability/flags, so
-     * the full-schema entry and the partition-column view carry the identical type (legacy mutated one shared
-     * {@code Column} in place).
-     */
-    private static List<ConnectorColumn> coercePartitionKeyStringToVarchar(List<ConnectorColumn> partitionKeys) {
-        if (partitionKeys.isEmpty()) {
-            return partitionKeys;
-        }
-        List<ConnectorColumn> coerced = new ArrayList<>(partitionKeys.size());
-        for (ConnectorColumn col : partitionKeys) {
-            if ("STRING".equals(col.getType().getTypeName())) {
-                coerced.add(new ConnectorColumn(col.getName(),
-                        ConnectorType.of("VARCHAR", MAX_VARCHAR_LENGTH, -1),
-                        col.getComment(), col.isNullable(), col.getDefaultValue(),
-                        col.isKey(), col.isAutoInc(), col.isAggregated()));
-            } else {
-                coerced.add(col);
-            }
-        }
-        return coerced;
-    }
-
-    /**
-     * Flattens every DATA column of a hive {@code OpenCSVSerde} table to {@code STRING}, reproducing the
-     * schema legacy obtained through the metastore {@code get_schema} RPC. {@code OpenCSVSerde}
-     * ({@code org.apache.hadoop.hive.serde2.OpenCSVSerde}) reads a delimited file as PLAIN text: its
-     * deserializer's ObjectInspector reports every top-level column as {@code string}, so a declared
-     * {@code int}/{@code date}/{@code boolean} — and even an {@code array}/{@code map}/{@code struct} — is
-     * served verbatim as a string and never parsed. The SPI reads the RAW stored column types
-     * ({@code sd.getCols()}), which for OpenCSV disagree with what the reader actually returns; legacy's
-     * default {@code get_schema} path (server-side deserializer) collapsed them to all-string. We reproduce
-     * that RESULT connector-side, WITHOUT the extra per-table RPC, by forcing the whole column type to a flat
-     * {@code STRING} here. Partition keys are left untouched (hive appends them after the deserializer, so
-     * they keep their declared types — see {@link #coercePartitionKeyStringToVarchar}); a view is never an
-     * OpenCSV data table (guarded). Placing the rule in this hive metadata layer (not the shared hms
-     * {@code ThriftHmsClient}, which also feeds the hudi connector) keeps the serde-specific typing off the
-     * shared path and mirrors where Trino applies CSV=all-string. Non-OpenCSV tables return unchanged, so
-     * every other serde stays byte-identical to the raw {@code sd.getCols()} path.
-     */
-    private static List<ConnectorColumn> coerceOpenCsvColumnsToString(
-            HmsTableInfo tableInfo, List<ConnectorColumn> columns) {
-        if (isView(tableInfo)
-                || !HiveTextProperties.HIVE_OPEN_CSV_SERDE.equals(tableInfo.getSerializationLib())) {
-            return columns;
-        }
-        ConnectorType stringType = ConnectorType.of("STRING");
-        List<ConnectorColumn> forced = new ArrayList<>(columns.size());
-        for (ConnectorColumn col : columns) {
-            forced.add(new ConnectorColumn(col.getName(), stringType, col.getComment(),
-                    col.isNullable(), col.getDefaultValue(),
-                    col.isKey(), col.isAutoInc(), col.isAggregated()));
-        }
-        return forced;
+        return HiveWriteMetadataSnapshot.of(tableInfo, getDefaultValues(tableInfo)).getDataColumns();
     }
 
     private Map<String, String> getDefaultValues(HmsTableInfo tableInfo) {

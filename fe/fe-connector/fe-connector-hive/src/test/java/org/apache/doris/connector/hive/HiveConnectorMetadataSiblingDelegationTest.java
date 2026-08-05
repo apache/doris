@@ -392,6 +392,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "Top-N lazy must survive the delegation as a per-table capability");
         Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
                 "nested-column prune must survive the delegation as a per-table capability");
+        Assertions.assertEquals("sibling-generation", schema.getWriteMetadataIdentity(),
+                "capability reflection must not discard the sibling's write-generation fence");
     }
 
     @Test
@@ -615,14 +617,16 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         @Override
         public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
             calls.add("getTableSchema");
-            return new ConnectorTableSchema("sibling", Collections.emptyList(), "iceberg", Collections.emptyMap());
+            return new ConnectorTableSchema("sibling", Collections.emptyList(), "iceberg", Collections.emptyMap(),
+                    Collections.emptySet(), "sibling-generation");
         }
 
         @Override
         public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle,
                 ConnectorMvccSnapshot snapshot) {
             calls.add("getTableSchemaAtSnapshot");
-            return new ConnectorTableSchema("sibling", Collections.emptyList(), "iceberg", Collections.emptyMap());
+            return new ConnectorTableSchema("sibling", Collections.emptyList(), "iceberg", Collections.emptyMap(),
+                    Collections.emptySet(), "sibling-generation");
         }
 
         @Override

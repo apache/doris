@@ -198,6 +198,91 @@ public class HiveWritePlanProviderTest {
                 "write planning must bypass a stale connector-side table cache");
     }
 
+    @Test
+    public void writeMetadataIdentityIncludesRecursiveTypeShape() {
+        HmsTableInfo ints = tableBuilder()
+                .columns(Collections.singletonList(new ConnectorColumn("items",
+                        ConnectorType.arrayOf(ConnectorType.of("INT")), "", true, null)))
+                .build();
+        HmsTableInfo strings = tableBuilder()
+                .columns(Collections.singletonList(new ConnectorColumn("items",
+                        ConnectorType.arrayOf(ConnectorType.of("STRING")), "", true, null)))
+                .build();
+
+        Assertions.assertNotEquals(HiveWritePlanProvider.writeMetadataIdentity(ints),
+                HiveWritePlanProvider.writeMetadataIdentity(strings),
+                "a nested leaf change must invalidate the bound physical layout");
+    }
+
+    @Test
+    public void writeMetadataIdentityIncludesEffectiveDefaults() {
+        ConnectorColumn oldDefault = new ConnectorColumn("c1", ConnectorType.of("INT"), "", true, "42");
+        ConnectorColumn newDefault = new ConnectorColumn("c1", ConnectorType.of("INT"), "", true, "7");
+        HmsTableInfo before = tableBuilder().columns(Collections.singletonList(oldDefault)).build();
+        HmsTableInfo after = tableBuilder().columns(Collections.singletonList(newDefault)).build();
+
+        Assertions.assertNotEquals(HiveWritePlanProvider.writeMetadataIdentity(before),
+                HiveWritePlanProvider.writeMetadataIdentity(after),
+                "a default-only DDL changes values already materialized by binding");
+    }
+
+    @Test
+    public void writeMetadataIdentityIncludesSerdeThatShapesEffectiveColumns() {
+        HmsTableInfo csv = tableBuilder()
+                .serializationLib(HiveTextProperties.HIVE_OPEN_CSV_SERDE)
+                .build();
+        HmsTableInfo lazy = tableBuilder().serializationLib(LAZY_SIMPLE_SERDE).build();
+
+        Assertions.assertNotEquals(HiveWritePlanProvider.writeMetadataIdentity(csv),
+                HiveWritePlanProvider.writeMetadataIdentity(lazy),
+                "OpenCSV and LazySimple bind different effective types for the same raw HMS columns");
+    }
+
+    @Test
+    public void planWriteRejectsNestedLeafChangeAfterBinding() {
+        HmsTableInfo before = tableBuilder()
+                .columns(Collections.singletonList(new ConnectorColumn("items",
+                        ConnectorType.arrayOf(ConnectorType.of("INT")), "", true, null)))
+                .build();
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder()
+                .columns(Collections.singletonList(new ConnectorColumn("items",
+                        ConnectorType.arrayOf(ConnectorType.of("STRING")), "", true, null)))
+                .build();
+        WriteHandle bound = handle().boundWriteMetadataIdentity(
+                HiveWriteMetadataSnapshot.of(before, Collections.emptyMap()).getIdentity());
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), bound));
+    }
+
+    @Test
+    public void planWriteRejectsOpenCsvToLazySimpleChangeAfterBinding() {
+        HmsTableInfo before = tableBuilder()
+                .serializationLib(HiveTextProperties.HIVE_OPEN_CSV_SERDE)
+                .build();
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().serializationLib(LAZY_SIMPLE_SERDE).build();
+        WriteHandle bound = handle().boundWriteMetadataIdentity(
+                HiveWriteMetadataSnapshot.of(before, Collections.emptyMap()).getIdentity());
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), bound));
+    }
+
+    @Test
+    public void planWriteRejectsDefaultOnlyChangeAfterBinding() {
+        HmsTableInfo table = tableBuilder().build();
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table;
+        client.defaultValues = Collections.singletonMap("c1", "7");
+        WriteHandle bound = handle().boundWriteMetadataIdentity(
+                HiveWriteMetadataSnapshot.of(table, Collections.singletonMap("c1", "42")).getIdentity());
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), bound));
+    }
+
     // ───────────────────────────── bucket ─────────────────────────────
 
     @Test
@@ -742,6 +827,7 @@ public class HiveWritePlanProviderTest {
     private static final class RecordingHmsClient implements HmsClient {
         private final List<String> calls = new ArrayList<>();
         private HmsTableInfo table;
+        private Map<String, String> defaultValues = Collections.emptyMap();
         private List<String> partitionNames = Collections.emptyList();
         private List<HmsPartitionInfo> partitions = Collections.emptyList();
 
@@ -785,7 +871,8 @@ public class HiveWritePlanProviderTest {
 
         @Override
         public Map<String, String> getDefaultColumnValues(String dbName, String tableName) {
-            return Collections.emptyMap();
+            calls.add("getDefaultColumnValues:" + dbName + "." + tableName);
+            return defaultValues;
         }
 
         @Override

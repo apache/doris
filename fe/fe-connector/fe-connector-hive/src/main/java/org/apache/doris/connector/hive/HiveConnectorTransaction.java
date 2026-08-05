@@ -123,6 +123,7 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
 
     private NameMapping nameMapping;
     private volatile HmsTableInfo hmsTableInfo;
+    private String writeMetadataIdentity;
     private String queryId;
     private boolean isOverwrite;
     private TFileType fileType;
@@ -199,19 +200,19 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
      * only pre-commit point that has the table — so the full-ACID reject (D7) can run here.
      */
     public void beginWrite(ConnectorSession session, String db, String tableName, HiveWriteContext ctx) {
-        HmsTableInfo table;
+        HiveWriteMetadataSnapshot writeMetadata;
         try {
-            table = context.executeAuthenticated(
-                    () -> hmsClient.getTableFresh(db, tableName));
+            writeMetadata = context.executeAuthenticated(
+                    () -> HiveWriteMetadataSnapshot.loadFresh(hmsClient, db, tableName));
         } catch (Exception e) {
             throw new DorisConnectorException(
                     "Failed to begin write for hive table " + tableName + ": " + e.getMessage(), e);
         }
-        beginWrite(session, db, tableName, ctx, table);
+        beginWrite(session, db, tableName, ctx, writeMetadata.getTable(), writeMetadata.getIdentity());
     }
 
     void beginWrite(ConnectorSession session, String db, String tableName, HiveWriteContext ctx,
-            HmsTableInfo table) {
+            HmsTableInfo table, String metadataIdentity) {
         this.session = session;
         this.queryId = ctx.getQueryId();
         this.isOverwrite = ctx.isOverwrite();
@@ -222,6 +223,7 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
         try {
             rejectTransactionalWrite(table.getParameters());
             this.hmsTableInfo = table;
+            this.writeMetadataIdentity = metadataIdentity;
         } catch (Exception e) {
             throw new DorisConnectorException(
                     "Failed to begin write for hive table " + tableName + ": " + e.getMessage(), e);
@@ -230,10 +232,13 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
 
     @Override
     public void commit() {
+        validateWriteMetadataBeforePublication();
         // The classification (finishInsertTable) ran from the executor in the legacy class; the unified SPI
         // exposes only commit(), so it runs here (before the committer) to populate the action maps. If it
         // throws, the committer was never created and the engine's subsequent rollback() cleans up.
         finishInsertTable(nameMapping);
+        // Classification can perform metastore reads, so close that interval before any file or HMS mutation.
+        validateWriteMetadataBeforePublication();
         hmsCommitter = new HmsCommitter();
         try {
             for (Map.Entry<NameMapping, Action<TableAndMore>> entry : tableActions.entrySet()) {
@@ -288,6 +293,22 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
         } finally {
             hmsCommitter.runClearPathsForFinish();
             hmsCommitter.shutdownExecutorService();
+        }
+    }
+
+    private void validateWriteMetadataBeforePublication() {
+        HiveWriteMetadataSnapshot current;
+        try {
+            current = context.executeAuthenticated(() -> HiveWriteMetadataSnapshot.loadFresh(
+                    hmsClient, nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to validate hive table generation before commit: "
+                    + e.getMessage(), e);
+        }
+        // Files and HMS mutations must target the same incarnation and effective schema used by the BE writer.
+        if (!Objects.equals(writeMetadataIdentity, current.getIdentity())) {
+            throw new DorisConnectorException(
+                    "Hive table metadata changed while the write was running; retry the statement");
         }
     }
 

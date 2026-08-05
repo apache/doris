@@ -665,11 +665,12 @@ public class BindSink implements AnalysisRuleFactory {
      *
      * <p>An INSERT may read an older version of the same connector table. The no-arg external-table schema
      * lookup consults that statement-level ambient pin, but a sink is not that source reference and must bind
-     * against the latest write schema. Non-connector tables retain their existing lookup.</p>
+     * against one coherent latest write-schema generation. Non-connector tables retain their existing lookup.</p>
      */
     private static List<Column> sinkTargetFullSchema(TableIf table) {
         if (table instanceof PluginDrivenExternalTable) {
-            return ((PluginDrivenExternalTable) table).getFullSchema(Optional.empty());
+            // Schema, synthetic columns, and write identity must come from the same cache value.
+            return ((PluginDrivenExternalTable) table).getWriteSchemaSnapshot().getFullSchema();
         }
         return table.getFullSchema();
     }

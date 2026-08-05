@@ -6565,8 +6565,8 @@ TEST(TableReaderTest, CollectionParentMaskFastPathSkipsEntryScratchForClearMasks
 
     const auto* result =
             TableReaderCastTestHelper::_project_collection_parent_null_map_for_hidden_entries(
-            &container_null_map, &ancestor_null_map, 2, offsets, offsets.back(),
-            &projected_null_map);
+                    &container_null_map, &ancestor_null_map, 2, offsets, offsets.back(),
+                    &projected_null_map);
 
     EXPECT_EQ(nullptr, result);
     EXPECT_TRUE(projected_null_map.empty());

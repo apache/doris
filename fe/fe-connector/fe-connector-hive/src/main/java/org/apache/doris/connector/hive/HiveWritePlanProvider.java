@@ -52,7 +52,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -102,10 +101,12 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
 
         // One fresh table generation drives validation, transaction state, location resolution, and sink
         // assembly. Reloading in beginWrite would reopen a TOCTOU window after the schema fence.
-        HmsTableInfo table = loadTable(tableHandle);
-        validateBoundWriteMetadata(table, handle);
+        HiveWriteMetadataSnapshot writeMetadata = loadWriteMetadata(tableHandle);
+        HmsTableInfo table = writeMetadata.getTable();
+        validateBoundWriteMetadata(writeMetadata, handle);
         HiveWriteContext writeContext = buildWriteContext(session, tableHandle, table, handle);
-        transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext, table);
+        transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext,
+                table, writeMetadata.getIdentity());
 
         THiveTableSink sink = buildSink(session, tableHandle, table, handle, writeContext);
         TDataSink dataSink = new TDataSink(TDataSinkType.HIVE_TABLE_SINK);
@@ -113,9 +114,10 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         return new ConnectorSinkPlan(dataSink);
     }
 
-    private static void validateBoundWriteMetadata(HmsTableInfo table, ConnectorWriteHandle handle) {
+    private static void validateBoundWriteMetadata(
+            HiveWriteMetadataSnapshot writeMetadata, ConnectorWriteHandle handle) {
         String boundIdentity = handle.getBoundWriteMetadataIdentity();
-        if (boundIdentity != null && !boundIdentity.equals(writeMetadataIdentity(table))) {
+        if (boundIdentity != null && !boundIdentity.equals(writeMetadata.getIdentity())) {
             // Bound expressions and live THiveTableSink ordinals must describe one HMS schema generation;
             // accepting a reorder here silently writes each value under another column name.
             throw new DorisConnectorException(
@@ -123,7 +125,9 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         }
 
         List<ConnectorColumn> boundColumns = handle.getBoundTargetColumns();
-        int liveColumnCount = table.getColumns().size() + table.getPartitionKeys().size();
+        List<ConnectorColumn> dataColumns = writeMetadata.getDataColumns();
+        List<ConnectorColumn> partitionColumns = writeMetadata.getPartitionColumns();
+        int liveColumnCount = dataColumns.size() + partitionColumns.size();
         if (boundColumns.isEmpty()) {
             return;
         }
@@ -131,9 +135,9 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
             throw schemaChangedException();
         }
         for (int i = 0; i < boundColumns.size(); i++) {
-            ConnectorColumn live = i < table.getColumns().size()
-                    ? table.getColumns().get(i)
-                    : table.getPartitionKeys().get(i - table.getColumns().size());
+            ConnectorColumn live = i < dataColumns.size()
+                    ? dataColumns.get(i)
+                    : partitionColumns.get(i - dataColumns.size());
             if (!boundColumns.get(i).getName().equalsIgnoreCase(live.getName())) {
                 throw schemaChangedException();
             }
@@ -146,27 +150,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     static String writeMetadataIdentity(HmsTableInfo table) {
-        StringBuilder identity = new StringBuilder();
-        appendMetadataToken(identity, "data-columns");
-        for (ConnectorColumn column : table.getColumns()) {
-            appendColumnIdentity(identity, column);
-        }
-        appendMetadataToken(identity, "partition-columns");
-        for (ConnectorColumn column : table.getPartitionKeys()) {
-            appendColumnIdentity(identity, column);
-        }
-        return identity.toString();
-    }
-
-    private static void appendColumnIdentity(StringBuilder identity, ConnectorColumn column) {
-        appendMetadataToken(identity, column.getName().toLowerCase(Locale.ROOT));
-        appendMetadataToken(identity, column.getType());
-        appendMetadataToken(identity, column.isNullable());
-    }
-
-    private static void appendMetadataToken(StringBuilder identity, Object value) {
-        String token = String.valueOf(value);
-        identity.append(token.length()).append(':').append(token);
+        return HiveWriteMetadataSnapshot.of(table, Collections.emptyMap()).getIdentity();
     }
 
     @Override
@@ -420,10 +404,10 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         return result;
     }
 
-    private HmsTableInfo loadTable(HiveTableHandle tableHandle) {
+    private HiveWriteMetadataSnapshot loadWriteMetadata(HiveTableHandle tableHandle) {
         try {
-            return context.executeAuthenticated(
-                    () -> hmsClient.getTableFresh(tableHandle.getDbName(), tableHandle.getTableName()));
+            return context.executeAuthenticated(() -> HiveWriteMetadataSnapshot.loadFresh(
+                    hmsClient, tableHandle.getDbName(), tableHandle.getTableName()));
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to load hive table "
                     + tableHandle.getDbName() + "." + tableHandle.getTableName() + ": " + e.getMessage(), e);

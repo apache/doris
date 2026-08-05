@@ -117,13 +117,19 @@ public class HiveConnectorTransactionTest {
     }
 
     private static HmsTableInfo table(boolean partitioned, Map<String, String> params) {
+        return table(partitioned, params, 10, Collections.singletonList(col("c1", "int")));
+    }
+
+    private static HmsTableInfo table(boolean partitioned, Map<String, String> params,
+            int createTime, List<ConnectorColumn> columns) {
         return HmsTableInfo.builder()
                 .dbName(DB).tableName(TBL).tableType("MANAGED_TABLE")
+                .owner("owner").createTime(createTime)
                 .location("s3://bucket/db/t")
                 .inputFormat("org.apache.hadoop.mapred.TextInputFormat")
                 .outputFormat("org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat")
                 .serializationLib("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")
-                .columns(Collections.singletonList(col("c1", "int")))
+                .columns(columns)
                 .partitionKeys(partitioned
                         ? Collections.singletonList(col("dt", "string"))
                         : Collections.emptyList())
@@ -253,6 +259,43 @@ public class HiveConnectorTransactionTest {
         client.table = table(false, Collections.emptyMap());
         HiveConnectorTransaction txn = newTxn(client);
         txn.beginWrite(null, DB, TBL, ctx(false)); // must not throw
+    }
+
+    @Test
+    public void testCommitRejectsSameShapeTableReplacementBeforePublishing() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap(), 10,
+                Collections.singletonList(col("c1", "int")));
+        HiveConnectorTransaction txn = newTxn(client);
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                Collections.singletonList("f1"), 100, 4)));
+
+        client.table = table(false, Collections.emptyMap(), 11,
+                Collections.singletonList(col("c1", "int")));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+        Assertions.assertTrue(ex.getMessage().contains("metadata changed"));
+        Assertions.assertFalse(client.calls.contains("updateTableStatistics:" + DB + "." + TBL),
+                "a replacement must be detected before files or HMS statistics are published");
+    }
+
+    @Test
+    public void testCommitRejectsPostPlanSchemaDdlBeforePublishing() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap(), 10,
+                Arrays.asList(col("a", "int"), col("b", "int")));
+        HiveConnectorTransaction txn = newTxn(client);
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                Collections.singletonList("f1"), 100, 4)));
+
+        client.table = table(false, Collections.emptyMap(), 10,
+                Arrays.asList(col("b", "int"), col("a", "int")));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit,
+                "a schema reorder after sink planning must abort before positional rows are published");
+        Assertions.assertFalse(client.calls.contains("updateTableStatistics:" + DB + "." + TBL));
     }
 
     // ─────────────────────────────── classification / NEW→APPEND downgrade ───────────────────────────────

@@ -659,6 +659,8 @@ public class ThriftHmsClient implements HmsClient {
         HmsTableInfo.Builder builder = HmsTableInfo.builder()
                 .dbName(table.getDbName())
                 .tableName(table.getTableName())
+                .owner(table.getOwner())
+                .createTime(table.getCreateTime())
                 .tableType(table.getTableType())
                 .parameters(table.getParameters())
                 // View text (null for a base table) — the hive VIEW SPI's isView signal + view-SQL source.

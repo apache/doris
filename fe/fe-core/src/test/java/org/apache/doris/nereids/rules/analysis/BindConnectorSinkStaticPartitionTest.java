@@ -314,7 +314,8 @@ public class BindConnectorSinkStaticPartitionTest {
 
     @Test
     public void pinnedDataSchemaStillRejectsExplicitInvisibleColumn() {
-        PluginDrivenExternalTable table = tableWithRowLineage();
+        // Reuse the rewrite schema so the invariant covers the same reserved lineage metadata as production.
+        PluginDrivenExternalTable table = tableWithRewriteColumns(true);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () ->
                 BindSink.selectConnectorSinkBindColumns(
                         table, ImmutableList.of(ID, VAL), ImmutableList.of("_row_id"),

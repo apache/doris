@@ -55,7 +55,7 @@ under the License.
           of the latter two means bumping this property as well (and fe-extension-spi means bumping
           all four families).
         -->
-        <connector.plugin.api.version>4.0</connector.plugin.api.version>
+        <connector.plugin.api.version>5.0</connector.plugin.api.version>
     </properties>
 
     <modules>

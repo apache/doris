@@ -669,17 +669,17 @@ public class IcebergConnectorTransactionTest {
         PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
         Table table = catalog.createTable(id, PART_SCHEMA, spec,
                 props("write.format.default", "parquet"));
+        IcebergWriteContext boundContext = overwriteStaticCtx(
+                table, Collections.singletonMap("region", "us"));
         table.updateSpec().renameField("region", "renamed_region").commit();
         IcebergConnectorTransaction txn = txnFor(
                 opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
 
-        txn.beginWrite(SESSION, "db1", "t1",
-                overwriteStaticCtx(Collections.singletonMap("region", "us")));
-
         DorisConnectorException ex = Assertions.assertThrows(
-                DorisConnectorException.class, txn::commit);
-        Assertions.assertTrue(ex.getMessage().contains("does not match"),
-                "a nonempty stale spec must never degrade to an always-true overwrite filter");
+                DorisConnectorException.class,
+                () -> txn.beginWrite(SESSION, "db1", "t1", boundContext));
+        Assertions.assertTrue(ex.getMessage().contains("partition spec changed"),
+                "a stale static overwrite must fail at begin before it can degrade to an always-true filter");
     }
 
     @Test
