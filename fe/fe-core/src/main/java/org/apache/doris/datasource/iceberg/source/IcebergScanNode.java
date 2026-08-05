@@ -1011,7 +1011,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
     }
 
-    private List<FileScanTask> loadFileScanTasksWithManifestCache(
+    @VisibleForTesting
+    protected List<FileScanTask> loadFileScanTasksWithManifestCache(
             TableScan scan, Snapshot snapshot) throws IOException {
         // Initialize manifest cache for efficient manifest file access
         IcebergExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(source.getCatalog().getId());

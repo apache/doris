@@ -128,6 +128,23 @@ public class IcebergScanNodeTest {
         return (Table) method.invoke(node, table);
     }
 
+    @SuppressWarnings("unchecked")
+    private static CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(
+            IcebergScanNode node, TableScan scan) throws Exception {
+        Method method = IcebergScanNode.class.getDeclaredMethod(
+                "planFileScanTaskWithManifestCache", TableScan.class);
+        method.setAccessible(true);
+        return (CloseableIterable<FileScanTask>) method.invoke(node, scan);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static CloseableIterable<FileScanTask> splitFiles(
+            IcebergScanNode node, TableScan scan) throws Exception {
+        Method method = IcebergScanNode.class.getDeclaredMethod("splitFiles", TableScan.class);
+        method.setAccessible(true);
+        return (CloseableIterable<FileScanTask>) method.invoke(node, scan);
+    }
+
     private static class TestIcebergScanNode extends IcebergScanNode {
         private final boolean enableMappingVarbinary;
         private final boolean batchMode;
@@ -218,6 +235,22 @@ public class IcebergScanNodeTest {
             params = new TFileScanRangeParams();
             initializeIcebergSchemaInfo(Optional.empty());
             return params;
+        }
+    }
+
+    private static class ManifestPlanningIcebergScanNode extends TestIcebergScanNode {
+        private final AtomicInteger manifestLoadCount;
+
+        ManifestPlanningIcebergScanNode(SessionVariable sv, AtomicInteger manifestLoadCount) {
+            super(sv);
+            this.manifestLoadCount = manifestLoadCount;
+        }
+
+        @Override
+        protected List<FileScanTask> loadFileScanTasksWithManifestCache(
+                TableScan scan, Snapshot snapshot) {
+            manifestLoadCount.incrementAndGet();
+            return Collections.emptyList();
         }
     }
 
@@ -603,7 +636,7 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testRepeatedActualIcebergPlanningReusesManifestTasks() throws Exception {
+    public void testRepeatedActualIcebergPlanFilesUsesStatementCache() throws Exception {
         Schema schema = new Schema(
                 Types.NestedField.optional(1, "id", Types.IntegerType.get()));
         Table table = new HadoopTables(new Configuration()).create(
@@ -647,6 +680,113 @@ public class IcebergScanNodeTest {
         }
     }
 
+    @Test
+    public void testManifestPlanningPathUsesStatementCache() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        AtomicInteger manifestLoadCount = new AtomicInteger();
+        try {
+            ManifestPlanningIcebergScanNode firstNode =
+                    new ManifestPlanningIcebergScanNode(new SessionVariable(), manifestLoadCount);
+            ManifestPlanningIcebergScanNode secondNode =
+                    new ManifestPlanningIcebergScanNode(new SessionVariable(), manifestLoadCount);
+            setIcebergSource(firstNode, mockIcebergSource(10L, 20L));
+            setIcebergSource(secondNode, mockIcebergSource(10L, 20L));
+
+            try (CloseableIterable<FileScanTask> ignored = planFileScanTaskWithManifestCache(
+                    firstNode, mockTableScan(30L, 40, Expressions.equal("id", 1)))) {
+                // The test only verifies the production manifest-planning cache wrapper.
+            }
+            try (CloseableIterable<FileScanTask> ignored = planFileScanTaskWithManifestCache(
+                    secondNode, mockTableScan(30L, 40, Expressions.equal("id", 1)))) {
+                // The second equivalent relation must reuse the first relation's task list.
+            }
+
+            Assert.assertEquals(1, manifestLoadCount.get());
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testSplitFilesUsesStatementCacheOutsideStreamingModes() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        AtomicInteger planCalls = new AtomicInteger();
+        try {
+            TestIcebergScanNode firstNode = new TestIcebergScanNode(new SessionVariable());
+            TestIcebergScanNode secondNode = new TestIcebergScanNode(new SessionVariable());
+            setIcebergSource(firstNode, mockIcebergSource(10L, 20L));
+            setIcebergSource(secondNode, mockIcebergSource(10L, 20L));
+            TableScan firstScan = mockTableScanWithPlanCounter(planCalls);
+            TableScan secondScan = mockTableScanWithPlanCounter(planCalls);
+
+            try (CloseableIterable<FileScanTask> ignored = splitFiles(firstNode, firstScan)) {
+                // Materialization happens before splitFiles returns.
+            }
+            try (CloseableIterable<FileScanTask> ignored = splitFiles(secondNode, secondScan)) {
+                // The second equivalent relation must reuse the materialized native tasks.
+            }
+
+            Assert.assertEquals(1, planCalls.get());
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testSplitFilesBypassesStatementCacheForStreamingModes() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        AtomicInteger batchPlanCalls = new AtomicInteger();
+        AtomicInteger explicitSizePlanCalls = new AtomicInteger();
+        try {
+            TestIcebergScanNode firstBatchNode =
+                    new TestIcebergScanNode(new SessionVariable(), false, true);
+            TestIcebergScanNode secondBatchNode =
+                    new TestIcebergScanNode(new SessionVariable(), false, true);
+            setIcebergSource(firstBatchNode, mockIcebergSource(10L, 20L));
+            setIcebergSource(secondBatchNode, mockIcebergSource(10L, 20L));
+            try (CloseableIterable<FileScanTask> ignored = splitFiles(
+                    firstBatchNode, mockTableScanWithPlanCounter(batchPlanCalls))) {
+                // Batch mode preserves lazy Iceberg planning.
+            }
+            try (CloseableIterable<FileScanTask> ignored = splitFiles(
+                    secondBatchNode, mockTableScanWithPlanCounter(batchPlanCalls))) {
+                // Each batch relation must own its streaming iterable.
+            }
+
+            SessionVariable explicitSizeVariable = new SessionVariable();
+            explicitSizeVariable.setFileSplitSize(MB);
+            TestIcebergScanNode firstExplicitSizeNode = new TestIcebergScanNode(explicitSizeVariable);
+            TestIcebergScanNode secondExplicitSizeNode = new TestIcebergScanNode(explicitSizeVariable);
+            setIcebergSource(firstExplicitSizeNode, mockIcebergSource(10L, 20L));
+            setIcebergSource(secondExplicitSizeNode, mockIcebergSource(10L, 20L));
+            try (CloseableIterable<FileScanTask> ignored = splitFiles(
+                    firstExplicitSizeNode, mockTableScanWithPlanCounter(explicitSizePlanCalls))) {
+                // Explicit split size also preserves lazy Iceberg planning.
+            }
+            try (CloseableIterable<FileScanTask> ignored = splitFiles(
+                    secondExplicitSizeNode, mockTableScanWithPlanCounter(explicitSizePlanCalls))) {
+                // Each explicitly sized relation must own its streaming iterable.
+            }
+
+            Assert.assertEquals(2, batchPlanCalls.get());
+            Assert.assertEquals(2, explicitSizePlanCalls.get());
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+        }
+    }
+
     private static List<FileScanTask> materializeTasks(TableScan scan) {
         List<FileScanTask> tasks = new ArrayList<>();
         try (CloseableIterable<FileScanTask> plannedTasks = scan.planFiles()) {
@@ -665,7 +805,11 @@ public class IcebergScanNodeTest {
         context.setThreadLocalInfo();
         try {
             TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+            TestIcebergScanNode otherCatalogNode = new TestIcebergScanNode(new SessionVariable());
+            TestIcebergScanNode otherTableNode = new TestIcebergScanNode(new SessionVariable());
             setIcebergSource(node, mockIcebergSource(10L, 20L));
+            setIcebergSource(otherCatalogNode, mockIcebergSource(11L, 20L));
+            setIcebergSource(otherTableNode, mockIcebergSource(10L, 21L));
             AtomicInteger planCalls = new AtomicInteger();
 
             node.getOrPlanFileScanTasks(
@@ -680,8 +824,17 @@ public class IcebergScanNodeTest {
             node.getOrPlanFileScanTasks(
                     mockTableScan(30L, 40, Expressions.equal("id", 2)),
                     () -> plannedTask(planCalls));
+            otherCatalogNode.getOrPlanFileScanTasks(
+                    mockTableScan(30L, 40, Expressions.equal("id", 1)),
+                    () -> plannedTask(planCalls));
+            otherTableNode.getOrPlanFileScanTasks(
+                    mockTableScan(30L, 40, Expressions.equal("id", 1)),
+                    () -> plannedTask(planCalls));
+            node.getOrPlanFileScanTasks(
+                    mockTableScan(30L, 40, Expressions.equal("id", 1), true),
+                    () -> plannedTask(planCalls));
 
-            Assert.assertEquals(4, planCalls.get());
+            Assert.assertEquals(7, planCalls.get());
         } finally {
             statementContext.close();
             ConnectContext.remove();
@@ -747,6 +900,12 @@ public class IcebergScanNodeTest {
 
     private static TableScan mockTableScan(
             long snapshotId, int schemaId, org.apache.iceberg.expressions.Expression filter) {
+        return mockTableScan(snapshotId, schemaId, filter, false);
+    }
+
+    private static TableScan mockTableScan(
+            long snapshotId, int schemaId, org.apache.iceberg.expressions.Expression filter,
+            boolean caseSensitive) {
         Snapshot snapshot = Mockito.mock(Snapshot.class);
         Mockito.when(snapshot.snapshotId()).thenReturn(snapshotId);
         Schema schema = new Schema(schemaId,
@@ -755,6 +914,16 @@ public class IcebergScanNodeTest {
         Mockito.when(scan.snapshot()).thenReturn(snapshot);
         Mockito.when(scan.schema()).thenReturn(schema);
         Mockito.when(scan.filter()).thenReturn(filter);
+        Mockito.when(scan.isCaseSensitive()).thenReturn(caseSensitive);
+        return scan;
+    }
+
+    private static TableScan mockTableScanWithPlanCounter(AtomicInteger planCalls) {
+        TableScan scan = mockTableScan(30L, 40, Expressions.equal("id", 1));
+        Mockito.when(scan.planFiles()).thenAnswer(invocation -> {
+            planCalls.incrementAndGet();
+            return CloseableIterable.withNoopClose(Collections.emptyList());
+        });
         return scan;
     }
 

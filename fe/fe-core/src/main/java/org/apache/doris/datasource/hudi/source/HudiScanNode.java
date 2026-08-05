@@ -653,7 +653,7 @@ public class HudiScanNode extends HiveScanNode {
         copy.setModificationTime(sourceSplit.getModificationTime());
         copy.setTableFormatType(sourceSplit.getTableFormatType());
         copy.setAlternativeHosts(copyList(sourceSplit.getAlternativeHosts()));
-        copy.setSelfSplitWeight(sourceSplit.getSelfSplitWeight());
+        copy.selfSplitWeight = sourceSplit.selfSplitWeight;
         copy.setTargetSplitSize(sourceSplit.getTargetSplitSize());
         copy.setInstantTime(sourceSplit.getInstantTime());
         copy.setSerde(sourceSplit.getSerde());

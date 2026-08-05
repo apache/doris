@@ -17,14 +17,20 @@
 
 package org.apache.doris.datasource.hive.source;
 
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.datasource.hive.HiveTransaction;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -33,12 +39,137 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class HiveScanNodeTest {
     private static final long MB = 1024L * 1024L;
+
+    @Test
+    public void testStatementCacheReusesListingOnlyForSamePartitionIdentity() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+            HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+            Mockito.when(table.getCatalog()).thenReturn(catalog);
+            Mockito.when(table.getId()).thenReturn(2L);
+            Mockito.when(catalog.getId()).thenReturn(1L);
+            Mockito.when(catalog.bindBrokerName()).thenReturn("");
+            HiveScanNode firstNode = createHiveScanNode(0, table);
+            HiveScanNode secondNode = createHiveScanNode(1, table);
+            HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
+            Mockito.when(cache.getFilesByPartitions(
+                    Mockito.anyList(), Mockito.anyBoolean(), Mockito.anyBoolean(),
+                    Mockito.isNull(), Mockito.eq(table))).thenReturn(Collections.emptyList());
+            List<HivePartition> firstPartitions = Collections.singletonList(new HivePartition(
+                    null, false, "parquet", "hdfs://warehouse/t/p=1",
+                    Collections.singletonList("1"), Collections.emptyMap()));
+            List<HivePartition> equivalentPartitions = Collections.singletonList(new HivePartition(
+                    null, false, "parquet", "hdfs://warehouse/t/p=1",
+                    Collections.singletonList("1"), Collections.emptyMap()));
+            List<HivePartition> differentPartitions = Collections.singletonList(new HivePartition(
+                    null, false, "parquet", "hdfs://warehouse/t/p=2",
+                    Collections.singletonList("2"), Collections.emptyMap()));
+
+            invokeGetFileSplitByPartitions(firstNode, cache, firstPartitions);
+            invokeGetFileSplitByPartitions(secondNode, cache, equivalentPartitions);
+            invokeGetFileSplitByPartitions(secondNode, cache, differentPartitions);
+
+            Mockito.verify(cache).getFilesByPartitions(
+                    Mockito.same(firstPartitions), Mockito.anyBoolean(), Mockito.eq(false),
+                    Mockito.isNull(), Mockito.eq(table));
+            Mockito.verify(cache).getFilesByPartitions(
+                    Mockito.same(differentPartitions), Mockito.anyBoolean(), Mockito.eq(false),
+                    Mockito.isNull(), Mockito.eq(table));
+            Mockito.verifyNoMoreInteractions(cache);
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTableSampleDoesNotMutateCachedFileStatus() throws Exception {
+        HiveScanNode node = createHiveScanNode();
+        node.setTableSample(new TableSample(true, 100L, 0L));
+        HiveExternalMetaCache.HiveFileStatus cachedStatus =
+                new HiveExternalMetaCache.HiveFileStatus();
+        cachedStatus.setLength(10L);
+        HiveExternalMetaCache.FileCacheValue cacheValue =
+                new HiveExternalMetaCache.FileCacheValue();
+        cacheValue.setSplittable(true);
+        cacheValue.setPartitionValues(Arrays.asList("2026", "08"));
+        cacheValue.getFiles().add(cachedStatus);
+
+        Method method = HiveScanNode.class.getDeclaredMethod("selectFiles", List.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<HiveExternalMetaCache.HiveFileStatus> sampled =
+                (List<HiveExternalMetaCache.HiveFileStatus>) method.invoke(
+                        node, Collections.singletonList(cacheValue));
+
+        Assert.assertEquals(1, sampled.size());
+        Assert.assertNotSame(cachedStatus, sampled.get(0));
+        Assert.assertTrue(sampled.get(0).isSplittable());
+        Assert.assertEquals(Arrays.asList("2026", "08"), sampled.get(0).getPartitionValues());
+        Assert.assertFalse(cachedStatus.isSplittable());
+        Assert.assertNull(cachedStatus.getPartitionValues());
+    }
+
+    @Test
+    public void testTransactionalListingBypassesStatementCachePath() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+            HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+            Mockito.when(table.getCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.bindBrokerName()).thenReturn("");
+            Mockito.when(catalog.getClient()).thenReturn(Mockito.mock(HMSCachedClient.class));
+            HiveScanNode node = createHiveScanNode(0, table);
+            HiveTransaction transaction = Mockito.mock(HiveTransaction.class);
+            Map<String, String> validWriteIds =
+                    Collections.singletonMap("db.table", "valid-write-ids");
+            Mockito.when(transaction.getValidWriteIds(Mockito.any())).thenReturn(validWriteIds);
+            Mockito.when(transaction.isFullAcid()).thenReturn(true);
+            Field transactionField = HiveScanNode.class.getDeclaredField("hiveTransaction");
+            transactionField.setAccessible(true);
+            transactionField.set(node, transaction);
+
+            HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
+            Mockito.when(cache.getFilesByTransaction(
+                    Collections.emptyList(), validWriteIds, true, null))
+                    .thenReturn(Collections.emptyList());
+
+            invokeGetFileSplitByPartitions(node, cache, Collections.emptyList());
+            invokeGetFileSplitByPartitions(node, cache, Collections.emptyList());
+
+            Mockito.verify(cache, Mockito.times(2)).getFilesByTransaction(
+                    Collections.emptyList(), validWriteIds, true, null);
+            Mockito.verifyNoMoreInteractions(cache);
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
 
     @Test
     public void testDetermineTargetFileSplitSizeHonorsMaxFileSplitNum() throws Exception {
@@ -124,5 +255,22 @@ public class HiveScanNodeTest {
         Mockito.when(table.isPartitionedTable()).thenReturn(partitioned);
         desc.setTable(table);
         return new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
+    }
+
+    private HiveScanNode createHiveScanNode(int id, HMSExternalTable table) {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(id));
+        desc.setTable(table);
+        return new HiveScanNode(
+                new PlanNodeId(id), desc, false, new SessionVariable(), null, ScanContext.EMPTY);
+    }
+
+    private void invokeGetFileSplitByPartitions(
+            HiveScanNode node, HiveExternalMetaCache cache, List<HivePartition> partitions)
+            throws Exception {
+        Method method = HiveScanNode.class.getDeclaredMethod(
+                "getFileSplitByPartitions", HiveExternalMetaCache.class, List.class,
+                List.class, String.class, int.class, boolean.class);
+        method.setAccessible(true);
+        method.invoke(node, cache, partitions, new ArrayList<>(), null, 1, false);
     }
 }

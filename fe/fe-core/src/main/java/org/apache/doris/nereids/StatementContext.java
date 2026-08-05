@@ -1401,6 +1401,10 @@ public class StatementContext implements Closeable {
                 new ConcurrentHashMap<>();
         private boolean invalidated;
 
+        /**
+         * Return the tasks for {@code key}, loading and publishing an immutable result once per
+         * cache generation.
+         */
         @SuppressWarnings("unchecked")
         public <T> List<T> getOrLoad(
                 ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader) throws Exception {
