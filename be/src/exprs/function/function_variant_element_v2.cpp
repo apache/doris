@@ -151,17 +151,12 @@ std::optional<ColumnPtr> extract_shredded_typed_variant_element(
     if (!match.has_value()) {
         return std::nullopt;
     }
-    const ColumnPtr& matched_column = match->normalized ? match->normalized : match->column;
-    const auto& leaf = assert_cast<const ColumnNullable&>(*matched_column);
+    const auto& leaf = assert_cast<const ColumnNullable&>(*match->column);
     auto nulls = leaf.get_null_map_column().clone_resized(source.size());
     auto& null_data = assert_cast<ColumnUInt8&>(*nulls).get_data();
     for (size_t row = 0; row < source.size(); ++row) {
         null_data[row] =
                 static_cast<uint8_t>(null_data[row] != 0 || is_outer_null(outer_nulls, row));
-    }
-
-    if (match->normalized) {
-        return ColumnNullable::create(leaf.get_nested_column_ptr(), std::move(nulls));
     }
 
     // The typed ColumnVariantV2 retains the exact decoded Parquet leaf. Only the SQL result null

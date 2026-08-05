@@ -553,25 +553,6 @@ bool supports_direct_typed_variant_state(const ParquetColumnSchema& schema) {
     }
 }
 
-ColumnPtr normalize_projected_primitive_leaf(const ParquetColumnSchema& schema,
-                                             const ColumnPtr& typed) {
-    const auto& nullable = assert_cast<const ColumnNullable&>(*typed);
-    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = nullable.size()});
-    for (size_t row = 0; row < nullable.size(); ++row) {
-        auto output_row = builder.begin_row();
-        if (nullable.get_null_map_data()[row] != 0) {
-            output_row.add_null();
-        } else {
-            append_typed_scalar(schema, nullable.get_nested_column(), row, output_row);
-        }
-        output_row.finish();
-    }
-    auto values = ColumnVariantV2::create();
-    values->insert_encoded_batch(builder.finish_batch());
-    auto nulls = nullable.get_null_map_column().clone_resized(nullable.size());
-    return ColumnNullable::create(std::move(values), std::move(nulls));
-}
-
 bool same_data_type(const DataTypePtr& left, const DataTypePtr& right) {
     return (!left && !right) || (left && right && left->equals(*right));
 }
@@ -667,8 +648,6 @@ public:
                                                              _complete, _profile);
     }
 
-    bool can_materialize() const override { return _complete; }
-
     bool try_append(const VariantShreddedState& source) override {
         const auto* parquet_source = dynamic_cast<const ParquetVariantShreddedState*>(&source);
         if (parquet_source == nullptr || _complete != parquet_source->_complete ||
@@ -726,29 +705,15 @@ public:
             }
             if (position + 1 == path.size()) {
                 if (typed_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
-                    check_and_get_column<ColumnNullable>(*typed) == nullptr) {
+                    check_and_get_column<ColumnNullable>(*typed) == nullptr ||
+                    !supports_direct_typed_variant_state(*typed_schema)) {
                     update_counter(_profile.variant_direct_leaf_unsupported_fallbacks, 1);
                     return std::nullopt;
-                }
-                if (!supports_direct_typed_variant_state(*typed_schema)) {
-                    if (_complete) {
-                        update_counter(_profile.variant_direct_leaf_unsupported_fallbacks, 1);
-                        return std::nullopt;
-                    }
-                    // A partial projection cannot reconstruct its root. Normalize only the exact
-                    // requested leaf so Parquet annotations survive heterogeneous file schemas.
-                    update_counter(_profile.variant_direct_leaf_rows,
-                                   static_cast<int64_t>(typed->size()));
-                    return VariantShreddedTypedValue {
-                            .column = nullptr,
-                            .type = nullptr,
-                            .normalized = normalize_projected_primitive_leaf(*typed_schema, typed)};
                 }
                 update_counter(_profile.variant_direct_leaf_rows,
                                static_cast<int64_t>(typed->size()));
                 return VariantShreddedTypedValue {.column = std::move(typed),
-                                                  .type = remove_nullable(typed_schema->type),
-                                                  .normalized = nullptr};
+                                                  .type = remove_nullable(typed_schema->type)};
             }
             if (typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
                 return path_miss();
