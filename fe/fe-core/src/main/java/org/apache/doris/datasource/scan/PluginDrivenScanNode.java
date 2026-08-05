@@ -1448,6 +1448,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .limit(sourceLimit)
                 .requiredPartitions(requiredPartitions)
                 .countPushdown(countPushdown)
+                // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
+                // connector whose planning has a side effect on the source (ADBC: asking the driver to
+                // partition a query EXECUTES it) needs to know the plan is only going to be shown.
+                // Connectors that just list files are unaffected: they never read this.
+                .explainOnly(isExplainOnly())
                 .build();
         List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
                 () -> scanProvider.planScan(connectorSession, request));
@@ -1533,6 +1538,21 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         }
         return splits.subList(0, index);
+    }
+
+    /**
+     * Whether the statement being planned is an {@code EXPLAIN}, so this plan will be shown and never run.
+     *
+     * <p>Read from the executor's parsed statement, which {@code ExplainCommand} marks before it plans. Any
+     * path without a live executor answers false, which is the safe way round: a connector then plans what
+     * it would have planned anyway.</p>
+     */
+    private static boolean isExplainOnly() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || ctx.getExecutor() == null || ctx.getExecutor().getParsedStmt() == null) {
+            return false;
+        }
+        return ctx.getExecutor().getParsedStmt().isExplain();
     }
 
     /**
@@ -2074,7 +2094,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     /**
      * Maps a file format name string to the corresponding TFileFormatType.
      */
-    private static TFileFormatType mapFileFormatType(String format) {
+    /** Package-visible and static so the mapping is unit-testable without a planner. */
+    static TFileFormatType mapFileFormatType(String format) {
         switch (format.toLowerCase()) {
             case "parquet":
                 return TFileFormatType.FORMAT_PARQUET;
@@ -2092,6 +2113,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 return TFileFormatType.FORMAT_AVRO;
             case "es_http":
                 return TFileFormatType.FORMAT_ES_HTTP;
+            case "arrow":
+                // A connector whose reader hands BE Arrow record batches rather than a file (adbc, and the
+                // remote_doris scan node already outside this switch). Without this the format falls to
+                // FORMAT_JNI below and BE never enters the Arrow reader path.
+                return TFileFormatType.FORMAT_ARROW;
             default:
                 return TFileFormatType.FORMAT_JNI;
         }

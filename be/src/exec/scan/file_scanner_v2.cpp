@@ -54,6 +54,7 @@
 #include "format_v2/jni/jdbc_reader.h"
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
+#include "format_v2/table/adbc_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
@@ -103,7 +104,8 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
 }
 
 bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
-    return table_format_name(range) == "remote_doris";
+    const auto table_format = table_format_name(range);
+    return table_format == "remote_doris" || table_format == "adbc";
 }
 
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
@@ -660,6 +662,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::trino_connector::TrinoConnectorJniReader>();
     } else if (table_format == "remote_doris") {
         *reader = std::make_unique<format::remote_doris::RemoteDorisReader>();
+    } else if (table_format == "adbc") {
+        *reader = std::make_unique<format::adbc::AdbcReader>();
     } else {
         return Status::NotSupported("FileScannerV2 does not support table format {}", table_format);
     }

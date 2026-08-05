@@ -72,6 +72,7 @@ under the License.
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>
         <module>fe-connector-jdbc</module>
+        <module>fe-connector-adbc</module>
         <!-- Slim HMS metastore-client shade (relocates org.apache.thrift to
              shade.doris.hive.org.apache.thrift); MUST build before fe-connector-hms which depends on
              it. Replaces the fat org.apache.doris:hive-catalog-shade for the fe-connector closure. -->
