@@ -168,6 +168,7 @@ public class FlightSqlChannel {
 
     public void close() {
         reset();
+        allocator.close();
     }
 
     private static class ResultRemovalListener implements RemovalListener<String, FlightSqlResultCacheEntry> {
