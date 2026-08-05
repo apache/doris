@@ -38,7 +38,7 @@ suite("test_trinoconnector_information_schema", "p0,external,hive,external_docke
             "trino.connector.name"="hive",
             'trino.hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
         );"""
-
+        sql """ set nereids_timeout_second=60; """
         sql """ select * from ${catalog_name}.information_schema.tables limit 10""";
     }
 }
