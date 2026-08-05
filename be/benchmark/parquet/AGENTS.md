@@ -11,8 +11,7 @@ The benchmark binary registers five groups:
 - `ParquetDecoder`: native page decoder benchmarks using in-memory encoded pages.
 - `ParquetKernel`: isolated SIMD-sensitive decode and predicate kernels.
 - `ParquetSelection`: isolated selection initialization and predicate compaction paths.
-- `ParquetReader`: local-file benchmarks that call the format V2 Parquet reader directly,
-  including paired legacy/raw-disjunction multi-column OR and exact DNF-mask cases.
+- `ParquetReader`: local-file benchmarks that call the format V2 Parquet reader directly.
 - `FileScannerExpr`: expression lifecycle benchmarks for split-local clone, prepare, and open.
 
 The relevant files are:
@@ -58,7 +57,7 @@ be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetSelection/' # currently 25
 
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -c '^ParquetReader/'   # currently 435
+  | grep -c '^ParquetReader/'   # currently 169
 
 be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^FileScannerExpr/' # currently 8
@@ -174,7 +173,7 @@ fragment-level materialization are outside the timed region. The cases model the
 split-local expression lifecycle only; they do not include scanner scheduling or file reads.
 
 `ParquetReader` deliberately uses a single-variable matrix rather than a Cartesian product. After
-deduplication it contains 435 cases covering:
+deduplication it contains 167 cases covering:
 
 - operations: open-to-first-block, full scan, predicate scan, complex residual scan, limit 1, and
   limit 1000;
@@ -185,18 +184,6 @@ deduplication it contains 435 cases covering:
 - projection shapes: predicate-only and predicate plus one lazy payload column;
 - schema widths: 4, 32, 128, and 512 columns;
 - predicate position: first or last column.
-
-The additional DECIMAL(10,2) multi-column OR matrix pairs the residual-expression baseline with
-the raw disjunction implementation in the same binary. It covers PLAIN and dictionary encoding,
-0%, 1%, 10%, 50%, and 90% NULLs, 1% through 100% selectivity, and predicate-only versus first-predicate-column
-projection. The input columns deliberately share the same deterministic values so both
-implementations have identical output cardinality at every selectivity; this isolates execution
-policy rather than data correlation.
-
-The INT32 multi-column DNF matrix pairs the residual-expression baseline with exact branch-mask
-evaluation for PLAIN and dictionary encoding. It covers 0%, 10%, 50%, and 90% NULLs and 1%, 10%,
-50%, and 90% selectivity. Predicate-only cases measure the eligible path; projected-predicate
-pairs are negative controls that must retain legacy execution.
 
 Except for the axis being varied, reader cases inherit the baseline: nullable INT32, PLAIN,
 alternating 10% nulls, 10% selectivity, 32 columns, predicate at column zero, and predicate plus
@@ -322,9 +309,8 @@ The current matrix is not comprehensive. Preserve this distinction in PR descrip
 2. Add full reader correctness oracles. Decoder cases validate consumed counts and selected-value
    checksums outside the timed region, and kernel cases compare representative output. Reader cases
    still need value checksums in addition to their output-row counters.
-3. Add reader-level FLOAT, DOUBLE, DATE, TIMESTAMP, and broader string/decimal cases. Today the
-   complete reader path covers nullable INT32, selected INT64/string dictionary cases, and the
-   DECIMAL(10,2) multi-column OR matrix.
+3. Add reader-level INT64, FLOAT, DOUBLE, BYTE_ARRAY/string, FIXED_LEN_BYTE_ARRAY, DATE,
+   TIMESTAMP, and DECIMAL cases. Today only nullable INT32 reaches the complete reader path.
 4. Extend decoder coverage with definition levels/null reconstruction, dictionary conversion, and
    real Doris `Column` materialization. The current decoder sink does not cover those costs or
    report decoded bytes per second.
@@ -364,7 +350,7 @@ be simulated by silently changing the local reader benchmark.
 
 ## Current validation record
 
-The current expected registration counts are 228 decoder, 292 kernel, 25 selection, 435 reader, and
+The current expected registration counts are 228 decoder, 92 kernel, 25 selection, 169 reader, and
 8 expression-lifecycle cases. A smoke run is an execution record only, not a reviewed performance
 baseline, because repetitions, host isolation, warmups, cache control, `perf` data, variance, and
 before/after comparison are not collected.

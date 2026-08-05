@@ -62,17 +62,6 @@ struct PredicateConjunctStage {
     VExprContextSPtr owner_context;
     VExprSPtr expression;
     std::vector<size_t> required_positions;
-    struct RawDisjunctionBranch {
-        size_t position = 0;
-        VExprSPtr expression;
-    };
-    std::vector<RawDisjunctionBranch> raw_disjunction_branches;
-    struct RawDnfColumn {
-        size_t position = 0;
-        std::vector<VExprSPtrs> branch_conjuncts;
-        VExprSPtr mask_expression;
-    };
-    std::vector<RawDnfColumn> raw_dnf_columns;
 };
 
 struct PredicateConjunctSchedule {
@@ -200,9 +189,6 @@ public:
     }
     void set_runtime_state(RuntimeState* runtime_state) { _runtime_state = runtime_state; }
     void set_scan_request(std::shared_ptr<format::FileScanRequest> request);
-    void preflight_raw_disjunctions(
-            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-            const format::FileScanRequest& request, const tparquet::FileMetaData& metadata);
     void queue_scan_request(std::shared_ptr<format::FileScanRequest> request);
     // Release row-group readers before the owning RuntimeProfile is reported. Native readers
     // publish their accumulated page/decode statistics from their destructor.
@@ -224,24 +210,6 @@ public:
 
 private:
     static constexpr size_t PROFILE_FLUSH_BATCH_INTERVAL = 16;
-
-    struct RawDisjunctionBranchReader {
-        size_t position = 0;
-        format::LocalColumnId local_id;
-        VExprSPtr expression;
-        // Projected branches need an auxiliary reader because their ordinary reader must later
-        // materialize the OR survivors. Predicate-only branches reuse the ordinary reader.
-        std::unique_ptr<ParquetColumnReader> reader;
-        std::optional<IColumn::Filter> dictionary_filter;
-    };
-
-    struct RawDnfColumnReader {
-        size_t position = 0;
-        format::LocalColumnId local_id;
-        VExprSPtr expression;
-        std::unique_ptr<ParquetColumnReader> reader;
-        std::optional<IColumn::Filter> dictionary_filter;
-    };
 
     void reset_current_row_group();
     void activate_pending_scan_request_at_row_group_boundary();
@@ -303,18 +271,10 @@ private:
             _current_dictionary_filters; // local id -> dict entry bitmap
     std::map<format::LocalColumnId, std::vector<std::pair<VExprContextSPtr, VExprSPtr>>>
             _current_dictionary_residual_conjuncts; // local id -> row-level residual conjuncts
-    // Multi-column OR branches produce independent truth maps. Hidden single-use branches consume
-    // their ordinary predicate readers; projected branches retain an auxiliary forward-only reader
-    // so the ordinary reader can still materialize the union survivors.
-    std::map<const VExpr*, std::vector<RawDisjunctionBranchReader>>
-            _current_raw_disjunction_readers;
-    std::map<const VExpr*, std::vector<RawDnfColumnReader>> _current_raw_dnf_readers;
-    std::set<const VExpr*> _disabled_raw_disjunctions;
-    std::set<format::LocalColumnId> _current_raw_disjunction_dictionary_columns;
-    int64_t _current_row_group_rows = 0;      // current row group row count
-    int _current_row_group_id = -1;           // current row group id in parquet metadata
-    int64_t _current_row_group_rows_read = 0; // rows read in the current row group (cursor)
-    int64_t _current_row_group_first_row = 0; // first file row of the current row group
+    int64_t _current_row_group_rows = 0;            // current row group row count
+    int _current_row_group_id = -1;                 // current row group id in parquet metadata
+    int64_t _current_row_group_rows_read = 0;       // rows read in the current row group (cursor)
+    int64_t _current_row_group_first_row = 0;       // first file row of the current row group
     std::vector<RowRange>
             _current_selected_ranges; // selected ranges for the current row group after page-index pruning
     size_t _current_range_idx = 0;        // current selected_range index
@@ -363,8 +323,6 @@ private:
     std::unordered_map<uint32_t, std::vector<SelectionVector::Index>>
             _predicate_column_selection_scratch;
     IColumn::Filter _predicate_compaction_filter_scratch;
-    IColumn::Filter _raw_disjunction_filter_scratch;
-    IColumn::Filter _raw_disjunction_branch_filter_scratch;
     size_t _predicate_batch_sequence = 0;
     size_t _batches_since_profile_flush = 0;
     std::unordered_map<size_t, detail::AdaptivePredicateStats> _predicate_runtime_stats;
