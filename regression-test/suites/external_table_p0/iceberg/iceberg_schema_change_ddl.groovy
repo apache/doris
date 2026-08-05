@@ -204,7 +204,7 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     // Add test columns for type conversion tests
     sql """ ALTER TABLE ${table_name} ADD COLUMN test_float FLOAT """
     sql """ ALTER TABLE ${table_name} ADD COLUMN test_decimal DECIMAL(5,2) """
-    sql """ INSERT INTO ${table_name} (id, test_float, test_decimal) VALUES (7, 3.14, 123.45) """
+    sql """ INSERT INTO ${table_name} (id, grade, test_float, test_decimal) VALUES (7, 0, 3.14, 123.45) """
     
     // Positive case: float -> double
     sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_float DOUBLE """

@@ -292,7 +292,7 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
 // Run with UBSan enabled to catch misalignment errors.
 TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAligned) {
     // 1.Prepare the data.
-    arrow::Decimal128Builder builder(arrow::decimal(38, 30));
+    arrow::Decimal128Builder builder(arrow::decimal128(38, 30));
     std::vector<std::string> decimal_strings = {"12345.67", "89.10", "1112.13", "1415.16",
                                                 "1718.19"};
 
@@ -318,7 +318,7 @@ TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAligned) {
     // 4. Create Arrow array with unaligned memory
     auto unaligned_buffer = arrow::Buffer::Wrap(unaligned_data, num_elements * element_size);
 
-    auto arr = std::make_shared<arrow::DecimalArray>(arrow::decimal(38, 30), num_elements,
+    auto arr = std::make_shared<arrow::DecimalArray>(arrow::decimal128(38, 30), num_elements,
                                                      unaligned_buffer);
 
     const auto* raw_values_ptr = arr->raw_values();
