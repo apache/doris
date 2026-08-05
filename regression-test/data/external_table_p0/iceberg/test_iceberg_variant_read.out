@@ -67,10 +67,10 @@
 5	50	\N	5	500	{"b":5,"new_field":{"k":500},"shared":50}
 
 -- !variant_projected_remote_gather --
-2	20	\N	2	\N
-3	30	3	\N	\N
-4	40	\N	\N	\N
-5	50	\N	5	500
+2	20
+3	30
+4	40
+5	50
 
 -- !variant_type_matrix --
 true	-128	-32768	2147483647	-9223372036854775808	true	true	-1234567890.1234	1970-01-02	1970-01-01T00:00:01.234567	"YmluYXJ5"	false

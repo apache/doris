@@ -220,6 +220,56 @@ struct OwnedEncodedData {
     }
 };
 
+class CountingShreddedState final : public VariantShreddedState {
+public:
+    CountingShreddedState(size_t rows, std::shared_ptr<size_t> size_calls)
+            : _rows(rows),
+              _size_calls(std::move(size_calls)),
+              _serialized(ColumnVariantV2::create()) {
+        _serialized->insert_many_defaults(rows);
+    }
+
+    size_t size() const override {
+        ++*_size_calls;
+        return _rows;
+    }
+    size_t byte_size() const override { return 0; }
+    size_t allocated_bytes() const override { return 0; }
+    void sanity_check() const override {}
+    void for_each_subcolumn(const IColumn::ImutableColumnCallback&) const override {}
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                 ssize_t) const override {
+        return std::make_shared<CountingShreddedState>(
+                std::count(filter.begin(), filter.end(), UInt8 {1}), _size_calls);
+    }
+    std::shared_ptr<VariantShreddedState> select_range(size_t, size_t length) const override {
+        return std::make_shared<CountingShreddedState>(length, _size_calls);
+    }
+    std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const override {
+        return std::make_shared<CountingShreddedState>(indices_end - indices_begin, _size_calls);
+    }
+    bool can_materialize() const override { return false; }
+    bool try_append(const VariantShreddedState&) override { return false; }
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    const ColumnVariantV2& materialized_column() const override {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "counting shredded state cannot materialize");
+    }
+    const ColumnVariantV2& serialized_column() const override { return *_serialized; }
+
+private:
+    size_t _rows;
+    std::shared_ptr<size_t> _size_calls;
+    ColumnVariantV2::MutablePtr _serialized;
+};
+
 template <typename Function>
 void expect_not_implemented(Function&& function, std::string_view marker) {
     try {
@@ -1247,6 +1297,23 @@ TEST(ColumnVariantV2Test, PermuteMatchesColumnStringAndRejectsInvalidInputs) {
     IColumn::Permutation out_of_range {0, 1, 2, 3, 5};
     EXPECT_THROW(source->permute(out_of_range, 0), Exception);
     expect_values_match(*source, *reference);
+}
+
+TEST(ColumnVariantV2Test, CompositeShreddedSizeDoesNotRecountSegments) {
+    auto size_calls = std::make_shared<size_t>(0);
+    auto first = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(2, size_calls));
+    auto second = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(3, size_calls));
+    auto composite = ColumnVariantV2::create();
+    composite->insert_range_from(*first, 0, first->size());
+    composite->insert_range_from(*second, 0, second->size());
+
+    *size_calls = 0;
+    for (size_t iteration = 0; iteration < 32; ++iteration) {
+        EXPECT_EQ(composite->size(), 5);
+    }
+    EXPECT_EQ(*size_calls, 0);
 }
 
 TEST(ColumnVariantV2Test, PopBackAndResizeCoverBoundsShrinkAndGrowth) {
