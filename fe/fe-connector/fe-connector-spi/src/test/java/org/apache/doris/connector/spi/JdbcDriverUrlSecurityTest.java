@@ -15,56 +15,58 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.jdbc;
+package org.apache.doris.connector.spi;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests for the mandatory, non-configurable create-time driver_url security rule
- * in {@link JdbcDorisConnector#checkDriverUrlSecurityRule(String)}.
+ * Tests for the mandatory, non-configurable driver_url security rule in
+ * {@link JdbcDriverUrlSecurity#check(String)}, shared by the jdbc, iceberg-jdbc and paimon-jdbc catalogs.
+ * The per-connector tests assert only that each catalog type reaches this rule; the rule's own semantics
+ * are pinned here, once.
  */
-public class JdbcDriverUrlSecurityRuleTest {
+public class JdbcDriverUrlSecurityTest {
 
     // ---- rejected ----
 
     @Test
     public void testBareNameTraversalRejected() {
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> JdbcDorisConnector.checkDriverUrlSecurityRule("../evil.jar"));
+                () -> JdbcDriverUrlSecurity.check("../evil.jar"));
     }
 
     @Test
     public void testBareNameWithDirectoryRejected() {
         // A scheme-less driver_url must be a plain file name; any '/' fails the charset check.
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> JdbcDorisConnector.checkDriverUrlSecurityRule("sub/dir/driver.jar"));
+                () -> JdbcDriverUrlSecurity.check("sub/dir/driver.jar"));
     }
 
     @Test
     public void testBareNameSpecialCharsRejected() {
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> JdbcDorisConnector.checkDriverUrlSecurityRule("driver.jar; rm -rf /"));
+                () -> JdbcDriverUrlSecurity.check("driver.jar; rm -rf /"));
     }
 
     @Test
     public void testFileUrlTraversalRejected() {
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> JdbcDorisConnector.checkDriverUrlSecurityRule(
+                () -> JdbcDriverUrlSecurity.check(
                         "file:///opt/doris/plugins/jdbc_drivers/../../etc/evil.jar"));
     }
 
     @Test
     public void testHttpUrlTraversalRejected() {
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> JdbcDorisConnector.checkDriverUrlSecurityRule("http://host/a/../b.jar"));
+                () -> JdbcDriverUrlSecurity.check("http://host/a/../b.jar"));
     }
 
     @Test
     public void testEncodedTraversalRejected() {
         // %2e%2e decodes to "..", which must be caught on the decoded path.
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> JdbcDorisConnector.checkDriverUrlSecurityRule(
+                () -> JdbcDriverUrlSecurity.check(
                         "file:///opt/doris/plugins/jdbc_drivers/%2e%2e/%2e%2e/etc/evil.jar"));
     }
 
@@ -73,20 +75,20 @@ public class JdbcDriverUrlSecurityRuleTest {
     @Test
     public void testPlainJarNameAllowed() {
         Assertions.assertDoesNotThrow(
-                () -> JdbcDorisConnector.checkDriverUrlSecurityRule("mysql-connector-j-8.4.0.jar"));
+                () -> JdbcDriverUrlSecurity.check("mysql-connector-j-8.4.0.jar"));
         Assertions.assertDoesNotThrow(
-                () -> JdbcDorisConnector.checkDriverUrlSecurityRule("postgresql-42.5.0.jar"));
+                () -> JdbcDriverUrlSecurity.check("postgresql-42.5.0.jar"));
     }
 
     @Test
     public void testNormalHttpsUrlAllowed() {
-        Assertions.assertDoesNotThrow(() -> JdbcDorisConnector.checkDriverUrlSecurityRule(
+        Assertions.assertDoesNotThrow(() -> JdbcDriverUrlSecurity.check(
                 "https://bucket.s3.amazonaws.com/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"));
     }
 
     @Test
     public void testNormalFileUrlAllowed() {
-        Assertions.assertDoesNotThrow(() -> JdbcDorisConnector.checkDriverUrlSecurityRule(
+        Assertions.assertDoesNotThrow(() -> JdbcDriverUrlSecurity.check(
                 "file:///opt/doris/plugins/jdbc_drivers/mysql-connector-j-8.4.0.jar"));
     }
 }

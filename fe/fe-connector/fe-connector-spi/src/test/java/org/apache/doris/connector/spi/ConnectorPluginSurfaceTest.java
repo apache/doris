@@ -85,8 +85,14 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // OpenCSV scan properties require major 9: inlined keys cannot fail JVM linkage on an older FE.
-        Assertions.assertEquals("9.0", version.getProperty("api.version"));
+        // Major 9: OpenCSV scan properties (inlined keys cannot fail JVM linkage on an older FE).
+        // Major 10 adds ConnectorProvider#driverUrlsToValidate: the FE asks the provider which properties
+        // name a jar it will load into the FE JVM, and applies the operator's jdbc_driver_secure_path /
+        // jdbc_driver_url_white_list policy to them on ALTER CATALOG (which never reaches
+        // Connector#preCreateValidation). An older plugin answers "no jars" by inheriting the default, so a
+        // repointed driver_url on such a plugin would skip the operator's policy silently - the FE must
+        // refuse it at load time instead.
+        Assertions.assertEquals("10.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

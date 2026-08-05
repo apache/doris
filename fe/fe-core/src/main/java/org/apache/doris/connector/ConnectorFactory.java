@@ -24,6 +24,8 @@ import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -161,6 +163,17 @@ public final class ConnectorFactory {
         if (mgr != null) {
             mgr.validateCreateTable(catalogType, properties);
         }
+    }
+
+    /**
+     * The driver jar URLs the matching connector would load into the FE JVM for these properties, so the
+     * caller can apply the operator's {@code jdbc_driver_secure_path} / {@code jdbc_driver_url_white_list}
+     * gate to them. Empty when no provider matches or the connector loads no driver jar.
+     */
+    public static List<String> driverUrlsToValidate(String catalogType, Map<String, String> properties) {
+        ConnectorPluginManager mgr = pluginManager;
+        return mgr == null ? Collections.emptyList()
+                : mgr.driverUrlsToValidate(catalogType, properties);
     }
 
     /** For testing only. */

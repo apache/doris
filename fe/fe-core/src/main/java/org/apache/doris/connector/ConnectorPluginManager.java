@@ -540,6 +540,29 @@ public class ConnectorPluginManager {
     }
 
     /**
+     * The driver jar URLs the matching provider would load for {@code properties}. Empty when no provider
+     * matches or the connector loads no driver jar.
+     */
+    public List<String> driverUrlsToValidate(String catalogType, Map<String, String> properties) {
+        for (ConnectorProvider provider : providers) {
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try {
+                // Same TCCL discipline as validatePropertiesForUpdate, which runs immediately before
+                // this in the ALTER flow: directory providers may resolve helpers through TCCL, so
+                // selection and the callback run under the plugin loader and never leak it out.
+                thread.setContextClassLoader(provider.getClass().getClassLoader());
+                if (provider.supports(catalogType, properties)) {
+                    return provider.driverUrlsToValidate(properties);
+                }
+            } finally {
+                thread.setContextClassLoader(previous);
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    /**
      * Registers a provider at highest priority (index 0). For testing overrides.
      *
      * <p>Deliberately bypasses {@link #registerDiscovered}'s uniqueness check: shadowing an already-registered
