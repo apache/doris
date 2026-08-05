@@ -51,6 +51,8 @@
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/function_variant_element_v2.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_profile.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris::format::parquet {
 namespace {
@@ -1601,6 +1603,35 @@ TEST(VariantColumnReaderTest, MaterializedCacheParticipatesInMemoryAccounting) {
     EXPECT_EQ(variants.get_value_ref(0).get_int(), 42);
     EXPECT_GT(variants.byte_size(), physical_bytes);
     EXPECT_GT(variants.allocated_bytes(), physical_allocated);
+}
+
+TEST(VariantColumnReaderTest, ShreddedStateOutlivesScannerProfile) {
+    auto runtime_profile = std::make_unique<RuntimeProfile>("variant-reader-test");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(runtime_profile.get());
+    ParquetProfile reused_profile;
+    reused_profile.init(runtime_profile.get());
+    EXPECT_EQ(parquet_profile.variant_reconstructed_rows,
+              reused_profile.variant_reconstructed_rows);
+
+    auto visible_output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(shredded_int64_schema(), shredded_int64_physical({7}),
+                                         visible_output, parquet_profile.column_reader_profile())
+                        .ok());
+    const auto& visible_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*visible_output).get_nested_column());
+    EXPECT_EQ(visible_variants.get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(runtime_profile->get_counter("VariantReconstructedRows")->value(), 1);
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(shredded_int64_schema(), shredded_int64_physical({42}),
+                                         output, parquet_profile.column_reader_profile())
+                        .ok());
+    runtime_profile.reset();
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    EXPECT_EQ(variants.get_value_ref(0).get_int(), 42);
 }
 
 TEST(VariantColumnReaderTest, MaterializedShreddedCopiesDetachBeforeMutation) {

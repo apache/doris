@@ -876,7 +876,7 @@ public:
                     "A projected Parquet Variant can only serve its validated shredded leaves");
         }
         if (!_materialized) {
-            SCOPED_TIMER(_profile.variant_reconstruction_time);
+            SCOPED_TIMER(_profile.variant_reconstruction_time.get());
             _materialized = encode_variant_column(*_schema, *_physical);
             update_counter(_profile.variant_reconstructed_rows,
                            static_cast<int64_t>(_physical->size()));
@@ -899,9 +899,10 @@ public:
     }
 
 private:
-    static void update_counter(RuntimeProfile::Counter* counter, int64_t value) {
+    static void update_counter(const std::shared_ptr<RuntimeProfile::Counter>& counter,
+                               int64_t value) {
         if (counter != nullptr) {
-            COUNTER_UPDATE(counter, value);
+            COUNTER_UPDATE(counter.get(), value);
         }
     }
 
