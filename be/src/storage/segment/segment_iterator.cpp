@@ -76,6 +76,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "storage/binlog.h"
 #include "storage/compaction/collection_similarity.h"
 #include "storage/id_manager.h"

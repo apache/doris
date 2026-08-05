@@ -43,6 +43,7 @@
 
 namespace doris {
 
+class ResourceContext;
 class RuntimeState;
 class TupleDescriptor;
 class WorkloadGroup;
@@ -96,16 +97,9 @@ public:
         COMPLETED, // finished with result or error, waiting to be collected by scan node
         EOS,       // finished and no more data, waiting to be collected by scan node
     };
-    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
-        _resource_ctx = thread_context()->resource_ctx();
-        DorisMetrics::instance()->scanner_task_cnt->increment(1);
-    }
+    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner);
 
-    ~ScanTask() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
-        DorisMetrics::instance()->scanner_task_cnt->increment(-1);
-        cached_block.reset();
-    }
+    ~ScanTask();
 
 private:
     // whether current scanner is finished

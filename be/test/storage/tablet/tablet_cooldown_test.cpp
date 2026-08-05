@@ -50,6 +50,7 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "storage/olap_common.h"

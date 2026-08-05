@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 
 #include <mutex>
+#include <set>
 #include <utility>
 
 #include "common/config.h"
@@ -28,7 +29,10 @@
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/sink/delta_writer_v2_pool.h"
 #include "exec/sink/load_stream_map_pool.h"
+#include "io/cache/fs_file_cache_storage.h"
 #include "load/channel/load_stream_mgr.h"
+#include "load/memtable/memtable_memory_limiter.h"
+#include "runtime/cluster_info.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
 #include "storage/index/index_writer.h" // TmpFileDirs, completed here rather than in the header
@@ -36,6 +40,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "util/debug_util.h"
+#include "util/threadpool.h" // ThreadPool must be complete: unique_ptr member assignment
 #include "util/time.h"
 
 namespace doris {
@@ -53,6 +58,18 @@ void ExecEnv::set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine) {
 }
 void ExecEnv::set_write_cooldown_meta_executors() {
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
+}
+void ExecEnv::set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
+    _memtable_memory_limiter.reset(limiter);
+}
+void ExecEnv::set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache) {
+    _file_cache_open_fd_cache = std::move(fd_cache);
+}
+void ExecEnv::set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+    _non_block_close_thread_pool = std::move(pool);
+}
+void ExecEnv::set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+    _s3_file_upload_thread_pool = std::move(pool);
 }
 #endif // BE_TEST
 
@@ -87,7 +104,7 @@ void ExecEnv::clear_stream_mgr() {
 std::vector<TFrontendInfo> ExecEnv::get_frontends() {
     std::lock_guard<std::mutex> lg(_frontends_lock);
     std::vector<TFrontendInfo> infos;
-    for (const auto& cur_fe : _frontends) {
+    for (const auto& cur_fe : *_frontends) {
         infos.push_back(cur_fe.second.info);
     }
     return infos;
@@ -98,17 +115,17 @@ void ExecEnv::update_frontends(const std::vector<TFrontendInfo>& new_fe_infos) {
 
     std::set<TNetworkAddress> dropped_fes;
 
-    for (const auto& cur_fe : _frontends) {
+    for (const auto& cur_fe : *_frontends) {
         dropped_fes.insert(cur_fe.first);
     }
 
     for (const auto& coming_fe_info : new_fe_infos) {
-        auto itr = _frontends.find(coming_fe_info.coordinator_address);
+        auto itr = _frontends->find(coming_fe_info.coordinator_address);
 
-        if (itr == _frontends.end()) {
+        if (itr == _frontends->end()) {
             LOG(INFO) << "A completely new frontend, " << PrintFrontendInfo(coming_fe_info);
 
-            _frontends.insert(std::pair<TNetworkAddress, FrontendInfo>(
+            _frontends->insert(std::pair<TNetworkAddress, FrontendInfo>(
                     coming_fe_info.coordinator_address,
                     FrontendInfo {coming_fe_info, GetCurrentTimeMicros() / 1000, /*first time*/
                                   GetCurrentTimeMicros() / 1000 /*last time*/}));
@@ -138,7 +155,7 @@ void ExecEnv::update_frontends(const std::vector<TFrontendInfo>& new_fe_infos) {
     for (const auto& dropped_fe : dropped_fes) {
         LOG(INFO) << "Frontend " << PrintThriftNetworkAddress(dropped_fe)
                   << " has already been dropped, remove it";
-        _frontends.erase(dropped_fe);
+        _frontends->erase(dropped_fe);
     }
 }
 
@@ -148,7 +165,7 @@ std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
     const int expired_duration = config::fe_expire_duration_seconds * 1000;
     const auto now = GetCurrentTimeMicros() / 1000;
 
-    for (const auto& pair : _frontends) {
+    for (const auto& pair : *_frontends) {
         auto& brpc_addr = pair.first;
         auto& fe_info = pair.second;
 
