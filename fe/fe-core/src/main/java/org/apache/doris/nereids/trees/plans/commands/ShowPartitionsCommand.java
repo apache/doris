@@ -36,11 +36,11 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -241,9 +241,7 @@ public class ShowPartitionsCommand extends ShowCommand {
         }
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
-        TableIf table = db.getTableOrMetaException(tblName, TableType.OLAP,
-                TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE,
-                TableType.PLUGIN_EXTERNAL_TABLE);
+        TableIf table = db.getTableOrMetaException(tblName, TableType.OLAP, TableType.PLUGIN_EXTERNAL_TABLE);
 
         if (!catalog.isInternalCatalog()) {
             if (!table.isPartitionedTable()) {

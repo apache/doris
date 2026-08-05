@@ -28,6 +28,7 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -43,6 +44,29 @@ public class AbstractExternalMetaCacheTest {
 
             cache.initCatalog(1L, Maps.newHashMap());
             Assert.assertNotNull(cache.entry(1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testEngineEntriesDoNotInitializeMultiKeyStripeStatesEagerly() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
+            cache.initCatalog(1L, Maps.newHashMap());
+            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> enabledEntry = cache.entry(
+                    1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
+            Assert.assertTrue(enabledEntry.stats().isEffectiveEnabled());
+            Assert.assertEquals(0, enabledEntry.initializedStripeCountForTest());
+
+            Map<String, String> disabledProperties = Maps.newHashMap();
+            disabledProperties.put("meta.cache.test_engine.schema.ttl-second", "0");
+            cache.initCatalog(2L, disabledProperties);
+            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> disabledEntry = cache.entry(
+                    2L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
+            Assert.assertFalse(disabledEntry.stats().isEffectiveEnabled());
+            Assert.assertEquals(0, disabledEntry.initializedStripeCountForTest());
         } finally {
             refreshExecutor.shutdownNow();
         }

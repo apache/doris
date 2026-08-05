@@ -17,10 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
@@ -339,8 +339,8 @@ public class IcebergPartitionUtilsTest {
         // WHY: stock Jackson's JsonNodeFactory has bigDecimalExact=false, so valueToTree(new BigDecimal("10"))
         // renders 1E+1 and BigDecimal("1.50") renders 1.5 — the first is a JSON *syntax* change, not just lost
         // scale. Legacy fe-core rendered these through Gson, which is scale-exact. Verified empirically
-        // against gson 2.10.1 / jackson 2.16.0 (design doc T0.1). Whether BE's decimal text parser even
-        // accepts 1E+1 is untested — the point is to never emit it.
+        // against gson 2.10.1 / jackson 2.16.0. Whether BE's decimal text parser even accepts 1E+1 is
+        // untested — the point is to never emit it.
         // MUTATION: using the stock JsonUtil.mapper() instead of the withExactBigDecimals copy -> red on both.
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),

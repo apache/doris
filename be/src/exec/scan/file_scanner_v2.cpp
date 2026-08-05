@@ -54,6 +54,7 @@
 #include "format_v2/jni/jdbc_reader.h"
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
+#include "format_v2/table/adbc_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
@@ -103,7 +104,8 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
 }
 
 bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
-    return table_format_name(range) == "remote_doris";
+    const auto table_format = table_format_name(range);
+    return table_format == "remote_doris" || table_format == "adbc";
 }
 
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
@@ -403,6 +405,7 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
     if (_first_scan_range) {
         RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
         DORIS_CHECK(_table_reader != nullptr);
+        _table_reader_format = table_format_name(_current_range);
         RETURN_IF_ERROR(_init_expr_ctxes());
         RETURN_IF_ERROR(_init_table_reader(_current_range));
     }
@@ -432,6 +435,12 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
         }
 
         {
+            if (_table_reader_rf_num != _applied_rf_num) {
+                VExprContextSPtrs refreshed_conjuncts;
+                RETURN_IF_ERROR(_build_table_conjuncts(&refreshed_conjuncts));
+                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(std::move(refreshed_conjuncts)));
+                _table_reader_rf_num = _applied_rf_num;
+            }
             if (_should_run_adaptive_batch_size()) {
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
@@ -502,6 +511,14 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         DORIS_CHECK(_table_reader != nullptr);
         _current_range_path = _current_range.path;
 
+        bool reader_rebuilt = false;
+        RETURN_IF_ERROR(_rebuild_table_reader_if_format_changed(_current_range, &reader_rebuilt));
+        if (reader_rebuilt) {
+            // Same init the first reader got. The expression contexts are NOT rebuilt: they are
+            // per-scanner and format-independent, and _init_expr_ctxes is not idempotent.
+            RETURN_IF_ERROR(_init_table_reader(_current_range));
+        }
+
         const auto format_type = get_range_format_type(*_params, _current_range);
         _init_adaptive_batch_size_state(format_type);
         if (_block_size_predictor != nullptr) {
@@ -539,6 +556,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         }
         COUNTER_UPDATE(_file_counter, 1);
         _has_prepared_split = true;
+        _table_reader_rf_num = _applied_rf_num;
         *eos = false;
         return Status::OK();
     }
@@ -583,6 +601,31 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
     return Status::OK();
 }
 
+Status FileScannerV2::_rebuild_table_reader_if_format_changed(const TFileRangeDesc& range,
+                                                              bool* rebuilt) {
+    // The reader is chosen by the range's table format, not the node's, because one node can be given
+    // both: a connector that reads a table as a lake plus the log written after it plans its lake half
+    // through a sibling connector and its log half itself, and both land here as ranges of the same
+    // scan. Built once from the first range and never revisited, the reader is then handed a range of
+    // the other format -- which does not fail cleanly. It fails as whatever that reader makes of a
+    // foreign range, e.g. paimon's reporting an unsupported file format for a range that carries no
+    // paimon parameters at all. And which ranges share a scanner is up to the engine's assignment, so
+    // the same query succeeds or fails by how the ranges happened to be dealt out.
+    //
+    // Split out from _prepare_next_split so the decision can be tested on its own: re-initializing the
+    // new reader needs scan-wide state that choosing it does not, so that step stays with the caller.
+    auto table_format = table_format_name(range);
+    if (table_format == _table_reader_format) {
+        *rebuilt = false;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_create_table_reader_for_format(range, &_table_reader));
+    DORIS_CHECK(_table_reader != nullptr);
+    _table_reader_format = std::move(table_format);
+    *rebuilt = true;
+    return Status::OK();
+}
+
 Status FileScannerV2::_create_table_reader_for_format(
         const TFileRangeDesc& range, std::unique_ptr<format::TableReader>* reader) const {
     DORIS_CHECK(reader != nullptr);
@@ -619,6 +662,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::trino_connector::TrinoConnectorJniReader>();
     } else if (table_format == "remote_doris") {
         *reader = std::make_unique<format::remote_doris::RemoteDorisReader>();
+    } else if (table_format == "adbc") {
+        *reader = std::make_unique<format::adbc::AdbcReader>();
     } else {
         return Status::NotSupported("FileScannerV2 does not support table format {}", table_format);
     }
@@ -632,7 +677,10 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
     VExprContextSPtrs conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
     VExprContextSPtrs partition_prune_conjuncts;
-    if (_state->query_options().enable_runtime_filter_partition_prune) {
+    if (!partition_values.empty()) {
+        // A split without partition constants cannot be pruned here, so avoid cloning every
+        // conjunct solely for a consumer that must return immediately. FileScannerV2 otherwise
+        // keeps safe partition pruning enabled independently of the legacy session gate.
         RETURN_IF_ERROR(_build_table_conjuncts(&partition_prune_conjuncts));
     }
     RETURN_IF_ERROR(_table_reader->prepare_split({

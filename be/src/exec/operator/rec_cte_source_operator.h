@@ -158,16 +158,14 @@ private:
 //   │ final_close (=4)                   │
 //   │  • listen_wait_close(guard,        │
 //   │    need_send_report = true)        │
-//   │  • notify_close() on PFC           │
 //   │  • send final status report        │
-//   │  • clean up completely             │
+//   │  • remove saved rerunnable params  │
+//   │  • notify_close() on PFC           │
 //   └──────────────┬─────────────────────┘
 //                  │
 //                  ▼
 //   ┌────────────────────────────────────┐
 //   │       Fragment Destroyed           │
-//   │  rerunnable_params removed on      │
-//   │  query end                         │
 //   └────────────────────────────────────┘
 //
 class RecCTESourceOperatorX : public OperatorX<RecCTESourceLocalState> {

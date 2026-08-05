@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
@@ -31,9 +31,26 @@ public class TrinoConnectorProvider implements ConnectorProvider {
 
     static final String TRINO_CONNECTOR_NAME = "trino.connector.name";
 
+    /**
+     * This connector's type, and therefore its {@code name()} — which is what the engine names its
+     * conf file after, so the plugin must ship {@code trino-connector.conf.template}. Note that this is
+     * NOT the plugin directory name ({@code plugins/connector/trino}); the directory is the deployer's
+     * choice, the conf file name is this string.
+     */
+    public static final String TYPE = "trino-connector";
+
+    /**
+     * Directory holding the Trino plugins this connector loads, in {@code trino-connector.conf}.
+     * Falls back to fe.conf's {@code trino_connector_plugin_dir}, which is where it used to live.
+     */
+    public static final String CONF_PLUGIN_DIR = "plugin_dir";
+
+    /** The fe.conf name of {@link #CONF_PLUGIN_DIR}, forwarded through the engine environment. */
+    public static final String ENV_PLUGIN_DIR = "trino_connector_plugin_dir";
+
     @Override
     public String getType() {
-        return "trino-connector";
+        return TYPE;
     }
 
     @Override

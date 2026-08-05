@@ -19,17 +19,17 @@ package org.apache.doris.datasource.connector.converter;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorBetween;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorIsNull;
-import org.apache.doris.connector.api.pushdown.ConnectorNot;
-import org.apache.doris.connector.api.pushdown.ConnectorOr;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorBetween;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -86,7 +86,7 @@ import java.util.List;
  * iceberg connector resolves the column by name and does not read it.</p>
  *
  * <p>Engine-neutral by construction (no {@code instanceof Iceberg}, no iceberg imports): it speaks only the
- * neutral {@code connector.api.pushdown} vocabulary plus generic Nereids nodes.</p>
+ * neutral {@code connector.spi.pushdown} vocabulary plus generic Nereids nodes.</p>
  */
 public final class UnboundExpressionToConnectorPredicateConverter {
 

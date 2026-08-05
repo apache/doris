@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.aliyun.odps.type.TypeInfoFactory;
 import org.junit.jupiter.api.Assertions;

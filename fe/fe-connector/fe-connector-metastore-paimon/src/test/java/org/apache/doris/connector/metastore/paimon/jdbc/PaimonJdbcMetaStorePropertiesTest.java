@@ -74,21 +74,28 @@ public class PaimonJdbcMetaStorePropertiesTest {
 
     @Test
     public void resolveDriverUrl() {
-        Map<String, String> env = new HashMap<>();
+        // The drivers directory is now passed in rather than read from the engine environment here:
+        // which settings file it comes from is the calling connector's business, and this module is
+        // shared by connectors whose conf files differ. The resolution itself is unchanged.
         // already scheme-bearing -> as-is
-        Assertions.assertEquals("https://host/d.jar", JdbcDriverSupport.resolveDriverUrl("https://host/d.jar", env));
+        Assertions.assertEquals("https://host/d.jar",
+                JdbcDriverSupport.resolveDriverUrl("https://host/d.jar", null, null));
         // absolute path -> as-is (no driversDir prepend)
-        Assertions.assertEquals("/opt/drivers/d.jar", JdbcDriverSupport.resolveDriverUrl("/opt/drivers/d.jar", env));
+        Assertions.assertEquals("/opt/drivers/d.jar",
+                JdbcDriverSupport.resolveDriverUrl("/opt/drivers/d.jar", null, null));
         // bare jar with explicit drivers dir
-        env.put("jdbc_drivers_dir", "/custom/drivers");
-        Assertions.assertEquals("file:///custom/drivers/d.jar", JdbcDriverSupport.resolveDriverUrl("d.jar", env));
+        Assertions.assertEquals("file:///custom/drivers/d.jar",
+                JdbcDriverSupport.resolveDriverUrl("d.jar", "/custom/drivers", "/dh"));
         // bare jar falling back to doris_home/plugins/jdbc_drivers
-        Map<String, String> env2 = new HashMap<>();
-        env2.put("doris_home", "/dh");
-        Assertions.assertEquals("file:///dh/plugins/jdbc_drivers/d.jar", JdbcDriverSupport.resolveDriverUrl("d.jar", env2));
-        // empty env -> doris_home defaults to "."
+        Assertions.assertEquals("file:///dh/plugins/jdbc_drivers/d.jar",
+                JdbcDriverSupport.resolveDriverUrl("d.jar", null, "/dh"));
+        // a blank drivers dir falls back the same way as an absent one -- 'drivers_dir=' in a conf
+        // file means "not configured", not "resolve under the empty path".
+        Assertions.assertEquals("file:///dh/plugins/jdbc_drivers/d.jar",
+                JdbcDriverSupport.resolveDriverUrl("d.jar", "  ", "/dh"));
+        // neither known -> doris_home defaults to "."
         Assertions.assertEquals("file://./plugins/jdbc_drivers/d.jar",
-                JdbcDriverSupport.resolveDriverUrl("d.jar", new HashMap<>()));
+                JdbcDriverSupport.resolveDriverUrl("d.jar", null, null));
     }
 
     @Test

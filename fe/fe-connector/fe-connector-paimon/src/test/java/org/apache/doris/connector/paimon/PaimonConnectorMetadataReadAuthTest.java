@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.types.DataTypes;

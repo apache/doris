@@ -147,6 +147,110 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
     return field_ptr.field_ptr.get();
 }
 
+const schema::external::TField* find_external_field_by_id(
+        const schema::external::TStructField* root, int32_t field_id) {
+    if (root == nullptr || !root->__isset.fields) {
+        return nullptr;
+    }
+    for (const auto& field_ptr : root->fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field == nullptr) {
+            continue;
+        }
+        if (field->__isset.id && field->id == field_id) {
+            return field;
+        }
+        if (!field->__isset.nestedField) {
+            continue;
+        }
+        if (field->nestedField.__isset.struct_field) {
+            if (const auto* result =
+                        find_external_field_by_id(&field->nestedField.struct_field, field_id);
+                result != nullptr) {
+                return result;
+            }
+        } else if (field->nestedField.__isset.array_field &&
+                   field->nestedField.array_field.__isset.item_field) {
+            const auto* child = get_field_ptr(field->nestedField.array_field.item_field);
+            if (child != nullptr) {
+                schema::external::TStructField child_root;
+                child_root.__set_fields({field->nestedField.array_field.item_field});
+                if (const auto* result = find_external_field_by_id(&child_root, field_id);
+                    result != nullptr) {
+                    return result;
+                }
+            }
+        } else if (field->nestedField.__isset.map_field) {
+            schema::external::TStructField child_root;
+            std::vector<schema::external::TFieldPtr> children;
+            if (field->nestedField.map_field.__isset.key_field) {
+                children.push_back(field->nestedField.map_field.key_field);
+            }
+            if (field->nestedField.map_field.__isset.value_field) {
+                children.push_back(field->nestedField.map_field.value_field);
+            }
+            child_root.__set_fields(children);
+            if (const auto* result = find_external_field_by_id(&child_root, field_id);
+                result != nullptr) {
+                return result;
+            }
+        }
+    }
+    return nullptr;
+}
+
+bool find_external_field_path_by_id(const schema::external::TField* field, int32_t field_id,
+                                    std::vector<const schema::external::TField*>* const path) {
+    DORIS_CHECK(path != nullptr);
+    DORIS_CHECK(field != nullptr);
+    path->push_back(field);
+    if (field->__isset.id && field->id == field_id) {
+        return true;
+    }
+    if (field->__isset.nestedField && field->nestedField.__isset.struct_field &&
+        field->nestedField.struct_field.__isset.fields) {
+        for (const auto& child_ptr : field->nestedField.struct_field.fields) {
+            const auto* child = get_field_ptr(child_ptr);
+            if (child != nullptr && find_external_field_path_by_id(child, field_id, path)) {
+                return true;
+            }
+        }
+    }
+    path->pop_back();
+    return false;
+}
+
+std::optional<std::vector<const schema::external::TField*>> find_external_struct_field_path_by_id(
+        const schema::external::TSchema& schema, int32_t field_id) {
+    if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
+        return std::nullopt;
+    }
+    std::vector<const schema::external::TField*> path;
+    for (const auto& field_ptr : schema.root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field != nullptr && find_external_field_path_by_id(field, field_id, &path)) {
+            return path;
+        }
+    }
+    return std::nullopt;
+}
+
+bool find_column_identity_path_by_id(const std::vector<ColumnDefinition>& fields, int32_t field_id,
+                                     std::vector<ColumnDefinition>* path) {
+    DORIS_CHECK(path != nullptr);
+    for (const auto& field : fields) {
+        path->push_back(field);
+        if (field.has_identifier_field_id() && field.get_identifier_field_id() == field_id) {
+            return true;
+        }
+        if (find_column_identity_path_by_id(field.children, field_id, path)) {
+            return true;
+        }
+        path->pop_back();
+    }
+    return false;
+}
+
 ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field) {
     ColumnDefinition identity;
     if (field.__isset.id) {
@@ -245,9 +349,18 @@ bool external_field_matches_name(const schema::external::TField& field, const st
 }
 
 DataTypePtr find_struct_child_type_by_external_field(const DataTypeStruct& struct_type,
-                                                     const schema::external::TField& field) {
+                                                     const schema::external::TField& field,
+                                                     bool prefer_current_name) {
+    if (prefer_current_name && field.__isset.name) {
+        for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
+            if (to_lower(field.name) == to_lower(struct_type.get_element_name(field_idx))) {
+                return struct_type.get_element(field_idx);
+            }
+        }
+    }
     for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
-        if (external_field_matches_name(field, struct_type.get_element_name(field_idx))) {
+        const auto& element_name = struct_type.get_element_name(field_idx);
+        if (external_field_matches_name(field, element_name)) {
             return struct_type.get_element(field_idx);
         }
     }
@@ -259,6 +372,7 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
     if (!field.__isset.type) {
         return fallback_type;
     }
+    DORIS_CHECK(fallback_type != nullptr);
     const auto primitive_type = thrift_to_type(field.type.type);
     if (is_complex_type(primitive_type)) {
         return fallback_type;
@@ -267,15 +381,16 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
     // current table field. Restore that type from FE before parsing the default and let the table
     // reader apply the normal promotion cast to the delete-key type.
     return DataTypeFactory::instance().create_data_type(
-            primitive_type, false, field.type.__isset.precision ? field.type.precision : 0,
+            primitive_type, fallback_type->is_nullable(),
+            field.type.__isset.precision ? field.type.precision : 0,
             field.type.__isset.scale ? field.type.scale : 0,
             field.type.__isset.len ? field.type.len : -1);
 }
 
-ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
-                                                         DataTypePtr type) {
+ColumnDefinition build_schema_column_metadata_from_external_field(
+        const schema::external::TField& field, DataTypePtr type) {
     type = restore_current_primitive_type(field, std::move(type));
-    ColumnDefinition column {
+    return ColumnDefinition {
             .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
@@ -290,8 +405,17 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
                                              : std::nullopt,
             .initial_default_value_is_base64 = field.__isset.initial_default_value_is_base64 &&
                                                field.initial_default_value_is_base64,
+            .is_optional = field.__isset.is_optional ? std::make_optional(field.is_optional)
+                                                     : std::nullopt,
             .is_partition_key = false,
     };
+}
+
+// NOLINTNEXTLINE(readability-function-size): keep recursive Iceberg type reconstruction together.
+ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
+                                                         DataTypePtr type,
+                                                         bool prefer_current_name) {
+    auto column = build_schema_column_metadata_from_external_field(field, std::move(type));
     if (column.type == nullptr || !field.__isset.nestedField) {
         return column;
     }
@@ -309,12 +433,13 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             if (child_field == nullptr || !child_field->__isset.name) {
                 continue;
             }
-            auto child_type = find_struct_child_type_by_external_field(struct_type, *child_field);
+            auto child_type = find_struct_child_type_by_external_field(struct_type, *child_field,
+                                                                       prefer_current_name);
             if (child_type == nullptr) {
                 continue;
             }
-            column.children.push_back(
-                    build_schema_column_from_external_field(*child_field, child_type));
+            column.children.push_back(build_schema_column_from_external_field(
+                    *child_field, child_type, prefer_current_name));
         }
         break;
     }
@@ -328,8 +453,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             return column;
         }
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
-        auto child =
-                build_schema_column_from_external_field(*item_field, array_type.get_nested_type());
+        auto child = build_schema_column_from_external_field(
+                *item_field, array_type.get_nested_type(), prefer_current_name);
         child.name = "element";
         if (child.has_identifier_name()) {
             child.identifier = Field::create_field<TYPE_STRING>(child.name);
@@ -346,8 +471,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
         const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
         const auto* key_field = get_field_ptr(field.nestedField.map_field.key_field);
         if (key_field != nullptr) {
-            auto child =
-                    build_schema_column_from_external_field(*key_field, map_type.get_key_type());
+            auto child = build_schema_column_from_external_field(
+                    *key_field, map_type.get_key_type(), prefer_current_name);
             child.name = "key";
             if (child.has_identifier_name()) {
                 child.identifier = Field::create_field<TYPE_STRING>(child.name);
@@ -356,8 +481,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
         }
         const auto* value_field = get_field_ptr(field.nestedField.map_field.value_field);
         if (value_field != nullptr) {
-            auto child = build_schema_column_from_external_field(*value_field,
-                                                                 map_type.get_value_type());
+            auto child = build_schema_column_from_external_field(
+                    *value_field, map_type.get_value_type(), prefer_current_name);
             child.name = "value";
             if (child.has_identifier_name()) {
                 child.identifier = Field::create_field<TYPE_STRING>(child.name);
@@ -598,8 +723,9 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     if (schema_field == nullptr) {
         return Status::OK();
     }
-    context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
     const bool use_current_semantics = supports_iceberg_scan_semantics_v1(context->scan_params);
+    context->schema_column = build_schema_column_from_external_field(*schema_field, column->type,
+                                                                     use_current_semantics);
     if (!use_current_semantics) {
         // IDs and encoded defaults predate the result-changing semantics. Strip only the new
         // default channel so an old-FE plan keeps the same generic root/nested values on every BE.
@@ -616,32 +742,203 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     return Status::OK();
 }
 
-std::optional<ColumnDefinition> TableReader::_find_current_table_column_by_field_id(
-        int32_t field_id, DataTypePtr type) const {
+std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
+        int32_t field_id, DataTypePtr type, bool include_historical_schemas) const {
     if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
         _scan_params->history_schema_info.empty()) {
         return std::nullopt;
     }
-    const auto* schema = &_scan_params->history_schema_info.front();
+    const auto find_field = [field_id](const schema::external::TSchema& schema) {
+        return schema.__isset.root_field ? find_external_field_by_id(&schema.root_field, field_id)
+                                         : nullptr;
+    };
+
+    const auto* current_schema = &_scan_params->history_schema_info.front();
     if (_scan_params->__isset.current_schema_id) {
         for (const auto& candidate_schema : _scan_params->history_schema_info) {
             if (candidate_schema.__isset.schema_id &&
                 candidate_schema.schema_id == _scan_params->current_schema_id) {
-                schema = &candidate_schema;
+                current_schema = &candidate_schema;
                 break;
             }
         }
     }
-    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+    if (const auto* field = find_field(*current_schema); field != nullptr) {
+        return build_schema_column_from_external_field(
+                *field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
+    }
+    if (!include_historical_schemas) {
         return std::nullopt;
     }
-    for (const auto& field_ptr : schema->root_field.fields) {
-        const auto* field = get_field_ptr(field_ptr);
-        if (field != nullptr && field->__isset.id && field->id == field_id) {
-            return build_schema_column_from_external_field(*field, std::move(type));
+
+    const schema::external::TSchema* latest_schema = nullptr;
+    const schema::external::TField* latest_field = nullptr;
+    for (const auto& candidate_schema : _scan_params->history_schema_info) {
+        if (&candidate_schema == current_schema) {
+            continue;
+        }
+        const auto* candidate_field = find_field(candidate_schema);
+        if (candidate_field == nullptr) {
+            continue;
+        }
+        if (latest_schema == nullptr || (candidate_schema.__isset.schema_id &&
+                                         (!latest_schema->__isset.schema_id ||
+                                          candidate_schema.schema_id > latest_schema->schema_id))) {
+            latest_schema = &candidate_schema;
+            latest_field = candidate_field;
         }
     }
-    return std::nullopt;
+    if (latest_field == nullptr) {
+        return std::nullopt;
+    }
+    return build_schema_column_from_external_field(
+            *latest_field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
+}
+
+std::optional<std::vector<ColumnDefinition>> TableReader::_find_table_column_path_by_field_id(
+        int32_t field_id, DataTypePtr leaf_type, bool include_historical_schemas) const {
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
+        _scan_params->history_schema_info.empty()) {
+        return std::nullopt;
+    }
+    const auto build_path = [&](const schema::external::TSchema& schema)
+            -> std::optional<std::vector<ColumnDefinition>> {
+        auto external_path = find_external_struct_field_path_by_id(schema, field_id);
+        if (!external_path.has_value()) {
+            return std::nullopt;
+        }
+
+        std::vector<DataTypePtr> path_types(external_path->size());
+        path_types.back() = leaf_type;
+        for (size_t index = external_path->size(); index > 1; --index) {
+            const auto* parent = (*external_path)[index - 2];
+            const auto* child = (*external_path)[index - 1];
+            DORIS_CHECK(parent != nullptr);
+            DORIS_CHECK(child != nullptr);
+            DORIS_CHECK(child->__isset.name);
+            if (!parent->__isset.nestedField || !parent->nestedField.__isset.struct_field) {
+                return std::nullopt;
+            }
+            DataTypePtr path_type = std::make_shared<DataTypeStruct>(
+                    DataTypes {path_types[index - 1]}, Strings {child->name});
+            if (parent->__isset.is_optional && parent->is_optional) {
+                path_type = make_nullable(path_type);
+            }
+            path_types[index - 2] = std::move(path_type);
+        }
+
+        std::vector<ColumnDefinition> result;
+        result.reserve(external_path->size());
+        for (size_t index = 0; index < external_path->size(); ++index) {
+            result.push_back(build_schema_column_metadata_from_external_field(
+                    *(*external_path)[index], path_types[index]));
+        }
+        // Keep metadata hierarchy aligned with the synthetic exact-ID ancestor types.
+        for (size_t index = result.size(); index > 1; --index) {
+            result[index - 2].children.push_back(result[index - 1]);
+        }
+        return result;
+    };
+
+    const auto* current_schema = &_scan_params->history_schema_info.front();
+    if (_scan_params->__isset.current_schema_id) {
+        for (const auto& candidate_schema : _scan_params->history_schema_info) {
+            if (candidate_schema.__isset.schema_id &&
+                candidate_schema.schema_id == _scan_params->current_schema_id) {
+                current_schema = &candidate_schema;
+                break;
+            }
+        }
+    }
+    if (auto path = build_path(*current_schema); path.has_value()) {
+        return path;
+    }
+    if (!include_historical_schemas) {
+        return std::nullopt;
+    }
+
+    const schema::external::TSchema* latest_schema = nullptr;
+    std::optional<std::vector<ColumnDefinition>> latest_path;
+    for (const auto& candidate_schema : _scan_params->history_schema_info) {
+        if (&candidate_schema == current_schema) {
+            continue;
+        }
+        auto candidate_path = build_path(candidate_schema);
+        if (!candidate_path.has_value()) {
+            continue;
+        }
+        if (latest_schema == nullptr || (candidate_schema.__isset.schema_id &&
+                                         (!latest_schema->__isset.schema_id ||
+                                          candidate_schema.schema_id > latest_schema->schema_id))) {
+            latest_schema = &candidate_schema;
+            latest_path = std::move(candidate_path);
+        }
+    }
+    return latest_path;
+}
+
+std::optional<std::vector<ColumnDefinition>>
+TableReader::_find_table_column_identity_path_by_field_id(int32_t field_id,
+                                                          bool include_historical_schemas) const {
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
+        _scan_params->history_schema_info.empty()) {
+        return std::nullopt;
+    }
+    const auto find_path = [field_id](const schema::external::TSchema& schema)
+            -> std::optional<std::vector<ColumnDefinition>> {
+        if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
+            return std::nullopt;
+        }
+        std::vector<ColumnDefinition> roots;
+        roots.reserve(schema.root_field.fields.size());
+        for (const auto& field_ptr : schema.root_field.fields) {
+            const auto* field = get_field_ptr(field_ptr);
+            if (field != nullptr) {
+                roots.push_back(build_schema_identity_from_external_field(*field));
+            }
+        }
+        std::vector<ColumnDefinition> path;
+        if (find_column_identity_path_by_id(roots, field_id, &path)) {
+            return path;
+        }
+        return std::nullopt;
+    };
+
+    const auto* current_schema = &_scan_params->history_schema_info.front();
+    if (_scan_params->__isset.current_schema_id) {
+        for (const auto& candidate_schema : _scan_params->history_schema_info) {
+            if (candidate_schema.__isset.schema_id &&
+                candidate_schema.schema_id == _scan_params->current_schema_id) {
+                current_schema = &candidate_schema;
+                break;
+            }
+        }
+    }
+    if (auto path = find_path(*current_schema); path.has_value()) {
+        return path;
+    }
+    if (!include_historical_schemas) {
+        return std::nullopt;
+    }
+
+    const schema::external::TSchema* latest_schema = nullptr;
+    std::optional<std::vector<ColumnDefinition>> latest_path;
+    for (const auto& candidate_schema : _scan_params->history_schema_info) {
+        if (&candidate_schema == current_schema) {
+            continue;
+        }
+        auto candidate_path = find_path(candidate_schema);
+        if (!candidate_path.has_value()) {
+            continue;
+        }
+        if (latest_schema == nullptr || (candidate_schema.__isset.schema_id &&
+                                         (!latest_schema->__isset.schema_id ||
+                                          candidate_schema.schema_id > latest_schema->schema_id))) {
+            latest_schema = &candidate_schema;
+            latest_path = std::move(candidate_path);
+        }
+    }
+    return latest_path;
 }
 
 Status TableReader::init(TableReadOptions&& options) {
@@ -686,6 +983,8 @@ Status TableReader::init(TableReadOptions&& options) {
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PushDownAggTime", table_profile, 1);
         _profile.open_reader_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "OpenReaderTime", table_profile, 1);
+        _profile.refresh_conjuncts_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "RefreshConjunctsTime", table_profile, 1);
         _profile.runtime_filter_partition_prune_timer = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", table_profile, 1);
         _profile.runtime_filter_partition_pruned_range_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -703,6 +1002,8 @@ Status TableReader::init(TableReadOptions&& options) {
                 _scanner_profile, "FileReaderCreateColumnMapperTime", file_reader_profile, 1);
         _profile.file_reader_open_timer = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "FileReaderOpenTime", file_reader_profile, 1);
+        _profile.file_reader_refresh_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderRefreshScanRequestTime", file_reader_profile, 1);
         _profile.file_reader_get_block_timer = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "FileReaderGetBlockTime", file_reader_profile, 1);
         _profile.file_reader_aggregate_timer = ADD_CHILD_TIMER_WITH_LEVEL(
@@ -762,6 +1063,112 @@ Status TableReader::_build_table_filters_from_conjuncts() {
             _constant_pruning_safe_filter_count = _table_filters.size();
         }
     }
+    return Status::OK();
+}
+
+namespace {
+
+bool same_scan_projection(const LocalColumnIndex& lhs, const LocalColumnIndex& rhs) {
+    if (lhs.index != rhs.index || lhs.project_all_children != rhs.project_all_children ||
+        lhs.children.size() != rhs.children.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < lhs.children.size(); ++index) {
+        if (!same_scan_projection(lhs.children[index], rhs.children[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+const LocalColumnIndex* find_scan_projection(const FileScanRequest& request,
+                                             LocalColumnId column_id) {
+    const auto find_by_id = [column_id](const std::vector<LocalColumnIndex>& projections) {
+        return std::ranges::find_if(projections, [column_id](const LocalColumnIndex& projection) {
+            return projection.column_id() == column_id;
+        });
+    };
+    auto it = find_by_id(request.predicate_columns);
+    if (it != request.predicate_columns.end()) {
+        return &*it;
+    }
+    it = find_by_id(request.non_predicate_columns);
+    return it == request.non_predicate_columns.end() ? nullptr : &*it;
+}
+
+bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest& rhs) {
+    if (lhs.local_positions != rhs.local_positions) {
+        return false;
+    }
+    for (const auto& [column_id, _] : lhs.local_positions) {
+        const auto* lhs_projection = find_scan_projection(lhs, column_id);
+        const auto* rhs_projection = find_scan_projection(rhs, column_id);
+        if (lhs_projection == nullptr || rhs_projection == nullptr ||
+            !same_scan_projection(*lhs_projection, *rhs_projection)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.refresh_conjuncts_timer);
+    _conjuncts = std::move(conjuncts);
+    if (_data_reader.reader == nullptr) {
+        // The split is prepared but its physical reader has not opened yet. open_reader() will use
+        // this newest snapshot directly, so no pending request is needed.
+        return Status::OK();
+    }
+    if (!_data_reader.reader->supports_scan_request_refresh()) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_build_table_filters_from_conjuncts());
+    // create_scan_request() rebuilds mapping projections in place. Build late predicates with an
+    // isolated mapper so the active row group cannot observe an unprepared or incompatible mapper
+    // before its physical request reaches the reader's safe activation boundary.
+    auto refreshed_mapper = _data_reader.reader->create_column_mapper(_mapper_options);
+    DORIS_CHECK(refreshed_mapper != nullptr);
+    RETURN_IF_ERROR(refreshed_mapper->create_mapping(_projected_columns, _partition_values,
+                                                     _data_reader.file_schema));
+    auto refreshed_request = std::make_shared<FileScanRequest>();
+    RETURN_IF_ERROR(refreshed_mapper->create_scan_request(
+            _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
+            _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
+    // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
+    // available whenever the split started with pending filters.
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
+        _push_down_count_columns->empty() && _all_runtime_filters_applied_for_split) {
+        for (const auto& column : refreshed_request->non_predicate_columns) {
+            refreshed_request->count_star_placeholder_columns.push_back(column.column_id());
+        }
+    }
+    RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
+    if (_file_scan_request == nullptr ||
+        !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
+        // A reader cannot reinterpret columns already materialized with another block layout.
+        // Keep scanner-level filtering as the correctness fallback for hidden slots or nested
+        // projections instead of switching an incompatible physical shape mid-file.
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_open_local_filter_exprs(*refreshed_request));
+
+    if (_condition_cache_ctx != nullptr && !_condition_cache_ctx->is_hit) {
+        // Rows before and after a late RF were evaluated by different predicate snapshots. Such a
+        // partial MISS bitmap must never be published under either snapshot's cache key.
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        _data_reader.reader->set_condition_cache_context(nullptr);
+    }
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_refresh_timer);
+        RETURN_IF_ERROR(_data_reader.reader->queue_scan_request(refreshed_request));
+    }
+    _file_scan_request = std::move(refreshed_request);
     return Status::OK();
 }
 

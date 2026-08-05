@@ -17,7 +17,8 @@
 
 package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -30,6 +31,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Properties;
 import java.util.TreeSet;
 
 /**
@@ -61,11 +63,27 @@ public class ConnectorPluginSurfaceTest {
 
     private static final String BASELINE_RESOURCE = "/connector-plugin-surface.txt";
 
-    /** The types a connector plugin implements or calls. Everything reachable on them is the contract. */
+    @Test
+    public void connectorApiMajorTracksTheRecordedSurfaceChange() throws IOException {
+        Properties version = new Properties();
+        try (InputStream in = ConnectorProvider.class.getResourceAsStream(
+                "/META-INF/doris/connector-plugin-api-version.properties")) {
+            Assertions.assertNotNull(in, "missing connector plugin API version resource");
+            version.load(in);
+        }
+        // ConnectorWritePlanProvider and ConnectorColumnHandle gained public default methods in this
+        // surface revision. A plugin built against major 3 must be refused rather than silently run
+        // against an expanded contract it did not compile against.
+        Assertions.assertEquals("4.0", version.getProperty("api.version"));
+    }
+
+    /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorProvider.class,
             ConnectorContext.class,
             Connector.class,
+            ConnectorColumnHandle.class,
+            ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
             org.apache.doris.extension.spi.PluginContext.class);

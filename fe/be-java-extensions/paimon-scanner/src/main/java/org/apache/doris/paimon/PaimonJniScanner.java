@@ -24,15 +24,21 @@ import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.table.DelegatedFileStoreTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
+import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
@@ -45,18 +51,23 @@ import java.lang.management.MemoryUsage;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntSupplier;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
@@ -65,16 +76,31 @@ public class PaimonJniScanner extends JniScanner {
     private static final String PAIMON_OPTION_PREFIX = "paimon.";
     private static final String ASYNC_READER_THREAD_NAME_PREFIX = "paimon-reader-async-thread";
     private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
+    private static final String SERIALIZED_TABLE = "serialized_table";
+    private static final int MAX_MANIFEST_PARALLELISM = 256;
+    static final String DORIS_MANIFEST_PARALLELISM_CAP =
+            "doris.scan.manifest.parallelism-cap";
+    static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
+    static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
+    private static final String SERIALIZED_SYSTEM_SOURCE =
+            PAIMON_OPTION_PREFIX + DORIS_SERIALIZED_SYSTEM_SOURCE;
     static final String ENABLE_JNI_IO_MANAGER = "paimon.jni.enable_jni_io_manager";
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.jni.io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.jni.io_manager.impl_class";
     private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
+    // Scanner profiles are collected per split, but the asynchronous reader pool is JVM-global.
+    // Share one sample so profile collection does not allocate ThreadInfo for every scanner.
+    private static final CachedThreadCounter ASYNC_READER_THREAD_COUNTER = new CachedThreadCounter(
+            TimeUnit.SECONDS.toNanos(1L), System::nanoTime,
+            () -> countThreadsByNamePrefix(ASYNC_READER_THREAD_NAME_PREFIX));
 
     private final Map<String, String> params;
     private final Map<String, String> hadoopOptionParams;
     private final String paimonSplit;
     private final String paimonPredicate;
+    private final String tableCacheKey;
     private Table table;
+    private PaimonTableCache.TableCacheEntry tableCacheEntry;
     private RecordReader<InternalRow> reader;
     private IOManager ioManager;
     private String ioManagerTempDirs;
@@ -93,21 +119,29 @@ public class PaimonJniScanner extends JniScanner {
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("params:{}", params);
-        }
         this.params = params;
-        String[] requiredFields = splitParam(params.get("required_fields"), ",");
-        String[] requiredTypes = splitParam(params.get("columns_types"), "#");
+        boolean encodedSchema = usesEncodedSchema(params);
+        String[] requiredFields = requiredFields(params);
+        String[] requiredTypes = requiredTypes(params);
         Preconditions.checkArgument(requiredFields.length == requiredTypes.length,
                 "required_fields size %s does not match columns_types size %s",
                 requiredFields.length, requiredTypes.length);
         ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
         for (int i = 0; i < requiredTypes.length; i++) {
-            columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
+            columnTypes[i] = encodedSchema
+                    ? ColumnType.parseTypeWithEncodedStructFields(requiredFields[i], requiredTypes[i])
+                    : ColumnType.parseType(requiredFields[i], requiredTypes[i]);
+        }
+        if (LOG.isDebugEnabled()) {
+            // The raw map may carry storage or JDBC credentials; diagnostics must only use
+            // values derived from a fixed non-sensitive whitelist.
+            LOG.debug(buildDebugSummary(batchSize, requiredFields.length));
         }
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
+        tableCacheKey = params.get("serialized_table_cache_key");
+        Preconditions.checkState(tableCacheKey != null && !tableCacheKey.isEmpty(),
+                "Missing required Paimon scanner parameter: serialized_table_cache_key");
         String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
         initTableInfo(columnTypes, requiredFields, batchSize);
@@ -130,8 +164,7 @@ public class PaimonJniScanner extends JniScanner {
             Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
                 PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
-                initTable();
-                initReader();
+                initTableAndReader();
                 return null;
             });
             resetDatetimeV2Precision();
@@ -341,6 +374,7 @@ public class PaimonJniScanner extends JniScanner {
                 }
             }
         } finally {
+            releaseCachedTable();
             markScannerClosedForMetrics();
         }
         if (exception != null) {
@@ -490,7 +524,56 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private static int currentAsyncReaderThreadCount() {
-        return countThreadsByNamePrefix(ASYNC_READER_THREAD_NAME_PREFIX);
+        return ASYNC_READER_THREAD_COUNTER.get();
+    }
+
+    static String buildDebugSummary(int batchSize, int requiredFieldCount) {
+        return "Paimon JNI scanner configuration: batchSize=" + batchSize
+                + ", requiredFieldCount=" + requiredFieldCount;
+    }
+
+    static String[] requiredFields(Map<String, String> params) {
+        String encodedFields = params.get("required_fields_base64");
+        if (encodedFields == null) {
+            return splitParam(params.get("required_fields"), ",");
+        }
+        if (encodedFields.isEmpty()) {
+            return new String[0];
+        }
+        // Each identifier is encoded independently, so delimiters in quoted identifiers cannot
+        // change field cardinality. The legacy parameter remains the rolling-upgrade fallback.
+        return decodeSchemaValues(encodedFields);
+    }
+
+    static String[] requiredTypes(Map<String, String> params) {
+        String encodedTypes = params.get("columns_types_base64");
+        return encodedTypes == null
+                ? splitParam(params.get("columns_types"), "#")
+                : decodeSchemaValues(encodedTypes);
+    }
+
+    private static boolean usesEncodedSchema(Map<String, String> params) {
+        boolean hasFields = params.containsKey("required_fields_base64");
+        boolean hasTypes = params.containsKey("columns_types_base64");
+        // Both halves describe one schema version; accepting a mixed pair would reintroduce the
+        // cardinality and nested-name ambiguity this protocol is intended to remove.
+        Preconditions.checkArgument(hasFields == hasTypes,
+                "required_fields_base64 and columns_types_base64 must be provided together");
+        return hasFields;
+    }
+
+    private static String[] decodeSchemaValues(String encodedValues) {
+        if (encodedValues.isEmpty()) {
+            return new String[0];
+        }
+        return Arrays.stream(encodedValues.split(",", -1))
+                .map(encoded -> {
+                    // A marker on every token preserves list arity when the encoded value itself is empty.
+                    Preconditions.checkArgument(encoded.startsWith("$"),
+                            "Encoded JNI schema token is missing its version marker");
+                    return new String(Base64.getDecoder().decode(encoded.substring(1)), StandardCharsets.UTF_8);
+                })
+                .toArray(String[]::new);
     }
 
     static int countThreadsByNamePrefix(String threadNamePrefix) {
@@ -503,6 +586,36 @@ public class PaimonJniScanner extends JniScanner {
             }
         }
         return count;
+    }
+
+    static final class CachedThreadCounter {
+        private final long ttlNanos;
+        private final LongSupplier ticker;
+        private final IntSupplier sampler;
+        private volatile long lastSampleNanos = Long.MIN_VALUE;
+        private volatile int cachedValue;
+
+        CachedThreadCounter(long ttlNanos, LongSupplier ticker, IntSupplier sampler) {
+            this.ttlNanos = ttlNanos;
+            this.ticker = ticker;
+            this.sampler = sampler;
+        }
+
+        int get() {
+            long now = ticker.getAsLong();
+            long sampledAt = lastSampleNanos;
+            if (sampledAt != Long.MIN_VALUE && now - sampledAt < ttlNanos) {
+                return cachedValue;
+            }
+            synchronized (this) {
+                now = ticker.getAsLong();
+                if (lastSampleNanos == Long.MIN_VALUE || now - lastSampleNanos >= ttlNanos) {
+                    cachedValue = sampler.getAsInt();
+                    lastSampleNanos = now;
+                }
+                return cachedValue;
+            }
+        }
     }
 
     private void markScannerOpenedForMetrics() {
@@ -523,61 +636,278 @@ public class PaimonJniScanner extends JniScanner {
         if (value == null || value.trim().isEmpty()) {
             return Optional.empty();
         }
-        String normalized = value.trim().toLowerCase(Locale.ROOT).replace("_", "").replace(" ", "");
-        int unitStart = 0;
-        while (unitStart < normalized.length()
-                && (Character.isDigit(normalized.charAt(unitStart)) || normalized.charAt(unitStart) == '.')) {
-            unitStart++;
-        }
-        if (unitStart == 0) {
-            return Optional.empty();
-        }
         try {
-            double number = Double.parseDouble(normalized.substring(0, unitStart));
-            String unit = normalized.substring(unitStart);
-            long multiplier;
-            switch (unit) {
-                case "":
-                case "b":
-                case "byte":
-                case "bytes":
-                    multiplier = 1L;
-                    break;
-                case "k":
-                case "kb":
-                case "kib":
-                    multiplier = 1024L;
-                    break;
-                case "m":
-                case "mb":
-                case "mib":
-                    multiplier = 1024L * 1024L;
-                    break;
-                case "g":
-                case "gb":
-                case "gib":
-                    multiplier = 1024L * 1024L * 1024L;
-                    break;
-                case "t":
-                case "tb":
-                case "tib":
-                    multiplier = 1024L * 1024L * 1024L * 1024L;
-                    break;
-                default:
-                    return Optional.empty();
-            }
-            return Optional.of((long) (number * multiplier));
-        } catch (NumberFormatException e) {
+            // Keep the BE guard's accepted grammar identical to the Paimon option parser that will
+            // consume this value; accepting a superset lets invalid serialized options reach scans.
+            return Optional.of(MemorySize.parse(value).getBytes());
+        } catch (IllegalArgumentException e) {
             return Optional.empty();
         }
     }
 
     private void initTable() {
-        Preconditions.checkState(params.containsKey("serialized_table"));
-        table = PaimonUtils.deserialize(params.get("serialized_table"));
+        Preconditions.checkState(params.containsKey(SERIALIZED_TABLE));
+        table = PaimonUtils.deserialize(params.get(SERIALIZED_TABLE));
+        params.remove(SERIALIZED_TABLE);
+        String encodedSystemSource = params.get(SERIALIZED_SYSTEM_SOURCE);
+        FileStoreTable systemSource = encodedSystemSource == null
+                ? null : PaimonUtils.deserialize(encodedSystemSource);
+        params.remove(SERIALIZED_SYSTEM_SOURCE);
+        table = applyBackendManifestParallelism(table,
+                params.get(PAIMON_OPTION_PREFIX + DORIS_MANIFEST_PARALLELISM_CAP),
+                Runtime.getRuntime().availableProcessors(), systemSource,
+                params.get(PAIMON_OPTION_PREFIX + DORIS_SYSTEM_TABLE_TYPE));
+        validateSerializedReaderOptions(table);
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
+        }
+    }
+
+    static Table applyBackendManifestParallelism(
+            Table table, String feParallelismCap, int localCapacity) {
+        return applyBackendManifestParallelism(
+                table, feParallelismCap, localCapacity, null, null);
+    }
+
+    static Table applyBackendManifestParallelism(
+            Table table, String feParallelismCap, int localCapacity,
+            FileStoreTable systemSource, String systemTableType) {
+        // Old FEs do not send a cap, so the BE must still preserve the hardware-independent
+        // ceiling that prevents one scan from growing Paimon's JVM-global executor beyond 256.
+        int requestedBound = Math.min(localCapacity, MAX_MANIFEST_PARALLELISM);
+        if (feParallelismCap != null) {
+            requestedBound = Math.min(parsePositiveManifestParallelism(feParallelismCap), requestedBound);
+        }
+        final int safeBound = requestedBound;
+        boolean materializeAbsent = localCapacity > safeBound;
+        if (systemSource != null && systemTableType != null) {
+            FileStoreTable cappedSource =
+                    applyManifestParallelismBound(systemSource, safeBound, materializeAbsent);
+            FileStoreTable planningSource = unwrapSystemPlanningSource(cappedSource);
+            // Read-only wrappers hide the data table's option map. Rebuild from the transported
+            // exact source so a smaller BE can lower that hidden planner without rewinding schema.
+            Table rebuilt = SystemTableLoader.load(systemTableType, planningSource);
+            if (rebuilt == null) {
+                throw new IllegalArgumentException(
+                        "Unsupported Paimon system table '" + systemTableType + "'");
+            }
+            return rebuilt;
+        }
+        return applyManifestParallelismBound(table, safeBound, materializeAbsent);
+    }
+
+    private static Table applyManifestParallelismBound(
+            Table table, int safeBound, boolean materializeAbsent) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            FileStoreTable main = applyManifestParallelismBound(
+                    pair.wrapped(), safeBound, materializeAbsent);
+            FileStoreTable fallback = applyManifestParallelismBound(
+                    pair.fallback(), safeBound, materializeAbsent);
+            if (main == pair.wrapped() && fallback == pair.fallback()) {
+                return table;
+            }
+            // Each branch owns an independent planner setting; a smaller sibling is not an
+            // execution ceiling and must never throttle the other branch.
+            return new FallbackReadFileStoreTable(main, fallback);
+        }
+
+        if (table instanceof DelegatedFileStoreTable) {
+            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
+            FileStoreTable normalized = applyManifestParallelismBound(
+                    wrapped, safeBound, materializeAbsent);
+            if (normalized == wrapped) {
+                return table;
+            }
+            // FE planning already enforced privilege delegates. Keeping one here would hide the
+            // fallback tree and force a single copied cap onto branches with independent values.
+            return normalized;
+        }
+
+        Optional<FileStoreTable> hiddenSource = hiddenSystemSource(table);
+        if (hiddenSource.isPresent()) {
+            FileStoreTable normalized = applyManifestParallelismBound(
+                    hiddenSource.get(), safeBound, materializeAbsent);
+            FileStoreTable planningSource = unwrapSystemPlanningSource(normalized);
+            return planningSource == hiddenSource.get()
+                    ? table : rebuildHiddenSystemTable(table, planningSource);
+        }
+
+        if (!(table instanceof FileStoreTable)) {
+            return table;
+        }
+
+        String configured = table.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
+        if (configured == null && !materializeAbsent) {
+            return table;
+        }
+        if (configured != null && parsePositiveManifestParallelism(configured) <= safeBound) {
+            return table;
+        }
+        // An absent option inherits Paimon's processor-count default, so materialize the stable
+        // bound instead of assuming that an empty option map is already safe on large hosts.
+        Map<String, String> cap = Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeBound));
+        return ((FileStoreTable) table).copyWithoutTimeTravel(cap);
+    }
+
+    private static Table rebuildHiddenSystemTable(Table wrapper, FileStoreTable normalizedSource) {
+        try {
+            // Old FE payloads have no type/source side channel. Every Paimon 1.3 system wrapper
+            // owns a FileStoreTable constructor, which preserves the exact wrapper without a
+            // broadcast copy that would flatten fallback branch preferences.
+            Constructor<?> constructor = wrapper.getClass().getDeclaredConstructor(FileStoreTable.class);
+            constructor.setAccessible(true);
+            return (Table) constructor.newInstance(normalizedSource);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new IllegalArgumentException(
+                    "Unable to rebuild serialized Paimon system table "
+                            + wrapper.getClass().getName(), e);
+        }
+    }
+
+    private static FileStoreTable applyManifestParallelismBound(
+            FileStoreTable table, int safeBound, boolean materializeAbsent) {
+        return (FileStoreTable) applyManifestParallelismBound(
+                (Table) table, safeBound, materializeAbsent);
+    }
+
+    private static FileStoreTable unwrapSystemPlanningSource(FileStoreTable table) {
+        FileStoreTable current = table;
+        // System wrappers dispatch fallback reads only when the fallback pair is their direct
+        // source; FE authorization has already run, so privilege-only delegates must not hide it.
+        while (current instanceof DelegatedFileStoreTable
+                && !(current instanceof FallbackReadFileStoreTable)) {
+            current = ((DelegatedFileStoreTable) current).wrapped();
+        }
+        return current;
+    }
+
+    private static int parsePositiveManifestParallelism(String value) {
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed < 1) {
+                throw new IllegalArgumentException("Paimon manifest parallelism cap must be positive.");
+            }
+            return parsed;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Paimon manifest parallelism cap must be an integer.", e);
+        }
+    }
+
+    private static void validateSerializedReaderOptions(Table table) {
+        validateSerializedReadBatchSize(table.options().get(CoreOptions.READ_BATCH_SIZE.key()));
+        validateSerializedAsyncThreshold(table.options().get(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()));
+        validateSerializedSplitTargetSize(table.options().get(CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key()));
+        if (table instanceof FallbackReadFileStoreTable) {
+            validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).fallback());
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            validateSerializedReaderOptions(((DelegatedFileStoreTable) table).wrapped());
+            return;
+        }
+        hiddenSystemSource(table).ifPresent(PaimonJniScanner::validateSerializedReaderOptions);
+    }
+
+    private static Optional<FileStoreTable> hiddenSystemSource(Table table) {
+        for (Class<?> type = table.getClass(); type != null; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (!FileStoreTable.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+                try {
+                    // Old FE system-table payloads carry no source side channel, while Paimon
+                    // intentionally hides the planner table behind a private wrapper field.
+                    field.setAccessible(true);
+                    return Optional.ofNullable((FileStoreTable) field.get(table));
+                } catch (IllegalAccessException | RuntimeException e) {
+                    throw new IllegalArgumentException(
+                            "Unable to validate the serialized Paimon system table source", e);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static void validateSerializedSplitTargetSize(String value) {
+        if (value == null) {
+            return;
+        }
+        Optional<Long> bytes = parseDataSizeBytes(value);
+        // Old FE payloads bypass the allowlist validator; zero disables bin packing and can turn
+        // one deferred system-table plan into one split per data file.
+        if (!bytes.isPresent() || bytes.get() < 1L) {
+            throw new IllegalArgumentException("Paimon option '"
+                    + CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key()
+                    + "' must be positive, but was " + value);
+        }
+    }
+
+    private static void validateSerializedAsyncThreshold(String value) {
+        if (value == null) {
+            return;
+        }
+        Optional<Long> bytes = parseDataSizeBytes(value);
+        // A serialized table can come from an older FE, so enforce the reader-allocation contract
+        // again before an unsafe threshold reaches Paimon's asynchronous read path.
+        if (!bytes.isPresent() || bytes.get() < 1024L * 1024L
+                || bytes.get() > 1024L * 1024L * 1024L) {
+            throw new IllegalArgumentException("Paimon option '"
+                    + CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()
+                    + "' must be between 1 MB and 1 GB, but was " + value);
+        }
+    }
+
+    private static void validateSerializedReadBatchSize(String value) {
+        if (value == null) {
+            return;
+        }
+        try {
+            int batchSize = Integer.parseInt(value);
+            if (batchSize < 1 || batchSize > 65536) {
+                throw new IllegalArgumentException("Paimon option '" + CoreOptions.READ_BATCH_SIZE.key()
+                        + "' must be between 1 and 65536, but was " + value);
+            }
+        } catch (NumberFormatException e) {
+            // Serialized tables can come from an older FE that did not validate reader options;
+            // fail fast instead of allowing an invalid batch size to reach Paimon's read loop.
+            throw new IllegalArgumentException("Paimon option '" + CoreOptions.READ_BATCH_SIZE.key()
+                    + "' must be an integer between 1 and 65536, but was " + value, e);
+        }
+    }
+
+    private boolean initTableFromCache() {
+        PaimonTableCache.TableCacheEntry cachedEntry = PaimonTableCache.acquire(tableCacheKey);
+        if (cachedEntry == null) {
+            return false;
+        }
+        tableCacheEntry = cachedEntry;
+        table = cachedEntry.table();
+        paimonAllFieldNames = cachedEntry.fieldNames();
+        params.remove(SERIALIZED_TABLE);
+        params.remove(SERIALIZED_SYSTEM_SOURCE);
+        return true;
+    }
+
+    private void initTableAndReader() throws IOException {
+        if (initTableFromCache()) {
+            initReader();
+            return;
+        }
+        initTable();
+        initReader();
+        PaimonTableCache.TableCacheEntry candidate =
+                new PaimonTableCache.TableCacheEntry(table, paimonAllFieldNames);
+        if (PaimonTableCache.publish(tableCacheKey, candidate)) {
+            tableCacheEntry = candidate;
+        }
+    }
+
+    private void releaseCachedTable() {
+        if (tableCacheEntry != null) {
+            PaimonTableCache.release(tableCacheKey, tableCacheEntry);
+            tableCacheEntry = null;
         }
     }
 

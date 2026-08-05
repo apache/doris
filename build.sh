@@ -723,10 +723,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _fs_mod
-    # Connector API, SPI, and plugin modules (loaded at runtime as plugins)
-    modules+=("fe-connector/fe-connector-api")
+    # Connector SPI and plugin modules (loaded at runtime as plugins)
     modules+=("fe-connector/fe-connector-spi")
-    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
+    # Keep this list identical to the deploy loop's (search CONN_PLUGIN_DIR). A module missing here
+    # but present there is not a no-op: the deploy step unzips whatever archive is left in the
+    # module's target/ from some earlier build, so the plugin silently ships stale.
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc; do
         if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
             modules+=("fe-connector/fe-connector-${_conn_mod}")
         fi
@@ -1040,6 +1042,16 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/jdbc_drivers/"
+    # Drop point for ADBC driver shared libraries. Doris does not ship the drivers themselves; the
+    # same file must be placed here AND under be/plugins/adbc_drivers on every BE, because partition
+    # descriptors are driver-private bytes with no interoperability across driver implementations.
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/adbc_drivers/"
+    # The ADBC JNI shim, built by thirdparty. NOT the copy inside the adbc-driver-jni jar: the
+    # released one needs GLIBC 2.34 / GLIBCXX 3.4.31, which the supported build hosts do not have.
+    # conf/fe.conf points arrow.adbc.driver.jni.library.path at this directory.
+    if [[ -f "${DORIS_THIRDPARTY}/installed/lib64/libadbc_driver_jni.so" ]]; then
+        cp -p "${DORIS_THIRDPARTY}/installed/lib64/libadbc_driver_jni.so" "${DORIS_OUTPUT}/fe/lib/"
+    fi
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_udf/"
     # Drop point for the trino-connector's own Trino plugins. Deliberately NOT the legacy
     # plugins/connectors/: that name is still read as a fallback for deployments upgrading from
@@ -1070,7 +1082,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy connector provider plugins as independent plugin directories.
     # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
     CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
-    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
+    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc; do
         conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
         conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"
         if [ ! -d "${conn_module_dir}" ]; then
@@ -1082,8 +1094,17 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
         mkdir -p "${conn_plugin_target}"
         unzip -o "${conn_zip}" -d "${conn_plugin_target}/"
+        # A connector's own settings file. The zip carries only <name>.conf.template; the live
+        # <name>.conf is seeded from it here and never overwritten, so an upgrade that unzips a new
+        # plugin build over this directory refreshes the jars and the template but leaves whatever the
+        # administrator configured. Deliberately generic (globbed on *.conf.template, no connector
+        # named): a new connector ships a template and needs no change here.
+        for conn_conf_tpl in "${conn_plugin_target}"/*.conf.template; do
+            [ -e "${conn_conf_tpl}" ] || continue
+            cp -n "${conn_conf_tpl}" "${conn_conf_tpl%.template}"
+        done
     done
-    unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip
+    unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip conn_conf_tpl
 
     # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
     # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
@@ -1299,6 +1320,8 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
+    # Mirrors the FE drop point above; every BE must hold the same ADBC driver file the FE holds.
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/adbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/python_udf/"
     # Mirrors the FE drop point above; the BE JNI scanner loads the same Trino plugins independently.

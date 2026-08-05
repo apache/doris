@@ -17,17 +17,17 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.BranchChange;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
-import org.apache.doris.connector.api.ddl.ConnectorSortField;
-import org.apache.doris.connector.api.ddl.DropRefChange;
-import org.apache.doris.connector.api.ddl.PartitionFieldChange;
-import org.apache.doris.connector.api.ddl.TagChange;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.BranchChange;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
+import org.apache.doris.connector.spi.ddl.ConnectorSortField;
+import org.apache.doris.connector.spi.ddl.DropRefChange;
+import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
+import org.apache.doris.connector.spi.ddl.TagChange;
 
 import org.apache.iceberg.TableProperties;
 import org.junit.jupiter.api.Assertions;

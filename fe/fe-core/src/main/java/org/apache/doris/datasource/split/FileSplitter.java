@@ -26,7 +26,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.fs.BlockLocation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,7 +93,7 @@ public class FileSplitter {
     public List<Split> splitFile(
                 LocationPath path,
                 long specifiedFileSplitSize,
-                BlockLocation[] blockLocations,
+                FileBlockLocation[] blockLocations,
                 long length,
                 long modificationTime,
                 boolean splittable,
@@ -108,8 +107,8 @@ public class FileSplitter {
         // Pass splitCreator.create() to set target file split size to calculate split weight.
         long targetFileSplitSize = specifiedFileSplitSize > 0 ? specifiedFileSplitSize : maxSplitSize;
         if (blockLocations == null) {
-            blockLocations = new BlockLocation[1];
-            blockLocations[0] = new BlockLocation(null, null, 0L, length);
+            blockLocations = new FileBlockLocation[1];
+            blockLocations[0] = new FileBlockLocation(null, 0L, length);
         }
         List<Split> result = Lists.newArrayList();
         TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.getNormalizedLocation());
@@ -147,7 +146,7 @@ public class FileSplitter {
         // split file by block
         long start = 0;
         ImmutableList.Builder<InternalBlock> blockBuilder = ImmutableList.builder();
-        for (BlockLocation blockLocation : blockLocations) {
+        for (FileBlockLocation blockLocation : blockLocations) {
             // clamp the block range
             long blockStart = Math.max(start, blockLocation.getOffset());
             long blockEnd = Math.min(start + length, blockLocation.getOffset() + blockLocation.getLength());
@@ -215,7 +214,7 @@ public class FileSplitter {
         }
     }
 
-    private int getBlockIndex(BlockLocation[] blkLocations, long offset) {
+    private int getBlockIndex(FileBlockLocation[] blkLocations, long offset) {
         if (blkLocations == null || blkLocations.length == 0) {
             return -1;
         }
@@ -225,7 +224,7 @@ public class FileSplitter {
                 return i;
             }
         }
-        BlockLocation last = blkLocations[blkLocations.length - 1];
+        FileBlockLocation last = blkLocations[blkLocations.length - 1];
         long fileLength = last.getOffset() + last.getLength() - 1L;
         throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
     }

@@ -18,14 +18,14 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
@@ -290,12 +290,11 @@ public class PluginDrivenSysTableTest {
         PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(base, "snapshots");
 
         // WHY: information_schema.tables.TABLE_TYPE for an iceberg sys table (e.g. tbl$snapshots) must read
-        // "BASE TABLE", byte-identical to a legacy ICEBERG_EXTERNAL_TABLE. The sys table inherits
-        // PLUGIN_EXTERNAL_TABLE and routes getMysqlType -> TableType.toMysqlType; the same-test pin of
-        // ICEBERG_EXTERNAL_TABLE.toMysqlType proves new == legacy with no Env. MUTATION: deleting the
+        // "BASE TABLE", byte-identical to what a legacy ICEBERG_EXTERNAL_TABLE reported. The sys table inherits
+        // PLUGIN_EXTERNAL_TABLE and routes getMysqlType -> TableType.toMysqlType. The legacy type constant is
+        // gone, so the legacy answer is pinned here as the frozen literal it always was. MUTATION: deleting the
         // PLUGIN_EXTERNAL_TABLE case in TableIf.TableType.toMysqlType -> sys getMysqlType returns null -> red.
-        Assertions.assertEquals("BASE TABLE", sys.getMysqlType());
-        Assertions.assertEquals("BASE TABLE", TableType.ICEBERG_EXTERNAL_TABLE.toMysqlType(),
+        Assertions.assertEquals("BASE TABLE", sys.getMysqlType(),
                 "the new plugin sys path must match the legacy iceberg TABLE_TYPE");
     }
 

@@ -50,8 +50,7 @@ static StringRef string_ref_at(const ColumnString::Chars& data,
                                const ColumnString::Offsets& offsets, size_t i) {
     DCHECK_LT(i, offsets.size());
     const auto previous_offset = i == 0 ? 0 : offsets[i - 1];
-    return StringRef(data.data() + previous_offset, offsets[i] - previous_offset)
-            .trim_tail_padding_zero();
+    return StringRef(data.data() + previous_offset, offsets[i] - previous_offset);
 }
 
 static void get_utf8_char_offsets(const StringRef& ref, Utf8Offsets& offsets) {
@@ -390,15 +389,14 @@ private:
                                ResultPaddedPODArray& res) {
         const size_t size = offsets.size();
         res.resize(size);
-        const auto constant_ref = constant.trim_tail_padding_zero();
-        const bool constant_ascii = simd::VStringFunctions::is_ascii(constant_ref);
+        const bool constant_ascii = simd::VStringFunctions::is_ascii(constant);
         Utf8Offsets constant_offsets;
-        get_utf8_char_offsets(constant_ref, constant_offsets);
+        get_utf8_char_offsets(constant, constant_offsets);
         Utf8Offsets value_offsets;
         for (size_t i = 0; i < size; ++i) {
             RETURN_IF_ERROR(distance_with_const_offsets(string_ref_at(data, offsets, i),
-                                                        value_offsets, constant_ref,
-                                                        constant_offsets, constant_ascii, res[i]));
+                                                        value_offsets, constant, constant_offsets,
+                                                        constant_ascii, res[i]));
         }
         return Status::OK();
     }

@@ -17,21 +17,21 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanProfile;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
-import org.apache.doris.connector.api.scan.ConnectorSplitSource;
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
@@ -51,6 +51,7 @@ import org.apache.iceberg.DeleteFileIndex;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
@@ -64,6 +65,7 @@ import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
@@ -83,6 +85,8 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.ScanTaskUtil;
@@ -95,8 +99,10 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -105,6 +111,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -172,10 +179,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     // #65784: version marker (TFileScanRangeParams.iceberg_scan_semantics_version) advertising that this plan
     // was produced by an FE honoring authoritative iceberg name mappings + logical initial-default
-    // materialization. BE gates the result-changing v1 semantics on it (supports_iceberg_scan_semantics_v1), so
-    // an OLD-FE plan (marker absent) keeps legacy behavior on a NEW BE during a rolling upgrade. Mirrors legacy
+    // materialization. BE gates the complete result-changing semantics on version 2, while version 1 remains
+    // compatible with the earlier flat-default behavior. Thus an old-FE plan (marker absent) keeps legacy
+    // behavior on a new BE during a rolling upgrade. Mirrors legacy
     // IcebergScanNode.ICEBERG_SCAN_SEMANTICS_VERSION / enableCurrentIcebergScanSemantics().
-    static final int ICEBERG_SCAN_SEMANTICS_VERSION = 1;
+    static final int ICEBERG_SCAN_SEMANTICS_VERSION = 2;
 
     // FIX-SCHEMA-EVOLUTION (T06): scan-level prop carrying the base64 TBinaryProtocol-serialized schema
     // dictionary (current_schema_id + the single history_schema_info entry). getScanNodeProperties builds it
@@ -200,7 +208,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // populateScanLevelParams, so it never reaches BE. Its presence also gates the line (absent when the cache
     // is disabled -> no line, matching legacy notContains).
     private static final String MANIFEST_CACHE_QUERYID_PROP = "iceberg.manifest_cache_query_id";
-
     // T08 manifest cache gate (ported from fe-core IcebergExternalCatalog + IcebergUtils.isManifestCacheEnabled
     // + CacheSpec.isCacheEnabled). Default OFF: the default scan path stays the iceberg SDK planFiles()
     // (splitFiles). When enabled, planScan re-plans at the manifest level so the per-manifest data/delete-file
@@ -424,8 +431,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * <p>Excluded from streaming (return -1): system tables (JNI serialized-split path); batch mode disabled;
      * empty table (no snapshot); a servable {@code COUNT(*)} pushdown (collapsed to one range); and
      * format-version &ge; 3 — v3 carries the commit-bridge rewritable-delete stash that the write side reads at
-     * write-plan time, which streaming would fill too late (at BE-pull time), resurrecting deleted rows. See the
-     * design doc §5.</p>
+     * write-plan time, which streaming would fill too late (at BE-pull time), resurrecting deleted rows.</p>
      */
     @Override
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
@@ -891,8 +897,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      *
      * <p>Legacy's {@code metricsReporter} + {@code planWith(threadPool)} are dropped, the same documented
      * deviation {@link #buildScan} already makes for every other scan (profile-only; identical file set).
-     * Legacy's smooth-upgrade backend guard is deliberately NOT ported (design doc D1: implement the final
-     * form; the engine owns BE-compat and the SPI exposes no backends).
+     * Legacy's smooth-upgrade backend guard is deliberately not ported: the engine owns BE compatibility and
+     * the connector SPI exposes no backend inventory.
      */
     private List<ConnectorScanRange> doPlanPositionDeletesSystemTableScan(IcebergTableHandle handle,
             Table metadataTable, List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
@@ -1548,6 +1554,20 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveTable(session, iceHandle);
         Map<String, String> props = new LinkedHashMap<>();
         boolean systemTable = iceHandle.isSystemTable();
+        Schema scanSchema = null;
+        TableScan exactScan = null;
+        boolean hasApplicableEqualityDeletes = false;
+        if (!systemTable) {
+            scanSchema = pinnedSchema(table, iceHandle);
+            exactScan = buildScan(table, iceHandle, filter, session);
+            hasApplicableEqualityDeletes = hasApplicableEqualityDeletes(exactScan);
+            Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
+            if (requiresCurrentScanSemantics(
+                    table, exactScan, scanSchema, columns, hasApplicableEqualityDeletes, nameMapping)) {
+                props.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS,
+                        "Current Iceberg scan semantics");
+            }
+        }
         // Scan-level file_format_type is NOT merely a per-range default: BE selects FileScannerV2 vs the V1
         // FileScanner from it (FileScanLocalState::_should_use_file_scanner_v2), and that selector runs before
         // any split is fetched -> FORMAT_JNI here pins the ENTIRE scan to V1 whatever IcebergScanRange sets per
@@ -1625,18 +1645,27 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // FileQueryScanNode.classifyColumn categorizes it PARTITION_KEY, i.e. a NON-file slot filled from
         // columns_from_path. BE resolves through this dict only the slots it decodes FROM the file, so such a
         // column is never looked up in it whether or not the query projects it.
+        boolean enableVarbinary = Boolean.parseBoolean(
+                properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
+        boolean enableTimestampTz = Boolean.parseBoolean(
+                properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
         if (!systemTable) {
             String dict;
             boolean appendRowLineage = getFormatVersion(table) >= 3;
-            // #65502: the catalog's enable.mapping.timestamp_tz flag controls whether a TIMESTAMPTZ column's
-            // iceberg initial default keeps its trailing offset (mapping on) or is rendered as UTC wall time
-            // (mapping off, DATETIMEV2). Thread it into every dict branch so the default matches BE's read.
-            boolean enableTimestampTz = Boolean.parseBoolean(
-                    properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
-            if (iceHandle.hasSnapshotPin()) {
+            // The catalog's type-mapping flags control the Doris scalar types represented in the dictionary.
+            // In particular, enable.mapping.timestamp_tz decides whether an initial default keeps its trailing
+            // offset, while enable.mapping.varbinary decides the binary-like storage class. Thread both into
+            // every branch so the default and current field type match BE's read.
+            if (hasApplicableEqualityDeletes) {
+                List<NestedField> equalityFields = schemaForPotentialEqualityDeletes(
+                        table, exactScan, scanSchema);
+                dict = IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
+                        table, equalityFields, appendRowLineage,
+                        enableVarbinary, enableTimestampTz);
+            } else if (iceHandle.hasSnapshotPin()) {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, pinnedSchema(table, iceHandle), Collections.emptyList(), appendRowLineage,
-                        enableTimestampTz);
+                        table, scanSchema, Collections.emptyList(), appendRowLineage,
+                        enableVarbinary, enableTimestampTz);
             } else if (iceHandle.isTopnLazyMaterialize()) {
                 // Top-N lazy materialization (M-4): BE re-fetches the non-projected columns of the surviving
                 // rows by the synthesized row-id, so the dict must span the FULL latest schema, not just the
@@ -1644,12 +1673,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // field-id entry and the native read drops/mis-reads it. An empty requested list builds the
                 // dict over every top-level column (legacy initSchemaInfoForAllColumn parity).
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), Collections.emptyList(), appendRowLineage, enableTimestampTz);
+                        table, table.schema(), Collections.emptyList(), appendRowLineage,
+                        enableVarbinary, enableTimestampTz);
             } else {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(),
-                        withEqualityDeleteKeyColumns(table, requestedLowerNames(columns)),
-                        appendRowLineage, enableTimestampTz);
+                        table, table.schema(), requestedLowerNames(columns),
+                        appendRowLineage, enableVarbinary, enableTimestampTz);
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
         } else if (isPositionDeletesSysTable(iceHandle)) {
@@ -1678,7 +1707,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table metadataTable = MetadataTableUtils.createMetadataTableInstance(
                     table, MetadataTableType.POSITION_DELETES);
             props.put(SCHEMA_EVOLUTION_PROP, IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                    metadataTable, metadataTable.schema(), requestedLowerNames(columns), false));
+                    metadataTable, metadataTable.schema(), requestedLowerNames(columns), false,
+                    enableVarbinary, enableTimestampTz));
         }
         // Pushed-predicate EXPLAIN prop (explain gap): serialize the iceberg Expression form of each pushed
         // conjunct so appendExplainInfo can re-emit the legacy `icebergPredicatePushdown=` block. Same converter
@@ -1728,57 +1758,440 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return names;
     }
 
+    @VisibleForTesting
+    static boolean hasApplicableEqualityDeletes(TableScan scan) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null
+                || "0".equals(snapshot.summary().get(TOTAL_EQUALITY_DELETES))) {
+            return false;
+        }
+        // planFiles binds delete files to the exact filtered data-file tasks after partition and sequence
+        // pruning. A snapshot summary of zero returns above without planning; a positive or missing summary
+        // needs this exact proof. Iterate whole-file tasks lazily and stop at the first equality delete: this
+        // keeps memory O(1), does not create or retain byte-split tasks, and avoids snapshot-wide delete
+        // counters forcing new-BE-only semantics when no dispatched task can consume an equality delete.
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            for (FileScanTask task : tasks) {
+                for (DeleteFile delete : task.deletes()) {
+                    if (delete.content() == FileContent.EQUALITY_DELETES) {
+                        return true;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new DorisConnectorException(
+                    "Failed to inspect applicable Iceberg equality deletes: " + e.getMessage(), e);
+        }
+        return false;
+    }
+
     /**
-     * Ensure the schema-evolution dict carries the table's equality-delete KEY columns even when the query
-     * does not project them (#65502). Equality-delete keys are hidden scan dependencies: BE resolves a key
-     * that is missing from an OLD data file by looking its field id up in this dict to get the column type +
-     * iceberg initial default; without the entry BE materializes the key as NULL and mis-applies the delete.
-     * The keys are the table's declared identifier fields (what equality-delete writers key on) -> a few
-     * columns, DCHECK-safe superset (BE looks up only its own scan slots; the pin/top-N branches already ship
-     * the full schema). If the table declares NO identifier yet the scan carries equality deletes (whose
-     * equality_ids we cannot cheaply enumerate here), fall back to the full schema. Non-identifier /
-     * append-only / position-delete-only tables are unaffected (the pruned dict is returned verbatim).
+     * Build a schema carrier that can resolve any equality key reachable before the selected schema without
+     * enumerating data files, manifests, or byte-split tasks. Its retained state is bounded by table schema
+     * history rather than scan cardinality. At execution time BE looks fields up by the exact IDs on each
+     * {@link FileScanTask#deletes()}; unrelated carrier fields never participate in delete matching.
+     *
+     * <p>The selected snapshot lineage wins when a field was renamed. The metadata schema list, in its actual
+     * chronology up to the selected schema (schema IDs are identifiers, not a sequence), fills schema-only
+     * changes and expired ancestors. Current fields remain first, so a dropped/re-added name still resolves the
+     * projected current field by name while a historical equality key resolves by its stable field ID.</p>
      */
-    private List<String> withEqualityDeleteKeyColumns(Table table, List<String> requested) {
-        if (requested.isEmpty()) {
-            // An empty requested list already makes buildCurrentSchema fall back to the FULL schema (every
-            // top-level column) — a superset that covers every equality-delete key — so there is nothing to
-            // force-include. Returning early also preserves that all-columns fallback (a non-empty identifier
-            // set would otherwise prune it to identifier-only) and skips the table.schema()/currentSnapshot()
-            // probe when it cannot change the result.
-            return requested;
+    @VisibleForTesting
+    static List<NestedField> schemaForPotentialEqualityDeletes(
+            Table table, TableScan scan, Schema scanSchema) {
+        List<Schema> metadataSchemas = metadataSchemaHistory(table);
+        int selectedSchemaIndex = -1;
+        for (int index = 0; index < metadataSchemas.size(); index++) {
+            if (metadataSchemas.get(index).schemaId() == scanSchema.schemaId()) {
+                selectedSchemaIndex = index;
+            }
         }
-        Schema schema = table.schema();
-        Set<Integer> identifierFieldIds = schema.identifierFieldIds();
-        if (identifierFieldIds.isEmpty()) {
-            return hasEqualityDeletes(table) ? Collections.emptyList() : requested;
+        int lastRelevantIndex = selectedSchemaIndex >= 0
+                ? selectedSchemaIndex : metadataSchemas.size() - 1;
+        Set<Integer> missing = new HashSet<>();
+        for (int index = 0; index <= lastRelevantIndex; index++) {
+            Schema schema = metadataSchemas.get(index);
+            for (NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
+                if (field.type().isPrimitiveType()) {
+                    missing.add(field.fieldId());
+                }
+            }
         }
-        Set<String> present = new HashSet<>();
-        for (String name : requested) {
-            present.add(name.toLowerCase(Locale.ROOT));
+        missing.removeAll(TypeUtil.indexById(scanSchema.asStruct()).keySet());
+        if (missing.isEmpty()) {
+            return scanSchema.columns();
         }
-        List<String> result = new ArrayList<>(requested);
-        for (int fieldId : identifierFieldIds) {
-            Types.NestedField field = schema.findField(fieldId);
+
+        List<NestedField> fields = new ArrayList<>(scanSchema.columns());
+        Map<Integer, Schema> schemasById = table.schemas();
+        Snapshot snapshot = scan.snapshot();
+        while (snapshot != null && !missing.isEmpty()) {
+            Integer schemaId = snapshot.schemaId();
+            if (schemaId != null) {
+                Schema historicalSchema = schemasById.get(schemaId);
+                if (historicalSchema == null) {
+                    throw new IllegalStateException(
+                            "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
+                }
+                addHistoricalEqualityFields(fields, missing, historicalSchema);
+            }
+            if (missing.isEmpty()) {
+                break;
+            }
+            Long parentId = snapshot.parentId();
+            snapshot = parentId == null ? null : table.snapshot(parentId);
+        }
+        for (int index = lastRelevantIndex; index >= 0 && !missing.isEmpty(); index--) {
+            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index));
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException(
+                    "Iceberg historical primitive fields are absent from schema history: " + missing);
+        }
+        return fields;
+    }
+
+    private static List<Schema> metadataSchemaHistory(Table table) {
+        if (table instanceof HasTableOperations) {
+            return ((HasTableOperations) table).operations().current().schemas();
+        }
+        return new ArrayList<>(table.schemas().values());
+    }
+
+    private static void addHistoricalEqualityFields(
+            List<NestedField> fields, Set<Integer> missingFieldIds, Schema historicalSchema) {
+        Map<Integer, NestedField> historicalFields = TypeUtil.indexById(historicalSchema.asStruct());
+        Set<Integer> selectedFieldIds = new HashSet<>();
+        for (Integer fieldId : missingFieldIds) {
+            NestedField field = historicalFields.get(fieldId);
+            if (field != null) {
+                if (!field.type().isPrimitiveType()) {
+                    throw new IllegalStateException(
+                            "Iceberg equality-delete field " + fieldId + " must be primitive");
+                }
+                selectedFieldIds.add(fieldId);
+            }
+        }
+        if (selectedFieldIds.isEmpty()) {
+            return;
+        }
+        Schema selectedSchema = TypeUtil.select(historicalSchema, selectedFieldIds);
+        mergeHistoricalEqualityFields(fields, selectedSchema.columns());
+        missingFieldIds.removeAll(selectedFieldIds);
+    }
+
+    private static void mergeHistoricalEqualityFields(
+            List<NestedField> fields, List<NestedField> historicalFields) {
+        for (NestedField historicalField : historicalFields) {
+            int currentIndex = -1;
+            for (int index = 0; index < fields.size(); index++) {
+                if (fields.get(index).fieldId() == historicalField.fieldId()) {
+                    currentIndex = index;
+                    break;
+                }
+            }
+            if (currentIndex < 0) {
+                fields.add(historicalField);
+                continue;
+            }
+            NestedField currentField = fields.get(currentIndex);
+            Type mergedType = mergeHistoricalEqualityType(currentField.type(), historicalField.type());
+            if (mergedType != currentField.type()) {
+                fields.set(currentIndex,
+                        Types.NestedField.from(currentField).ofType(mergedType).build());
+            }
+        }
+    }
+
+    private static Type mergeHistoricalEqualityType(Type currentType, Type historicalType) {
+        if (currentType.typeId() != historicalType.typeId()) {
+            throw new IllegalStateException("Iceberg equality-delete ancestor type changed from "
+                    + historicalType + " to " + currentType);
+        }
+        switch (currentType.typeId()) {
+            case STRUCT:
+                List<NestedField> mergedFields =
+                        new ArrayList<>(currentType.asStructType().fields());
+                mergeHistoricalEqualityFields(mergedFields, historicalType.asStructType().fields());
+                return mergedFields.equals(currentType.asStructType().fields())
+                        ? currentType : Types.StructType.of(mergedFields);
+            case LIST:
+                Types.ListType currentList = currentType.asListType();
+                Types.ListType historicalList = historicalType.asListType();
+                if (currentList.elementId() != historicalList.elementId()) {
+                    throw new IllegalStateException(
+                            "Iceberg equality-delete list element field ID changed");
+                }
+                Type mergedElement = mergeHistoricalEqualityType(
+                        currentList.elementType(), historicalList.elementType());
+                if (mergedElement == currentList.elementType()) {
+                    return currentType;
+                }
+                return currentList.isElementOptional()
+                        ? Types.ListType.ofOptional(currentList.elementId(), mergedElement)
+                        : Types.ListType.ofRequired(currentList.elementId(), mergedElement);
+            case MAP:
+                Types.MapType currentMap = currentType.asMapType();
+                Types.MapType historicalMap = historicalType.asMapType();
+                if (currentMap.keyId() != historicalMap.keyId()
+                        || currentMap.valueId() != historicalMap.valueId()) {
+                    throw new IllegalStateException(
+                            "Iceberg equality-delete map field IDs changed");
+                }
+                Type mergedKey = mergeHistoricalEqualityType(
+                        currentMap.keyType(), historicalMap.keyType());
+                Type mergedValue = mergeHistoricalEqualityType(
+                        currentMap.valueType(), historicalMap.valueType());
+                if (mergedKey == currentMap.keyType() && mergedValue == currentMap.valueType()) {
+                    return currentType;
+                }
+                return currentMap.isValueOptional()
+                        ? Types.MapType.ofOptional(currentMap.keyId(), currentMap.valueId(),
+                                mergedKey, mergedValue)
+                        : Types.MapType.ofRequired(currentMap.keyId(), currentMap.valueId(),
+                                mergedKey, mergedValue);
+            default:
+                if (!currentType.equals(historicalType)) {
+                    throw new IllegalStateException("Iceberg equality-delete field type changed from "
+                            + historicalType + " to " + currentType);
+                }
+                return currentType;
+        }
+    }
+
+    private static boolean requiresCurrentScanSemantics(
+            Table table, TableScan scan, Schema scanSchema, List<ConnectorColumnHandle> columns,
+            boolean hasApplicableEqualityDeletes,
+            Optional<Map<Integer, List<String>>> nameMapping) {
+        if (hasApplicableEqualityDeletes) {
+            return true;
+        }
+        Set<Integer> projectedFieldIds = projectedFieldIds(scanSchema, columns);
+        Set<Integer> topLevelFieldIds = new HashSet<>();
+        for (NestedField field : scanSchema.columns()) {
+            topLevelFieldIds.add(field.fieldId());
+        }
+        Map<Integer, NestedField> fields = TypeUtil.indexById(scanSchema.asStruct());
+        for (Integer fieldId : projectedFieldIds) {
+            NestedField field = fields.get(fieldId);
+            if (field != null && field.initialDefault() != null
+                    && (!topLevelFieldIds.contains(fieldId) || field.type().isNestedType())) {
+                return true;
+            }
+        }
+        if (hasProjectedNameAliasCollision(scanSchema, projectedFieldIds, nameMapping)) {
+            return true;
+        }
+        return selectedHistoryRequiresMissingRequiredFieldRejection(
+                table, scanSchema, projectedFieldIds, scan.snapshot());
+    }
+
+    @VisibleForTesting
+    static Set<Integer> projectedFieldIds(
+            Schema scanSchema, List<ConnectorColumnHandle> columns) {
+        Set<Integer> projected = new HashSet<>();
+        if (columns == null || columns.isEmpty()) {
+            projected.addAll(TypeUtil.indexById(scanSchema.asStruct()).keySet());
+            return projected;
+        }
+        Map<Integer, NestedField> fieldsById = TypeUtil.indexById(scanSchema.asStruct());
+        for (ConnectorColumnHandle column : columns) {
+            IcebergColumnHandle icebergColumn = (IcebergColumnHandle) column;
+            NestedField field = scanSchema.findField(icebergColumn.getFieldId());
             if (field == null) {
                 continue;
             }
-            String lower = field.name().toLowerCase(Locale.ROOT);
-            if (present.add(lower)) {
-                result.add(lower);
+            if (icebergColumn.hasProjectedFieldIds()) {
+                Set<Integer> scopedFieldIds = icebergColumn.getProjectedFieldIds();
+                Set<Integer> selectableFieldIds = fieldAndDescendantIds(field);
+                for (Integer scopedFieldId : scopedFieldIds) {
+                    NestedField scopedField = fieldsById.get(scopedFieldId);
+                    if (scopedField == null || !selectableFieldIds.contains(scopedFieldId)) {
+                        throw new IllegalStateException("Projected Iceberg field ID " + scopedFieldId
+                                + " does not belong to top-level field " + field.fieldId());
+                    }
+                    projected.add(scopedFieldId);
+                    if (scopedField.type().isNestedType()) {
+                        Set<Integer> descendants = fieldAndDescendantIds(scopedField);
+                        descendants.remove(scopedField.fieldId());
+                        if (Collections.disjoint(scopedFieldIds, descendants)) {
+                            // The access path terminates at this complex field, so the entire subtree is
+                            // projected. An ancestor with a selected descendant must remain scoped instead.
+                            projected.addAll(descendants);
+                        }
+                    }
+                }
+                continue;
             }
+            projected.addAll(fieldAndDescendantIds(field));
         }
-        return result;
+        return projected;
     }
 
-    private static boolean hasEqualityDeletes(Table table) {
-        Snapshot snapshot = table.currentSnapshot();
-        if (snapshot == null) {
+    private static Set<Integer> fieldAndDescendantIds(NestedField field) {
+        // TypeUtil.getProjectedIds deliberately omits list/map-typed fields when their element/value is
+        // nested. Doris access paths retain those field IDs, so use Iceberg's complete ID index for scoping.
+        return new HashSet<>(TypeUtil.indexById(Types.StructType.of(field)).keySet());
+    }
+
+    @VisibleForTesting
+    static boolean selectedHistoryRequiresMissingRequiredFieldRejection(
+            Table table, Schema scanSchema, Set<Integer> projectedFieldIds,
+            Snapshot selectedSnapshot) {
+        Map<Integer, Schema> schemasById = table.schemas();
+        Set<Integer> relevantSchemaIds = schemaIdsRequiringMissingRequiredFieldRejection(
+                scanSchema, projectedFieldIds, schemasById.values());
+        if (relevantSchemaIds.isEmpty()) {
             return false;
         }
-        String equalityDeletes = snapshot.summary().get(TOTAL_EQUALITY_DELETES);
-        // Absent (compaction/replace snapshots omit the counter) -> unknown -> assume present (safe superset).
-        return equalityDeletes == null || !equalityDeletes.equals("0");
+        Deque<Snapshot> snapshots = new ArrayDeque<>();
+        if (selectedSnapshot != null) {
+            snapshots.add(selectedSnapshot);
+        }
+        Set<Long> visitedSnapshotIds = new HashSet<>();
+        while (!snapshots.isEmpty()) {
+            Snapshot snapshot = snapshots.removeFirst();
+            if (!visitedSnapshotIds.add(snapshot.snapshotId())) {
+                continue;
+            }
+            Integer schemaId = snapshot.schemaId();
+            if (schemaId != null) {
+                Schema historical = schemasById.get(schemaId);
+                if (historical == null) {
+                    throw new IllegalStateException(
+                            "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
+                }
+                if (relevantSchemaIds.contains(schemaId)) {
+                    return true;
+                }
+            }
+            Long parentId = snapshot.parentId();
+            if (parentId != null) {
+                Snapshot parent = table.snapshot(parentId);
+                if (parent == null) {
+                    return true;
+                }
+                snapshots.addLast(parent);
+            }
+            String sourceSnapshotId =
+                    snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP);
+            if (sourceSnapshotId != null) {
+                Snapshot source = table.snapshot(Long.parseLong(sourceSnapshotId));
+                if (source == null) {
+                    return true;
+                }
+                snapshots.addLast(source);
+            }
+        }
+        return false;
+    }
+
+    private static Set<Integer> schemaIdsRequiringMissingRequiredFieldRejection(
+            Schema scanSchema, Set<Integer> projectedFieldIds,
+            Iterable<Schema> historicalSchemas) {
+        Map<Integer, NestedField> currentFields = TypeUtil.indexById(scanSchema.asStruct());
+        Map<Integer, Integer> parentById = TypeUtil.indexParents(scanSchema.asStruct());
+        Set<Integer> collectionWrapperIds = new HashSet<>();
+        collectCollectionWrapperFieldIds(scanSchema.asStruct(), collectionWrapperIds);
+        Set<Integer> schemaIds = new HashSet<>();
+        for (Schema historicalSchema : historicalSchemas) {
+            Map<Integer, NestedField> historicalFields =
+                    TypeUtil.indexById(historicalSchema.asStruct());
+            for (Integer fieldId : projectedFieldIds) {
+                NestedField field = currentFields.get(fieldId);
+                if (field == null || collectionWrapperIds.contains(fieldId)
+                        || field.initialDefault() != null || field.isOptional()) {
+                    continue;
+                }
+                NestedField historicalField = historicalFields.get(fieldId);
+                if (historicalField != null) {
+                    if (historicalField.isOptional()) {
+                        schemaIds.add(historicalSchema.schemaId());
+                        break;
+                    }
+                    continue;
+                }
+                NestedField highestMissing = field;
+                Integer parentId = parentById.get(fieldId);
+                while (parentId != null && !historicalFields.containsKey(parentId)) {
+                    highestMissing = Objects.requireNonNull(currentFields.get(parentId),
+                            "Iceberg parent field " + parentId + " is absent from scan schema");
+                    parentId = parentById.get(parentId);
+                }
+                if (!collectionWrapperIds.contains(highestMissing.fieldId())
+                        && highestMissing.isRequired()
+                        && highestMissing.initialDefault() == null) {
+                    schemaIds.add(historicalSchema.schemaId());
+                    break;
+                }
+            }
+        }
+        return schemaIds;
+    }
+
+    private static void collectCollectionWrapperFieldIds(Type type, Set<Integer> result) {
+        switch (type.typeId()) {
+            case STRUCT:
+                for (NestedField field : type.asStructType().fields()) {
+                    collectCollectionWrapperFieldIds(field.type(), result);
+                }
+                break;
+            case LIST:
+                result.add(type.asListType().elementId());
+                collectCollectionWrapperFieldIds(type.asListType().elementType(), result);
+                break;
+            case MAP:
+                result.add(type.asMapType().keyId());
+                result.add(type.asMapType().valueId());
+                collectCollectionWrapperFieldIds(type.asMapType().keyType(), result);
+                collectCollectionWrapperFieldIds(type.asMapType().valueType(), result);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private static boolean hasProjectedNameAliasCollision(
+            Schema schema, Set<Integer> projectedFieldIds,
+            Optional<Map<Integer, List<String>>> nameMapping) {
+        if (!nameMapping.isPresent()) {
+            return false;
+        }
+        Set<Integer> collisions = new HashSet<>();
+        collectNameAliasCollisions(schema.asStruct(), nameMapping.get(), collisions);
+        collisions.retainAll(projectedFieldIds);
+        return !collisions.isEmpty();
+    }
+
+    private static void collectNameAliasCollisions(
+            Type type, Map<Integer, List<String>> nameMapping, Set<Integer> collisions) {
+        switch (type.typeId()) {
+            case STRUCT:
+                List<NestedField> fields = type.asStructType().fields();
+                for (NestedField field : fields) {
+                    for (String alias : nameMapping.getOrDefault(
+                            field.fieldId(), Collections.emptyList())) {
+                        for (NestedField sibling : fields) {
+                            if (sibling.fieldId() != field.fieldId()
+                                    && sibling.name().equalsIgnoreCase(alias)) {
+                                collisions.add(field.fieldId());
+                                collisions.add(sibling.fieldId());
+                            }
+                        }
+                    }
+                    collectNameAliasCollisions(field.type(), nameMapping, collisions);
+                }
+                break;
+            case LIST:
+                collectNameAliasCollisions(type.asListType().elementType(), nameMapping, collisions);
+                break;
+            case MAP:
+                collectNameAliasCollisions(type.asMapType().keyType(), nameMapping, collisions);
+                collectNameAliasCollisions(type.asMapType().valueType(), nameMapping, collisions);
+                break;
+            default:
+                break;
+        }
     }
 
     /**
@@ -1790,10 +2203,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
-        // #65784: advertise v1 iceberg scan semantics for every iceberg scan this connector plans (data AND
+        // #65784: advertise v2 iceberg scan semantics for every iceberg scan this connector plans (data AND
         // system tables), mirroring legacy IcebergScanNode.createScanRangeLocations ->
-        // enableCurrentIcebergScanSemantics(). BE reads it via supports_iceberg_scan_semantics_v1 to opt into
-        // authoritative name mapping + logical initial-default materialization.
+        // enableCurrentIcebergScanSemantics(). BE reads it via supports_iceberg_scan_semantics_v2 to opt into
+        // authoritative name mapping + recursive logical initial-default materialization.
         params.setIcebergScanSemanticsVersion(ICEBERG_SCAN_SEMANTICS_VERSION);
         IcebergSchemaUtils.applySchemaEvolution(params, nodeProperties.get(SCHEMA_EVOLUTION_PROP));
     }

@@ -499,6 +499,90 @@ TEST(DataTypeSerDeParquetTest, DecimalUsesWideIntermediateBeforeNarrowing) {
     }
 }
 
+TEST(DataTypeSerDeParquetTest, FixedBinaryDecimalValidatesPrecisionBeforeNarrowing) {
+    const std::vector<uint8_t> values {
+            0x00, 0x98, 0x96, 0x7F, //  9,999,999: valid Decimal(7, 2) boundary.
+            0x00, 0x98, 0x96, 0x80, // 10,000,000: one unit above the boundary.
+            0xFF, 0x67, 0x69, 0x81, // -9,999,999: valid Decimal(7, 2) boundary.
+            0xFF, 0x67, 0x69, 0x80, // -10,000,000: one unit below the boundary.
+    };
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY,
+                                  .logical_type = ParquetLogicalType::DECIMAL,
+                                  .type_length = 4,
+                                  .decimal_precision = 9,
+                                  .decimal_scale = 2};
+    DataTypeDecimal32 type(7, 2);
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_bytes(values, 4);
+        IColumn::Filter null_map(4, 0);
+        ParquetMaterializationState state;
+        state.conversion_failure_null_map = &null_map;
+        auto column = type.create_column();
+
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*column, source, context, 4, state)
+                            .ok());
+        const auto& data = assert_cast<const ColumnDecimal32&>(*column).get_data();
+        EXPECT_EQ(data[0].value, 9999999);
+        EXPECT_EQ(data[1].value, 0);
+        EXPECT_EQ(data[2].value, -9999999);
+        EXPECT_EQ(data[3].value, 0);
+        EXPECT_EQ(null_map, IColumn::Filter({0, 1, 0, 1}));
+    }
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_bytes({0x00, 0x98, 0x96, 0x80}, 4);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = true;
+        auto column = type.create_column();
+        column->insert_default();
+
+        const auto status =
+                type.get_serde()->read_column_from_parquet(*column, source, context, 1, state);
+        EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+        EXPECT_EQ(column->size(), 1);
+    }
+}
+
+TEST(DataTypeSerDeParquetTest, FixedBinaryDecimalSignExtendsNarrowSameScaleInput) {
+    TestParquetDecodeSource source;
+    source.set_fixed_bytes({0x04, 0xD2, 0xFB, 0x2E}, 2); // 12.34 and -12.34 at scale 2.
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY,
+                                  .logical_type = ParquetLogicalType::DECIMAL,
+                                  .type_length = 2,
+                                  .decimal_precision = 4,
+                                  .decimal_scale = 2};
+    ParquetMaterializationState state;
+    DataTypeDecimal32 type(4, 2);
+    auto column = type.create_column();
+
+    ASSERT_TRUE(
+            type.get_serde()->read_column_from_parquet(*column, source, context, 2, state).ok());
+    const auto& data = assert_cast<const ColumnDecimal32&>(*column).get_data();
+    EXPECT_EQ(data[0].value, 1234);
+    EXPECT_EQ(data[1].value, -1234);
+}
+
+TEST(DataTypeSerDeParquetTest, FixedBinaryDecimalAcceptsEntireNarrowSourceDomain) {
+    TestParquetDecodeSource source;
+    source.set_fixed_bytes({0x80, 0x00, 0x00, 0x00, 0x7F, 0xFF, 0xFF, 0xFF}, 4);
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY,
+                                  .logical_type = ParquetLogicalType::DECIMAL,
+                                  .type_length = 4,
+                                  .decimal_precision = 10,
+                                  .decimal_scale = 0};
+    ParquetMaterializationState state;
+    DataTypeDecimal64 type(18, 0);
+    auto column = type.create_column();
+
+    ASSERT_TRUE(
+            type.get_serde()->read_column_from_parquet(*column, source, context, 2, state).ok());
+    const auto& data = assert_cast<const ColumnDecimal64&>(*column).get_data();
+    EXPECT_EQ(data[0].value, std::numeric_limits<int32_t>::min());
+    EXPECT_EQ(data[1].value, std::numeric_limits<int32_t>::max());
+}
+
 TEST(DataTypeSerDeParquetTest, DecimalAcceptsSignExtendedBinaryAfterWideExactScaling) {
     const std::vector<uint8_t> values {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xCE,
                                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFB, 0x32};

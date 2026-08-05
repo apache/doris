@@ -24,7 +24,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;

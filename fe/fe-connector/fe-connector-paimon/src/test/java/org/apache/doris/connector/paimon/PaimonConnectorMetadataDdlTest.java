@@ -17,12 +17,12 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
 
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.types.DataTypeRoot;

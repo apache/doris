@@ -1152,6 +1152,91 @@ build_arrow() {
     strip_lib libarrow_acero.a
 }
 
+# arrow-adbc
+# Produces three artifacts from one source tree:
+#   libadbc_driver_manager.a  -- statically linked into doris_be
+#   libadbc_driver_jni.so     -- loaded by the FE adbc connector
+#   libadbc_driver_sqlite.so  -- BE unit tests only, not shipped
+# and installs a fourth that is not built here:
+#   libadbc_driver_flightsql.so -- prebuilt, adbc tests only, not shipped
+build_arrow_adbc() {
+    check_if_source_exist "${ARROW_ADBC_SOURCE}"
+
+    local adbc_src="${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
+
+    # The SQLite driver needs a SQLite3 development package, which Doris does not
+    # ship and most build hosts lack. arrow-adbc vendors the amalgamation, so build
+    # it here into a scratch prefix and hand the paths to FindSQLite3. It ends up
+    # statically inside libadbc_driver_sqlite.so, so nothing sqlite is installed.
+    local sqlite_host="${adbc_src}/c/${BUILD_DIR}-sqlite-host"
+    rm -rf "${sqlite_host}"
+    mkdir -p "${sqlite_host}/include" "${sqlite_host}/lib"
+    "${CC}" -O2 -fPIC -DSQLITE_ENABLE_COLUMN_METADATA=1 \
+        -c "${adbc_src}/c/vendor/sqlite3/sqlite3.c" -o "${sqlite_host}/sqlite3.o"
+    ar rcs "${sqlite_host}/lib/libsqlite3.a" "${sqlite_host}/sqlite3.o"
+    cp -f "${adbc_src}/c/vendor/sqlite3/sqlite3.h" "${sqlite_host}/include/"
+
+    # (1) driver manager + sqlite driver
+    cd "${adbc_src}/c"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DADBC_DRIVER_MANAGER=ON \
+        -DADBC_DRIVER_SQLITE=ON \
+        -DADBC_BUILD_STATIC=ON \
+        -DADBC_BUILD_SHARED=ON \
+        -DADBC_BUILD_TESTS=OFF \
+        -DADBC_USE_CCACHE=OFF \
+        -DSQLite3_INCLUDE_DIR="${sqlite_host}/include" \
+        -DSQLite3_LIBRARY="${sqlite_host}/lib/libsqlite3.a" \
+        ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+
+    # (2) JNI bridge for the FE. Must come after (1): it links the driver manager.
+    #     Built directly rather than through upstream's java/CMakeLists.txt, which
+    #     shells out to Maven just to generate the JNI header; that header is
+    #     checked in as a patch instead (see thirdparty/patches). Also not taken
+    #     from the Maven jar: the prebuilt binary there requires GLIBC_2.34 and
+    #     GLIBCXX_3.4.31, which excludes CentOS 7/8, Rocky 8, Ubuntu 20.04 and more.
+    #     Only jni.h is needed, so any JDK will do.
+    if [[ ! -f "${JAVA_HOME}/include/jni.h" ]]; then
+        echo "arrow-adbc: JAVA_HOME must point at a JDK (no ${JAVA_HOME}/include/jni.h)"
+        exit 1
+    fi
+    local jni_md_dir='linux'
+    if [[ "${KERNEL}" == 'Darwin' ]]; then
+        jni_md_dir='darwin'
+    fi
+
+    "${CXX}" -std="c++${TP_CXX_STANDARD}" -O2 -fPIC -shared \
+        -I"${JAVA_HOME}/include" \
+        -I"${JAVA_HOME}/include/${jni_md_dir}" \
+        -I"${adbc_src}/java/driver/jni/doris_generated" \
+        -I"${TP_INCLUDE_DIR}" \
+        "${adbc_src}/java/driver/jni/src/main/cpp/jni_wrapper.cc" \
+        -o "${TP_INSTALL_DIR}/lib64/libadbc_driver_jni.so" \
+        "${TP_INSTALL_DIR}/lib64/libadbc_driver_manager.a"
+
+    # (3) Flight SQL driver. Not built: upstream implements it in Go, so it comes
+    #     prebuilt out of the release wheel that download-thirdparty.sh unpacked
+    #     (see vars.sh). Nothing links against it; the FE and BE dlopen it at run
+    #     time, and only the adbc tests ask for it.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+        check_if_source_exist "${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+        cp -f "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}/libadbc_driver_flightsql.so" \
+            "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so"
+    fi
+
+    rm -rf "${sqlite_host}"
+}
+
 # abseil
 build_abseil() {
     check_if_source_exist "${ABSEIL_SOURCE}"
@@ -2228,6 +2313,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         cares
         grpc # after cares, protobuf
         arrow
+        arrow_adbc
         lance_c
         s2
         bitshuffle
@@ -2319,6 +2405,15 @@ cleanup_package_source() {
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
+        arrow_adbc)
+            # arrow_adbc also unpacks the prebuilt flightsql driver, clean both
+            if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" && -d "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+                echo "Cleaning up source: ${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+                rm -rf "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" \
+                    "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"-*.dist-info
+            fi
+            src_var="ARROW_ADBC_SOURCE"
+            ;;
         brotli)          src_var="BROTLI_SOURCE" ;;
         cares)           src_var="CARES_SOURCE" ;;
         grpc)            src_var="GRPC_SOURCE" ;;

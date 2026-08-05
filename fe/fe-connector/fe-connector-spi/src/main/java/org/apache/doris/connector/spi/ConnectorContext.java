@@ -17,9 +17,6 @@
 
 package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
-
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -52,6 +49,33 @@ public interface ConnectorContext {
      * </ul>
      */
     default Map<String, String> getEnvironment() {
+        return Collections.emptyMap();
+    }
+
+    /**
+     * The contents of {@code <name>.conf} in this connector's own plugin directory, keys and values
+     * verbatim, immutable. {@code <name>} is this connector's {@link ConnectorProvider#name()}.
+     *
+     * <p>This is a connector's <b>deployment-level</b> configuration channel: one per FE process,
+     * maintained by an administrator in the plugin directory, and not settable by a user in
+     * {@code CREATE CATALOG}. A value that varies per catalog belongs in the property map handed to
+     * {@code ConnectorProvider.create}; a value that varies per query belongs in
+     * {@code ConnectorSession.getSessionProperties()}.
+     *
+     * <p>Unlike {@link #getEnvironment()}, adding a key here costs the engine nothing: the file is named
+     * after the plugin and parsed generically, so no key name of yours ever appears in {@code fe-core}.
+     * Read it through {@link ConnectorConf#get}, which layers this map over {@code getEnvironment()} for
+     * keys that predate this channel.
+     *
+     * <p>Never null. Returns an empty map when: the file does not exist; the file could not be read (the
+     * engine has already logged an ERROR); or the connector was not loaded from a plugin directory at all
+     * (a classpath built-in, or a provider registered by a test).
+     *
+     * <p>Engine side: {@code ConnectorPluginManager.loadPlugins} reads the file once, right after the
+     * provider is admitted, and {@code ConnectorPluginManager.createConnector} attaches it to the context
+     * it hands {@code ConnectorProvider.create}. Editing the file needs an FE restart, same as fe.conf.
+     */
+    default Map<String, String> getConnectorConfig() {
         return Collections.emptyMap();
     }
 

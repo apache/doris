@@ -41,14 +41,14 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
-import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
@@ -3041,6 +3041,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (scanNode instanceof OlapScanNode) {
             preserveExtraStorageKeySlots((OlapScanNode) scanNode, requiredWithVirtualColumns);
+        } else if (scanNode instanceof PluginDrivenScanNode) {
+            preserveConnectorMustReadSlots((PluginDrivenScanNode) scanNode, requiredWithVirtualColumns);
         }
         // Find the smallest column, for count(*) or other situation that slot is empty after prune
         SlotDescriptor smallest = getSmallestSlot(scanNode.getTupleDesc().getSlots());
@@ -3075,6 +3077,43 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 scanNode.getExtraKeyColumnSlotIds().add(slot.getId().asInt());
                 requiredSlotIds.add(slot.getId());
             }
+        }
+    }
+
+    /**
+     * Keeps the slots of the columns a plugin connector must read for this scan even when the query
+     * references none of them — the plugin-table counterpart of {@link #preserveExtraStorageKeySlots}, and
+     * for the same reason: a reader that merges or suppresses rows by key needs the key whether or not the
+     * user selected it. The connector answers per scan
+     * ({@code ConnectorScanPlanProvider.getMustReadColumns}, empty by default), so every connector that needs
+     * nothing beyond the projection prunes exactly as before.
+     *
+     * <p>Only the scan's tuple is widened. The project above it was already given its own output tuple and
+     * project list a few lines up, so a column preserved here is read and then dropped — it never reaches the
+     * query's output.</p>
+     *
+     * <p>A name that matches no slot fails the query loud rather than being skipped: it means the connector
+     * and the engine disagree about the table's columns, and the connector's reader would then be handed a
+     * scan missing a column it said it needs — silently wrong rows, not an error. Static + visible for testing
+     * so the ask-and-preserve step is pinned without a live connector.</p>
+     */
+    @VisibleForTesting
+    static void preserveConnectorMustReadSlots(PluginDrivenScanNode scanNode, Set<SlotId> requiredSlotIds) {
+        Set<String> mustRead = scanNode.mustReadColumnsFromConnector();
+        if (mustRead.isEmpty()) {
+            return;
+        }
+        Set<String> missing = Sets.newLinkedHashSet(mustRead);
+        for (SlotDescriptor slot : scanNode.getTupleDesc().getSlots()) {
+            Column column = slot.getColumn();
+            if (column != null && mustRead.contains(column.getName())) {
+                requiredSlotIds.add(slot.getId());
+                missing.remove(column.getName());
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw new AnalysisException("connector requires column(s) " + missing
+                    + " to be read, but the scan has no such column");
         }
     }
 

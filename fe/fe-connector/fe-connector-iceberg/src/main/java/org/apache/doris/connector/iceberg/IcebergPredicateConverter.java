@@ -17,16 +17,16 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorBetween;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorIsNull;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.ConnectorNot;
-import org.apache.doris.connector.api.pushdown.ConnectorOr;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorBetween;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.And;
@@ -59,7 +59,7 @@ import java.util.Set;
  * port of fe-core {@code IcebergUtils.convertToIcebergExpr} (the iceberg-side mapping + the
  * {@code extractDorisLiteral} type matrix + the {@code checkConversion} bind-test); it consumes the
  * engine-neutral {@code ConnectorExpression} (produced by fe-core {@code ExprToConnectorExpressionConverter})
- * instead of a Doris {@code Expr}, so it imports only {@code connector.api.pushdown} + {@code org.apache.iceberg}.
+ * instead of a Doris {@code Expr}, so it imports only {@code connector.spi.pushdown} + {@code org.apache.iceberg}.
  *
  * <p>Handled node set mirrors legacy {@code convertToIcebergExpr} exactly: AND/OR/NOT, comparisons
  * (EQ/NE/LT/LE/GT/GE/EQ_FOR_NULL, column-op-literal only), IN/NOT-IN, and a bare boolean literal

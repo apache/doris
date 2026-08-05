@@ -63,6 +63,10 @@ public interface CatalogIf<T extends DatabaseIf> {
     // Name of this catalog
     String getName();
 
+    /**
+     * Returns a read-only database-name snapshot.
+     * Callers that need to modify the result must create a copy.
+     */
     List<String> getDbNames();
 
     default String getErrorMsg() {
@@ -157,6 +161,11 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     // Called when catalog is dropped
     void onClose();
+
+    // Called when catalog creation fails before the catalog is registered.
+    default void onCreateFailure() {
+        onClose();
+    }
 
     String getComment();
 

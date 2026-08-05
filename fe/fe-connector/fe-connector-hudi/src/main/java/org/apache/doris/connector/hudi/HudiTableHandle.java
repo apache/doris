@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import java.util.Collections;
 import java.util.List;

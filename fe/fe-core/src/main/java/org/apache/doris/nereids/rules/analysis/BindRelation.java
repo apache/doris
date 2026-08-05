@@ -47,6 +47,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CTEContext;
@@ -623,7 +624,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
-            List<String> qualifiedTableName) {
+            List<String> qualifiedTableName, CascadesContext cascadesContext) {
         Optional<SysTableResolver.SysTablePlan> sysTablePlanOpt = SysTableResolver.resolveForPlan(
                 table, qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
         if (!sysTablePlanOpt.isPresent()) {
@@ -636,6 +637,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (sysTablePlan.isNative()) {
             List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
             ExternalTable sysExternalTable = sysTablePlan.getSysExternalTable();
+            if (sysExternalTable instanceof PluginDrivenSysExternalTable) {
+                Optional<TableSnapshot> tableSnapshot = unboundRelation.getTableSnapshot();
+                Optional<TableScanParams> scanParams = Optional.ofNullable(unboundRelation.getScanParams());
+                StatementContext statementContext = cascadesContext.getStatementContext();
+                ((PluginDrivenSysExternalTable) sysExternalTable).resolveScanPin(
+                        tableSnapshot, scanParams, () -> {
+                            // System and plain aliases must enter the same latest-fence map regardless
+                            // of bind order; the system table's private memo alone cannot provide that.
+                            statementContext.loadSnapshots(table, tableSnapshot, scanParams);
+                            return statementContext.getSnapshot(table, tableSnapshot, scanParams);
+                        });
+            }
             // Per-system-table scan-param capability (which metadata view honors @incr / @options) is
             // asked of the connector at split generation by PluginDrivenScanNode.checkSysTableScanConstraints,
             // which owns the user-facing message. Binding only needs the base table's gate above.
@@ -742,7 +755,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         // Handle meta table like "table_name$partitions"
         // qualifiedTableName should be like "ctl.db.tbl$partitions"
-        Optional<LogicalPlan> logicalPlan = handleMetaTable(table, unboundRelation, qualifiedTableName);
+        Optional<LogicalPlan> logicalPlan = handleMetaTable(
+                table, unboundRelation, qualifiedTableName, cascadesContext);
         if (logicalPlan.isPresent()) {
             return logicalPlan.get();
         }
@@ -764,10 +778,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     Plan viewBody = parseAndAnalyzeDorisView(view, qualifiedTableName, cascadesContext);
                     LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
                     return new LogicalSubQueryAlias<>(qualifiedTableName, logicalView);
-                case PAIMON_EXTERNAL_TABLE:
-                case MAX_COMPUTE_EXTERNAL_TABLE:
-                case TRINO_CONNECTOR_EXTERNAL_TABLE:
-                case LAKESOUl_EXTERNAL_TABLE:
                 case PLUGIN_EXTERNAL_TABLE:
                     if (table instanceof PluginDrivenExternalTable
                             && ((PluginDrivenExternalTable) table).isView()) {

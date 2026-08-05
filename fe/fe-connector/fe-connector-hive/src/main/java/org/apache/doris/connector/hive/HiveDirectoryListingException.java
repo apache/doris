@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 /**
  * Thrown when listing ONE partition directory fails ({@code FileSystem.listStatus} raised an

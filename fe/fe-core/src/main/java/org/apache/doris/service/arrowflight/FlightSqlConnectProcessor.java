@@ -146,11 +146,11 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                 }
                 endpointLoc.setResultPublicAccessAddr(resultPublicAccessAddr);
                 if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
-                    RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
-                    ArrowStreamReader arrowStreamReader = new ArrowStreamReader(
-                            new ByteArrayInputStream(pResult.getSchema().toByteArray()), rootAllocator);
-                    try {
+                    try (RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
+                            ArrowStreamReader arrowStreamReader = new ArrowStreamReader(
+                                    new ByteArrayInputStream(pResult.getSchema().toByteArray()), rootAllocator)) {
                         Schema schema;
+                        // SchemaRoot belongs to ArrowStreamReader, it will be released when ArrowStreamReader is closed
                         VectorSchemaRoot root = arrowStreamReader.getVectorSchemaRoot();
                         List<FieldVector> fieldVectors = root.getFieldVectors();
                         if (fieldVectors.size() != resultOutputExprs.size()) {

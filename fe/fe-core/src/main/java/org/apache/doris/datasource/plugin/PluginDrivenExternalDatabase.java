@@ -17,14 +17,13 @@
 
 package org.apache.doris.datasource.plugin;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.log.InitDatabaseLog;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 
 /**
@@ -37,12 +36,12 @@ public class PluginDrivenExternalDatabase extends ExternalDatabase<PluginDrivenE
 
     /** No-arg constructor for GSON deserialization. */
     public PluginDrivenExternalDatabase() {
-        super(null, 0, null, null, InitDatabaseLog.Type.PLUGIN);
+        super(null, 0, null, null);
     }
 
     public PluginDrivenExternalDatabase(ExternalCatalog extCatalog, long id,
             String name, String remoteName) {
-        super(extCatalog, id, name, remoteName, InitDatabaseLog.Type.PLUGIN);
+        super(extCatalog, id, name, remoteName);
     }
 
     @Override

@@ -144,6 +144,18 @@ private:
     std::shared_ptr<RetryableCloseState> _state;
 };
 
+class CapturingSplitTableReader final : public format::TableReader {
+public:
+    Status prepare_split(const format::SplitReadOptions& options) override {
+        conjunct_count = options.conjuncts.has_value() ? options.conjuncts->size() : 0;
+        partition_prune_conjunct_count = options.partition_prune_conjuncts.size();
+        return Status::OK();
+    }
+
+    size_t conjunct_count = 0;
+    size_t partition_prune_conjunct_count = 0;
+};
+
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
@@ -463,6 +475,60 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
 }
 
+// Scenario: one scan node is given ranges of two different table formats, which is what a connector
+// reading a table as a lake plus the log written after it produces -- its lake half planned by a
+// sibling connector, its own half by itself. The reader is format-specific, so it has to follow the
+// RANGE. Built once from the first range, it is later handed a foreign one and fails as whatever that
+// reader makes of it, not as a clean error; and since which ranges share a scanner is the engine's
+// assignment, the same query then succeeds or fails by how the ranges happened to be dealt out.
+TEST(FileScannerV2Test, TheTableReaderIsRebuiltWhenARangeChangesTableFormat) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2_reader_per_range");
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._params = &params;
+
+    const auto paimon_range = range_with_format("paimon", TFileFormatType::FORMAT_PARQUET);
+    const auto hive_range = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
+
+    // Nothing has been built yet, so the first range always builds.
+    bool rebuilt = false;
+    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(paimon_range, &rebuilt).ok());
+    EXPECT_TRUE(rebuilt);
+    EXPECT_EQ(scanner._table_reader_format, "paimon");
+    const auto* first_reader = scanner._table_reader.get();
+    ASSERT_NE(first_reader, nullptr);
+
+    // A second range of the same format reuses it. Rebuilding here would be wasteful rather than
+    // wrong, but it would also throw away per-reader state the next split expects to still be there.
+    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(paimon_range, &rebuilt).ok());
+    EXPECT_FALSE(rebuilt);
+    EXPECT_EQ(scanner._table_reader.get(), first_reader);
+
+    // A range of another format must not be handed to the reader built for the first one.
+    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(hive_range, &rebuilt).ok());
+    EXPECT_TRUE(rebuilt);
+    EXPECT_EQ(scanner._table_reader_format, "hive");
+    EXPECT_NE(scanner._table_reader.get(), first_reader);
+
+    // And back again, because the ranges of a mixed node arrive interleaved rather than grouped.
+    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(paimon_range, &rebuilt).ok());
+    EXPECT_TRUE(rebuilt);
+    EXPECT_EQ(scanner._table_reader_format, "paimon");
+
+    // The formats really do get different readers -- otherwise every assertion above would hold
+    // just as well for a scanner that never rebuilt anything.
+    std::unique_ptr<format::TableReader> as_paimon;
+    std::unique_ptr<format::TableReader> as_hive;
+    ASSERT_TRUE(scanner._create_table_reader_for_format(paimon_range, &as_paimon).ok());
+    ASSERT_TRUE(scanner._create_table_reader_for_format(hive_range, &as_hive).ok());
+    const format::TableReader& paimon_reader = *as_paimon;
+    const format::TableReader& hive_reader = *as_hive;
+    EXPECT_STRNE(typeid(paimon_reader).name(), typeid(hive_reader).name());
+}
+
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     RuntimeProfile profile("file_scanner_v2_close_retry");
@@ -476,6 +542,54 @@ TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
     EXPECT_EQ(close_state->close_calls, 2);
     EXPECT_TRUE(scanner.close(&state).ok());
     EXPECT_EQ(close_state->close_calls, 2);
+}
+
+TEST(FileScannerV2Test, PartitionPruningRemainsEnabledWhenSessionSwitchIsFalse) {
+    TQueryOptions query_options;
+    query_options.__set_enable_runtime_filter_partition_prune(false);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple_descriptor;
+    tuple_descriptor.id = 0;
+    tuple_descriptor.byteSize = 0;
+    tuple_descriptor.numNullBytes = 0;
+    thrift_descriptors.tupleDescriptors.push_back(tuple_descriptor);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan_node;
+    plan_node.node_id = 0;
+    plan_node.node_type = TPlanNodeType::FILE_SCAN_NODE;
+    plan_node.num_children = 0;
+    plan_node.limit = -1;
+    plan_node.row_tuples.push_back(0);
+    plan_node.file_scan_node.tuple_id = 0;
+    plan_node.__isset.file_scan_node = true;
+    FileScanOperatorX parent(&pool, plan_node, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
+    RuntimeProfile profile("file_scanner_v2_partition_prune");
+    auto table_reader = std::make_unique<CapturingSplitTableReader>();
+    auto* captured = table_reader.get();
+    FileScannerV2 scanner(&state, &profile, std::move(table_reader));
+    scanner._local_state = &local_state;
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scanner._params = &params;
+    scanner._slot_id_to_global_index.emplace(7, format::GlobalIndex(0));
+    scanner._conjuncts = {VExprContext::create_shared(
+            slot_ref(7, 7, std::make_shared<DataTypeInt32>(), "partition_col"))};
+
+    const auto range = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(scanner._prepare_table_reader_split(range, {}).ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 0);
+
+    ASSERT_TRUE(scanner._prepare_table_reader_split(
+                               range, {{"partition_col", Field::create_field<TYPE_INT>(1)}})
+                        .ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 1);
 }
 
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back

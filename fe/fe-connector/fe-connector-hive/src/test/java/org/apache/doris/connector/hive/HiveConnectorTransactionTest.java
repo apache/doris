@@ -17,17 +17,17 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsPartitionStatistics;
 import org.apache.doris.connector.hms.HmsPartitionWithStatistics;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileIterator;

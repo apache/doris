@@ -17,25 +17,26 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTestResult;
-import org.apache.doris.connector.api.ConnectorValidationContext;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTestResult;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
@@ -922,8 +923,10 @@ public class IcebergConnector implements Connector {
                         IcebergConnectorProperties.TYPE_HMS, properties, storageHadoopConfig);
                 conf = IcebergCatalogFactory.assembleHiveConf(
                         IcebergCatalogFactory.firstNonBlank(properties, "hive.conf.resources"),
-                        hms.toHiveConfOverrides(context.getEnvironment()
-                                .getOrDefault("hive_metastore_client_timeout_second", "10")));
+                        hms.toHiveConfOverrides(ConnectorConf.get(context,
+                                IcebergConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
+                                IcebergConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
+                                IcebergConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND)));
                 break;
             }
             case IcebergConnectorProperties.TYPE_GLUE:
@@ -1407,13 +1410,32 @@ public class IcebergConnector implements Connector {
         LOG.info("Using dynamic JDBC driver for Iceberg JDBC catalog from: {}", driverUrl);
     }
 
+    /**
+     * The directory a bare driver jar name resolves under, from this plugin's own {@code iceberg.conf}
+     * or fe.conf's {@code jdbc_drivers_dir}. Null when neither names one — {@code JdbcDriverSupport}
+     * then falls back to {@code <doris_home>/plugins/jdbc_drivers}, as before.
+     *
+     * <p>A null context is a direct-construction unit test, which has neither channel.
+     */
+    private String configuredDriversDir() {
+        return context == null ? null : ConnectorConf.get(context,
+                IcebergConnectorProperties.CONF_DRIVERS_DIR,
+                IcebergConnectorProperties.ENV_JDBC_DRIVERS_DIR, null);
+    }
+
+    /** The FE install root. Engine-wide rather than this connector's, so it stays in the environment. */
+    private String configuredDorisHome() {
+        return context == null ? null
+                : context.getEnvironment().get(IcebergConnectorProperties.ENV_DORIS_HOME);
+    }
+
     private void registerJdbcDriver(String driverUrl, String driverClassName) {
         try {
             if (StringUtils.isBlank(driverClassName)) {
                 throw new IllegalArgumentException("driver_class is required when driver_url is specified");
             }
-            Map<String, String> env = context != null ? context.getEnvironment() : Collections.emptyMap();
-            String fullDriverUrl = JdbcDriverSupport.resolveDriverUrl(driverUrl, env);
+            String fullDriverUrl = JdbcDriverSupport.resolveDriverUrl(driverUrl,
+                    configuredDriversDir(), configuredDorisHome());
             URL url = new URL(fullDriverUrl);
             String driverKey = fullDriverUrl + "#" + driverClassName;
             if (!REGISTERED_DRIVER_KEYS.add(driverKey)) {

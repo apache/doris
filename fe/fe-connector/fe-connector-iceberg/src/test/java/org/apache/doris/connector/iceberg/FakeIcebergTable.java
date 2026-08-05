@@ -79,6 +79,10 @@ final class FakeIcebergTable implements Table {
     // credential test injects one (sourced from a real catalog table). The planning path stores but never
     // dereferences it (commit is out of scope for these unit tests).
     private Transaction newTransaction;
+    // Optional real table for scan-node property tests. Those tests need genuine SDK scan semantics while
+    // retaining this double's injectable FileIO for credential extraction.
+    private Table scanTable;
+    private int snapshotLookupCount;
 
     FakeIcebergTable(String name, Schema schema, PartitionSpec spec,
             String location, Map<String, String> properties) {
@@ -103,6 +107,18 @@ final class FakeIcebergTable implements Table {
      * newTransaction() throws. */
     void setNewTransaction(Transaction newTransaction) {
         this.newTransaction = newTransaction;
+    }
+
+    void setScanTable(Table scanTable) {
+        this.scanTable = scanTable;
+    }
+
+    int getSnapshotLookupCount() {
+        return snapshotLookupCount;
+    }
+
+    void resetSnapshotLookupCount() {
+        snapshotLookupCount = 0;
     }
 
     @Override
@@ -130,7 +146,7 @@ final class FakeIcebergTable implements Table {
         return properties;
     }
 
-    // ---- everything below is outside the metadata read path: fail loud if ever called ----
+    // ---- everything below is outside the basic metadata read path: fail loud unless a scan table is set ----
 
     @Override
     public void refresh() {
@@ -139,11 +155,17 @@ final class FakeIcebergTable implements Table {
 
     @Override
     public TableScan newScan() {
+        if (scanTable != null) {
+            return scanTable.newScan();
+        }
         throw new UnsupportedOperationException();
     }
 
     @Override
     public Map<Integer, Schema> schemas() {
+        if (scanTable != null) {
+            return scanTable.schemas();
+        }
         throw new UnsupportedOperationException();
     }
 
@@ -171,6 +193,10 @@ final class FakeIcebergTable implements Table {
 
     @Override
     public Snapshot snapshot(long snapshotId) {
+        if (scanTable != null) {
+            snapshotLookupCount++;
+            return scanTable.snapshot(snapshotId);
+        }
         throw new UnsupportedOperationException();
     }
 
