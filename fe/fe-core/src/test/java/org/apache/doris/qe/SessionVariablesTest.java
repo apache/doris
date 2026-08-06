@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
@@ -26,6 +27,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
@@ -320,5 +322,17 @@ public class SessionVariablesTest extends TestWithFeService {
                 new StringLiteral("true")));
 
         Assertions.assertTrue(sessionVariable.isEnablePreloadExternalMetadata());
+    }
+
+    @Test
+    public void testFileCacheQueryLimitBytesToThrift() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.FILE_CACHE_QUERY_LIMIT_BYTES,
+                new IntLiteral(262144)));
+
+        TQueryOptions queryOptions = variable.toThrift();
+        Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
+        Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
 }

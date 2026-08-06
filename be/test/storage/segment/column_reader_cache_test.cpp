@@ -112,9 +112,10 @@ protected:
         // once the test-specific footer has been constructed.
         io::FileReaderSPtr file_reader; // nullptr is fine for inline-only tests
         auto footer_cb = [this](std::shared_ptr<SegmentFooterPB>& footer_pb_shared,
-                                OlapReaderStatistics* stats) -> Status {
+                                OlapReaderStatistics* stats,
+                                const io::IOContext* io_ctx) -> Status {
             // Delegate to MockSegment::_get_segment_footer
-            return _mock_segment->_get_segment_footer(footer_pb_shared, stats);
+            return _mock_segment->_get_segment_footer(footer_pb_shared, stats, io_ctx);
         };
         _cache = std::make_unique<ColumnReaderCache>(&_accessor, _mock_segment->tablet_schema(),
                                                      file_reader, _mock_segment->num_rows(),
@@ -136,10 +137,10 @@ protected:
         EXPECT_CALL(*_mock_segment, num_rows()).WillRepeatedly(Return(1000));
 
         // mock _get_segment_footer
-        EXPECT_CALL(*_mock_segment, _get_segment_footer(_, _))
+        EXPECT_CALL(*_mock_segment, _get_segment_footer(_, _, _))
                 .WillRepeatedly(
                         testing::Invoke([this](std::shared_ptr<SegmentFooterPB>& footer_pb_shared,
-                                               OlapReaderStatistics*) {
+                                               OlapReaderStatistics*, const io::IOContext*) {
                             if (_mock_segment->_footer) {
                                 footer_pb_shared = _mock_segment->_footer;
                                 return Status::OK();
