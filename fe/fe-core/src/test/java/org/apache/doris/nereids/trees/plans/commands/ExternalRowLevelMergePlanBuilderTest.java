@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -72,6 +74,8 @@ public class ExternalRowLevelMergePlanBuilderTest {
     @Test
     public void mergeSinkRequestsTheSqlMergeCardinalityCheck() {
         ConnectContext ctx = new ConnectContext();
+        // Writer schemas are pinned per statement in production; the focused builder test needs the same scope.
+        ctx.setStatementContext(new StatementContext());
         ctx.setThreadLocalInfo();
         LogicalPlan source = new LogicalOneRowRelation(new RelationId(0),
                 ImmutableList.of(new UnboundAlias(new IntegerLiteral(1), "dummy")));
@@ -97,6 +101,8 @@ public class ExternalRowLevelMergePlanBuilderTest {
         Mockito.doReturn(ImmutableList.of(data)).when(writeSchema).getBaseSchema();
         Mockito.doReturn("uuid-u0/schema-1").when(writeSchema).getWriteMetadataIdentity();
         Mockito.doReturn(writeSchema).when(table).getWriteSchemaSnapshot();
+        Mockito.doReturn(Optional.of(ImmutableList.of(data)))
+                .when(table).resolveWriteColumns(Optional.empty());
         Mockito.doReturn(ImmutableList.of(data, rowId)).when(table).getFullSchema();
 
         LogicalPlan plan = builder.buildMergePlan(ctx, table);
@@ -112,7 +118,10 @@ public class ExternalRowLevelMergePlanBuilderTest {
         // The branch projections, sink columns, and conflict fence must come from one generation.
         Assertions.assertEquals("uuid-u0/schema-1",
                 ((LogicalExternalRowLevelMergeSink<?>) plan).getBoundWriteMetadataIdentity());
-        Mockito.verify(table, Mockito.times(1)).getWriteSchemaSnapshot();
+        // The snapshot identity must be read only after resolving the request-scoped writer columns.
+        InOrder metadataOrder = Mockito.inOrder(table);
+        metadataOrder.verify(table).resolveWriteColumns(Optional.empty());
+        metadataOrder.verify(table).getWriteSchemaSnapshot();
     }
 
     @Test

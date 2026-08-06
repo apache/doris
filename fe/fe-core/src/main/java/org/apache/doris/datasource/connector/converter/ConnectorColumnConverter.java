@@ -165,7 +165,10 @@ public final class ConnectorColumnConverter {
                 // Thread the #65329 "specified" markers so a connector's nested MODIFY COLUMN can honor
                 // omit-preserves-metadata (an omitted NULL/NOT NULL never widens the field; an omitted COMMENT
                 // keeps the current doc). Inert for connectors / paths that don't read them.
-                .withSpecified(col.isNullableSpecified(), col.isCommentSpecified());
+                .withSpecified(col.isNullableSpecified(), col.isCommentSpecified())
+                // The connector SQL is transient write metadata, distinct from Column.defaultValue. Losing it
+                // on the return trip makes an unchanged remote default look like concurrent schema evolution.
+                .withDefaultValueSql(col.getConnectorDefaultValueSql());
         if (!col.isVisible()) {
             result = result.invisible();
         }

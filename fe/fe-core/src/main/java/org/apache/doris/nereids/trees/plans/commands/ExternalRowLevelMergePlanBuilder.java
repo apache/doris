@@ -394,9 +394,11 @@ public class ExternalRowLevelMergePlanBuilder {
 
     // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here.
     LogicalPlan buildMergePlan(ConnectContext ctx, ExternalTable icebergTable) {
+        LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
+        // Project synthesis pins both the request-scoped writer columns and their identity. Read the snapshot
+        // afterwards so the sink fence cannot retain the older cached identity while carrying newer columns.
         PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
                 ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
-        LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
 
         List<NamedExpression> outputExprs;
         if (!RowLevelDmlRowIdUtils.hasUnboundPlan(projectPlan)) {

@@ -177,7 +177,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
         validateBoundWriteMetadata(table, handle);
-        validateBoundWriteColumns(table, handle, writeContext.getWriteOperation());
+        validateBoundWriteColumns(table, schemaContext, handle, writeContext.getWriteOperation());
 
         // commit-bridge supply (S4 part 2): read the non-equality delete supply the scan seam accumulated into the
         // per-statement scope. DELETE/MERGE attach it to the sink so the BE OR-merges old deletes into the new
@@ -236,8 +236,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         }
     }
 
-    private void validateBoundWriteColumns(Table table, ConnectorWriteHandle handle,
-            WriteOperation writeOperation) {
+    private void validateBoundWriteColumns(Table table, IcebergWriteSchemaContext schemaContext,
+            ConnectorWriteHandle handle, WriteOperation writeOperation) {
         List<ConnectorColumn> boundTargetColumns = handle.getBoundTargetColumns();
         if (!boundTargetColumns.isEmpty()
                 && (writeOperation == WriteOperation.REWRITE
@@ -262,7 +262,11 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (writeOperation == WriteOperation.DELETE || boundColumns.isEmpty()) {
             return;
         }
-        List<NestedField> currentColumns = table.schema().columns();
+        // A branch write is deliberately bound to the branch-head schema, which can lag the current main
+        // schema. The schema context separately fences branch evolution, so comparing with table.schema()
+        // rejects valid branch writes without adding concurrency protection.
+        Schema writeSchema = schemaContext == null ? table.schema() : schemaContext.getSchema();
+        List<NestedField> currentColumns = writeSchema.columns();
         boolean rowLevelWrite = writeOperation == WriteOperation.UPDATE || writeOperation == WriteOperation.MERGE;
         boolean hasSyntheticRowId = rowLevelWrite && boundColumns.size() == currentColumns.size() + 1
                 && DORIS_ICEBERG_ROWID_COL.equals(boundColumns.get(boundColumns.size() - 1).getName());
@@ -279,6 +283,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             ConnectorColumn bound = boundColumns.get(i);
             ConnectorType currentType = IcebergTypeMapping.fromIcebergType(
                     current.type(), enableVarbinary, enableTimestampTz);
+            String boundDefaultSql = bound.getDefaultValueSql();
+            if ("NULL".equalsIgnoreCase(boundDefaultSql)) {
+                boundDefaultSql = null;
+            }
+            String currentDefaultSql = current.writeDefault() == null ? null
+                    : IcebergWriteSchemaContext.toDorisSql(current.type(), current.writeDefault(),
+                            enableVarbinary, enableTimestampTz);
             // Do not compare top-level nullability: Doris widens Iceberg required columns in its read schema
             // so evolution default-fill may yield NULL. Nested requiredness remains authoritative in
             // sameBoundType, while current schema JSON enforces writes at the root.
@@ -286,8 +297,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                     || !sameBoundType(currentType, bound.getType())
                     || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())
                     // Omitted columns and DEFAULT expressions were already materialized from this value at bind.
-                    || !Objects.equals(bound.getDefaultValue(), IcebergSchemaUtils.writeDefaultToDorisString(
-                            current.type(), current.writeDefault(), enableTimestampTz))) {
+                    || !Objects.equals(boundDefaultSql, currentDefaultSql)) {
                 // BE maps write expressions to schema-json by ordinal, so accepting a reordered live
                 // schema here could silently place values under the wrong Iceberg field names.
                 throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry "

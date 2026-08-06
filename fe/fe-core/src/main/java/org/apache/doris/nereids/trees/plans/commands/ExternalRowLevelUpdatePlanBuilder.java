@@ -112,9 +112,11 @@ public class ExternalRowLevelUpdatePlanBuilder {
         String tableName = tableAlias != null
                 ? tableAlias
                 : Util.getTempTableDisplayName(icebergTable.getName());
+        List<Column> writeColumns = ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable);
+        // pinAndGet records the identity paired with these request-scoped columns. Capture the sink snapshot
+        // afterwards so a cached identity can never fence output bound from a newer connector generation.
         PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
                 ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
-        List<Column> writeColumns = ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable);
         List<EqualTo> resolvedAssignments = assignments.stream()
                 .map(assignment -> (EqualTo) assignment.withChildren(ImmutableList.of(
                         assignment.left(),

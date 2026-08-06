@@ -597,8 +597,16 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public long getCurrentNotificationEventId() {
         return execute(client -> {
-            CurrentNotificationEventId id = client.getCurrentNotificationEventId();
-            return id == null ? -1L : id.getEventId();
+            try {
+                CurrentNotificationEventId id = client.getCurrentNotificationEventId();
+                return id == null ? -1L : id.getEventId();
+            } catch (TApplicationException e) {
+                // Some older metastores expose this optional RPC but reject it internally. The table lock and
+                // metadata identity remain the write fence; absence of the extra event watermark must not
+                // reject every write against those metastores.
+                LOG.debug("Hive metastore does not support notification watermarks, returning -1", e);
+                return -1L;
+            }
         });
     }
 

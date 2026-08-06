@@ -331,6 +331,27 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteValidatesBoundColumnsAgainstPinnedBranchSchema() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().renameColumn("name", "renamed_name").commit();
+        RecordingConnectorContext context = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, context);
+        WriteSession session = sessionFor(table, context);
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
+        List<ConnectorColumn> branchColumns = provider.getWriteColumns(
+                session, tableHandle, Optional.of("old_schema")).orElseThrow(AssertionError::new);
+
+        ConnectorSinkPlan plan = Assertions.assertDoesNotThrow(() -> provider.planWrite(session,
+                new WriteHandle(tableHandle).branch("old_schema").boundTargetColumns(branchColumns)));
+
+        Assertions.assertTrue(plan.getDataSink().getIcebergTableSink().getSchemaJson().contains("name"));
+        Assertions.assertFalse(plan.getDataSink().getIcebergTableSink().getSchemaJson().contains("renamed_name"));
+    }
+
+    @Test
     public void branchWriteRejectsCurrentRequiredFieldAbsentWithoutDefault() {
         InMemoryCatalog catalog = freshCatalog();
         Table table = unpartitionedUnsortedTable(catalog);
@@ -1116,7 +1137,8 @@ public class IcebergWritePlanProviderTest {
         Table table = unpartitionedUnsortedTable(catalog);
         table.updateSchema().updateColumnDefault("id", Literal.of(42)).commit();
         List<ConnectorColumn> boundColumns = Arrays.asList(
-                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, "42")
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, null)
+                        .withDefaultValueSql("42")
                         .withUniqueId(table.schema().findField("id").fieldId()),
                 new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
                         .withUniqueId(table.schema().findField("name").fieldId()));
@@ -1129,6 +1151,25 @@ public class IcebergWritePlanProviderTest {
                                 .boundTargetColumns(boundColumns)));
         Assertions.assertTrue(ex.getMessage().contains("schema changed"),
                 "a statement must retry instead of writing a value materialized from the stale default");
+    }
+
+    @Test
+    public void planWriteAcceptsPinnedRequestScopedDefaults() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = formatVersionThreeTable(catalog);
+        table.updateSchema().updateColumnDefault("id", Literal.of(42)).commit();
+        RecordingConnectorContext context = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, context);
+        WriteSession session = sessionFor(table, context);
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "tv3");
+        List<ConnectorColumn> boundColumns = provider.getWriteColumns(
+                session, tableHandle, Optional.empty()).orElseThrow(AssertionError::new);
+
+        TIcebergTableSink sink = Assertions.assertDoesNotThrow(() -> provider.planWrite(session,
+                new WriteHandle(tableHandle).boundTargetColumns(boundColumns)))
+                .getDataSink().getIcebergTableSink();
+
+        Assertions.assertTrue(sink.getSchemaJson().contains("\"write-default\":42"));
     }
 
     @Test

@@ -32,6 +32,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import shade.doris.hive.org.apache.thrift.TApplicationException;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -394,6 +395,17 @@ public class ThriftHmsClientWriteAcidTest {
 
         Assertions.assertEquals(10L, argsOf(fake, "unlock")[0],
                 "a standalone waiting lock has no transaction owner to clean it up");
+    }
+
+    @Test
+    public void testNotificationWatermarkFallsBackWhenMetastoreRejectsOptionalApi() {
+        RecordingClient fake = new RecordingClient().stub("getCurrentNotificationEventId",
+                new TApplicationException(TApplicationException.INTERNAL_ERROR,
+                        "Internal error processing get_current_notificationEventId"));
+        ThriftHmsClient client = newClient(fake);
+
+        Assertions.assertEquals(-1L, client.getCurrentNotificationEventId(),
+                "legacy metastores must disable the optional watermark instead of rejecting writes");
     }
 
     // ---- harness --------------------------------------------------------------------------------

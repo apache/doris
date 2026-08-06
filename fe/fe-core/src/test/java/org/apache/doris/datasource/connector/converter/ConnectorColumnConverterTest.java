@@ -38,6 +38,20 @@ import java.util.Arrays;
 class ConnectorColumnConverterTest {
 
     @Test
+    void connectorWriteDefaultSqlSurvivesColumnRoundtrip() {
+        ConnectorColumn connectorColumn = new ConnectorColumn(
+                "payload", ConnectorType.of("VARBINARY", 16, -1), "", true, null)
+                .withDefaultValueSql("UNHEX('000FFF')");
+
+        ConnectorColumn roundTripped = ConnectorColumnConverter.toConnectorColumn(
+                ConnectorColumnConverter.convertColumn(connectorColumn));
+
+        Assertions.assertNull(roundTripped.getDefaultValue());
+        Assertions.assertEquals("UNHEX('000FFF')", roundTripped.getDefaultValueSql(),
+                "request-scoped connector defaults must survive sink-column binding");
+    }
+
+    @Test
     void testScalarTypeRoundtrip() {
         // INT → ConnectorType → Doris Type should roundtrip
         ConnectorType ct = ConnectorColumnConverter.toConnectorType(ScalarType.INT);
