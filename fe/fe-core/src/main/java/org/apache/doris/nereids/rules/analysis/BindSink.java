@@ -87,6 +87,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -927,6 +928,15 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException(e.getMessage(), e);
         }
         LogicalPlan child = ((LogicalPlan) sink.child());
+
+        Optional<PaimonRowChangeSpec> rowChangeSpec = sink.getRowChangeSpec();
+        if (rowChangeSpec.isPresent()) {
+            LogicalProject<?> rowChange = PaimonRowChangePlanBuilder.build(
+                    writeTarget, rowChangeSpec.get(), child);
+            return new LogicalPaimonTableSink<>(database, writeTarget, writeTarget.getSchema(),
+                    rowChange.getProjects(), sink.getDMLCommandType(),
+                    Optional.empty(), Optional.empty(), rowChange);
+        }
 
         Map<String, Expression> staticPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         staticPartitions.putAll(sink.getStaticPartitionKeyValues());

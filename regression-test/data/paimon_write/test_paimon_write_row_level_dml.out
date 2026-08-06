@@ -14,3 +14,27 @@
 1	Alice_merged	100	merged
 4	Diana	40	active
 5	Eve	50	inserted
+
+-- !paimon_merge_branch_priority --
+1	priority_update	101	first-matched
+4	Diana	40	active
+5	Eve	50	inserted
+6	priority_insert	60	first-not-matched
+
+-- !paimon_merge_duplicate_unchanged --
+1	priority_update	101	first-matched
+4	Diana	40	active
+5	Eve	50	inserted
+6	priority_insert	60	first-not-matched
+
+-- !paimon_ignore_delete_unchanged --
+10	keep
+
+-- !paimon_partial_update_delete --
+0
+
+-- !paimon_aggregation_no_delete_unchanged --
+30	30
+
+-- !paimon_aggregation_delete --
+0

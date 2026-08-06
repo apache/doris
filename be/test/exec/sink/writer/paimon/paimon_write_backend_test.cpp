@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 
 #include <gtest/gtest.h>
@@ -27,6 +28,25 @@ TEST(PaimonWriteBackendFactoryTest, SelectBackendType) {
 
     sink.__set_backend_type(TPaimonWriteBackendType::FFI);
     EXPECT_EQ(PaimonBackendType::FFI, PaimonWriteBackendFactory::select_backend_type(sink));
+}
+
+TEST(JniPaimonWriteBackendTest, OpenAbiAndWriteModes) {
+    EXPECT_STREQ(
+            "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
+            "String;Ljava/lang/String;JJ)V",
+            PAIMON_JNI_WRITER_OPEN_SIGNATURE);
+
+    auto append = PaimonJniWriterOpenMode::from_write_mode(TPaimonWriteMode::APPEND);
+    EXPECT_FALSE(append.overwrite);
+    EXPECT_FALSE(append.changelog);
+
+    auto overwrite = PaimonJniWriterOpenMode::from_write_mode(TPaimonWriteMode::OVERWRITE);
+    EXPECT_TRUE(overwrite.overwrite);
+    EXPECT_FALSE(overwrite.changelog);
+
+    auto changelog = PaimonJniWriterOpenMode::from_write_mode(TPaimonWriteMode::CHANGELOG);
+    EXPECT_FALSE(changelog.overwrite);
+    EXPECT_TRUE(changelog.changelog);
 }
 
 } // namespace doris

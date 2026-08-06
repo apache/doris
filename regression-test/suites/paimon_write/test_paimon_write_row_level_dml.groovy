@@ -54,6 +54,50 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             'bucket' = '1',
             'merge-engine' = 'first-row'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_ignore_delete;
+        CREATE TABLE paimon.${dbName}.t_ignore_delete (
+            id INT, name STRING
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'ignore-delete' = 'true'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_partial_update;
+        CREATE TABLE paimon.${dbName}.t_partial_update (
+            id INT, name STRING, score INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'merge-engine' = 'partial-update',
+            'partial-update.remove-record-on-delete' = 'true'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_aggregation_no_delete;
+        CREATE TABLE paimon.${dbName}.t_aggregation_no_delete (
+            id INT, score INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'merge-engine' = 'aggregation',
+            'fields.score.aggregate-function' = 'sum'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_aggregation_delete;
+        CREATE TABLE paimon.${dbName}.t_aggregation_delete (
+            id INT, score INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'merge-engine' = 'aggregation',
+            'fields.score.aggregate-function' = 'sum',
+            'aggregation.remove-record-on-delete' = 'true'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -119,6 +163,41 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         """
         order_qt_paimon_merge """SELECT * FROM t_dml ORDER BY id"""
 
+        sql """TRUNCATE TABLE internal.${dbName}.t_merge_source"""
+        sql """INSERT INTO internal.${dbName}.t_merge_source VALUES
+            (1, 'priority_update', 101, 'U'),
+            (6, 'priority_insert', 60, 'I')
+        """
+        sql """
+            MERGE INTO t_dml t
+            USING internal.${dbName}.t_merge_source s
+            ON t.id = s.id
+            WHEN MATCHED AND s.action = 'U' THEN UPDATE SET
+                name = s.name, score = s.score, status = 'first-matched'
+            WHEN MATCHED THEN DELETE
+            WHEN NOT MATCHED AND s.action = 'I' THEN INSERT (id, name, score, status)
+                VALUES (s.id, s.name, s.score, 'first-not-matched')
+            WHEN NOT MATCHED THEN INSERT (id, name, score, status)
+                VALUES (s.id, s.name, s.score, 'fallback')
+        """
+        order_qt_paimon_merge_branch_priority """SELECT * FROM t_dml ORDER BY id"""
+
+        sql """TRUNCATE TABLE internal.${dbName}.t_merge_source"""
+        sql """INSERT INTO internal.${dbName}.t_merge_source VALUES
+            (1, 'duplicate_1', 201, 'U'),
+            (1, 'duplicate_2', 202, 'U')
+        """
+        test {
+            sql """
+                MERGE INTO t_dml t
+                USING internal.${dbName}.t_merge_source s
+                ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET name = s.name, score = s.score
+            """
+            exception "Paimon MERGE matched one target row with multiple source rows"
+        }
+        order_qt_paimon_merge_duplicate_unchanged """SELECT * FROM t_dml ORDER BY id"""
+
         test {
             sql """UPDATE t_append_only SET name = 'x' WHERE id = 1"""
             exception "Paimon UPDATE requires a primary-key table"
@@ -129,7 +208,68 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         }
         test {
             sql """UPDATE t_first_row SET name = 'x' WHERE id = 1"""
-            exception "Paimon UPDATE does not support merge-engine=first-row"
+            exception "Paimon UPDATE only supports merge-engine=deduplicate"
+        }
+        test {
+            sql """
+                MERGE INTO t_append_only t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN DELETE
+            """
+            exception "Paimon MERGE requires a primary-key table"
+        }
+
+        sql """INSERT INTO t_ignore_delete VALUES (10, 'keep')"""
+        test {
+            sql """DELETE FROM t_ignore_delete WHERE id = 10"""
+            exception "Paimon DELETE is not supported when ignore-delete=true"
+        }
+        test {
+            sql """
+                MERGE INTO t_ignore_delete t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN DELETE
+            """
+            exception "Paimon DELETE is not supported when ignore-delete=true"
+        }
+        order_qt_paimon_ignore_delete_unchanged """SELECT * FROM t_ignore_delete ORDER BY id"""
+
+        sql """INSERT INTO t_partial_update VALUES (20, 'partial', 20)"""
+        test {
+            sql """UPDATE t_partial_update SET name = NULL WHERE id = 20"""
+            exception "Paimon UPDATE only supports merge-engine=deduplicate"
+        }
+        test {
+            sql """
+                MERGE INTO t_partial_update t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET name = NULL
+            """
+            exception "Paimon UPDATE only supports merge-engine=deduplicate"
+        }
+        sql """DELETE FROM t_partial_update WHERE id = 20"""
+        qt_paimon_partial_update_delete """SELECT count(*) FROM t_partial_update"""
+
+        sql """INSERT INTO t_aggregation_no_delete VALUES (30, 30)"""
+        test {
+            sql """DELETE FROM t_aggregation_no_delete WHERE id = 30"""
+            exception "Paimon DELETE does not support merge-engine=aggregation"
+        }
+        order_qt_paimon_aggregation_no_delete_unchanged """
+            SELECT * FROM t_aggregation_no_delete ORDER BY id
+        """
+
+        sql """INSERT INTO t_aggregation_delete VALUES (40, 40)"""
+        sql """DELETE FROM t_aggregation_delete WHERE id = 40"""
+        qt_paimon_aggregation_delete """SELECT count(*) FROM t_aggregation_delete"""
+
+        test {
+            sql """
+                MERGE INTO t_first_row t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET name = s.name
+            """
+            exception "Paimon UPDATE only supports merge-engine=deduplicate"
         }
     } finally {
         sql """drop catalog if exists ${catalogName}"""

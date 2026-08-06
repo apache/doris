@@ -146,6 +146,16 @@ static constexpr const char* PAIMON_JNI_WRITER_CLASS = "org/apache/doris/paimon/
 static constexpr const char* SCANNER_LOADER_CLASS =
         "org/apache/doris/common/classloader/ScannerLoader";
 
+const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE =
+        "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
+        "String;Ljava/lang/String;JJ)V";
+
+PaimonJniWriterOpenMode PaimonJniWriterOpenMode::from_write_mode(
+        TPaimonWriteMode::type write_mode) {
+    return {static_cast<jboolean>(write_mode == TPaimonWriteMode::OVERWRITE),
+            static_cast<jboolean>(write_mode == TPaimonWriteMode::CHANGELOG)};
+}
+
 /// Attach the current native thread to the JVM if not already attached,
 /// and return a valid JNIEnv pointer.
 static Status _get_jni_env(JNIEnv** env) {
@@ -319,10 +329,8 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     RETURN_IF_ERROR(PaimonJniMemoryManager::register_natives(env, _jni_writer_cls));
 
     // Step 2: Cache JNI method IDs for write, prepareCommit, abort, close.
-    jmethodID open_id = env->GetMethodID(
-            _jni_writer_cls, "open",
-            "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
-            "String;Ljava/lang/String;JJ)V");
+    jmethodID open_id =
+            env->GetMethodID(_jni_writer_cls, "open", PAIMON_JNI_WRITER_OPEN_SIGNATURE);
     _write_id = env->GetMethodID(_jni_writer_cls, "write", "(Ljava/nio/ByteBuffer;)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
@@ -360,11 +368,10 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
         env->DeleteLocalRef(str);
     }
 
+    PaimonJniWriterOpenMode open_mode = PaimonJniWriterOpenMode::from_write_mode(sink.write_mode);
     env->CallVoidMethod(_jni_writer_obj, open_id, j_serialized_table, j_hadoop_config, j_cols,
                         static_cast<jlong>(sink.transaction_id), j_commit_user,
-                        static_cast<jboolean>(sink.write_mode == TPaimonWriteMode::OVERWRITE),
-                        static_cast<jboolean>(sink.write_mode == TPaimonWriteMode::CHANGELOG),
-                        j_time_zone, j_spill_directories,
+                        open_mode.overwrite, open_mode.changelog, j_time_zone, j_spill_directories,
                         static_cast<jlong>(_memory_manager->memory_limit()),
                         reinterpret_cast<jlong>(_memory_manager.get()));
     Status st = _check_jni_exception(env, "open");

@@ -15,9 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands;
+package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
@@ -29,17 +28,9 @@ import java.util.Collection;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** Analysis helpers shared by Paimon row-level DML commands. */
-final class PaimonDmlCommandUtils {
-    private PaimonDmlCommandUtils() {
-    }
-
-    static PaimonWriteTarget loadTarget(PaimonExternalTable table) {
-        try {
-            return PaimonWriteTarget.create(table);
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
+/** Validates row-change operations against the Paimon table capabilities. */
+final class PaimonRowChangeCapabilities {
+    private PaimonRowChangeCapabilities() {
     }
 
     static void checkUpdate(PaimonWriteTarget target, Collection<String> updatedColumns) {
@@ -54,9 +45,9 @@ final class PaimonDmlCommandUtils {
             }
         }
         CoreOptions.MergeEngine engine = CoreOptions.fromMap(table.options()).mergeEngine();
-        if (engine != CoreOptions.MergeEngine.DEDUPLICATE
-                && engine != CoreOptions.MergeEngine.PARTIAL_UPDATE) {
-            throw new AnalysisException("Paimon UPDATE does not support merge-engine=" + engine);
+        if (engine != CoreOptions.MergeEngine.DEDUPLICATE) {
+            throw new AnalysisException("Paimon UPDATE only supports merge-engine=deduplicate; "
+                    + "merge-engine=" + engine + " cannot preserve SQL UPDATE semantics");
         }
     }
 
@@ -64,6 +55,10 @@ final class PaimonDmlCommandUtils {
         FileStoreTable table = target.getTable();
         requirePrimaryKey(table, "DELETE");
         Options options = Options.fromMap(table.options());
+        if (options.get(CoreOptions.IGNORE_DELETE)) {
+            throw new AnalysisException("Paimon DELETE is not supported when ignore-delete=true "
+                    + "because the delete record would be ignored");
+        }
         CoreOptions.MergeEngine engine = options.get(CoreOptions.MERGE_ENGINE);
         switch (engine) {
             case DEDUPLICATE:

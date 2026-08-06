@@ -18,30 +18,17 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
-import org.apache.doris.datasource.paimon.PaimonRowChangeOperation;
-import org.apache.doris.datasource.paimon.PaimonWriteTarget;
-import org.apache.doris.nereids.analyzer.UnboundAlias;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.analyzer.UnboundPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -61,32 +48,18 @@ public class PaimonDeleteCommand extends Command implements ForwardWithSync, Exp
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(buildPlan(ctx), Optional.empty(), Optional.empty(),
-                Optional.empty(), false, Optional.empty()).run(ctx, executor);
+        new InsertIntoTableCommand(buildPlan(), Optional.empty(), Optional.empty(), Optional.empty())
+                .run(ctx, executor);
     }
 
-    private LogicalPlan buildPlan(ConnectContext ctx) {
-        PaimonExternalTable table = (PaimonExternalTable) RelationUtil.getTable(
-                RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv(), Optional.empty());
-        PaimonWriteTarget target = PaimonDmlCommandUtils.loadTarget(table);
-        PaimonDmlCommandUtils.checkDelete(target);
-        String targetName = tableAlias != null ? tableAlias : Util.getTempTableDisplayName(table.getName());
-
-        List<NamedExpression> projects = new ArrayList<>();
-        projects.add(new UnboundAlias(new TinyIntLiteral(PaimonRowChangeOperation.DELETE),
-                PaimonRowChangeOperation.OPERATION_COLUMN));
-        for (Column column : target.getSchema()) {
-            projects.add(new UnboundSlot(targetName, column.getName()));
-        }
-        LogicalProject<LogicalPlan> project = new LogicalProject<>(projects, logicalQuery);
-        return new LogicalPaimonTableSink<>(
-                (PaimonExternalDatabase) table.getDatabase(), target, target.getSchema(), projects,
-                DMLCommandType.DELETE, Optional.empty(), Optional.empty(), project);
+    private LogicalPlan buildPlan() {
+        return new UnboundPaimonTableSink<>(nameParts, logicalQuery,
+                new PaimonRowChangeSpec.Delete(tableAlias));
     }
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
-        return buildPlan(ctx);
+        return buildPlan();
     }
 
     @Override
