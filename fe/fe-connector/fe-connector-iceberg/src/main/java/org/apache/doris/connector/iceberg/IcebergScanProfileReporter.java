@@ -43,10 +43,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * behavior in the plugin architecture: it is a self-contained port (the connector cannot import fe-core, so
  * {@code DebugUtil}'s time/byte formatters are inlined and Guava is avoided).
  *
- * <p>The SDK invokes {@link #report} on CLOSE of the {@code planFiles} iterable, which the connector performs
- * synchronously on the planScan thread — so a fresh reporter is created per scan bound to that scan's queryId,
- * and attached ONLY on the synchronous data/count path (never the streaming or system-table path, which fe-core
- * never drains).</p>
+ * <p>The SDK invokes {@link #report} on CLOSE of the {@code planFiles} iterable. A fresh reporter is created per
+ * scan and bound to that scan's queryId; fe-core drains eager scans after {@code planScan} and streaming scans
+ * after closing their split source.</p>
  */
 public class IcebergScanProfileReporter implements MetricsReporter {
     /**

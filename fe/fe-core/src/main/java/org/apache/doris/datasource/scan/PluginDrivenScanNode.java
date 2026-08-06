@@ -433,16 +433,25 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return;
         }
         for (ConnectorScanProfile profile : profiles) {
-            RuntimeProfile group = executionSummary.getChildMap().get(profile.getGroupName());
-            if (group == null) {
-                group = new RuntimeProfile(profile.getGroupName());
-                executionSummary.addChild(group, true);
-            }
+            RuntimeProfile group = getOrCreateScanProfileGroup(executionSummary, profile.getGroupName());
             RuntimeProfile scan = new RuntimeProfile(profile.getScanLabel());
             for (Map.Entry<String, String> entry : profile.getMetrics().entrySet()) {
                 scan.addInfoString(entry.getKey(), entry.getValue());
             }
             group.addChild(scan, true);
+        }
+    }
+
+    private static RuntimeProfile getOrCreateScanProfileGroup(RuntimeProfile executionSummary, String groupName) {
+        // Multiple streaming scan nodes in one query can finish concurrently. Serialize the compound child-map
+        // lookup/add so one callback cannot replace the group created by another and discard its scan profile.
+        synchronized (executionSummary) {
+            RuntimeProfile group = executionSummary.getChildMap().get(groupName);
+            if (group == null) {
+                group = new RuntimeProfile(groupName);
+                executionSummary.addChild(group, true);
+            }
+            return group;
         }
     }
 
@@ -1887,6 +1896,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        // ConnectContext is thread-local and is unavailable on the schedule executor. Capture this query's
+        // execution summary before dispatch so streaming metrics are written to the same profile as eager scans.
+        SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        final RuntimeProfile executionSummary = summaryProfile == null ? null : summaryProfile.getExecutionSummary();
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         CompletableFuture.runAsync(() -> {
             ConnectorSplitSource source = null;
@@ -1915,6 +1928,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                         LOG.warn("Failed to close streaming split source for {}", handle, ce);
                     }
                 }
+                List<ConnectorScanProfile> scanProfiles = onPluginClassLoader(scanProvider,
+                        () -> scanProvider.collectScanProfiles(connectorSession));
+                writeScanProfilesInto(executionSummary, scanProfiles);
             }
         }, scheduleExecutor);
     }

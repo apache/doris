@@ -282,12 +282,13 @@ public interface ConnectorScanPlanProvider {
      * {@link ConnectorScanProfile} groups the engine writes into the query's profile execution summary.
      *
      * <p>The default returns an empty list (connector reports nothing). A connector that wants scan
-     * diagnostics harvests them from its SDK during {@code planScan} (the paimon SDK exposes a metric
-     * registry, the iceberg SDK a metrics reporter), stashes them keyed by {@link ConnectorSession#getQueryId()},
-     * and drains them here — mirroring the per-query queryId stashes this SPI already uses (read-transaction
-     * release, rewritable-delete supply). The engine calls this immediately after {@code planScan} on the
-     * same thread, so the harvest is complete; the connector must also drop its stash on
-     * {@link #releaseReadTransaction} to reclaim any entry a thrown {@code planScan} left behind.</p>
+     * diagnostics harvests them from its SDK during {@code planScan} or streaming split generation (the paimon
+     * SDK exposes a metric registry, the iceberg SDK a metrics reporter), stashes them keyed by
+     * {@link ConnectorSession#getQueryId()}, and drains them here — mirroring the per-query queryId stashes this
+     * SPI already uses (read-transaction release, rewritable-delete supply). The engine calls this immediately
+     * after {@code planScan}, or after closing a streaming split source, so the harvest is complete; the connector
+     * must also drop its stash on {@link #releaseReadTransaction} to reclaim an entry left by a failed planning
+     * path.</p>
      *
      * @param session the current session (its queryId keys the connector's per-query stash)
      * @return this scan's diagnostics, or an empty list (the default) to contribute nothing to the profile

@@ -23,10 +23,13 @@ import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * FIX-SCAN-METRICS — guards {@link PluginDrivenScanNode#writeScanProfilesInto}, the connector-agnostic
@@ -86,5 +89,23 @@ public class PluginDrivenScanNodeScanProfileTest {
         Assertions.assertEquals(2, group.getChildMap().size(), "one group, two scan children");
         Assertions.assertEquals("3", group.getChildMap().get("Table Scan (db.a)").getInfoString("data_files"));
         Assertions.assertEquals("5", group.getChildMap().get("Table Scan (db.b)").getInfoString("data_files"));
+    }
+
+    @Test
+    public void concurrentStreamingScansShareOneGroup() {
+        RuntimeProfile summary = new RuntimeProfile("Execution Summary");
+        List<CompletableFuture<Void>> writes = new ArrayList<>();
+        for (int i = 0; i < 32; i++) {
+            String label = "Table Scan (db.t" + i + ")";
+            writes.add(CompletableFuture.runAsync(() -> PluginDrivenScanNode.writeScanProfilesInto(
+                    summary, Collections.singletonList(
+                            profile("Iceberg Scan Metrics", label, "data_files", "1")))));
+        }
+        CompletableFuture.allOf(writes.toArray(new CompletableFuture[0])).join();
+
+        RuntimeProfile group = summary.getChildMap().get("Iceberg Scan Metrics");
+        Assertions.assertNotNull(group);
+        Assertions.assertEquals(32, group.getChildMap().size(),
+                "concurrent batch scans must not replace the shared profile group");
     }
 }

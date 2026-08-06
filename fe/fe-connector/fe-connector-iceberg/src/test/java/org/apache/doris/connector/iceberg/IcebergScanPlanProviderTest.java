@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
@@ -2017,6 +2018,37 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(
                 ImmutableSet.of("s3://b/db/t1/f1.parquet", "s3://b/db/t1/f2.parquet", "s3://b/db/t1/f3.parquet"), paths,
                 "streaming must yield one range per file");
+    }
+
+    @Test
+    public void streamSplitsCollectsSameScanMetricsAsPlanScan() throws IOException {
+        Table table = threeFileTable();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        ConnectorSession session = emptySession();
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        provider.planScan(session, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+        List<ConnectorScanProfile> eagerProfiles = provider.collectScanProfiles(session);
+        Assertions.assertEquals(1, eagerProfiles.size());
+
+        List<ConnectorScanRange> streamedRanges = drain(provider.streamSplits(
+                session, handle, Collections.emptyList(), Optional.empty(), -1L));
+        Assertions.assertEquals(3, streamedRanges.size());
+        List<ConnectorScanProfile> streamingProfiles = provider.collectScanProfiles(session);
+        Assertions.assertEquals(1, streamingProfiles.size(),
+                "closing the streaming source must publish its Iceberg ScanReport");
+
+        ConnectorScanProfile eager = eagerProfiles.get(0);
+        ConnectorScanProfile streaming = streamingProfiles.get(0);
+        Assertions.assertEquals(eager.getGroupName(), streaming.getGroupName());
+        Assertions.assertEquals(eager.getScanLabel(), streaming.getScanLabel());
+        Assertions.assertEquals(eager.getMetrics().keySet(), streaming.getMetrics().keySet());
+        for (Map.Entry<String, String> entry : eager.getMetrics().entrySet()) {
+            if (!"planning".equals(entry.getKey())) {
+                Assertions.assertEquals(entry.getValue(), streaming.getMetrics().get(entry.getKey()),
+                        "batch and non-batch metric values must match for " + entry.getKey());
+            }
+        }
     }
 
     @Test
