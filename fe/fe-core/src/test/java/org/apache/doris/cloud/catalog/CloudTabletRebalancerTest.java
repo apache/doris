@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -32,6 +33,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -40,8 +42,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.AbstractList;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -97,6 +101,23 @@ public class CloudTabletRebalancerTest {
         }
     }
 
+    private static class CapacityTrackingRebalancer extends TestRebalancer {
+        private final List<Integer> globalTabletSetInitialCapacities = new ArrayList<>();
+        private final List<Integer> routeInfoListInitialCapacities = new ArrayList<>();
+
+        @Override
+        protected Set<Long> newGlobalTabletSet(int initialCapacity) {
+            globalTabletSetInitialCapacities.add(initialCapacity);
+            return super.newGlobalTabletSet(initialCapacity);
+        }
+
+        @Override
+        protected <T> List<T> newRouteInfoList(int initialCapacity) {
+            routeInfoListInitialCapacities.add(initialCapacity);
+            return super.newRouteInfoList(initialCapacity);
+        }
+    }
+
     private static class CountingConcurrentHashMap<K, V> extends ConcurrentHashMap<K, V> {
         private int computeIfAbsentCalls;
         private int getCalls;
@@ -118,6 +139,39 @@ public class CloudTabletRebalancerTest {
         public V putIfAbsent(K key, V value) {
             putIfAbsentCalls++;
             return super.putIfAbsent(key, value);
+        }
+    }
+
+    private static class IteratorRejectingList<E> extends AbstractList<E> {
+        private final E element;
+
+        IteratorRejectingList(E element) {
+            this.element = element;
+        }
+
+        @Override
+        public E get(int index) {
+            if (index != 0) {
+                throw new IndexOutOfBoundsException(String.valueOf(index));
+            }
+            return element;
+        }
+
+        @Override
+        public int size() {
+            return 1;
+        }
+
+        @Override
+        public java.util.Iterator<E> iterator() {
+            throw new AssertionError("replica traversal must not allocate an iterator");
+        }
+    }
+
+    private static class EmptyLookupRejectingMap<K, V> extends ConcurrentHashMap<K, V> {
+        @Override
+        public V get(Object key) {
+            throw new AssertionError("an empty inflight map must not allocate and probe a composite key");
         }
     }
 
@@ -162,6 +216,171 @@ public class CloudTabletRebalancerTest {
                 new ConcurrentHashMap<>();
         private final ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
                 byPartition = new ConcurrentHashMap<>();
+    }
+
+    @Test
+    public void testInfightTabletHashCodePreservesExistingResult() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        Class<?> infightTabletClass = null;
+        for (Class<?> nestedClass : CloudTabletRebalancer.class.getDeclaredClasses()) {
+            if (nestedClass.getSimpleName().equals("InfightTablet")) {
+                infightTabletClass = nestedClass;
+                break;
+            }
+        }
+        Assertions.assertNotNull(infightTabletClass);
+        Constructor<?> constructor = infightTabletClass.getDeclaredConstructor(
+                CloudTabletRebalancer.class, long.class, String.class);
+        constructor.setAccessible(true);
+        Object infightTablet = constructor.newInstance(rebalancer, tabletId, clusterId);
+
+        int expectedHashCode = 31 * (31 + Long.hashCode(tabletId)) + clusterId.hashCode();
+        Assertions.assertEquals(expectedHashCode, infightTablet.hashCode());
+    }
+
+    @Test
+    public void testCloudReplicaReturnsStoredBoxedPrimaryBackendId() throws Exception {
+        CloudReplica replica = new CloudReplica();
+        String clusterId = "cluster-a";
+        long backendId = 60_001L;
+        replica.updateClusterToPrimaryBe(clusterId, backendId);
+
+        Method method = CloudReplica.class.getDeclaredMethod(
+                "getNonColocatedPrimaryBackendId", String.class);
+        method.setAccessible(true);
+        Long first = (Long) method.invoke(replica, clusterId);
+        Long second = (Long) method.invoke(replica, clusterId);
+
+        Assertions.assertEquals(backendId, first);
+        Assertions.assertSame(first, second);
+    }
+
+    @Test
+    public void testSystemInfoServiceLooksUpBackendWithBoxedId() throws Exception {
+        SystemInfoService systemInfoService = new SystemInfoService();
+        Long backendId = Long.valueOf(60_001L);
+        Backend backend = new Backend(backendId, "127.0.0.1", 9050);
+        systemInfoService.addBackend(backend);
+
+        Method method = SystemInfoService.class.getDeclaredMethod("getBackendByIdWithBoxedId", Long.class);
+        Backend actual = (Backend) method.invoke(systemInfoService, backendId);
+
+        Assertions.assertSame(backend, actual);
+    }
+
+    @Test
+    public void testRouteRebuildDoesNotUsePrimitivePrimaryBackendPath() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        Long beId = 60_001L;
+        String clusterId = "cluster-a";
+        Tablet tablet = mockTablet(tabletId);
+        CloudReplica replica = (CloudReplica) tablet.getReplicas().get(0);
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+        setField(rebalancer, "allBes", Set.of(beId));
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tablet, clusterId, beId)) {
+            boolean completed = invokePrivate(rebalancer, "completeRouteInfo",
+                    new Class<?>[] {}, new Object[] {});
+            Assertions.assertTrue(completed);
+            rebalancer.statRouteInfo();
+        }
+
+        Mockito.verify(replica, Mockito.never()).getPrimaryBackend(clusterId, false);
+    }
+
+    @Test
+    public void testStatRouteInfoTraversesReplicasWithoutIterator() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        Long beId = 60_001L;
+        String clusterId = "cluster-a";
+        Tablet tablet = mockTablet(tabletId);
+        CloudReplica replica = (CloudReplica) tablet.getReplicas().get(0);
+        Mockito.when(tablet.getReplicas()).thenReturn(new IteratorRejectingList<Replica>(replica));
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+        setField(rebalancer, "allBes", Set.of(beId));
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tablet, clusterId, beId)) {
+            rebalancer.statRouteInfo();
+        }
+    }
+
+    @Test
+    public void testStatRouteInfoSkipsCompositeKeyForEmptyInflightMap() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        Long beId = 60_001L;
+        String clusterId = "cluster-a";
+        Tablet tablet = mockTablet(tabletId);
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+        setField(rebalancer, "allBes", Set.of(beId));
+        setField(rebalancer, "tabletToInfightTask", new EmptyLookupRejectingMap<>());
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tablet, clusterId, beId)) {
+            rebalancer.statRouteInfo();
+        }
+    }
+
+    @Test
+    public void testCompleteRouteInfoPresizesRouteListsFromIndexTablets() throws Exception {
+        CapacityTrackingRebalancer rebalancer = new CapacityTrackingRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        Long beId = 60_001L;
+        String clusterId = "cluster-a";
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, beId, 3)) {
+            boolean completed = invokePrivate(rebalancer, "completeRouteInfo",
+                    new Class<?>[] {}, new Object[] {});
+
+            Assertions.assertTrue(completed);
+            Assertions.assertEquals(List.of(3, 3), rebalancer.routeInfoListInitialCapacities);
+        }
+    }
+
+    @Test
+    public void testCompleteRouteInfoDoesNotPresizeUnusedColocateRouteLists() throws Exception {
+        CapacityTrackingRebalancer rebalancer = new CapacityTrackingRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        Long beId = 60_001L;
+        String clusterId = "cluster-a";
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, beId, 3, true)) {
+            boolean completed = invokePrivate(rebalancer, "completeRouteInfo",
+                    new Class<?>[] {}, new Object[] {});
+
+            Assertions.assertTrue(completed);
+            Assertions.assertEquals(List.of(0, 0), rebalancer.routeInfoListInitialCapacities);
+        }
     }
 
     @Test
@@ -349,6 +568,96 @@ public class CloudTabletRebalancerTest {
         }
     }
 
+    @Test
+    public void testStatRouteInfoPresizesGlobalTabletSetsFromPreviousRoute() throws Exception {
+        CapacityTrackingRebalancer rebalancer = new CapacityTrackingRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        Long beId = 60_001L;
+        String clusterId = "cluster-a";
+
+        ConcurrentHashMap<Long, Set<Long>> previousCurrent = new ConcurrentHashMap<>();
+        previousCurrent.put(beId, Set.of(1L, 2L, 3L));
+        ConcurrentHashMap<Long, Set<Long>> previousFuture = new ConcurrentHashMap<>();
+        previousFuture.put(beId, Set.of(1L, 2L, 3L, 4L, 5L));
+        setField(rebalancer, "beToTabletsGlobal", previousCurrent);
+        setField(rebalancer, "futureBeToTabletsGlobal", previousFuture);
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+        setField(rebalancer, "allBes", Set.of(beId));
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, beId)) {
+            rebalancer.statRouteInfo();
+        }
+
+        Assertions.assertEquals(List.of(3, 5), rebalancer.globalTabletSetInitialCapacities);
+        ConcurrentHashMap<Long, Set<Long>> current = getField(rebalancer, "beToTabletsGlobal");
+        ConcurrentHashMap<Long, Set<Long>> future = getField(rebalancer, "futureBeToTabletsGlobal");
+        Assertions.assertEquals(Set.of(tabletId), current.get(beId));
+        Assertions.assertEquals(Set.of(tabletId), future.get(beId));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testStatRouteInfoBoundsStaleGlobalTabletSetCapacity() throws Exception {
+        CapacityTrackingRebalancer rebalancer = new CapacityTrackingRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        Long beId = 60_001L;
+        String clusterId = "cluster-a";
+
+        Set<Long> stalePreviousTablets = Mockito.mock(Set.class);
+        Mockito.when(stalePreviousTablets.size()).thenReturn(2_000_000);
+        ConcurrentHashMap<Long, Set<Long>> previousCurrent = new ConcurrentHashMap<>();
+        previousCurrent.put(beId, stalePreviousTablets);
+        ConcurrentHashMap<Long, Set<Long>> previousFuture = new ConcurrentHashMap<>();
+        previousFuture.put(beId, stalePreviousTablets);
+        setField(rebalancer, "beToTabletsGlobal", previousCurrent);
+        setField(rebalancer, "futureBeToTabletsGlobal", previousFuture);
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+        setField(rebalancer, "allBes", Set.of(beId));
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, beId)) {
+            rebalancer.statRouteInfo();
+        }
+
+        Assertions.assertEquals(List.of(1_048_576, 1_048_576),
+                rebalancer.globalTabletSetInitialCapacities);
+        ConcurrentHashMap<Long, Set<Long>> current = getField(rebalancer, "beToTabletsGlobal");
+        ConcurrentHashMap<Long, Set<Long>> future = getField(rebalancer, "futureBeToTabletsGlobal");
+        Assertions.assertEquals(Set.of(tabletId), current.get(beId));
+        Assertions.assertEquals(Set.of(tabletId), future.get(beId));
+    }
+
+    @Test
+    public void testStatRouteInfoUsesZeroCapacityForNewBackend() throws Exception {
+        CapacityTrackingRebalancer rebalancer = new CapacityTrackingRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        Long beId = 60_001L;
+        String clusterId = "cluster-a";
+
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+        setField(rebalancer, "allBes", Set.of(beId));
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, beId)) {
+            rebalancer.statRouteInfo();
+        }
+
+        Assertions.assertEquals(List.of(0, 0), rebalancer.globalTabletSetInitialCapacities);
+    }
+
     private static void initializeRouteMaps(TestRebalancer rebalancer, RouteMaps current, RouteMaps future,
             Long srcBe, Long tableId, Long partitionId, Long indexId, Long tabletId) throws Exception {
         rebalancer.fillBeToTablets(srcBe, tableId, partitionId, indexId, tabletId,
@@ -381,6 +690,36 @@ public class CloudTabletRebalancerTest {
 
     private static MockedStatic<Env> mockRouteEnvironment(Long dbId, Long tableId, Long partitionId,
             Long indexId, Long tabletId, String clusterId, Long srcBe) {
+        return mockRouteEnvironment(dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe, 1, false);
+    }
+
+    private static MockedStatic<Env> mockRouteEnvironment(Long dbId, Long tableId, Long partitionId,
+            Long indexId, Long tabletId, String clusterId, Long srcBe, int tabletCount) {
+        return mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe, tabletCount, false);
+    }
+
+    private static MockedStatic<Env> mockRouteEnvironment(Long dbId, Long tableId, Long partitionId,
+            Long indexId, Long tabletId, String clusterId, Long srcBe, int tabletCount, boolean colocated) {
+        return mockRouteEnvironment(dbId, tableId, partitionId, indexId, mockTablet(tabletId),
+                clusterId, srcBe, tabletCount, colocated);
+    }
+
+    private static Tablet mockTablet(long tabletId) {
+        Tablet tablet = Mockito.mock(Tablet.class);
+        CloudReplica replica = Mockito.mock(CloudReplica.class);
+        Mockito.when(tablet.getId()).thenReturn(tabletId);
+        Mockito.when(tablet.getReplicas()).thenReturn(Collections.singletonList(replica));
+        return tablet;
+    }
+
+    private static MockedStatic<Env> mockRouteEnvironment(Long dbId, Long tableId, Long partitionId,
+            Long indexId, Tablet tablet, String clusterId, Long srcBe) {
+        return mockRouteEnvironment(dbId, tableId, partitionId, indexId, tablet, clusterId, srcBe, 1, false);
+    }
+
+    private static MockedStatic<Env> mockRouteEnvironment(Long dbId, Long tableId, Long partitionId,
+            Long indexId, Tablet tablet, String clusterId, Long srcBe, int tabletCount, boolean colocated) {
         Env env = Mockito.mock(Env.class);
         TabletInvertedIndex invertedIndex = Mockito.mock(TabletInvertedIndex.class);
         TabletMeta tabletMeta = Mockito.mock(TabletMeta.class);
@@ -390,9 +729,10 @@ public class CloudTabletRebalancerTest {
         OlapTable table = Mockito.mock(OlapTable.class);
         Partition partition = Mockito.mock(Partition.class);
         MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
-        Tablet tablet = Mockito.mock(Tablet.class);
-        CloudReplica replica = Mockito.mock(CloudReplica.class);
+        CloudReplica replica = (CloudReplica) tablet.getReplicas().get(0);
         Backend primaryBackend = Mockito.mock(Backend.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Long tabletId = tablet.getId();
 
         Mockito.when(env.getTabletInvertedIndex()).thenReturn(invertedIndex);
         Mockito.when(invertedIndex.getTabletMeta(tabletId)).thenReturn(tabletMeta);
@@ -405,14 +745,15 @@ public class CloudTabletRebalancerTest {
         Mockito.when(database.getId()).thenReturn(dbId);
         Mockito.when(table.isManagedTable()).thenReturn(true);
         Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(colocateTableIndex.isColocateTable(tableId)).thenReturn(colocated);
         Mockito.when(table.getAllPartitions()).thenReturn(Collections.singletonList(partition));
         Mockito.when(partition.getId()).thenReturn(partitionId);
         Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
                 .thenReturn(Collections.singletonList(index));
         Mockito.when(index.getId()).thenReturn(indexId);
-        Mockito.when(index.getTablets()).thenReturn(Collections.singletonList(tablet));
-        Mockito.when(tablet.getId()).thenReturn(tabletId);
-        Mockito.when(tablet.getReplicas()).thenReturn(Collections.singletonList(replica));
+        Mockito.when(index.getTablets()).thenReturn(Collections.nCopies(tabletCount, tablet));
+        Mockito.when(replica.getNonColocatedPrimaryBackendId(clusterId)).thenReturn(srcBe);
+        Mockito.when(systemInfoService.getBackendByIdWithBoxedId(srcBe)).thenReturn(primaryBackend);
         Mockito.when(replica.getPrimaryBackend(clusterId, false)).thenReturn(primaryBackend);
         Mockito.when(primaryBackend.getId()).thenReturn(srcBe);
 
@@ -420,6 +761,7 @@ public class CloudTabletRebalancerTest {
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
         mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
         mockedEnv.when(Env::getCurrentColocateIndex).thenReturn(colocateTableIndex);
+        mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
         return mockedEnv;
     }
 
