@@ -268,10 +268,13 @@ public class HiveConnectorTransactionTest {
         client.table = table(false, Collections.emptyMap(), 10,
                 Collections.singletonList(col("c1", "int")));
         client.currentNotificationEventId = 10;
-        HiveConnectorTransaction txn = newTxn(client);
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
         txn.beginWrite(null, DB, TBL, ctx(false));
-        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
-                Collections.singletonList("f1"), 100, 4)));
+        // A complete ownership record is required so this test reaches the generation fence instead of the
+        // earlier fail-closed multipart validation.
+        txn.addCommitData(serialize(puWithMpu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                "bucket", "db/t/f1", "upload-replaced", Collections.singletonMap(1, "etag-1"))));
 
         // Recreate the table with every digest-visible field unchanged. Only the HMS event stream can
         // distinguish this new object from the table whose schema and location were bound above.
@@ -292,10 +295,12 @@ public class HiveConnectorTransactionTest {
         RecordingHmsClient client = new RecordingHmsClient();
         client.table = table(false, Collections.emptyMap());
         client.currentNotificationEventId = 10;
-        HiveConnectorTransaction txn = newTxn(client);
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
         txn.beginWrite(null, DB, TBL, ctx(false));
-        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
-                Collections.singletonList("f1"), 100, 4)));
+        // Keep multipart validation green so the assertion measures the lock around actual publication.
+        txn.addCommitData(serialize(puWithMpu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                "bucket", "db/t/f1", "upload-lock", Collections.singletonMap(1, "etag-1"))));
 
         txn.commit();
 

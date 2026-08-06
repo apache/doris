@@ -142,8 +142,9 @@ public class IcebergConnectorTransactionTest {
     }
 
     private static IcebergWriteContext overwriteCtxPinned(long readSnapshotId) {
+        // A resolved empty read also uses -1, so the explicit flag preserves it as an OCC fence.
         return new IcebergWriteContext(WriteOperation.OVERWRITE, true, Collections.emptyMap(), Optional.empty(),
-                readSnapshotId);
+                readSnapshotId, true);
     }
 
     private static IcebergWriteContext overwriteStaticCtx(Table table, Map<String, String> staticValues) {
