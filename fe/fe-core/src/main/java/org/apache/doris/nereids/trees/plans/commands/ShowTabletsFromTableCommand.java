@@ -246,14 +246,16 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                     }
                 }
             }
-            //If offset is greater than tabletinfo's size, we shall skip further processing and return the empty list 'rows'.
-            if(offset < tabletInfos.size()) {
+            //If offset is greater than tabletinfo's size, we shall skip further processing
+            // and return the empty list 'rows'.
+            if (offset < tabletInfos.size()) {
                 List<List<Comparable>> orderedTableInfos;
 
                 if (orderByPairs != null) {
                     // order by
                     OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-                    ListComparator<List<Comparable>> comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+                    ListComparator<List<Comparable>> comparator =
+                        new ListComparator<>(orderByPairs.toArray(orderByPairArr));
                     orderedTableInfos = SortAndLimit.sortAndLimit(tabletInfos, comparator, sizeLimit);
                 } else {
                     orderedTableInfos = tabletInfos;
