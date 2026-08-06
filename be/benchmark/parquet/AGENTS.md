@@ -51,7 +51,7 @@ be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetDecoder/'  # currently 228
 
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -c '^ParquetKernel/'   # currently 492
+  | grep -c '^ParquetKernel/'   # currently 512
 
 be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetSelection/' # currently 25
@@ -146,7 +146,7 @@ cache to manufacture a cold run.
 | DELTA_LENGTH_BYTE_ARRAY | BYTE_ARRAY |
 | DELTA_BYTE_ARRAY | BYTE_ARRAY |
 
-`ParquetKernel` contains 492 cases across eight decode and selection stages: BYTE_STREAM_SPLIT,
+`ParquetKernel` contains 512 cases across eight decode and selection stages: BYTE_STREAM_SPLIT,
 DELTA_PREFIX_SUM, DICTIONARY_GATHER, NULLABLE_EXPAND, NULLABLE_SELECTION, DICTIONARY_SELECTION,
 RAW_PREDICATE, and NESTED_SELECTION. It covers
 the applicable four- and eight-byte types, three dictionary working-set sizes, 0% through 90% null
@@ -160,7 +160,7 @@ identical physical ranges and null maps before timing. Treat no-NULL, low-NULL, 
 level-plan cases as negative controls: production fusion is gated to batches with at least 1,024
 rows, at least 10% NULLs, and materially fragmented definition-level runs.
 Dictionary selection adds the same 200-case legacy/fused matrix without output NULL-map
-materialization, matching predicate-only dictionary planning.
+materialization, plus 20 identity-input cases matching same-column dictionary planning.
 
 `ParquetSelection` contains 25 cases that isolate the selection-vector work used by Parquet
 predicate evaluation. It measures identity initialization, one raw-row filter, and two successive

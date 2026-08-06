@@ -121,32 +121,40 @@ inline Status run_legacy_nullable_selection(NullableSelectionScratch* scratch,
     scratch->num_filtered = scratch->legacy_selection.num_filtered();
 
     size_t physical_cursor = 0;
-    ReadType type;
-    while (const size_t run_length = scratch->legacy_selection.get_next_run<true>(&type)) {
-        switch (type) {
-        case ReadType::CONTENT:
-            if (!scratch->physical_selection.ranges.empty() &&
-                scratch->physical_selection.ranges.back().first +
-                                scratch->physical_selection.ranges.back().count ==
-                        physical_cursor) {
-                scratch->physical_selection.ranges.back().count += run_length;
-            } else {
-                scratch->physical_selection.ranges.push_back(
-                        {.first = physical_cursor, .count = run_length});
+    const auto build_selection = [&]<bool HAS_FILTER>() {
+        ReadType type;
+        while (const size_t run_length =
+                       scratch->legacy_selection.get_next_run<HAS_FILTER>(&type)) {
+            switch (type) {
+            case ReadType::CONTENT:
+                if (!scratch->physical_selection.ranges.empty() &&
+                    scratch->physical_selection.ranges.back().first +
+                                    scratch->physical_selection.ranges.back().count ==
+                            physical_cursor) {
+                    scratch->physical_selection.ranges.back().count += run_length;
+                } else {
+                    scratch->physical_selection.ranges.push_back(
+                            {.first = physical_cursor, .count = run_length});
+                }
+                scratch->physical_selection.selected_values += run_length;
+                scratch->selected_nulls.resize_fill(scratch->selected_nulls.size() + run_length, 0);
+                physical_cursor += run_length;
+                break;
+            case ReadType::NULL_DATA:
+                scratch->selected_nulls.resize_fill(scratch->selected_nulls.size() + run_length, 1);
+                break;
+            case ReadType::FILTERED_CONTENT:
+                physical_cursor += run_length;
+                break;
+            case ReadType::FILTERED_NULL:
+                break;
             }
-            scratch->physical_selection.selected_values += run_length;
-            scratch->selected_nulls.resize_fill(scratch->selected_nulls.size() + run_length, 0);
-            physical_cursor += run_length;
-            break;
-        case ReadType::NULL_DATA:
-            scratch->selected_nulls.resize_fill(scratch->selected_nulls.size() + run_length, 1);
-            break;
-        case ReadType::FILTERED_CONTENT:
-            physical_cursor += run_length;
-            break;
-        case ReadType::FILTERED_NULL:
-            break;
         }
+    };
+    if (scratch->legacy_selection.has_filter()) {
+        build_selection.template operator()<true>();
+    } else {
+        build_selection.template operator()<false>();
     }
     scratch->physical_selection.total_values = physical_cursor;
     return Status::OK();
@@ -160,8 +168,8 @@ inline Status run_dictionary_selection_once(NullableSelectionScratch* scratch,
     if (implementation == NullableSelectionImplementation::LEGACY) {
         return run_legacy_nullable_selection(scratch, null_runs, num_values, filter, false);
     }
-    if (!format::parquet::native::should_use_fused_dictionary_selection(num_values, num_nulls,
-                                                                        *filter, 0)) {
+    if (!format::parquet::native::should_use_fused_dictionary_selection(
+                num_values, num_nulls, null_runs.size(), *filter, 0)) {
         return run_legacy_nullable_selection(scratch, null_runs, num_values, filter, false);
     }
     scratch->output_nulls.clear();
@@ -776,7 +784,7 @@ inline bool register_nullable_selection_benchmarks() {
 }
 
 inline bool register_dictionary_selection_benchmarks() {
-    for (const auto& scenario : nullable_selection_scenarios()) {
+    for (const auto& scenario : dictionary_selection_scenarios()) {
         const std::string name = "ParquetKernel/dictionary_selection/sel_" +
                                  std::to_string(scenario.selectivity_percent) + "/null_" +
                                  std::to_string(scenario.null_percent) + "/selection_" +

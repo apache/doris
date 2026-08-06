@@ -109,10 +109,19 @@ FilterSample sample_filter(const uint8_t* filter, size_t num_values) {
 } // namespace
 
 bool should_use_fused_dictionary_selection(size_t num_values, size_t num_nulls,
-                                           const FilterMap& filter_map, size_t filter_map_index) {
+                                           size_t num_null_runs, const FilterMap& filter_map,
+                                           size_t filter_map_index) {
     constexpr size_t MIN_BATCH_VALUES = 1024;
-    if (num_values < MIN_BATCH_VALUES || !filter_map.has_filter()) {
+    constexpr size_t MIN_IDENTITY_NULL_RUNS = 32;
+    if (num_values < MIN_BATCH_VALUES) {
         return false;
+    }
+    if (!filter_map.has_filter()) {
+        // Same-column conjuncts are combined into a dictionary-id bitmap before row decoding, so
+        // their input selection remains identity. Direct planning pays only when fragmented
+        // definition levels would otherwise be walked twice; compact runs retain the cheaper
+        // legacy planner.
+        return num_nulls > 0 && num_null_runs >= MIN_IDENTITY_NULL_RUNS;
     }
     if (filter_map.filter_all()) {
         return true;
@@ -141,10 +150,7 @@ Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length
         num_filtered == nullptr) {
         return Status::InvalidArgument("Nullable selection planning requires selection state");
     }
-    if (!filter_map->has_filter()) {
-        return Status::InvalidArgument("Nullable selection planning requires a row filter");
-    }
-    if (!filter_map->filter_all() &&
+    if (filter_map->has_filter() && !filter_map->filter_all() &&
         (filter_map->filter_map_data() == nullptr ||
          filter_map_index + num_values > filter_map->filter_map_size())) {
         return Status::InvalidArgument("Nullable selection filter range [{}, {}) exceeds size {}",
@@ -161,6 +167,45 @@ Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length
     selection->selected_values = 0;
     selected_nulls->clear();
     *num_filtered = 0;
+    if (!filter_map->has_filter()) {
+        selection->selected_values = selection->total_values;
+        if (selection->total_values > 0) {
+            selection->ranges.push_back({.first = 0, .count = selection->total_values});
+        }
+        selected_nulls->reserve(num_values);
+        if (num_nulls == 0) {
+            selected_nulls->resize_fill(num_values, 0);
+        } else {
+            size_t logical_values = 0;
+            size_t observed_nulls = 0;
+            bool is_null = false;
+            for (const size_t run_length : run_length_null_map) {
+                if (logical_values + run_length > num_values) {
+                    return Status::InvalidArgument(
+                            "Nullable selection run lengths exceed {} values", num_values);
+                }
+                selected_nulls->resize_fill(selected_nulls->size() + run_length,
+                                            static_cast<UInt8>(is_null));
+                logical_values += run_length;
+                observed_nulls += is_null ? run_length : 0;
+                is_null = !is_null;
+            }
+            if (logical_values != num_values || observed_nulls != num_nulls) {
+                return Status::InvalidArgument(
+                        "Nullable selection level plan is inconsistent: values={}, nulls={}",
+                        logical_values, observed_nulls);
+            }
+        }
+        if (output_null_map != nullptr) {
+            const size_t old_null_size = output_null_map->size();
+            output_null_map->resize(old_null_size + selected_nulls->size());
+            if (!selected_nulls->empty()) {
+                memcpy(output_null_map->data() + old_null_size, selected_nulls->data(),
+                       selected_nulls->size());
+            }
+        }
+        return Status::OK();
+    }
     if (filter_map->filter_all()) {
         *num_filtered = num_values;
         return Status::OK();

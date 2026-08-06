@@ -273,6 +273,30 @@ TEST(NativeNullableSelectionTest, BuildsDictionaryPlanWithoutMaterializationNull
     EXPECT_EQ(num_filtered, 3);
 }
 
+TEST(NativeNullableSelectionTest, BuildsDictionaryPlanForIdentityInput) {
+    using native::FilterMap;
+
+    const std::vector<uint16_t> null_runs {2, 1, 3, 2, 2};
+    FilterMap identity;
+    ASSERT_TRUE(identity.init(nullptr, 0, false).ok());
+    ParquetSelection selection;
+    NullMap selected_nulls;
+    size_t num_filtered = 0;
+
+    ASSERT_TRUE(native::build_filtered_nullable_selection(null_runs, 10, 3, nullptr, &identity, 0,
+                                                          &selection, &selected_nulls,
+                                                          &num_filtered)
+                        .ok());
+
+    EXPECT_EQ(selection.total_values, 7);
+    EXPECT_EQ(selection.selected_values, 7);
+    ASSERT_EQ(selection.ranges.size(), 1);
+    EXPECT_EQ(selection.ranges[0].first, 0);
+    EXPECT_EQ(selection.ranges[0].count, 7);
+    EXPECT_EQ(selected_nulls, (NullMap {0, 0, 1, 0, 0, 0, 1, 1, 0, 0}));
+    EXPECT_EQ(num_filtered, 0);
+}
+
 TEST(NativeNullableSelectionTest, GatesDictionaryFusionByBatchAndInputSelection) {
     using native::FilterMap;
 
@@ -287,11 +311,14 @@ TEST(NativeNullableSelectionTest, GatesDictionaryFusionByBatchAndInputSelection)
     FilterMap dense;
     ASSERT_TRUE(dense.init(dense_data.data(), dense_data.size(), false).ok());
 
-    EXPECT_TRUE(native::should_use_fused_dictionary_selection(4096, 0, partial, 0));
-    EXPECT_FALSE(native::should_use_fused_dictionary_selection(4096, 8, partial, 0));
-    EXPECT_FALSE(native::should_use_fused_dictionary_selection(4096, 8, dense, 0));
-    EXPECT_FALSE(native::should_use_fused_dictionary_selection(512, 0, partial, 0));
-    EXPECT_FALSE(native::should_use_fused_dictionary_selection(4096, 0, identity, 0));
+    EXPECT_TRUE(native::should_use_fused_dictionary_selection(4096, 0, 1, partial, 0));
+    EXPECT_FALSE(native::should_use_fused_dictionary_selection(4096, 8, 3, partial, 0));
+    EXPECT_FALSE(native::should_use_fused_dictionary_selection(4096, 8, 512, dense, 0));
+    EXPECT_FALSE(native::should_use_fused_dictionary_selection(512, 0, 1, partial, 0));
+    EXPECT_TRUE(native::should_use_fused_dictionary_selection(4096, 40, 80, identity, 0));
+    EXPECT_FALSE(native::should_use_fused_dictionary_selection(4096, 40, 3, identity, 0));
+    EXPECT_FALSE(native::should_use_fused_dictionary_selection(4096, 0, 1, identity, 0));
+    EXPECT_FALSE(native::should_use_fused_dictionary_selection(512, 8, 80, identity, 0));
 }
 
 TEST(NativeNullableSelectionTest, EnablesFusionOnlyForMateriallyFragmentedNullableBatches) {

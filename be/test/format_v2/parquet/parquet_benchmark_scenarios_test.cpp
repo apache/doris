@@ -153,6 +153,26 @@ TEST(ParquetBenchmarkScenariosTest, NullableSelectionPairsLegacyAndFusedAcrossRo
     }
 }
 
+TEST(ParquetBenchmarkScenariosTest, DictionarySelectionAddsIdentityInputPairs) {
+    const auto scenarios = dictionary_selection_scenarios();
+    EXPECT_EQ(scenarios.size(), size_t {220});
+    for (const int null_percent : {0, 1, 10, 50, 90}) {
+        for (const auto null_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+            for (const auto implementation : {NullableSelectionImplementation::LEGACY,
+                                              NullableSelectionImplementation::FUSED}) {
+                EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const NullableSelectionScenario&
+                                                                       scenario) {
+                    return scenario.selectivity_percent == 100 &&
+                           scenario.null_percent == null_percent &&
+                           scenario.selection_pattern == Pattern::CLUSTERED &&
+                           scenario.null_pattern == null_pattern &&
+                           scenario.implementation == implementation;
+                })) << "missing dictionary identity-selection comparison shape";
+            }
+        }
+    }
+}
+
 TEST(ParquetBenchmarkScenariosTest, SelectionMatrixCoversIdentityAndSuccessiveCompaction) {
     const auto scenarios = selection_scenarios();
     EXPECT_EQ(scenarios.size(), size_t {25});

@@ -1430,7 +1430,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_dictionary_filter_
         _null_run_lengths.emplace_back(cast_set<uint16_t>(remaining));
     }
     const bool use_fused_selection = should_use_fused_dictionary_selection(
-            num_values, num_nulls, filter_map, _filter_map_index);
+            num_values, num_nulls, _null_run_lengths.size(), filter_map, _filter_map_index);
     size_t num_filtered = 0;
     if (use_fused_selection) {
         RETURN_IF_ERROR(build_filtered_nullable_selection(

@@ -61,8 +61,9 @@ negative control: production fusion is limited to batches with at least 1,024 ro
 NULLs, and fragmented definition-level runs; no-NULL, low-NULL, and clustered pages retain the
 legacy planner.
 Dictionary selection planning uses the same row-shape matrix without materializing an output NULL
-map, matching the predicate-only dictionary path. Its legacy/fused pairs isolate the cost of
-expanding `ColumnSelectVector` and scanning it again to build physical dictionary ranges.
+map and adds identity-input cases matching same-column dictionary predicates. Its legacy/fused
+pairs isolate the cost of expanding `ColumnSelectVector` and scanning it again to build physical
+dictionary ranges.
 Dictionary gather uses 32-, 4,096-, and 262,144-entry working sets to separate cache-resident and
 cache-miss-dominated behavior.
 

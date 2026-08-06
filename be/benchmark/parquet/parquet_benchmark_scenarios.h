@@ -204,6 +204,22 @@ inline std::vector<NullableSelectionScenario> nullable_selection_scenarios() {
     return scenarios;
 }
 
+inline std::vector<NullableSelectionScenario> dictionary_selection_scenarios() {
+    auto scenarios = nullable_selection_scenarios();
+    for (const int null_percent : {0, 1, 10, 50, 90}) {
+        for (const auto null_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+            for (const auto implementation : {NullableSelectionImplementation::LEGACY,
+                                              NullableSelectionImplementation::FUSED}) {
+                // Identity has no meaningful row-selection shape. Keep one shape while retaining
+                // both NULL layouts so the benchmark isolates the same-column dictionary path.
+                scenarios.push_back(
+                        {100, null_percent, Pattern::CLUSTERED, null_pattern, implementation});
+            }
+        }
+    }
+    return scenarios;
+}
+
 inline std::vector<ReaderScenario> reader_scenarios() {
     std::vector<ReaderScenario> scenarios;
     std::set<std::tuple<ReaderOperation, Encoding, int, Pattern, int, Projection, int, int,
