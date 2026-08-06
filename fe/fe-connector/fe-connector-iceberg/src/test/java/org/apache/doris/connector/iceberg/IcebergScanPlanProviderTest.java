@@ -875,7 +875,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void partitionPrunedEqualityDeleteDoesNotRequireCurrentBackendSemantics() {
+    public void partitionPrunedEqualityDeleteConservativelyRequiresCurrentBackendSemantics() {
         PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
         Table table = createTable("partition_pruned_eqdel", PART_SCHEMA, spec,
                 Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
@@ -901,9 +901,9 @@ public class IcebergScanPlanProviderTest {
         Map<String, String> prunedProps = provider.getScanNodeProperties(
                 null, new IcebergTableHandle("db1", "partition_pruned_eqdel"),
                 columns, Optional.of(eqInt("p", 1)));
-        Assertions.assertFalse(prunedProps.containsKey(
+        Assertions.assertTrue(prunedProps.containsKey(
                 ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS),
-                "an equality delete in a pruned partition must not gate the selected tasks");
+                "scan properties must not enumerate a second, cache-divergent task stream to prove pruning");
 
         Map<String, String> applicableProps = provider.getScanNodeProperties(
                 null, new IcebergTableHandle("db1", "partition_pruned_eqdel"),
@@ -914,7 +914,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void sequencePrunedEqualityDeleteDoesNotRequireCurrentBackendSemantics() {
+    public void sequencePrunedEqualityDeleteConservativelyRequiresCurrentBackendSemantics() {
         Table table = createTable("sequence_pruned_eqdel", SCHEMA, PartitionSpec.unpartitioned(),
                 Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
         DataFile oldFile = dataFile(table.spec(),
@@ -935,9 +935,9 @@ public class IcebergScanPlanProviderTest {
         Map<String, String> props = provider.getScanNodeProperties(
                 null, new IcebergTableHandle("db1", "sequence_pruned_eqdel"),
                 Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
-        Assertions.assertFalse(props.containsKey(
+        Assertions.assertTrue(props.containsKey(
                 ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS),
-                "an older equality delete must not gate a later-sequence replacement data file");
+                "snapshot metadata must gate conservatively without synchronously replanning all files");
     }
 
     @Test
@@ -1030,6 +1030,28 @@ public class IcebergScanPlanProviderTest {
                         countingTable, table.newScan(), table.schema()));
         Assertions.assertEquals(0, countingTable.getSnapshotLookupCount(),
                 "the equality carrier must not walk snapshots when no historical field is missing");
+    }
+
+    @Test
+    public void schemaHistoryPlanningStaysBoundedWhenHistoricalRequirednessNeedsTheFence() {
+        Schema oldSchema = new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        Table table = createTable("requiredness_history", oldSchema, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/requiredness_history/old.parquet", 128, null, null)).commit();
+        table.updateSchema().allowIncompatibleChanges().requireColumn("id").commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/requiredness_history/new.parquet", 128, null, null)).commit();
+
+        FakeIcebergTable countingTable = new FakeIcebergTable(
+                table.name(), table.schema(), table.spec(), table.location(), table.properties());
+        countingTable.setScanTable(table);
+        Assertions.assertTrue(
+                IcebergScanPlanProvider.selectedHistoryRequiresMissingRequiredFieldRejection(
+                        countingTable, table.schema(), Collections.singleton(1),
+                        table.currentSnapshot()));
+        Assertions.assertEquals(0, countingTable.getSnapshotLookupCount(),
+                "the upgrade fence must be conservative and bounded by schema history, not snapshot count");
     }
 
     @Test
@@ -1361,6 +1383,9 @@ public class IcebergScanPlanProviderTest {
 
         Assertions.assertTrue(props.containsKey("iceberg.schema_evolution"),
                 "position_deletes reads natively and needs the field-id dict to resolve `row`");
+        Assertions.assertTrue(props.containsKey(
+                        ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS),
+                "position_deletes.row relies on the current native reader semantics");
         Assertions.assertFalse(props.containsKey("path_partition_keys"),
                 "a metadata table is still not base-spec partitioned -> no path_partition_keys");
     }

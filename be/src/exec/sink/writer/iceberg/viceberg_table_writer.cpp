@@ -17,14 +17,18 @@
 
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
+#include <algorithm>
+
 #include "common/exception.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/materialize_block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "exec/sink/writer/iceberg/iceberg_partition_path.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
@@ -121,29 +125,104 @@ std::vector<VIcebergTableWriter::IcebergPartitionColumn>
 VIcebergTableWriter::_to_iceberg_partition_columns() {
     std::vector<IcebergPartitionColumn> partition_columns;
 
-    std::unordered_map<int, int> id_to_column_idx;
-    id_to_column_idx.reserve(_schema->columns().size());
-    for (int i = 0; i < _schema->columns().size(); i++) {
-        id_to_column_idx[_schema->columns()[i].field_id()] = i;
-    }
     for (const auto& partition_field : _partition_spec->fields()) {
-        auto column_idx_it = id_to_column_idx.find(partition_field.source_id());
-        if (column_idx_it == id_to_column_idx.end()) {
+        const auto* field_path = _schema->find_field_path(partition_field.source_id());
+        if (field_path == nullptr || field_path->empty()) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,
                     "Iceberg partition field {} references source field {} outside writer schema",
                     partition_field.field_id(), partition_field.source_id());
         }
-        int column_idx = column_idx_it->second;
+        int column_idx = -1;
+        for (int i = 0; i < _schema->columns().size(); ++i) {
+            if (_schema->columns()[i].field_id() == field_path->front()->field_id()) {
+                column_idx = i;
+                break;
+            }
+        }
+        DORIS_CHECK(column_idx >= 0);
+        std::vector<size_t> child_indices;
+        iceberg::Type* iceberg_type = field_path->front()->field_type();
+        DataTypePtr source_type = _vec_output_expr_ctxs[column_idx]->root()->data_type();
+        for (size_t depth = 1; depth < field_path->size(); ++depth) {
+            if (!iceberg_type->is_struct_type()) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Iceberg partition source field {} has a non-struct ancestor",
+                                partition_field.source_id());
+            }
+            const auto& fields = iceberg_type->as_struct_type()->fields();
+            auto child = std::find_if(fields.begin(), fields.end(), [&](const auto& candidate) {
+                return candidate.field_id() == (*field_path)[depth]->field_id();
+            });
+            DORIS_CHECK(child != fields.end());
+            const size_t child_idx = std::distance(fields.begin(), child);
+            const auto* struct_type =
+                    check_and_get_data_type<DataTypeStruct>(remove_nullable(source_type).get());
+            if (struct_type == nullptr || child_idx >= struct_type->get_elements().size()) {
+                throw Exception(
+                        ErrorCode::INTERNAL_ERROR,
+                        "Iceberg nested partition source field {} does not match writer type",
+                        partition_field.source_id());
+            }
+            child_indices.push_back(child_idx);
+            iceberg_type = child->field_type();
+            source_type = struct_type->get_element(child_idx);
+        }
+        if (!iceberg_type->is_primitive_type()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Iceberg partition source field {} is not primitive",
+                            partition_field.source_id());
+        }
         std::unique_ptr<PartitionColumnTransform> partition_column_transform =
-                PartitionColumnTransforms::create(
-                        partition_field, _vec_output_expr_ctxs[column_idx]->root()->data_type());
+                PartitionColumnTransforms::create(partition_field, source_type);
         partition_columns.emplace_back(
-                partition_field,
-                _vec_output_expr_ctxs[column_idx]->root()->data_type()->get_primitive_type(),
-                column_idx, std::move(partition_column_transform));
+                partition_field, remove_nullable(source_type)->get_primitive_type(), column_idx,
+                std::move(child_indices), std::move(partition_column_transform));
     }
     return partition_columns;
+}
+
+ColumnWithTypeAndName VIcebergTableWriter::_nested_partition_source(
+        const Block& block, const IcebergPartitionColumn& partition_column) const {
+    ColumnWithTypeAndName source = block.get_by_position(partition_column.source_idx());
+    if (partition_column.child_indices().empty()) {
+        return source;
+    }
+    ColumnPtr column = source.column->convert_to_full_column_if_const();
+    DataTypePtr type = source.type;
+    auto combined_nulls = ColumnUInt8::create(block.rows(), 0);
+    bool nullable = false;
+    auto unwrap_nullable = [&]() {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(column.get())) {
+            nullable = true;
+            const auto& nulls = nullable_column->get_null_map_data();
+            auto& combined = combined_nulls->get_data();
+            for (size_t row = 0; row < combined.size(); ++row) {
+                combined[row] |= nulls[row];
+            }
+            column = nullable_column->get_nested_column_ptr();
+            type = remove_nullable(type);
+        }
+    };
+    for (size_t child_idx : partition_column.child_indices()) {
+        unwrap_nullable();
+        const auto* struct_column = check_and_get_column<ColumnStruct>(column.get());
+        const auto* struct_type = check_and_get_data_type<DataTypeStruct>(type.get());
+        if (struct_column == nullptr || struct_type == nullptr ||
+            child_idx >= struct_column->tuple_size()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Iceberg nested partition source does not match writer block");
+        }
+        column = struct_column->get_column_ptr(child_idx);
+        type = struct_type->get_element(child_idx);
+    }
+    // Parent NULL masks the leaf even when the nested storage column contains a materialized value.
+    unwrap_nullable();
+    if (nullable) {
+        column = ColumnNullable::create(column, std::move(combined_nulls));
+        type = make_nullable(type);
+    }
+    return {std::move(column), std::move(type), source.name};
 }
 
 void VIcebergTableWriter::_init_static_partition_values() {
@@ -358,9 +437,12 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                 transformed_block.insert(
                         {std::move(col), result_type, iceberg_partition_columns.field().name()});
             } else {
+                Block source_block;
+                source_block.insert(
+                        _nested_partition_source(output_block, iceberg_partition_columns));
                 transformed_block.insert(
-                        iceberg_partition_columns.partition_column_transform().apply(
-                                output_block, iceberg_partition_columns.source_idx()));
+                        iceberg_partition_columns.partition_column_transform().apply(source_block,
+                                                                                     0));
             }
         }
         for (int i = 0; i < output_block.rows(); ++i) {

@@ -116,6 +116,13 @@ suite("test_iceberg_write_complex_evolution",
     """
     sql """alter table complex_evolution add partition key bucket(8, id) as id_bucket"""
     sql """alter table complex_evolution add partition key truncate(1, group_key) as group_prefix"""
+    // Iceberg permits a nested primitive source. Create it through Spark to verify Doris can plan and
+    // physically partition the following INSERT by the schema-wide nested field id.
+    spark_iceberg """
+        alter table demo.${dbName}.complex_evolution
+        add partition field bucket(4, payload.nested.count)
+    """
+    sql """refresh table complex_evolution"""
 
     sql """
         insert into complex_evolution values

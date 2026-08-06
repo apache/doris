@@ -21,10 +21,9 @@
 
 -- !complex_partition_specs --
 0	3
-2	2
+3	2
 
 -- !complex_base_tag --
 1	[1, null, 3]	{"x":10, "null-value":null}	10	old-a	1	\N
 2	\N	{"x":null}	20	\N	\N	old-null
 3	[]	{}	\N	\N	\N	\N
-

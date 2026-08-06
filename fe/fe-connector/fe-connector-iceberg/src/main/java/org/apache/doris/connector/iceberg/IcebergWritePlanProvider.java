@@ -532,13 +532,18 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         }
         Schema schema = active.isPresent()
                 ? active.get().getSchema() : table.schema();
+        Set<Integer> topLevelFieldIds = schema.columns().stream()
+                .map(NestedField::fieldId).collect(Collectors.toSet());
         List<ConnectorWritePartitionField> fields = new ArrayList<>();
         for (PartitionField field : spec.fields()) {
             // sourceColumnName mirrors the legacy schema.findField(field.sourceId()).name() lookup the engine
             // used to map a partition field back to a bound output expr id. transform/param mirror
             // field.transform().toString() + parseTransformParam (kept connector-side so fe-core never parses).
             NestedField sourceField = schema.findField(field.sourceId());
-            String sourceColumnName = sourceField == null ? null : sourceField.name();
+            // A slot reference cannot encode a nested access path. Returning null makes merge routing use its
+            // correctness-safe random fallback; the BE writer still partitions by the source field ID.
+            String sourceColumnName = sourceField == null || !topLevelFieldIds.contains(field.sourceId())
+                    ? null : sourceField.name();
             String transform = field.transform().toString();
             fields.add(new ConnectorWritePartitionField(
                     transform, parseTransformParam(transform), sourceColumnName, field.name(), field.sourceId()));

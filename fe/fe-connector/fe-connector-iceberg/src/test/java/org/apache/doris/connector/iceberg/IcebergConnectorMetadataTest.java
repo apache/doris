@@ -25,13 +25,17 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
 import org.apache.iceberg.view.ImmutableViewVersion;
@@ -1311,6 +1315,38 @@ public class IcebergConnectorMetadataTest {
         // The remote load must go through the seam (auth-wrapped), mirroring getTableSchema.
         Assertions.assertTrue(ops.log.contains("loadTable:db1.t1"),
                 "getColumnHandles must load the table via the seam using the handle coordinates");
+    }
+
+    @Test
+    public void getColumnHandlesUsesPinnedHistoricalSchema() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Schema oldSchema = new Schema(
+                Types.NestedField.required(7, "old_name", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "survivor", Types.StringType.get()));
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        org.apache.iceberg.Table table = catalog.createTable(
+                TableIdentifier.of("db1", "t1"), oldSchema, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath("s3://bucket/db1/t1/old.parquet")
+                .withFileSizeInBytes(1).withRecordCount(1).build()).commit();
+        Schema historicalSchema = table.schema();
+        table.updateSchema().renameColumn("old_name", "new_name").commit();
+        ops.table = table;
+
+        ConnectorMvccSnapshot pin = ConnectorMvccSnapshot.builder()
+                .snapshotId(11L).schemaId(historicalSchema.schemaId()).build();
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        Map<String, ConnectorColumnHandle> handles = metadata.getColumnHandles(
+                null, new IcebergTableHandle("db1", "t1"), pin);
+
+        Assertions.assertTrue(metadata.supportsColumnHandleSnapshotPin(null));
+        Assertions.assertTrue(handles.containsKey("old_name"));
+        Assertions.assertTrue(handles.containsKey("survivor"));
+        Assertions.assertFalse(handles.containsKey("new_name"));
+        Assertions.assertEquals(historicalSchema.findField("old_name").fieldId(),
+                ((IcebergColumnHandle) handles.get("old_name")).getFieldId());
     }
 
     // ---------------------------------------------------------------------

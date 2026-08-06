@@ -83,6 +83,7 @@ public:
 
 private:
     FRIEND_TEST(VIcebergTableWriterTest, RejectMissingPartitionSource);
+    FRIEND_TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource);
 
     // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
     // Updated during write() to track which writer received the most recent data.
@@ -93,10 +94,12 @@ private:
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,
                                const PrimitiveType& source_type, int source_idx,
+                               std::vector<size_t> child_indices,
                                std::unique_ptr<PartitionColumnTransform> partition_column_transform)
                 : _field(field),
                   _source_type(source_type),
                   _source_idx(source_idx),
+                  _child_indices(std::move(child_indices)),
                   _partition_column_transform(std::move(partition_column_transform)) {}
 
     public:
@@ -104,6 +107,7 @@ private:
 
         const PrimitiveType& source_type() const { return _source_type; }
         int source_idx() const { return _source_idx; }
+        const std::vector<size_t>& child_indices() const { return _child_indices; }
 
         const PartitionColumnTransform& partition_column_transform() const {
             return *_partition_column_transform;
@@ -117,10 +121,13 @@ private:
         const iceberg::PartitionField& _field;
         PrimitiveType _source_type;
         int _source_idx;
+        std::vector<size_t> _child_indices;
         std::unique_ptr<PartitionColumnTransform> _partition_column_transform;
     };
 
     std::vector<IcebergPartitionColumn> _to_iceberg_partition_columns();
+    ColumnWithTypeAndName _nested_partition_source(
+            const Block& block, const IcebergPartitionColumn& partition_column) const;
 
     std::string _partition_to_path(const doris::iceberg::StructLike& data);
     std::string _escape(const std::string& path);
