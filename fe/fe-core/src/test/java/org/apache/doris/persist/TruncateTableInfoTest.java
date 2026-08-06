@@ -33,7 +33,7 @@ class TruncateTableInfoTest {
         TruncateTableInfo deserialized = GsonUtils.GSON.fromJson(info.toJson(), TruncateTableInfo.class);
 
         Assertions.assertEquals(10L, deserialized.getVersion());
-        Assertions.assertEquals(20L, deserialized.getVersionTime());
+        Assertions.assertEquals(20L, deserialized.getVersionTimeMs());
     }
 
     @Test
@@ -41,6 +41,6 @@ class TruncateTableInfoTest {
         TruncateTableInfo deserialized = GsonUtils.GSON.fromJson("{}", TruncateTableInfo.class);
 
         Assertions.assertEquals(0L, deserialized.getVersion());
-        Assertions.assertEquals(0L, deserialized.getVersionTime());
+        Assertions.assertEquals(0L, deserialized.getVersionTimeMs());
     }
 }

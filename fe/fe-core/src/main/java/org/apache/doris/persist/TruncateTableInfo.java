@@ -63,7 +63,7 @@ public class TruncateTableInfo implements Writable {
     @SerializedName(value = "version")
     private long version;
     @SerializedName(value = "versionTime")
-    private long versionTime;
+    private long versionTimeMs;
 
     public TruncateTableInfo() {
 
@@ -72,7 +72,7 @@ public class TruncateTableInfo implements Writable {
     // for internal table
     public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
             boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force,
-            Map<Long, Long> updateRecords, long version, long versionTime) {
+            Map<Long, Long> updateRecords, long version, long versionTimeMs) {
         this.dbId = dbId;
         this.db = db;
         this.tblId = tblId;
@@ -86,7 +86,7 @@ public class TruncateTableInfo implements Writable {
         this.force = force;
         this.updateRecords = updateRecords;
         this.version = version;
-        this.versionTime = versionTime;
+        this.versionTimeMs = versionTimeMs;
     }
 
     // for external table
@@ -154,8 +154,8 @@ public class TruncateTableInfo implements Writable {
         return version;
     }
 
-    public long getVersionTime() {
-        return versionTime;
+    public long getVersionTimeMs() {
+        return versionTimeMs;
     }
 
     public static TruncateTableInfo read(DataInput in) throws IOException {
