@@ -114,7 +114,8 @@ public:
 
 std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
         RuntimeState* state, const VExprContextSPtrs& output_exprs,
-        const std::shared_ptr<RecordingObjStorageClient>& client) {
+        const std::shared_ptr<RecordingObjStorageClient>& client,
+        io::ObjStorageType provider = io::ObjStorageType::AWS, std::string staged_block_id = {}) {
     THiveTableSink hive_sink;
     TDataSink sink;
     sink.__set_type(TDataSinkType::HIVE_TABLE_SINK);
@@ -130,12 +131,18 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
             std::move(write_info), "part", 0, TFileFormatType::FORMAT_PARQUET,
             TFileCompressType::PLAIN, nullptr, hadoop_conf);
 
-    auto holder = std::make_shared<io::ObjClientHolder>(S3ClientConf {});
+    S3ClientConf client_conf;
+    client_conf.provider = provider;
+    auto holder = std::make_shared<io::ObjClientHolder>(client_conf);
     holder->_client = client;
     io::FileWriterOptions options {.used_by_s3_committer = true};
     auto file_writer =
             std::make_unique<io::S3FileWriter>(holder, "bucket", "table/part.parquet", &options);
     file_writer->_obj_storage_path_opts.upload_id = "upload-id";
+    if (!staged_block_id.empty()) {
+        file_writer->_completed_parts.push_back(
+                {.part_num = 1, .etag = std::move(staged_block_id)});
+    }
     file_writer->_state = io::FileWriter::State::CLOSED;
     writer->_file_writer = std::move(file_writer);
     writer->_file_format_transformer = std::make_unique<FixedLengthTransformer>(output_exprs);
@@ -201,6 +208,32 @@ TEST(VHivePartitionWriterReportLifecycleTest,
     // while the periodic report deliberately withheld the pending-upload record.
     context->_coordinator_callback(final_request);
 
+    EXPECT_EQ(1, client->abort_count);
+    EXPECT_EQ("upload-id", client->aborted_upload_id);
+}
+
+TEST(VHivePartitionWriterReportLifecycleTest,
+     AzureFinalReportCarriesExactBlockIdentityAndRejectionAbortsUpload) {
+    MockRuntimeState state;
+    VExprContextSPtrs output_exprs;
+    auto client = std::make_shared<RecordingObjStorageClient>();
+    auto writer = create_closed_hive_writer(&state, output_exprs, client, io::ObjStorageType::AZURE,
+                                            "exact-block-id");
+    auto context = create_fragment_context(TUniqueId());
+    auto final_request = report_request(&state, true);
+    TReportExecStatusParams final_params;
+
+    context->_append_external_file_commit_data(final_request, &final_params);
+
+    ASSERT_TRUE(final_params.__isset.hive_partition_updates);
+    ASSERT_EQ(1, final_params.hive_partition_updates.size());
+    const auto& pending_uploads = final_params.hive_partition_updates[0].s3_mpu_pending_uploads;
+    ASSERT_EQ(1, pending_uploads.size());
+    EXPECT_EQ("upload-id", pending_uploads[0].upload_id);
+    EXPECT_EQ("exact-block-id", pending_uploads[0].etags.at(1));
+
+    // Azure staged blocks stay owned by BE until the final coordinator ACK transfers them.
+    context->_coordinator_callback(final_request);
     EXPECT_EQ(1, client->abort_count);
     EXPECT_EQ("upload-id", client->aborted_upload_id);
 }

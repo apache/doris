@@ -92,6 +92,24 @@ SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(RuntimeS
         return {};
     }
     auto reservation = _sorter->get_reserve_mem_size_components(state, eos);
+    _include_spill_merge_reservation(state, eos, &reservation);
+    return reservation;
+}
+
+SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(
+        RuntimeState* state, bool eos, size_t incoming_rows, size_t incoming_bytes) const {
+    std::lock_guard<std::mutex> lock(_sorter_mutex);
+    if (_sorter == nullptr) {
+        return {};
+    }
+    auto reservation =
+            _sorter->get_reserve_mem_size_components(state, eos, incoming_rows, incoming_bytes);
+    _include_spill_merge_reservation(state, eos, &reservation);
+    return reservation;
+}
+
+void VIcebergSortWriter::_include_spill_merge_reservation(RuntimeState* state, bool eos,
+                                                          SorterReserveMemory* reservation) const {
     if (eos && !_sorted_spill_files.empty()) {
         size_t spill_file_count = _sorted_spill_files.size();
         if (_sorter->data_size() > 0) {
@@ -100,10 +118,9 @@ SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(RuntimeS
         const size_t merge_workspace =
                 iceberg_spill_merge_workspace(spill_file_count, state->spill_buffer_size_bytes(),
                                               state->spill_sort_merge_mem_limit_bytes());
-        reservation.transient_workspace =
-                std::max(reservation.transient_workspace, merge_workspace);
+        reservation->transient_workspace =
+                std::max(reservation->transient_workspace, merge_workspace);
     }
-    return reservation;
 }
 
 Status VIcebergSortWriter::trigger_spill() {

@@ -30,13 +30,13 @@ size_t iceberg_cold_writer_reserve_size(const Block& block, size_t writer_worksp
     const size_t row_index_bytes =
             std::min(std::numeric_limits<size_t>::max() / sizeof(size_t), block.rows()) *
             sizeof(size_t);
-    const size_t selected_and_retained_bytes =
-            std::min(std::numeric_limits<size_t>::max() / 2, block_bytes) * 2;
-    size_t reserve = std::min(std::numeric_limits<size_t>::max() - writer_workspace_bytes,
-                              selected_and_retained_bytes) +
-                     writer_workspace_bytes;
-    // Cold dispatch may allocate a selected block and a retained sorter copy before publication.
-    return std::min(std::numeric_limits<size_t>::max() - reserve, row_index_bytes) + reserve;
+    const size_t dispatch_copies = block_bytes > std::numeric_limits<size_t>::max() / 4
+                                           ? std::numeric_limits<size_t>::max()
+                                           : block_bytes * 4;
+    size_t reserve = iceberg_saturating_add(writer_workspace_bytes, dispatch_copies);
+    // A transform, selected blocks, and retained sorter copies can coexist; one extra block-sized
+    // allowance covers allocator fragmentation when a block is split into many tiny partitions.
+    return iceberg_saturating_add(reserve, row_index_bytes);
 }
 
 SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperatorXBase* parent,
@@ -74,13 +74,17 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
         return 0;
     }
     std::vector<IcebergSorterReserveMemory> per_partition_reservations;
+    const size_t incoming_rows = block == nullptr ? 0 : block->rows();
+    const size_t incoming_bytes = block == nullptr ? 0 : block->allocated_bytes();
     auto active_writers = _writer->active_writers();
     per_partition_reservations.reserve(active_writers->size());
     for (const auto& writer : *active_writers) {
         if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
-            auto reservation = sort_writer->get_reserve_mem_size_components(state, eos);
+            auto reservation = sort_writer->get_reserve_mem_size_components(
+                    state, eos, incoming_rows, incoming_bytes);
             per_partition_reservations.push_back(
                     {.retained_growth = reservation.retained_growth,
+                     .retained_growth_trigger_bytes = reservation.retained_growth_trigger_bytes,
                      .transient_workspace = reservation.transient_workspace});
         }
     }
@@ -90,7 +94,8 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
             block == nullptr ? state->minimum_operator_memory_required_bytes()
                              : iceberg_cold_writer_reserve_size(
                                        *block, state->minimum_operator_memory_required_bytes());
-    return iceberg_reserve_size(per_partition_reservations, incoming_reserve);
+    return iceberg_reserve_size(per_partition_reservations, incoming_reserve, incoming_rows,
+                                incoming_bytes);
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {

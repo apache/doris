@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <random>
 #include <utility>
@@ -62,6 +63,13 @@ struct FullSorterTest : public testing::Test {
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};
 };
+
+TEST(SorterReserveMemoryTest, TotalSaturatesOnOverflow) {
+    SorterReserveMemory reservation {.retained_growth = std::numeric_limits<size_t>::max() - 1,
+                                     .transient_workspace = 2};
+
+    EXPECT_EQ(std::numeric_limits<size_t>::max(), reservation.total());
+}
 
 TEST_F(FullSorterTest, test_full_sorter1) {
     sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,

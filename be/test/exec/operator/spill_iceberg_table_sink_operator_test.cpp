@@ -45,6 +45,30 @@ TEST(SpillIcebergTableSinkOperatorTest, AccumulatesRetainedGrowthAcrossTouchedPa
     EXPECT_EQ(14 * 1024 * 1024, bounded_iceberg_reserve_size(per_partition_reservations));
 }
 
+TEST(SpillIcebergTableSinkOperatorTest, BoundsRetainedGrowthByOneInputBlock) {
+    constexpr size_t MB = 1024 * 1024;
+    std::vector<IcebergSorterReserveMemory> per_partition_reservations(
+            128, {.retained_growth = 8 * MB,
+                  .retained_growth_trigger_bytes = 8 * MB,
+                  .transient_workspace = 4 * MB});
+
+    // Only one 8 MiB growth threshold can be crossed by this block. Treating the block as a full
+    // batch for every active partition would incorrectly reserve more than 1 GiB here.
+    EXPECT_EQ(12 * MB, bounded_iceberg_reserve_size(per_partition_reservations, 128, 8 * MB));
+}
+
+TEST(SpillIcebergTableSinkOperatorTest, RetainsNearCapacityGrowthAcrossAllPossiblePartitions) {
+    constexpr size_t MB = 1024 * 1024;
+    std::vector<IcebergSorterReserveMemory> per_partition_reservations(
+            4, {.retained_growth = 3 * MB,
+                .retained_growth_trigger_bytes = 0,
+                .transient_workspace = 2 * MB});
+
+    // A one-row append can grow every already-near-capacity sorter, so persistent growth remains
+    // cumulative even though the serially used workspace is shared.
+    EXPECT_EQ(14 * MB, bounded_iceberg_reserve_size(per_partition_reservations, 4, 1));
+}
+
 TEST(SpillIcebergTableSinkOperatorTest, ReservesIncomingBlockBeforeAnyPartitionWriterExists) {
     std::vector<IcebergSorterReserveMemory> no_published_sorters;
 
@@ -60,7 +84,8 @@ TEST(SpillIcebergTableSinkOperatorTest, ColdWriterReserveUsesFirstBlockLargerTha
     block.insert({std::move(strings), std::make_shared<DataTypeString>(), "payload"});
 
     ASSERT_GT(block.allocated_bytes(), operator_floor);
-    EXPECT_GT(iceberg_cold_writer_reserve_size(block, operator_floor), 2 * block.allocated_bytes());
+    EXPECT_GE(iceberg_cold_writer_reserve_size(block, operator_floor),
+              4 * block.allocated_bytes() + operator_floor);
 }
 
 TEST(SpillIcebergTableSinkOperatorTest, ReservesAllMergeInputsAndOutputAtEos) {

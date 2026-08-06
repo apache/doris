@@ -20,8 +20,11 @@
 #include <atomic>
 #include <future>
 
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "exec/operator/iceberg_sorter_reserve_memory.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "runtime/runtime_state.h"
@@ -115,6 +118,27 @@ TEST_F(VIcebergTableWriterLifecycleTest, SelectBlockUsesRowPermutation) {
     ASSERT_EQ(result.size(), 2);
     EXPECT_EQ(result.get_element(0), 30);
     EXPECT_EQ(result.get_element(1), 10);
+}
+
+TEST_F(VIcebergTableWriterLifecycleTest, ColdReserveCoversManyRealPartitionSelections) {
+    VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
+    auto values = ColumnString::create();
+    for (size_t i = 0; i < 128; ++i) {
+        const std::string value(256 + i, static_cast<char>('a' + i % 26));
+        values->insert_data(value.data(), value.size());
+    }
+    Block input;
+    input.insert({std::move(values), std::make_shared<DataTypeString>(), "value"});
+    size_t selected_bytes = 0;
+    for (size_t row = 0; row < input.rows(); ++row) {
+        Block selected;
+        ASSERT_TRUE(select_block(&writer, input, {row}, &selected).ok());
+        selected_bytes += selected.allocated_bytes();
+    }
+
+    const size_t reserve = iceberg_cold_writer_reserve_size(input, 0);
+    EXPECT_GE(reserve,
+              input.allocated_bytes() + 2 * selected_bytes + input.rows() * sizeof(size_t));
 }
 
 TEST_F(VIcebergTableWriterLifecycleTest, ActiveWriterSnapshotContainsEveryOpenPartition) {
