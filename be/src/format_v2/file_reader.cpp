@@ -94,6 +94,9 @@ Status FileReader::init(RuntimeState* state) {
     ++_reader_statistics.open_file_num;
     io::FileReaderOptions reader_options =
             FileFactory::get_reader_options(state->query_options(), *_file_description);
+    // File Scanner V2 owns each reader for its scan lifetime, which makes reader-local reuse safe
+    // without changing the shared File Scanner V1 or internal-table cache paths.
+    reader_options.enable_reader_local_cache = true;
     _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
             _profile, *_system_properties, *_file_description, reader_options,
             io::DelegateReader::AccessMode::RANDOM, _io_ctx));

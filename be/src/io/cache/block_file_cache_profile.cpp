@@ -99,6 +99,17 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(lock_wait_timer);
     SUBTRACT_FIELD(get_timer);
     SUBTRACT_FIELD(set_timer);
+    SUBTRACT_FIELD(num_reader_local_cache_total);
+    SUBTRACT_FIELD(num_reader_local_cache_hit);
+    SUBTRACT_FIELD(num_reader_local_cache_miss);
+    SUBTRACT_FIELD(num_reader_local_cache_fill);
+    SUBTRACT_FIELD(num_reader_local_cache_evict);
+    SUBTRACT_FIELD(num_reader_local_cache_wait);
+    SUBTRACT_FIELD(bytes_reader_local_cache_request);
+    SUBTRACT_FIELD(bytes_read_from_reader_local_cache);
+    SUBTRACT_FIELD(bytes_read_into_reader_local_cache);
+    SUBTRACT_FIELD(reader_local_cache_fill_timer);
+    SUBTRACT_FIELD(reader_local_cache_wait_timer);
 
     SUBTRACT_FIELD(inverted_index_num_local_io_total);
     SUBTRACT_FIELD(inverted_index_num_remote_io_total);
@@ -169,6 +180,28 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
                                                                      TUnit::UNIT, cache_profile, 1);
     remote_only_on_miss_threshold_bytes = profile->AddHighWaterMarkCounter(
             "RemoteOnlyOnMissThresholdBytes", TUnit::BYTES, cache_profile, 1);
+    num_reader_local_cache_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ReaderLocalCacheRequests",
+                                                                TUnit::UNIT, cache_profile, 1);
+    num_reader_local_cache_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ReaderLocalCacheHits",
+                                                              TUnit::UNIT, cache_profile, 1);
+    num_reader_local_cache_miss = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ReaderLocalCacheMisses",
+                                                               TUnit::UNIT, cache_profile, 1);
+    num_reader_local_cache_fill = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ReaderLocalCacheFills",
+                                                               TUnit::UNIT, cache_profile, 1);
+    num_reader_local_cache_evict = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "ReaderLocalCacheEvictions", TUnit::UNIT, cache_profile, 1);
+    num_reader_local_cache_wait = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ReaderLocalCacheWaits",
+                                                               TUnit::UNIT, cache_profile, 1);
+    bytes_reader_local_cache_request = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "ReaderLocalCacheRequestBytes", TUnit::BYTES, cache_profile, 1);
+    bytes_read_from_reader_local_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "ReaderLocalCacheHitBytes", TUnit::BYTES, cache_profile, 1);
+    bytes_read_into_reader_local_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "ReaderLocalCacheFillBytes", TUnit::BYTES, cache_profile, 1);
+    reader_local_cache_fill_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ReaderLocalCacheFillTimer", cache_profile, 1);
+    reader_local_cache_wait_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ReaderLocalCacheWaitTimer", cache_profile, 1);
 
     inverted_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InvertedIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -267,6 +300,19 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(set_timer, statistics->set_timer);
     remote_only_on_miss_triggered->set(statistics->remote_only_on_miss_triggered);
     remote_only_on_miss_threshold_bytes->set(statistics->remote_only_on_miss_threshold_bytes);
+    COUNTER_UPDATE(num_reader_local_cache_total, statistics->num_reader_local_cache_total);
+    COUNTER_UPDATE(num_reader_local_cache_hit, statistics->num_reader_local_cache_hit);
+    COUNTER_UPDATE(num_reader_local_cache_miss, statistics->num_reader_local_cache_miss);
+    COUNTER_UPDATE(num_reader_local_cache_fill, statistics->num_reader_local_cache_fill);
+    COUNTER_UPDATE(num_reader_local_cache_evict, statistics->num_reader_local_cache_evict);
+    COUNTER_UPDATE(num_reader_local_cache_wait, statistics->num_reader_local_cache_wait);
+    COUNTER_UPDATE(bytes_reader_local_cache_request, statistics->bytes_reader_local_cache_request);
+    COUNTER_UPDATE(bytes_read_from_reader_local_cache,
+                   statistics->bytes_read_from_reader_local_cache);
+    COUNTER_UPDATE(bytes_read_into_reader_local_cache,
+                   statistics->bytes_read_into_reader_local_cache);
+    COUNTER_UPDATE(reader_local_cache_fill_timer, statistics->reader_local_cache_fill_timer);
+    COUNTER_UPDATE(reader_local_cache_wait_timer, statistics->reader_local_cache_wait_timer);
 
     COUNTER_UPDATE(inverted_index_num_local_io_total,
                    statistics->inverted_index_num_local_io_total);

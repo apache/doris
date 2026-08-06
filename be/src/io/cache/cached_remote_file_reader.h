@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -331,11 +333,24 @@ private:
                        const SourceReadBreakdown& source_read_breakdown, FileCacheStatistics* state,
                        FileCacheReadType read_type) const;
 
-    bool _read_from_memory_block_cache(size_t offset, Slice result);
+    /// Try a fully resident reader-local range before consulting FileCache metadata.
+    bool _read_from_memory_block_cache(size_t offset, Slice result, ReadStatistics* stats);
+
+    /// Read one FileCache block through 256 KiB reader-local sub-blocks.
     Status _read_local_block(const FileBlockSPtr& block, size_t file_offset, size_t absolute_offset,
-                             Slice result);
+                             Slice result, ReadStatistics& stats);
+
+    struct ReaderLocalCacheEntry {
+        std::shared_ptr<std::vector<char>> data;
+        Status load_status = Status::OK();
+        std::condition_variable ready;
+        std::list<size_t>::iterator lru_position;
+        bool loading = true;
+        bool in_lru = false;
+    };
 
     bool _is_doris_table = false;
+    bool _enable_reader_local_cache = false;
     int64_t _tablet_id = -1;
     std::string _storage_resource_id;
     FileReaderSPtr _remote_file_reader;
@@ -343,15 +358,13 @@ private:
     BlockFileCache* _cache = nullptr;
     std::shared_mutex _mtx;
     std::map<size_t, FileBlockSPtr> _cache_file_readers;
-    // External Parquet readers revisit several pages inside the same cache block. Promote only a
-    // repeatedly accessed block so a one-off page keeps the existing exact local-read cost.
+    // Keep reader-local fills smaller than the shared FileCache block so page reuse does not
+    // promote an entire large block, while bounding memory independently from FileCache capacity.
+    static constexpr size_t READER_LOCAL_CACHE_BLOCK_BYTES = 256 * 1024;
     static constexpr size_t MAX_MEMORY_BLOCK_CACHE_BYTES = 16 * 1024 * 1024;
-    // Parquet reads a small page header before its payload. Promote on the second access so a
-    // header-only skip avoids a 1 MiB read, while a header-plus-payload sequence reuses the block.
-    static constexpr uint8_t MEMORY_BLOCK_PROMOTION_ACCESSES = 2;
     std::mutex _memory_block_cache_mutex;
-    std::map<size_t, std::shared_ptr<std::vector<char>>> _memory_block_cache;
-    std::map<size_t, uint8_t> _memory_block_access_counts;
+    std::map<size_t, std::shared_ptr<ReaderLocalCacheEntry>> _memory_block_cache;
+    std::list<size_t> _memory_block_cache_lru;
     size_t _memory_block_cache_bytes = 0;
 };
 

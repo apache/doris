@@ -71,6 +71,17 @@ struct FileCacheStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t num_reader_local_cache_total = 0;
+    int64_t num_reader_local_cache_hit = 0;
+    int64_t num_reader_local_cache_miss = 0;
+    int64_t num_reader_local_cache_fill = 0;
+    int64_t num_reader_local_cache_evict = 0;
+    int64_t num_reader_local_cache_wait = 0;
+    int64_t bytes_reader_local_cache_request = 0;
+    int64_t bytes_read_from_reader_local_cache = 0;
+    int64_t bytes_read_into_reader_local_cache = 0;
+    int64_t reader_local_cache_fill_timer = 0;
+    int64_t reader_local_cache_wait_timer = 0;
 
     int64_t inverted_index_num_local_io_total = 0;
     int64_t inverted_index_num_remote_io_total = 0;
@@ -132,6 +143,17 @@ struct FileCacheStatistics {
         lock_wait_timer += other.lock_wait_timer;
         get_timer += other.get_timer;
         set_timer += other.set_timer;
+        num_reader_local_cache_total += other.num_reader_local_cache_total;
+        num_reader_local_cache_hit += other.num_reader_local_cache_hit;
+        num_reader_local_cache_miss += other.num_reader_local_cache_miss;
+        num_reader_local_cache_fill += other.num_reader_local_cache_fill;
+        num_reader_local_cache_evict += other.num_reader_local_cache_evict;
+        num_reader_local_cache_wait += other.num_reader_local_cache_wait;
+        bytes_reader_local_cache_request += other.bytes_reader_local_cache_request;
+        bytes_read_from_reader_local_cache += other.bytes_read_from_reader_local_cache;
+        bytes_read_into_reader_local_cache += other.bytes_read_into_reader_local_cache;
+        reader_local_cache_fill_timer += other.reader_local_cache_fill_timer;
+        reader_local_cache_wait_timer += other.reader_local_cache_wait_timer;
 
         inverted_index_num_local_io_total += other.inverted_index_num_local_io_total;
         inverted_index_num_remote_io_total += other.inverted_index_num_remote_io_total;
