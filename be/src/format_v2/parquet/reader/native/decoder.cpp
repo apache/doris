@@ -33,6 +33,8 @@
 
 namespace doris::format::parquet::native {
 
+BaseDictDecoder::BaseDictDecoder() = default;
+
 BaseDictDecoder::~BaseDictDecoder() = default;
 
 Status BaseDictDecoder::set_data(Slice* data) {

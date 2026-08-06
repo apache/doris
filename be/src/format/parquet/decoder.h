@@ -94,10 +94,12 @@ protected:
 
 class BaseDictDecoder : public Decoder {
 public:
-    BaseDictDecoder() = default;
     // Out-of-line: member unique_ptr<RleBatchDecoder<uint32_t>> only needs the
-    // complete type where the dtor/set_data/skip_values are defined (decoder.cpp),
+    // complete type where the ctor/dtor/set_data/skip_values are defined (decoder.cpp),
     // keeping the costly RLE template machinery out of every includer of this header.
+    // The ctor counts: a defaulted-in-class one would be defined in every TU that
+    // constructs a derived decoder, and it odr-uses the member's destructor.
+    BaseDictDecoder();
     ~BaseDictDecoder() override;
 
     // Set the data to be decoded

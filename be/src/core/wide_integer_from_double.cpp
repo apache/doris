@@ -26,7 +26,14 @@
 
 #include "core/wide_integer.h"
 
-#if !(LDBL_MANT_DIG == 64)
+// The `defined(...)` term below is what marks the macro above as used, and it has to stay the
+// left operand: the preprocessor short-circuits `&&`, so a false left term would skip it and the
+// definition would read as an unused macro (-Werror,-Wunused-macros). That happens on exactly the
+// platforms this file exists for the inverse of -- where the 80-bit long double exists,
+// wide_integer_impl.h takes its `#if (LDBL_MANT_DIG == 64)` branch and never evaluates the
+// `#elif defined(...)` that would otherwise consume the macro. Reading it here is also honest:
+// these instantiations exist precisely because this TU is the impl TU.
+#if defined(DORIS_WIDE_INTEGER_FROM_DOUBLE_IMPL_TU) && !(LDBL_MANT_DIG == 64)
 
 // Every wide::integer specialization used by Doris (see core/extended_types.h)
 // gets its from-double conversion emitted here. A new specialization that is
