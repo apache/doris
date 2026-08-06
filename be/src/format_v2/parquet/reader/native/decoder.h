@@ -131,11 +131,13 @@ protected:
 
 class BaseDictDecoder : public Decoder {
 public:
-    BaseDictDecoder() = default;
     // Out-of-line together with every member that dereferences _index_batch_decoder:
     // keeping the RleBatchDecoder<uint32_t> machinery out of this header stops every
     // includer from instantiating the RLE decode chain; the complete type lives only
-    // in decoder.cpp. All of these are per-page/per-batch virtual calls.
+    // in decoder.cpp. All of these are per-page/per-batch virtual calls. The ctor is
+    // out of line for the same reason: a defaulted-in-class one would be defined in
+    // every TU that constructs a derived decoder, and it odr-uses the member's dtor.
+    BaseDictDecoder();
     ~BaseDictDecoder() override;
 
     // Set the data to be decoded

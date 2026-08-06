@@ -61,6 +61,7 @@
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exec/common/hash_table/string_hash_map.h"
 #include "exec/common/sip_hash.h"
+#include "exec/sort/hybrid_sorter.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/jsonb_writer.h"
