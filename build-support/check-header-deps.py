@@ -237,6 +237,56 @@ RULES = [
         "bit_packing.inline.h it carries) out of this header keeps the RLE "
         "instantiation chain out of the native-reader include tree",
     ),
+    (
+        "exec/pipeline/dependency.h",
+        "exec/common/hash_table/",
+        {
+            # Declarations-only phmap forward header (the sanctioned way through
+            # the barrier; its name predates the *_fwd.h convention).
+            "exec/common/hash_table/phmap_fwd_decl.h",
+        },
+        "the SharedState classes hold every DataVariants behind unique_ptr/"
+        "shared_ptr with ctors/dtors/close bodies defined in dependency.cpp; "
+        "any path back into the hash-table machinery re-instantiates the "
+        "Agg/Join/Set variant surface (~0.85 CPU s) in each of the ~128 TUs "
+        "that include dependency.h transitively",
+    ),
+    (
+        "exec/pipeline/dependency.h",
+        "exec/operator/join/process_hash_table_probe.h",
+        set(),
+        "dead include: dependency.h references no ProcessHashTableProbe "
+        "symbol; the probe machinery belongs to the hash-join TUs that "
+        "include process_hash_table_probe_impl.h",
+    ),
+    (
+        "exec/pipeline/dependency.h",
+        "util/brpc_closure.h",
+        set(),
+        "dead include: dependency.h references no brpc symbol, yet this edge "
+        "carried runtime/query_context.h, runtime/thread_context.h and "
+        "service/brpc.h (1.36 MB of preprocessed payload) into ~100 TUs "
+        "whose only other route to them was this header",
+    ),
+    (
+        "exec/pipeline/rec_cte_shared_state.h",
+        "exec/common/hash_table/",
+        {
+            "exec/common/hash_table/phmap_fwd_decl.h",
+        },
+        "DistinctDataVariants is forward-declared and only touched in "
+        "rec_cte_shared_state.cpp (emplace_block's std::visit); the distinct "
+        "hash-table family must not ride the rec_cte operator headers into "
+        "the pipeline registry TUs",
+    ),
+    (
+        "exec/pipeline/rec_cte_shared_state.h",
+        "util/brpc_client_cache.h",
+        set(),
+        "send_data_to_targets/build_basic_param bodies live in "
+        "rec_cte_shared_state.cpp; the brpc client stack must not ride a "
+        "SharedState header",
+    ),
 ]
 
 # Not expressible as RULES entries (the scanner only follows quoted project
@@ -245,6 +295,11 @@ RULES = [
 # bodies live in the matching .cpp files precisely so the FMT_COMPILE formatter
 # templates (53.5 CPU s over ~1150 TUs for the uint24 date format alone) are
 # instantiated once instead of in every includer.
+#
+# Likewise <concurrentqueue.h> must not return to exec/pipeline/dependency.h:
+# it was a dead 152 KB third-party include there; the moodycamel users
+# (local_exchanger.h, scanner_context.h, async_result_writer.h) include it
+# themselves.
 
 # Forward-declaration headers are the sanctioned way through a barrier: they carry
 # declarations only, so they cost nothing to include.

@@ -17,11 +17,11 @@
 
 #pragma once
 
-#include "exec/common/distinct_agg_utils.h"
 #include "exec/pipeline/dependency.h"
-#include "util/brpc_client_cache.h"
 
 namespace doris {
+
+struct DistinctDataVariants;
 
 struct RecCTESharedState : public BasicSharedState {
     // Defined in rec_cte_shared_state.cpp: DistinctDataVariants carries the
