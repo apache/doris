@@ -3009,14 +3009,11 @@ public class SessionVariable implements Serializable, Writable {
     public long fileCacheQueryLimitBytes = -1;
 
     @VarAttrDef.VarAttr(name = INVERTED_INDEX_READ_NO_WRITE_FILE_CACHE, needForward = true,
-            description = {"倒排索引（SNII/V3）读取采用 miss 直读远端、不回写 file cache 的策略；"
-                    + "cache 命中仍正常读取，数据（.dat）与 segment 元数据读不受影响。"
-                    + "适合一次性/探查型冷查询。",
-                    "Inverted index (SNII/V3) reads take the remote-only-on-miss file cache "
-                            + "policy: hits are still served from cache, but a miss reads the "
-                            + "remote object directly without writing back into the file cache. "
-                            + "Data (.dat) and segment-meta reads are unaffected. "
-                            + "Intended for one-shot / ad-hoc cold queries."})
+            description = "Inverted index (SNII/V3) reads take the remote-only-on-miss file cache "
+                    + "policy: hits are still served from cache, but a miss reads the "
+                    + "remote object directly without writing back into the file cache. "
+                    + "Data (.dat) and segment-meta reads are unaffected. "
+                    + "Intended for one-shot / ad-hoc cold queries.")
     public boolean invertedIndexReadNoWriteFileCache = false;
 
     public void setAggPhase(int phase) {
