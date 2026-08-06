@@ -2448,6 +2448,39 @@ TEST(ColumnMapperScanRequestTest, ArrayStructPathKeepsNullableFileLeafAboveRequi
     EXPECT_TRUE(request.conjuncts.empty());
 }
 
+// ARRAY access projects every element child, so an unrelated narrowing sibling conversion must
+// remain visible to TableReader before any file-local predicate can discard its source row.
+TEST(ColumnMapperScanRequestTest, ArrayStructPathKeepsLossyProjectedSiblingAtTableLevel) {
+    const auto int_type = i32();
+    const auto bigint_type = i64();
+
+    auto table_a = name_col("a", int_type, 0);
+    auto table_b = name_col("b", int_type, 1);
+    auto table_element = struct_name_col("element", {table_a, table_b}, 0);
+    auto table_array = array_col("items", -1, table_element, 0);
+    set_name_identifiers(&table_array, 0);
+
+    auto file_a = name_col("a", int_type, 0);
+    auto file_b = name_col("b", bigint_type, 1);
+    auto file_element = struct_name_col("element", {file_a, file_b}, 0);
+    auto file_array = array_col("items", -1, file_element, 0);
+    set_name_identifiers(&file_array, 0);
+
+    auto item_expr = array_element_at(table_slot(0, 0, table_array.type, "items"),
+                                      make_nullable(table_element.type), 1);
+    auto leaf_expr = struct_element(item_expr, make_nullable(int_type), "a");
+    auto filter_expr = int_gt(leaf_expr, 5);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_array}, {}, {file_array}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_array}, &request).ok());
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
 // Scenario: a map value struct projects child `b`, while a row filter reads value child `a`.
 // The filter is too complex to become a file-local nested predicate. Lazy demotion must move the
 // merged projection to the non-predicate set without dropping either physical value child.

@@ -1286,27 +1286,15 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
             std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
     const VExprContextSPtrs safe_conjuncts(request.conjuncts.begin(),
                                            request.conjuncts.begin() + safe_count);
-    const auto conjuncts_by_slot = collect_conjuncts_by_single_slot(
-            safe_conjuncts, expr_zonemap::single_slot_bloom_filter_index);
-    for (const auto& [slot_index, conjuncts] : conjuncts_by_slot) {
-        const auto file_column_id = file_column_id_by_block_position(request, slot_index);
-        if (!file_column_id.has_value()) {
-            continue;
-        }
-        const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
-        if (column_schema == nullptr) {
-            continue;
-        }
-        add_probe(*column_schema, slot_index, conjuncts);
-    }
-
+    // Resolve direct and nested probes in one conjunct-order pass. Deduplication happens only
+    // after first use so a later Bloom payload cannot be read before an earlier pruning probe.
     for (const auto& conjunct : safe_conjuncts) {
         if (conjunct == nullptr || conjunct->root() == nullptr ||
             !conjunct->root()->can_evaluate_bloom_filter()) {
             continue;
         }
         auto probe = expr_zonemap::extract_bloom_filter_predicate_probe(conjunct->root());
-        if (!probe.has_value() || probe->path.empty()) {
+        if (!probe.has_value()) {
             continue;
         }
         const auto file_column_id = file_column_id_by_block_position(request, probe->slot_index);
@@ -1314,7 +1302,9 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
             continue;
         }
         const auto* column_schema =
-                resolve_bloom_filter_leaf_schema(file_schema, *file_column_id, *probe);
+                probe->path.empty()
+                        ? resolve_local_leaf_schema(file_schema, *file_column_id)
+                        : resolve_bloom_filter_leaf_schema(file_schema, *file_column_id, *probe);
         if (column_schema == nullptr ||
             !expr_zonemap::data_types_compatible(column_schema->type, probe->value_type)) {
             continue;

@@ -112,24 +112,6 @@ bool bloom_filter_probes_equal(const BloomFilterProbe& lhs, const BloomFilterPro
            data_types_compatible(lhs.value_type, rhs.value_type);
 }
 
-template <typename T>
-bool floating_point_bloom_filter_may_contain(const segment_v2::BloomFilter& bloom_filter, T value) {
-    static_assert(std::is_floating_point_v<T>);
-    // Doris equality collapses NaN payloads and signed zeros, while Parquet Bloom hashes physical
-    // bytes. A negative probe is safe only after covering the entire Doris-equivalent class.
-    if (std::isnan(value)) {
-        return true;
-    }
-    const auto test_value = [&](T candidate) {
-        return bloom_filter.test_bytes(reinterpret_cast<const char*>(&candidate),
-                                       sizeof(candidate));
-    };
-    if (test_value(value)) {
-        return true;
-    }
-    return value == T {0} && test_value(-value);
-}
-
 bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slot_filter,
                               const Field& value) {
     DORIS_CHECK(slot_filter.data_type != nullptr);
@@ -396,7 +378,10 @@ std::optional<SlotLiteral> extract_bloom_filter_slot_and_literal(const VExprSPtr
 
 bool can_evaluate_bloom_filter_equality(const VExprSPtrs& args) {
     auto slot_literal = extract_bloom_filter_slot_and_literal(args);
+    // Parquet Bloom hashes physical bytes, so it cannot disprove Doris NaN equality across
+    // different NaN payloads even when the probe targets a nested leaf.
     return slot_literal.has_value() && !slot_literal->literal.is_null() &&
+           !slot_literal->literal.is_nan() &&
            data_types_compatible(slot_literal->slot_type, slot_literal->literal_type);
 }
 

@@ -912,20 +912,40 @@ static const ColumnMapping* find_projected_child_mapping(const ColumnMapping& ma
     return child_it == mapping.child_mappings.end() ? nullptr : &*child_it;
 }
 
-static bool projected_mapping_preserves_table_nullability(const ColumnMapping& mapping,
-                                                          const LocalColumnIndex* projection) {
+static bool projected_mapping_allows_file_filtering(const ColumnMapping& mapping,
+                                                    const LocalColumnIndex* projection) {
     if (!can_filter_before_table_nullability_alignment(mapping.file_type, mapping.table_type)) {
         return false;
     }
-    if (remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_VARIANT) {
+    const auto file_type = remove_nullable(mapping.file_type);
+    const auto table_type = remove_nullable(mapping.table_type);
+    if (table_type->get_primitive_type() == TYPE_VARIANT) {
         // Shredded Variant children describe physical encoding, not table-schema nullability
         // contracts. The Variant root is therefore the only mapped level that can be validated.
         return true;
     }
+
+    const auto file_primitive_type = file_type->get_primitive_type();
+    const auto table_primitive_type = table_type->get_primitive_type();
+    if (is_complex_type(file_primitive_type) || is_complex_type(table_primitive_type)) {
+        if (file_primitive_type != table_primitive_type) {
+            return false;
+        }
+        if (mapping.child_mappings.empty()) {
+            return file_type->equals(*table_type);
+        }
+    } else if (!file_type->equals(*table_type) &&
+               !is_lossless_file_to_table_numeric_cast(mapping.file_type, mapping.table_type)) {
+        // A file-local filter can discard a row before TableReader casts a projected sibling.
+        // Require every projected scalar cast to preserve all source values so filtering cannot
+        // hide overflow or other materialization errors in that sibling.
+        return false;
+    }
+
     if (is_full_projection(projection)) {
         for (const auto& child : mapping.child_mappings) {
             if (child.file_local_id.has_value() &&
-                !projected_mapping_preserves_table_nullability(child, nullptr)) {
+                !projected_mapping_allows_file_filtering(child, nullptr)) {
                 return false;
             }
         }
@@ -934,7 +954,7 @@ static bool projected_mapping_preserves_table_nullability(const ColumnMapping& m
     for (const auto& child_projection : projection->children) {
         const auto* child = find_projected_child_mapping(mapping, child_projection.local_id());
         if (child == nullptr ||
-            !projected_mapping_preserves_table_nullability(*child, &child_projection)) {
+            !projected_mapping_allows_file_filtering(*child, &child_projection)) {
             return false;
         }
     }
@@ -971,10 +991,11 @@ static bool rewrite_struct_element_path_to_file_expr(
 
     DORIS_CHECK(rewrite_it->second.root_mapping != nullptr);
     // File-local filtering cannot discard rows before every physically projected mapped child has
-    // reached TableReader's nullability validation. ARRAY access uses a full element projection on
-    // this branch, so validating only the selected STRUCT chain can miss a required sibling.
-    if (!projected_mapping_preserves_table_nullability(*rewrite_it->second.root_mapping,
-                                                       &rewrite_it->second.scan_projection)) {
+    // reached TableReader's schema validation and casts. ARRAY access uses a full element
+    // projection on this branch, so validating only the selected STRUCT chain can miss an invalid
+    // required or narrowing sibling.
+    if (!projected_mapping_allows_file_filtering(*rewrite_it->second.root_mapping,
+                                                 &rewrite_it->second.scan_projection)) {
         return false;
     }
     for (size_t idx = 0; idx < struct_element_chain.size(); ++idx) {

@@ -182,37 +182,6 @@ private:
     const std::string _expr_name = "MetadataAccessorExpr";
 };
 
-class BloomEqExpr final : public VExpr {
-public:
-    BloomEqExpr(int column_id, DataTypePtr data_type, Field value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false),
-              _slot(VSlotRef::create_shared(0, column_id, -1, std::move(data_type), "c0")),
-              _value(std::move(value)) {}
-
-    const std::string& expr_name() const override { return _expr_name; }
-    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
-                               ColumnPtr&) const override {
-        return Status::InternalError("BloomEqExpr is only used by parquet statistics tests");
-    }
-    bool can_evaluate_bloom_filter() const override { return true; }
-    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
-        return expr_zonemap::eval_eq_bloom_filter(
-                ctx, expr_zonemap::SlotLiteral {.slot_index = _slot->column_id(),
-                                                .slot_type = _slot->data_type(),
-                                                .literal = _value,
-                                                .literal_type = _slot->data_type(),
-                                                .literal_on_left = false});
-    }
-    void collect_slot_column_ids(std::set<int>& column_ids) const override {
-        _slot->collect_slot_column_ids(column_ids);
-    }
-
-private:
-    std::shared_ptr<VSlotRef> _slot;
-    Field _value;
-    const std::string _expr_name = "BloomEqExpr";
-};
-
 class MetadataFloatingEqualityExpr final : public VExpr {
 public:
     enum class Mode { EQ, IN, NE, GT, GE, REVERSED_LT, REVERSED_LE, NOT_IN };
@@ -1259,9 +1228,9 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomPreservesFirstLogicalProbeOrder) 
     request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
     request.local_positions.emplace(format::LocalColumnId(1), format::LocalIndex(1));
     request.conjuncts = {VExprContext::create_shared(std::make_shared<BloomInExpr>(
-                                 0, type, std::vector<Field> {Field::create_field<TYPE_INT>(2)})),
+                                 1, type, std::vector<Field> {Field::create_field<TYPE_INT>(2)})),
                          VExprContext::create_shared(std::make_shared<BloomInExpr>(
-                                 1, type, std::vector<Field> {Field::create_field<TYPE_INT>(1)}))};
+                                 0, type, std::vector<Field> {Field::create_field<TYPE_INT>(1)}))};
 
     format::parquet::ParquetFileContext file_context;
     auto file_reader = std::make_shared<StatisticsMemoryFileReader>(std::move(file_bytes));
@@ -1278,42 +1247,115 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomPreservesFirstLogicalProbeOrder) 
     EXPECT_EQ(pruning_stats.bloom_filter_probe_successes, 1);
 }
 
-TEST(ParquetBloomFilterPruningTest, NativeFloatingBloomPreservesDorisEquality) {
-    const auto check_type = []<PrimitiveType Type, typename DataType>(
-                                    tparquet::Type::type physical_type,
-                                    typename PrimitiveTypeTraits<Type>::CppType stored_value,
-                                    typename PrimitiveTypeTraits<Type>::CppType predicate_value) {
-        format::parquet::ParquetColumnSchema column_schema;
-        column_schema.type = std::make_shared<DataType>();
-        column_schema.type_descriptor.doris_type = column_schema.type;
-        column_schema.type_descriptor.physical_type = physical_type;
-
+TEST(ParquetBloomFilterPruningTest, NativeBloomPreservesOrderAcrossNestedAndDirectProbes) {
+    const auto make_bloom = [] {
         format::parquet::native::BlockSplitBloomFilter bloom_filter;
-        ASSERT_TRUE(bloom_filter
+        EXPECT_TRUE(bloom_filter
                             .init(segment_v2::BloomFilter::MINIMUM_BYTES,
                                   segment_v2::HashStrategyPB::XX_HASH_64)
                             .ok());
-        bloom_filter.add_bytes(reinterpret_cast<const char*>(&stored_value), sizeof(stored_value));
-        ASSERT_FALSE(bloom_filter.test_bytes(reinterpret_cast<const char*>(&predicate_value),
-                                             sizeof(predicate_value)));
-        const auto field = Field::create_field<Type>(predicate_value);
-
-        EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::NativeBloomFilterExcludes(
-                column_schema, 0, bloom_eq_conjunct(column_schema.type, field), bloom_filter));
-        EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::NativeBloomFilterExcludes(
-                column_schema, 0, bloom_conjuncts(column_schema.type, {field}), bloom_filter));
+        const int32_t present_value = 1;
+        bloom_filter.add_bytes(reinterpret_cast<const char*>(&present_value),
+                               sizeof(present_value));
+        tparquet::BloomFilterAlgorithm algorithm;
+        algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
+        tparquet::BloomFilterHash hash;
+        hash.__set_XXHASH(tparquet::XxHash());
+        tparquet::BloomFilterCompression compression;
+        compression.__set_UNCOMPRESSED(tparquet::Uncompressed());
+        tparquet::BloomFilterHeader header;
+        header.__set_numBytes(static_cast<int32_t>(bloom_filter.size()));
+        header.__set_algorithm(algorithm);
+        header.__set_hash(hash);
+        header.__set_compression(compression);
+        std::vector<uint8_t> bytes;
+        ThriftSerializer serializer(/*compact=*/true, 64);
+        EXPECT_TRUE(serializer.serialize(&header, &bytes).ok());
+        bytes.insert(bytes.end(), bloom_filter.data(), bloom_filter.data() + bloom_filter.size());
+        return bytes;
     };
+    const auto bloom = make_bloom();
+    std::vector<uint8_t> file_bytes = bloom;
+    file_bytes.insert(file_bytes.end(), bloom.begin(), bloom.end());
 
-    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(tparquet::Type::FLOAT, -0.0F, 0.0F);
-    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(tparquet::Type::FLOAT, 0.0F, -0.0F);
-    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(tparquet::Type::DOUBLE, -0.0, 0.0);
-    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(tparquet::Type::DOUBLE, 0.0, -0.0);
-    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(
-            tparquet::Type::FLOAT, std::bit_cast<float>(uint32_t {0x7fc00001U}),
-            std::bit_cast<float>(uint32_t {0x7fc00002U}));
-    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(
-            tparquet::Type::DOUBLE, std::bit_cast<double>(uint64_t {0x7ff8000000000001ULL}),
-            std::bit_cast<double>(uint64_t {0x7ff8000000000002ULL}));
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    auto direct_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    direct_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    direct_schema->local_id = 0;
+    direct_schema->leaf_column_id = 1;
+    direct_schema->type = int_type;
+    direct_schema->type_descriptor.doris_type = int_type;
+    direct_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+
+    auto struct_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    struct_schema->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    struct_schema->local_id = 1;
+    struct_schema->name = "nested";
+    struct_schema->type = struct_type;
+    auto nested_leaf_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    nested_leaf_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    nested_leaf_schema->local_id = 0;
+    nested_leaf_schema->name = "value";
+    nested_leaf_schema->leaf_column_id = 0;
+    nested_leaf_schema->type = int_type;
+    nested_leaf_schema->type_descriptor.doris_type = int_type;
+    nested_leaf_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    struct_schema->children.push_back(std::move(nested_leaf_schema));
+
+    std::vector<tparquet::ColumnChunk> chunks;
+    for (int leaf_id = 0; leaf_id < 2; ++leaf_id) {
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_type(tparquet::Type::INT32);
+        column_metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+        column_metadata.__set_num_values(1);
+        column_metadata.__set_total_compressed_size(0);
+        column_metadata.__set_data_page_offset(0);
+        column_metadata.__set_bloom_filter_offset(leaf_id * bloom.size());
+        column_metadata.__set_bloom_filter_length(static_cast<int32_t>(bloom.size()));
+        tparquet::ColumnChunk chunk;
+        chunk.__set_meta_data(column_metadata);
+        chunks.push_back(std::move(chunk));
+    }
+    tparquet::RowGroup row_group;
+    row_group.__set_columns(std::move(chunks));
+    row_group.__set_total_byte_size(0);
+    row_group.__set_num_rows(1);
+    tparquet::FileMetaData metadata;
+    metadata.__set_version(1);
+    metadata.__set_num_rows(1);
+    metadata.__set_row_groups({row_group});
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.local_positions.emplace(format::LocalColumnId(1), format::LocalIndex(1));
+    auto nested_slot = VSlotRef::create_shared(0, 1, -1, struct_type, "nested");
+    auto selector = VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                            Field::create_field<TYPE_STRING>("value"));
+    auto nested_accessor =
+            std::make_shared<MetadataAccessorExpr>(int_type, std::move(nested_slot), selector);
+    request.conjuncts = {
+            VExprContext::create_shared(std::make_shared<BloomInExpr>(
+                    std::move(nested_accessor),
+                    std::vector<Field> {Field::create_field<TYPE_INT>(2)})),
+            VExprContext::create_shared(std::make_shared<BloomInExpr>(
+                    0, int_type, std::vector<Field> {Field::create_field<TYPE_INT>(1)}))};
+
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(direct_schema));
+    schema.push_back(std::move(struct_schema));
+    format::parquet::ParquetFileContext file_context;
+    auto file_reader = std::make_shared<StatisticsMemoryFileReader>(std::move(file_bytes));
+    file_context.native_file = file_reader;
+    std::vector<int> selected_row_groups;
+    format::parquet::ParquetPruningStats pruning_stats;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        metadata, schema, request, nullptr, &selected_row_groups, true,
+                        &pruning_stats, nullptr, nullptr, &file_context)
+                        .ok());
+    EXPECT_TRUE(selected_row_groups.empty());
+    EXPECT_EQ(file_reader->read_count(), 2);
 }
 
 TEST(ParquetBloomFilterPruningTest, NativeRowGroupKeepsDorisEqualFloatingValues) {
