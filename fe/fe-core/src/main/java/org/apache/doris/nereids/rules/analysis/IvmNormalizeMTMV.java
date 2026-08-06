@@ -34,6 +34,7 @@ import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mtmv.ivm.agg.IvmAggColumnKey;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
 import org.apache.doris.mtmv.ivm.agg.IvmAggStateKey;
@@ -486,14 +487,28 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         List<NamedExpression> hiddenAggOutputs = new ArrayList<>();
         hiddenAggOutputs.add(groupCountAlias);
 
+        // Pass 1: register every visible aggregate output into the unified column pool, so a later
+        // target can reuse an existing visible column as its hidden state (e.g. AVG(x) reuses the
+        // visible SUM(x) column) instead of creating a duplicate hidden column.
+        Map<IvmAggColumnKey, Slot> aggColumnPool = new LinkedHashMap<>();
+        for (int i = 0; i < aggAliases.size(); i++) {
+            AggregateFunction func = (AggregateFunction) aggAliases.get(i).child();
+            Expression arg = (func instanceof Count && ((Count) func).isCountStar())
+                    ? null : func.child(0);
+            aggColumnPool.putIfAbsent(
+                    IvmAggColumnKey.of(aggFunctionRegistry.kindOf(func), arg),
+                    aggAliases.get(i).toSlot());
+        }
+
+        // Pass 2: build targets, reusing pooled columns where the hidden state expression matches.
         List<IvmAggTarget> aggTargets = new ArrayList<>();
         for (int i = 0; i < aggAliases.size(); i++) {
             Alias origAlias = aggAliases.get(i);
             AggregateFunction aggFunc = (AggregateFunction) origAlias.child();
             // The registry chooses the aggregate processor. The processor owns the hidden state set for its
             // function, so adding a new aggregate function should only require a new processor registration.
-            IvmAggTargetSpec aggTargetSpec = aggFunctionRegistry.buildTargetSpec(i, aggFunc, origAlias);
-            hiddenAggOutputs.addAll(aggTargetSpec.getHiddenAggregateOutputs());
+            IvmAggTargetSpec aggTargetSpec = aggFunctionRegistry.buildTargetSpec(
+                    i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs);
             aggTargets.add(aggTargetSpec.toPlaceholderTarget());
         }
 

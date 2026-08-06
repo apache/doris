@@ -103,6 +103,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -387,11 +388,17 @@ public class MTMVPlanUtil {
         Slot rowIdSlot = null;
         List<Slot> trailingHiddenSlots = new ArrayList<>();
         List<Slot> userSlots = new ArrayList<>();
+        Set<String> seenHidden = new HashSet<>();
         for (Slot slot : slots) {
             if (Column.IVM_ROW_ID_COL.equals(slot.getName())) {
                 rowIdSlot = slot;
             } else if (IvmUtil.isIvmHiddenColumn(slot.getName())) {
-                trailingHiddenSlots.add(slot);
+                // IVM aggregate hidden columns may be shared across targets (visible column reuse or
+                // pooled hidden columns), so a name may appear once even though multiple targets
+                // reference it. Keep one physical column per name.
+                if (seenHidden.add(slot.getName())) {
+                    trailingHiddenSlots.add(slot);
+                }
             } else {
                 userSlots.add(slot);
             }

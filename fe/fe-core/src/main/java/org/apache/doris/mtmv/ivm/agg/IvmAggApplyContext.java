@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Mutable apply-stage context passed to one aggregate processor at a time.
@@ -38,15 +39,18 @@ public class IvmAggApplyContext {
     private final Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots;
     private final Expression newGroupCount;
     private final IvmAggExpressionBuilder expressionBuilder;
+    private final Set<String> visibleColumnNames;
 
     public IvmAggApplyContext(Map<String, Expression> finalByColumnName,
             LogicalOlapScan rawMvScan, Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots,
-            Expression newGroupCount, IvmAggExpressionBuilder expressionBuilder) {
+            Expression newGroupCount, IvmAggExpressionBuilder expressionBuilder,
+            Set<String> visibleColumnNames) {
         this.finalByColumnName = finalByColumnName;
         this.rawMvScan = rawMvScan;
         this.applyDeltaSlots = applyDeltaSlots;
         this.newGroupCount = newGroupCount;
         this.expressionBuilder = expressionBuilder;
+        this.visibleColumnNames = visibleColumnNames;
     }
 
     /** New total group count after applying this refresh delta. */
@@ -59,8 +63,20 @@ public class IvmAggApplyContext {
         return expressionBuilder;
     }
 
-    /** Adds or replaces one final output expression by normalized MV column name. */
-    void putFinalExpression(String columnName, Expression expression) {
+    /**
+     * Adds or replaces one final output expression by normalized MV column name.
+     *
+     * <p>Shared hidden state columns may alias a visible column (for example AVG(x) reuses the visible
+     * SUM(x) column as its hidden SUM state). Only the visible column owner may write such a column;
+     * other targets skip writing it because the owner produces the final value. Columns without a
+     * visible owner (pure hidden state) accept the last writer.
+     */
+    void putFinalExpression(IvmAggTarget target, String columnName, Expression expression) {
+        boolean isVisibleOwner = columnName.equals(target.getVisibleSlot().getName());
+        boolean columnHasVisibleOwner = visibleColumnNames.contains(columnName);
+        if (columnHasVisibleOwner && !isVisibleOwner) {
+            return;
+        }
         finalByColumnName.put(columnName, expression);
     }
 
