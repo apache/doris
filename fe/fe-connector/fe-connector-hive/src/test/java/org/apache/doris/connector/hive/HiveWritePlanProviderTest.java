@@ -874,11 +874,11 @@ public class HiveWritePlanProviderTest {
     }
 
     private static final class TestStatementScope implements ConnectorStatementScope {
-        private final Map<String, Object> values = new HashMap<>();
+        private final Map<Object, Object> values = new HashMap<>();
 
         @Override
         @SuppressWarnings("unchecked")
-        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+        public <T> T computeIfAbsent(Object key, Supplier<T> loader) {
             return (T) values.computeIfAbsent(key, ignored -> loader.get());
         }
     }

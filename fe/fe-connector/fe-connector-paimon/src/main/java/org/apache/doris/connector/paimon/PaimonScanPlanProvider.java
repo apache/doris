@@ -20,6 +20,7 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorScanKeyUtils;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -484,8 +485,28 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
-        return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                request.getFilter(), request.getLimit(), request.isCountPushdown());
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) request.getTableHandle();
+        if (session == null) {
+            return planScanInternal(session, request.getTableHandle(), request.getColumns(),
+                    request.getFilter(), request.getLimit(), request.isCountPushdown());
+        }
+        if (paimonHandle.isSystemTable()) {
+            // System tables resolve their snapshot on the BE and carry deferred side effects
+            // (authorized file enumeration); never reuse their planned ranges.
+            return planScanInternal(session, request.getTableHandle(), request.getColumns(),
+                    request.getFilter(), request.getLimit(), request.isCountPushdown());
+        }
+        // Statement-scoped reuse: within one statement the identical scan (same table, same
+        // branch/options pin, same projection, same filter, same limit, same COUNT pushdown) plans once and
+        // every duplicated relation shares the result. The scope is NONE for offline planning and
+        // tests, in which case the loader runs on every call. Session variables are constant within
+        // a statement and deliberately absent from the key.
+        PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(session.getCatalogId(), session.getQueryId(),
+                paimonHandle, request);
+        return session.getStatementScope().computeIfAbsent(reuseKey,
+                () -> Collections.unmodifiableList(planScanInternal(session,
+                        request.getTableHandle(), request.getColumns(), request.getFilter(),
+                        request.getLimit(), request.isCountPushdown())));
     }
 
     /**
@@ -2403,5 +2424,82 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    /**
+     * Statement-scoped cache key for one Paimon scan.
+     *
+     * <p>Includes every input that changes the planned split list: table identity, the branch pin,
+     * the whole scan-options map (snapshot / tag / incremental / options pins), the projected
+     * columns in order, the pushed filter, the limit and the COUNT pushdown flag. System tables are excluded
+     * upstream, and session variables are statement-constant, so both stay out of the key.
+     */
+    private static final class PaimonScanReuseKey {
+        private final long catalogId;
+        private final String queryId;
+        private final String databaseName;
+        private final String tableName;
+        private final String branchName;
+        private final Map<String, String> scanOptions;
+        private final List<String> columnNames;
+        private final List<ConnectorExpression> filterConjuncts;
+        private final long limit;
+        private final boolean countPushdown;
+
+        private PaimonScanReuseKey(long catalogId, String queryId, PaimonTableHandle handle,
+                ConnectorScanRequest request) {
+            // The catalog id and query id isolate same-named tables across a cross-catalog
+            // statement and executions of a reused prepared statement (see
+            // ConnectorStatementScopes.resolveInStatement). System tables are bypassed in planScan
+            // before this key is built, so sysTableName is always null here; if the system-table
+            // bypass is ever relaxed, add it back.
+            this.catalogId = catalogId;
+            this.queryId = queryId;
+            this.databaseName = handle.getDatabaseName();
+            this.tableName = handle.getTableName();
+            this.branchName = handle.getBranchName();
+            this.scanOptions = handle.getScanOptions() == null
+                    ? Collections.emptyMap()
+                    : Collections.unmodifiableMap(new HashMap<>(handle.getScanOptions()));
+            this.columnNames = request.getColumns().stream()
+                    .map(column -> ((PaimonColumnHandle) column).getName().toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toList());
+            this.filterConjuncts = ConnectorScanKeyUtils.canonicalFilterConjuncts(request.getFilter());
+            this.limit = request.getLimit();
+            this.countPushdown = request.isCountPushdown();
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof PaimonScanReuseKey)) {
+                return false;
+            }
+            PaimonScanReuseKey that = (PaimonScanReuseKey) object;
+            return catalogId == that.catalogId
+                    && limit == that.limit
+                    && countPushdown == that.countPushdown
+                    && Objects.equals(queryId, that.queryId)
+                    && Objects.equals(databaseName, that.databaseName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(branchName, that.branchName)
+                    && Objects.equals(scanOptions, that.scanOptions)
+                    && Objects.equals(columnNames, that.columnNames)
+                    && Objects.equals(filterConjuncts, that.filterConjuncts);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(catalogId, queryId, databaseName, tableName, branchName,
+                    scanOptions, columnNames, filterConjuncts, limit, countPushdown);
+        }
+
+        @Override
+        public String toString() {
+            return "PaimonScanReuseKey{catalog=" + catalogId + ", query=" + queryId
+                    + ", table=" + databaseName + "." + tableName + "}";
+        }
     }
 }
