@@ -668,7 +668,8 @@ public class AppendVariantEqualityDelete {
         """
         contains "VMERGING-EXCHANGE"
         contains "inputSplitNum=2"
-        contains "all access paths: [v(2).n]"
+        // Plugin-driven EXPLAIN identifies projected paths by logical column name, independent of slot IDs.
+        contains "all access paths: [v.n]"
     }
     String projectedGatherToken =
             "iceberg_variant_projected_remote_gather_" + UUID.randomUUID().toString()

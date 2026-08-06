@@ -42,6 +42,7 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             contains "paimonNativeReadSplits=0/1"
         }
 
+        // Keep the complete DESC shape so the external column's Extra metadata remains covered.
         order_qt_desc """desc variant_smoke"""
 
         order_qt_full_variant """
