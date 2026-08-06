@@ -1225,6 +1225,38 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperScansFullComplexRootForOutpu
     EXPECT_TRUE(request.predicate_columns.empty());
 }
 
+TEST(ColumnMapperScanRequestTest, FullProjectionRetainsOnlyTimestampSemanticPaths) {
+    auto table_timestamp = field_id_col("ts", 2, timestamptz(6));
+    auto table_payload = field_id_col("payload", 3, i32());
+    auto table_event = struct_col("event", 1, {table_timestamp, table_payload});
+    auto table_other = field_id_col("other", 4, i32());
+    auto table_root = struct_col("root", 0, {table_event, table_other});
+
+    auto file_timestamp = field_id_col("ts", 2, timestamptz(6), 0);
+    file_timestamp.timestamp_is_adjusted_to_utc = true;
+    auto file_payload = field_id_col("payload", 3, i32(), 1);
+    auto file_event = struct_col("event", 1, {file_timestamp, file_payload}, 0);
+    auto file_other = field_id_col("other", 4, i32(), 1);
+    auto file_root = struct_col("root", 0, {file_event, file_other}, 10);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_root}, {}, {file_root}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_root}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& root_projection = request.non_predicate_columns[0];
+    EXPECT_TRUE(root_projection.project_all_children);
+    ASSERT_EQ(root_projection.children.size(), 1);
+    EXPECT_EQ(root_projection.children[0].local_id(), 0);
+    ASSERT_EQ(root_projection.children[0].children.size(), 1);
+    const auto& timestamp_projection = root_projection.children[0].children[0];
+    EXPECT_EQ(timestamp_projection.local_id(), 0);
+    ASSERT_TRUE(timestamp_projection.timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*timestamp_projection.timestamp_is_adjusted_to_utc);
+}
+
 // Scenario: array/map nested projections also scan the full top-level complex root for
 // materialized readers. This keeps row-oriented formats from receiving Parquet-style partial
 // projections for `array<struct>` elements or map value structs.
@@ -3028,6 +3060,43 @@ TEST(ColumnMapperScanRequestTest, PredicateProjectionRebuildsProjectedStructFile
     EXPECT_EQ(mapped_type->get_element_name(1), "b");
     EXPECT_EQ(mapped_type->get_element_name(2), "c");
     EXPECT_FALSE(mapper.mappings()[0].is_trivial);
+}
+
+// Scenario: Paimon projects one struct child but filters on an unprojected TIMESTAMP_LTZ(9)
+// child. The filter-only file projection must retain the history-schema timestamp semantic so an
+// unannotated INT96 leaf is materialized as TIMESTAMPTZ instead of DATETIMEV2.
+TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSemantic) {
+    const auto int_type = i32();
+    const auto ltz_type = timestamptz(9);
+
+    auto table_payload = field_id_col("payload", 1, int_type);
+    auto projected_table_struct = struct_col("s", 10, {table_payload});
+    auto table_ltz = field_id_col("ltz", 2, ltz_type);
+    auto full_table_struct = struct_col("s", 10, {table_payload, table_ltz});
+
+    auto file_payload = field_id_col("payload", 1, int_type, 0);
+    auto file_ltz = field_id_col("ltz", 2, ltz_type, 1);
+    file_ltz.timestamp_is_adjusted_to_utc = true;
+    auto file_struct = struct_col("s", 10, {file_payload, file_ltz}, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({projected_table_struct}, {}, {file_struct}).ok());
+
+    auto filter_expr = null_predicate(
+            struct_element(table_slot(0, 0, full_table_struct.type, "s"), ltz_type, "ltz"), false);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {projected_table_struct}, &request).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& root_projection = request.predicate_columns[0];
+    ASSERT_EQ(projection_ids(root_projection.children), std::vector<int32_t>({0, 1}));
+    const auto* ltz_projection = find_child_projection(&root_projection, 1);
+    ASSERT_NE(ltz_projection, nullptr);
+    ASSERT_TRUE(ltz_projection->timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*ltz_projection->timestamp_is_adjusted_to_utc);
 }
 
 // Scenario: a filter references a top-level column that is not projected by the query; the mapper

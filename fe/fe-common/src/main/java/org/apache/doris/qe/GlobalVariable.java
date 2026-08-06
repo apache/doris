@@ -165,14 +165,11 @@ public final class GlobalVariable {
     public static long validatePasswordPolicy = 0;
 
     @VarAttrDef.VarAttr(name = VALIDATE_PASSWORD_DICTIONARY_FILE, flag = VarAttrDef.GLOBAL,
-            description = {"密码验证字典文件路径。文件为纯文本格式，每行一个词。"
-                    + "当 validate_password_policy 为 STRONG(2) 时，密码中不能包含字典中的任何词（不区分大小写）。"
-                    + "如果为空，则使用内置字典。",
-                    "Path to the password validation dictionary file. "
-                            + "The file should be plain text with one word per line. "
-                            + "When validate_password_policy is STRONG(2), "
-                            + "the password cannot contain any word from the dictionary "
-                            + "(case-insensitive). If empty, a built-in dictionary will be used."})
+            description = "Path to the password validation dictionary file. "
+                    + "The file should be plain text with one word per line. "
+                    + "When validate_password_policy is STRONG(2), "
+                    + "the password cannot contain any word from the dictionary "
+                    + "(case-insensitive). If empty, a built-in dictionary will be used.")
     public static volatile String validatePasswordDictionaryFile = "";
 
     // If set to true, the db name of TABLE_SCHEMA column in tables in information_schema
@@ -197,94 +194,69 @@ public final class GlobalVariable {
     public static int auditPluginMaxSqlLength = 2097152;
 
     @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH, flag = VarAttrDef.GLOBAL,
-            description = {"专门用于限制 INSERT 语句的长度。如果该值大于 AUDIT_PLUGIN_MAX_SQL_LENGTH，"
-                    + "则使用 AUDIT_PLUGIN_MAX_SQL_LENGTH 的值。"
-                    + "如果 INSERT 语句超过该长度，将会被截断。",
-                    "This is specifically used to limit the length of INSERT statements. "
-                            + "If this value is greater than AUDIT_PLUGIN_MAX_SQL_LENGTH, "
-                            + "it will use the value of AUDIT_PLUGIN_MAX_SQL_LENGTH. "
-                            + "If an INSERT statement exceeds this length, it will be truncated."})
+            description = "This is specifically used to limit the length of INSERT statements. "
+                    + "If this value is greater than AUDIT_PLUGIN_MAX_SQL_LENGTH, "
+                    + "it will use the value of AUDIT_PLUGIN_MAX_SQL_LENGTH. "
+                    + "If an INSERT statement exceeds this length, it will be truncated.")
     public static int auditPluginMaxInsertStmtLength = Integer.MAX_VALUE;
 
     @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_LOAD_TIMEOUT, flag = VarAttrDef.GLOBAL)
     public static int auditPluginLoadTimeoutS = 600;
 
     @VarAttrDef.VarAttr(name = ENABLE_GET_ROW_COUNT_FROM_FILE_LIST, flag = VarAttrDef.GLOBAL,
-            description = {
-                    "针对外表，是否允许根据文件列表估算表行数。获取文件列表可能是一个耗时的操作，"
-                            + "如果不需要估算表行数或者对性能有影响，可以关闭该功能。",
-                    "For external tables, whether to enable getting row count from file list. "
-                            + "Getting file list may be a time-consuming operation. "
-                            + "If you don't need to estimate the number of rows in the table "
-                            + "or it affects performance, you can disable this feature."})
+            description = "For external tables, whether to enable getting row count from file list. "
+                    + "Getting file list may be a time-consuming operation. "
+                    + "If you don't need to estimate the number of rows in the table "
+                    + "or it affects performance, you can disable this feature.")
     public static boolean enable_get_row_count_from_file_list = true;
 
     @VarAttrDef.VarAttr(name = READ_ONLY, flag = VarAttrDef.GLOBAL,
-            description = {"仅用于兼容 MySQL 生态，暂无实际意义",
-                    "Only for compatibility with MySQL ecosystem, no practical meaning"})
+            description = "Only for compatibility with MySQL ecosystem, no practical meaning")
     public static boolean read_only = true;
 
     @VarAttrDef.VarAttr(name = SUPER_READ_ONLY, flag = VarAttrDef.GLOBAL,
-            description = {"仅用于兼容 MySQL 生态，暂无实际意义",
-                    "Only for compatibility with MySQL ecosystem, no practical meaning"})
+            description = "Only for compatibility with MySQL ecosystem, no practical meaning")
     public static boolean super_read_only = true;
 
     @VarAttrDef.VarAttr(name = PARTITION_ANALYZE_BATCH_SIZE, flag = VarAttrDef.GLOBAL,
-            description = {
-                "批量收集分区信息的分区数",
-                "Number of partitions to collect in one batch."})
+            description = "Number of partitions to collect in one batch.")
     public static int partitionAnalyzeBatchSize = 10;
 
     @VarAttrDef.VarAttr(name = HUGE_PARTITION_LOWER_BOUND_ROWS, flag = VarAttrDef.GLOBAL,
-            description = {
-                "行数超过该值的分区将跳过自动分区收集",
-                "This defines the lower size bound for large partitions, which will skip auto partition analyze."})
+            description = "This defines the lower size bound for large partitions, "
+                    + "which will skip auto partition analyze.")
     public static long hugePartitionLowerBoundRows = 100000000L;
 
     @VarAttrDef.VarAttr(name = ENABLE_FETCH_ICEBERG_STATS, flag = VarAttrDef.GLOBAL,
-            description = {
-                "当 HMS catalog 中的 Iceberg 表没有统计信息时，是否通过 Iceberg Api 获取统计信息",
-                "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
+            description = "Enable fetch stats for HMS Iceberg table when it's not analyzed.")
     public static boolean enableFetchIcebergStats = false;
 
 
     @VarAttrDef.VarAttr(name = ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR, flag = VarAttrDef.GLOBAL,
-            description = {
-                    "控制 query organization 的行为。当设置为 true 时使用 ANSI 的 query organization 行为，即作用于整个语句。"
-                            + "当设置为 false 时，使用 Doris 历史版本的行为，"
-                            + "即 order by 默认只作用于 set operation 的最后一个 operand。",
-                    "Controls the behavior of query organization. When set to true, uses the ANSI query"
-                            + " organization behavior, which applies to the entire statement. When set to false,"
-                            + " uses the behavior of Doris's historical versions, where order by by default only"
-                            + " applies to the last operand of the set operation."})
+            description = "Controls the behavior of query organization. When set to true, uses the ANSI query"
+                    + " organization behavior, which applies to the entire statement. When set to false,"
+                    + " uses the behavior of Doris's historical versions, where order by by default only"
+                    + " applies to the last operand of the set operation.")
     public static boolean enable_ansi_query_organization_behavior = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_NEW_TYPE_COERCION_BEHAVIOR, flag = VarAttrDef.GLOBAL,
-            description = {
-                    "控制隐式类型转换的行为，当设置为 true 时，使用新的行为。新行为更为合理。类型优先级从高到低为时间相关类型 > "
-                            + "数值类型 > 复杂类型 / JSON 类型 / IP 类型 > 字符串类型 > VARIANT 类型。当两个或多个不同类型的表达式"
-                            + "进行比较时，强制类型转换优先向高优先级类型转换。转换时尽可能保留精度，如："
-                            + "当转换为时间相关类型时，当无法确定精度时，优先使用 6 位精度的 DATETIME 类型。"
-                            + "当转换为数值类型时，当无法确定精度时，优先使用 DECIMAL 类型。",
-                    "Controls the behavior of implicit type conversion. When set to true, the new behavior is used,"
-                            + " which is more reasonable. The type priority, from highest to lowest, is: time-related"
-                            + " types > numeric types > complex types / JSON types / IP types > string types"
-                            + " > VARIANT types. When comparing two or more expressions of different types, "
-                            + "type coercion preferentially converts values toward the type with higher priority. "
-                            + "Precision is preserved as much as possible during conversion. For example, "
-                            + "when converting to a time-related type and precision cannot be determined, "
-                            + "the DATETIME type with 6-digit precision is preferred. When converting to"
-                            + " a numeric type and precision cannot be determined, the DECIMAL type is preferred."})
+            description = "Controls the behavior of implicit type conversion. When set to true, "
+                    + "the new behavior is used,"
+                    + " which is more reasonable. The type priority, from highest to lowest, is: time-related"
+                    + " types > numeric types > complex types / JSON types / IP types > string types"
+                    + " > VARIANT types. When comparing two or more expressions of different types, "
+                    + "type coercion preferentially converts values toward the type with higher priority. "
+                    + "Precision is preserved as much as possible during conversion. For example, "
+                    + "when converting to a time-related type and precision cannot be determined, "
+                    + "the DATETIME type with 6-digit precision is preferred. When converting to"
+                    + " a numeric type and precision cannot be determined, the DECIMAL type is preferred.")
     public static boolean enableNewTypeCoercionBehavior = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_NESTED_NAMESPACE, flag = VarAttrDef.GLOBAL,
-            description = {
-                    "是否允许访问 `ns1.ns2` 这种类型的 database。当前仅适用于 External Catalog 中映射 Database 并访问。"
-                            + "不支持创建。",
-                    "Whether to allow accessing databases of the form `ns1.ns2`. "
-                            + "Currently, this only applies to mapping databases in "
-                            + "External Catalogs and accessing them. "
-                            + "Creation is not supported."})
+            description = "Whether to allow accessing databases of the form `ns1.ns2`. "
+                    + "Currently, this only applies to mapping databases in "
+                    + "External Catalogs and accessing them. "
+                    + "Creation is not supported.")
     public static boolean enableNestedNamespace = false;
 
     // Don't allow creating instance.

@@ -2158,6 +2158,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static TField buildField(DataType dataType) {
         TField field = new TField();
         field.setIsOptional(dataType.isNullable());
+        // Paimon uses the same unannotated INT96 encoding for high-precision TIMESTAMP and
+        // TIMESTAMP_LTZ, so the table schema is the only reliable discriminator.
+        switch (dataType.getTypeRoot()) {
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(false);
+                break;
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(true);
+                break;
+            default:
+                break;
+        }
         TColumnType columnType = new TColumnType();
         TNestedField nestedField = new TNestedField();
         switch (dataType.getTypeRoot()) {

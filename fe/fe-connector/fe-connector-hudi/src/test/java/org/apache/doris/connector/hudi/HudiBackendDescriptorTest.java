@@ -224,4 +224,10 @@ public class HudiBackendDescriptorTest {
         Assertions.assertTrue(new HudiScanPlanProvider(new HashMap<>(), null).supportsFileCache());
     }
 
+    @Test
+    public void doesNotUseHiveParquetInt96TimeZone() {
+        Assertions.assertFalse(
+                new HudiScanPlanProvider(new HashMap<>(), null).usesHiveParquetInt96TimeZone());
+    }
+
 }

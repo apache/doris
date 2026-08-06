@@ -39,6 +39,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -440,6 +441,41 @@ TEST(PaimonReaderTest, AnnotatesArrayAndMapFileSchemaFromSplitHistorySchema) {
     EXPECT_EQ(file_schema[1].children[0].name_mapping, std::vector<std::string>({"key"}));
     EXPECT_EQ(file_schema[1].children[1].get_identifier_field_id(), 42);
     EXPECT_EQ(file_schema[1].children[1].name_mapping, std::vector<std::string>({"score"}));
+}
+
+// Paimon writes precision 7..9 TIMESTAMP and TIMESTAMP_LTZ with the same unannotated INT96
+// physical type. The historical Paimon schema must therefore preserve the per-column semantic so
+// the native reader can keep TIMESTAMP as a wall clock and decode TIMESTAMP_LTZ as an instant.
+TEST(PaimonReaderTest, AnnotatesTimestampSemanticsFromSplitHistorySchema) {
+    auto timestamp = external_schema_field("ts", 10);
+    timestamp.field_ptr->__set_timestamp_is_adjusted_to_utc(false);
+    auto timestamp_ltz = external_schema_field("ts_ltz", 11);
+    timestamp_ltz.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {timestamp, timestamp_ltz})});
+
+    paimon::PaimonReader reader;
+    reader.TEST_set_scan_params(&scan_params);
+    SplitReadOptions split_options;
+    split_options.current_range.__set_table_format_params(
+            make_paimon_schema_table_format_desc(100));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    const auto datetime_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    std::vector<ColumnDefinition> file_schema {
+            make_file_column(0, "ts", datetime_type),
+            make_file_column(1, "ts_ltz", datetime_type),
+    };
+    ASSERT_TRUE(reader.TEST_annotate_file_schema(&file_schema).ok());
+
+    ASSERT_TRUE(file_schema[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_FALSE(*file_schema[0].timestamp_is_adjusted_to_utc);
+    EXPECT_EQ(remove_nullable(file_schema[0].type)->get_primitive_type(), TYPE_DATETIMEV2);
+    ASSERT_TRUE(file_schema[1].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*file_schema[1].timestamp_is_adjusted_to_utc);
+    EXPECT_EQ(remove_nullable(file_schema[1].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
 }
 
 // Scenario: when FE does not send a matching historical schema for the split schema id, Paimon must

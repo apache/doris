@@ -52,7 +52,6 @@ import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
-import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
@@ -199,7 +198,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new NormalizeAggregate()),
             topDown(new HavingToFilter()),
             topDown(new QualifyToFilter()),
-            bottomUp(new SemiJoinCommute()),
             bottomUp(
                     new CollectSubQueryAlias(),
                     new CollectJoinConstraint()

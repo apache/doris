@@ -179,6 +179,40 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
 }
 
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_notready_keeps_latest_versions) {
+    auto base_rowset = create_rowset(Version(0, 1), 1, false, kGiB);
+    ASSERT_NE(nullptr, base_rowset);
+    ASSERT_TRUE(_tablet_meta->add_rs_meta(base_rowset->rowset_meta()).ok());
+
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    for (int64_t version = 2; version <= 20; ++version) {
+        auto rowset = create_rowset(Version(version, version), 1, true, kMiB);
+        ASSERT_NE(nullptr, rowset);
+        ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset->rowset_meta()).ok());
+        candidate_rowsets.push_back(rowset);
+    }
+
+    CloudTablet tablet(_engine, _tablet_meta);
+    ASSERT_TRUE(tablet.set_tablet_state(TABLET_NOTREADY).ok());
+    tablet._base_size = kGiB;
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    auto picked_size = policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                                                 &last_delete_version, &compaction_score, true);
+
+    EXPECT_EQ(9, picked_size);
+    ASSERT_EQ(9, input_rowsets.size());
+    EXPECT_EQ(9, compaction_score);
+    EXPECT_EQ(2, input_rowsets.front()->start_version());
+    EXPECT_EQ(10, input_rowsets.back()->end_version());
+    EXPECT_EQ(Version(-1, -1), last_delete_version);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
        pick_input_rowsets_large_head_not_repeated_when_output_below_promotion) {
     CloudTablet _tablet(_engine, _tablet_meta);
     _tablet._base_size = 20L * kGiB;

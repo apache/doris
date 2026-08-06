@@ -263,6 +263,23 @@ VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t valu
     return expr;
 }
 
+VExprSPtr table_struct_int32_child_greater_than_expr(int slot_id, int column_id,
+                                                     const DataTypePtr& struct_type,
+                                                     int32_t child_ordinal, int32_t value) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    auto child_expr = table_function_expr("element_at", nullable_int_type, {struct_type, int_type});
+    child_expr->add_child(VSlotRef::create_shared(slot_id, column_id, slot_id, struct_type, "s"));
+    child_expr->add_child(table_int32_literal(child_ordinal));
+
+    auto predicate = table_function_expr("gt", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                         {nullable_int_type, int_type}, TExprNodeType::BINARY_PRED,
+                                         TExprOpcode::GT);
+    predicate->add_child(std::move(child_expr));
+    predicate->add_child(table_int32_literal(value));
+    return predicate;
+}
+
 VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
     TExprNode node;
     node.__set_node_type(TExprNodeType::SLOT_REF);
@@ -4592,6 +4609,56 @@ TEST(TableReaderTest, PushDownCountFallsBackWithFilter) {
     ASSERT_EQ(block.rows(), 1);
     const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(id_column.get_element(0), 3);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, NestedStructPredicateAcceptsTableNullableChildren) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_nested_struct_predicate_nullability_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_struct_parquet_file(file_path, {1, 3, 2});
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto id_child = make_table_column(0, "id", int_type);
+    auto struct_column = make_table_column(
+            100, "s", std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"id"}));
+    struct_column.children = {id_child};
+    std::vector<ColumnDefinition> projected_columns = {struct_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
+    TableReader reader;
+    ASSERT_TRUE(
+            reader.init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = {prepared_conjunct(
+                                        &state, table_struct_int32_child_greater_than_expr(
+                                                        0, 0, projected_columns[0].type, 1, 1))},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                        })
+                    .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& result = assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
+    const auto& ids = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(result.get_column(0)));
+    EXPECT_EQ(std::vector<int32_t>(ids.get_data().begin(), ids.get_data().end()),
+              std::vector<int32_t>({3, 2}));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

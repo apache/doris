@@ -477,6 +477,34 @@ int64_t find_struct_child_index(const ::orc::Type& type, const std::string& fiel
     return -1;
 }
 
+struct RoundedOrcTimestamp {
+    int64_t seconds;
+    uint64_t microseconds;
+    bool carry;
+};
+
+Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
+                                           RoundedOrcTimestamp* result) {
+    constexpr int64_t NANOS_PER_SECOND = 1000000000;
+    constexpr int64_t NANOS_PER_MICROSECOND = 1000;
+    constexpr int64_t MICROS_PER_SECOND = 1000000;
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(nanoseconds >= 0 && nanoseconds < NANOS_PER_SECOND);
+    // Doris stores six fractional digits, so use half-up rounding and carry 999999500ns into the
+    // next second instead of silently truncating the ORC value.
+    const auto rounded_microseconds =
+            (nanoseconds + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
+    // Validate the carry here, but validate Doris' calendar range after timezone conversion:
+    // a valid year-zero local timestamp may have a UTC epoch before year zero.
+    if (__builtin_add_overflow(seconds, rounded_microseconds / MICROS_PER_SECOND,
+                               &result->seconds)) {
+        return Status::DataQualityError("ORC timestamp overflows after microsecond rounding");
+    }
+    result->microseconds = cast_set<uint64_t>(rounded_microseconds % MICROS_PER_SECOND);
+    result->carry = rounded_microseconds >= MICROS_PER_SECOND;
+    return Status::OK();
+}
+
 Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view,
                                    const cctz::time_zone& timezone) {
     const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
@@ -496,8 +524,28 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         }
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
+        RoundedOrcTimestamp timestamp;
+        auto status = round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
         value.from_unixtime(orc_batch->data[source_row], timezone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        if (!value.is_valid_date()) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC timestamp is outside the target timezone range");
+        }
+        value.set_microsecond(timestamp.microseconds);
+        // Plain ORC TIMESTAMP is a civil value. Carry after timezone conversion so a fractional
+        // round does not jump backward or skip an hour at a daylight-saving transition.
+        if (timestamp.carry &&
+            !value.date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, 1, false})) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC timestamp is outside the target timezone range");
+        }
     }
     return Status::OK();
 }
@@ -521,8 +569,20 @@ Status decode_timestamp_tz_orc_values(IColumn& nested_column,
             continue;
         }
         auto& value = data[old_data_size + row];
-        value.from_unixtime(orc_batch->data[source_row], utc_time_zone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        RoundedOrcTimestamp timestamp;
+        auto status = round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        value.from_unixtime(timestamp.seconds, utc_time_zone);
+        value.set_microsecond(timestamp.microseconds);
+        if (!value.is_valid_date()) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC TIMESTAMPTZ is outside the Doris 0000-9999 range");
+        }
     }
     return Status::OK();
 }

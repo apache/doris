@@ -2330,6 +2330,26 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void buildSchemaInfoCarriesTimestampSemantics() {
+        List<DataField> fields = Arrays.asList(
+                new DataField(7, "ts", DataTypes.TIMESTAMP(9)),
+                new DataField(8, "ts_ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)));
+
+        List<TFieldPtr> top = PaimonScanPlanProvider.buildSchemaInfo(3L, fields, false)
+                .getRootField().getFields();
+
+        Assertions.assertFalse(top.get(0).getFieldPtr().isTimestampIsAdjustedToUtc());
+        Assertions.assertTrue(top.get(1).getFieldPtr().isTimestampIsAdjustedToUtc());
+    }
+
+    @Test
+    public void doesNotUseHiveParquetInt96TimeZone() {
+        Assertions.assertFalse(
+                new PaimonScanPlanProvider(Collections.emptyMap(), null)
+                        .usesHiveParquetInt96TimeZone());
+    }
+
+    @Test
     public void buildSchemaInfoNestedShapesAndStructChildIds() {
         // WHY (B-1a): the e2e case is a struct-field rename, so STRUCT children MUST carry their own
         // paimon ids/names; ARRAY/MAP/STRUCT tags must be exact (BE checks them); array element / map kv

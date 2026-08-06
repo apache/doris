@@ -21,12 +21,12 @@ import java.io.File;
 
 public class Config extends ConfigBase {
 
-    @ConfField(description = {"The path of the user-defined configuration file, used to store fe_custom.conf. "
-            + "Configurations in this file will override those in fe.conf"})
+    @ConfField(description = "The path of the user-defined configuration file, used to store fe_custom.conf. "
+            + "Configurations in this file will override those in fe.conf")
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
 
-    @ConfField(description = {
-            "The maximum file size of fe.log and fe.audit.log. Once this size is exceeded, the log file will be split"})
+    @ConfField(description = "The maximum file size of fe.log and fe.audit.log. Once this size is exceeded, the log "
+            + "file will be split")
     public static int log_roll_size_mb = 1024; // 1 GB
 
     /**
@@ -64,732 +64,688 @@ public class Config extends ConfigBase {
      *      default is false. if true, will compress fe.log & fe.warn.log by gzip
      */
     @Deprecated // use env var LOG_DIR instead
-    @ConfField(description = {"The path of the FE log file, used to store fe.log"})
+    @ConfField(description = "The path of the FE log file, used to store fe.log")
     public static String sys_log_dir = "";
 
-    @ConfField(description = {"The level of FE log"}, options = {"INFO", "WARN", "ERROR", "FATAL"})
+    @ConfField(description = "The level of FE log", options = {"INFO", "WARN", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
 
-    @ConfField(description = {
-            "The output mode of the FE log. "
-                    + "NORMAL mode is synchronous output with location information; "
-            + "ASYNC mode is the default mode, asynchronous output with location information; "
-            + "BRIEF mode is asynchronous output without location information. "
-            + "Performance improves in the order: NORMAL, ASYNC, BRIEF"},
+    @ConfField(description = "The output mode of the FE log. NORMAL mode is synchronous output with location "
+            + "information; ASYNC mode is the default mode, asynchronous output with location "
+            + "information; BRIEF mode is asynchronous output without location information. "
+            + "Performance improves in the order: NORMAL, ASYNC, BRIEF",
             options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "ASYNC";
 
-    @ConfField(description = {
-            "The maximum number of FE log files that can be retained within the "
-                    + "sys_log_roll_interval (log roll interval). The default value is 10, which means the system "
-                    + "will keep up to 10 log files during each log roll interval."})
+    @ConfField(description = "The maximum number of FE log files that can be retained within the "
+            + "sys_log_roll_interval (log roll interval). The default value is 10, which means the "
+            + "system will keep up to 10 log files during each log roll interval.")
     public static int sys_log_roll_num = 10;
 
-    @ConfField(description = {"Verbose modules. VERBOSE level logging is implemented by the DEBUG level of log4j. "
-            + "If set to `org.apache.doris.catalog`, "
-            + "DEBUG logs of classes under this package will be printed."})
+    @ConfField(description = "Verbose modules. VERBOSE level logging is implemented by the DEBUG level of log4j. If "
+            + "set to `org.apache.doris.catalog`, DEBUG logs of classes under this package will be " + "printed.")
     public static String[] sys_log_verbose_modules = {};
-    @ConfField(description = {"The split cycle of the FE log file"}, options = {"DAY", "HOUR"})
+    @ConfField(description = "The split cycle of the FE log file", options = {"DAY", "HOUR"})
     public static String sys_log_roll_interval = "DAY";
-    @ConfField(description = {
-            "The maximum retention time of the FE log file. After this time, the log file will be deleted. "
-                    + "Supported formats include: 7d, 10h, 60m, 120s"})
+    @ConfField(description = "The maximum retention time of the FE log file. After this time, the log file will be "
+            + "deleted. Supported formats include: 7d, 10h, 60m, 120s")
     public static String sys_log_delete_age = "7d";
-    @ConfField(description = {"Whether to enable compression for FE log files"})
+    @ConfField(description = "Whether to enable compression for FE log files")
     public static boolean sys_log_enable_compress = false;
 
-    @ConfField(description = {"The path of the FE audit log file, used to store fe.audit.log"})
+    @ConfField(description = "The path of the FE audit log file, used to store fe.audit.log")
     public static String audit_log_dir = System.getenv("LOG_DIR");
-    @ConfField(description = {"The maximum number of FE audit log files. "
-            + "After exceeding this number, the oldest log file will be deleted"})
+    @ConfField(description = "The maximum number of FE audit log files. After exceeding this number, the oldest log "
+            + "file will be deleted")
     public static int audit_log_roll_num = 90;
-    @ConfField(description = {"The type of FE audit log file"},
+    @ConfField(description = "The type of FE audit log file",
             options = {"slow_query", "query", "load", "stream_load"})
     public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
-    @ConfField(mutable = true, description = {"The threshold of slow query, in milliseconds. "
-            + "If the response time of a query exceeds this threshold, it will be recorded in audit log."})
+    @ConfField(mutable = true, description = "The threshold of slow query, in milliseconds. If the response time of a "
+            + "query exceeds this threshold, it will be recorded in audit log.")
     public static long qe_slow_log_ms = 5000;
-    @ConfField(mutable = true, description = {"The threshold of sql_digest generation, in milliseconds. "
-            + "If the response time of a query exceeds this threshold, "
-            + "sql_digest will be generated for it."})
+    @ConfField(mutable = true, description = "The threshold of sql_digest generation, in milliseconds. If the "
+            + "response time of a query exceeds this threshold, sql_digest will be " + "generated for it.")
     public static long sql_digest_generation_threshold_ms = 5000;
-    @ConfField(description = {"The split cycle of the FE audit log file"},
+    @ConfField(description = "The split cycle of the FE audit log file",
             options = {"DAY", "HOUR"})
     public static String audit_log_roll_interval = "DAY";
-    @ConfField(description = {"The maximum retention time of the FE audit log file. "
-            + "After this time, the log file will be deleted. "
-            + "Supported formats include: 7d, 10h, 60m, 120s"})
+    @ConfField(description = "The maximum retention time of the FE audit log file. After this time, the log file will "
+            + "be deleted. Supported formats include: 7d, 10h, 60m, 120s")
     public static String audit_log_delete_age = "30d";
-    @ConfField(description = {"Whether to enable compression for FE audit log files"})
+    @ConfField(description = "Whether to enable compression for FE audit log files")
     public static boolean audit_log_enable_compress = false;
 
-    @ConfField(description = {"Active lineage plugins. Specify the name returned by LineagePlugin.name()"})
+    @ConfField(description = "Active lineage plugins. Specify the name returned by LineagePlugin.name()")
     public static String[] activate_lineage_plugin = {};
 
-    @ConfField(description = {"Whether to use a file to record logs. When starting FE with --console, "
-            + "all logs will be written to both standard output and file. "
-            + "Disabling this option will stop writing logs to files."})
+    @ConfField(description = "Whether to use a file to record logs. When starting FE with --console, all logs will be "
+            + "written to both standard output and file. Disabling this option will stop writing logs " + "to files.")
     public static boolean enable_file_logger = true;
 
     @ConfField(mutable = false, masterOnly = false,
-            description = {"Whether to check for table lock leaks"})
+            description = "Whether to check for table lock leaks")
     public static boolean check_table_lock_leaky = false;
 
-    @ConfField(mutable = false, description = {"当前 FE 节点所属的 Resource Group。可通过命令行参数 "
-            + "`--local_resource_group` 或环境变量 `DORIS_LOCAL_RESOURCE_GROUP` 覆盖。空字符串表示未设置。",
-            "The Resource Group that the current FE node belongs to. It can be overridden by the "
-                    + "`--local_resource_group` command line option or the "
-                    + "`DORIS_LOCAL_RESOURCE_GROUP` environment variable. An empty string means unset."})
+    @ConfField(mutable = false, description = "The Resource Group that the current FE node belongs to. It can be "
+            + "overridden by the `--local_resource_group` command line option or the "
+            + "`DORIS_LOCAL_RESOURCE_GROUP` environment variable. An empty string " + "means unset.")
     public static String local_resource_group = "";
 
     @ConfField(mutable = true, masterOnly = false,
-            description = {"PreparedStatement stmtId starting position, used for testing only"})
+            description = "PreparedStatement stmtId starting position, used for testing only")
     public static long prepared_stmt_start_id = -1;
 
-    @ConfField(description = {"The installation directory of the plugin"})
+    @ConfField(description = "The installation directory of the plugin")
     public static String plugin_dir =  EnvUtils.getDorisHome() + "/plugins";
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Whether to enable the plugin"})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable the plugin")
     public static boolean plugin_enable = true;
 
-    @ConfField(description = {"The path to save JDBC drivers. When creating a JDBC Catalog, "
-            + "if the specified driver file path is not an absolute path, Doris will look for jars in this path"})
+    @ConfField(description = "The path to save JDBC drivers. When creating a JDBC Catalog, if the specified driver "
+            + "file path is not an absolute path, Doris will look for jars in this path")
     public static String jdbc_drivers_dir = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
 
-    @ConfField(description = {"The safe path of the JDBC driver. When creating a JDBC Catalog, "
-            + "you can configure multiple files or network paths that are allowed to be used, "
-            + "separated by semicolons. "
-            + "The default is * to allow all; if set to empty, it also means to allow all. "
-            + "When set to concrete paths, driver URLs are matched structurally (component-based), "
-            + "so path traversal and prefix confusion are rejected."})
+    @ConfField(description = "The safe path of the JDBC driver. When creating a JDBC Catalog, you can configure "
+            + "multiple files or network paths that are allowed to be used, separated by semicolons. "
+            + "The default is * to allow all; if set to empty, it also means to allow all. When set to "
+            + "concrete paths, driver URLs are matched structurally (component-based), so path "
+            + "traversal and prefix confusion are rejected.")
     public static String jdbc_driver_secure_path = "*";
 
-    @ConfField(description = {"Functions that MySQL JDBC Catalog does not support pushing down"})
+    @ConfField(description = "Functions that MySQL JDBC Catalog does not support pushing down")
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
-    @ConfField(mutable = true, description = {
-            "MySQL compatibility variable whitelist. These variables will be silently ignored in SET statements "
-                    + "instead of throwing an error. This is mainly used for compatibility with MySQL client tools "
-                    + "(such as phpMyAdmin, mysqldump). Doris does not need to understand the specific meaning of "
-                    + "these variables, it just needs to accept them without error."})
+    @ConfField(mutable = true, description = "MySQL compatibility variable whitelist. These variables will be "
+            + "silently ignored in SET statements instead of throwing an error. This "
+            + "is mainly used for compatibility with MySQL client tools (such as "
+            + "phpMyAdmin, mysqldump). Doris does not need to understand the specific "
+            + "meaning of these variables, it just needs to accept them without error.")
     public static String[] mysql_compat_var_whitelist = {};
 
-    @ConfField(description = {"Force SQLServer Jdbc Catalog encrypt to false. "
-            + "This is a security-sensitive switch (it disables SQLServer JDBC transport encryption), "
-            + "so it can only be set in fe.conf and is not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
+    @ConfField(description = "Force SQLServer Jdbc Catalog encrypt to false. This is a security-sensitive switch (it "
+            + "disables SQLServer JDBC transport encryption), so it can only be set in fe.conf and is "
+            + "not modifiable at runtime via ADMIN SET FRONTEND CONFIG.")
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
+    @ConfField(mutable = true, masterOnly = true, description = "The default parallelism of the load execution plan "
+            + "on a single node when the broker load is submitted")
     public static int default_load_parallelism = 8;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Labels of finished or cancelled load jobs will be removed after this time. "
-                    + "The removed labels can be reused."})
+    @ConfField(mutable = true, masterOnly = true, description = "Labels of finished or cancelled load jobs will be "
+            + "removed after this time. The removed labels can be " + "reused.")
     public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "For some high-frequency load jobs such as INSERT, STREAMING LOAD, ROUTINE_LOAD_TASK, and DELETE, "
-                    + "remove the finished job or task if expired. The removed labels can be reused."})
+    @ConfField(mutable = true, masterOnly = true, description = "For some high-frequency load jobs such as INSERT, "
+            + "STREAMING LOAD, ROUTINE_LOAD_TASK, and DELETE, " + "remove the finished job or task if expired. The "
+            + "removed labels can be reused.")
     public static int streaming_label_keep_max_second = 43200; // 12 hour
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "For ALTER and EXPORT jobs, remove the finished job if expired."})
+    @ConfField(mutable = true, masterOnly = true, description = "For ALTER and EXPORT jobs, remove the finished job "
+            + "if expired.")
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "For EXPORT jobs, if the number of EXPORT jobs in the system exceeds this value, "
-                    + "the oldest records will be deleted."})
+    @ConfField(mutable = true, masterOnly = true, description = "For EXPORT jobs, if the number of EXPORT jobs in the "
+            + "system exceeds this value, the oldest records will " + "be deleted.")
     public static int max_export_history_job_num = 1000;
 
-    @ConfField(description = {"The cleanup interval for transactions, in seconds. "
-            + "In each cycle, expired historical transactions will be cleaned up"})
+    @ConfField(description = "The cleanup interval for transactions, in seconds. In each cycle, expired historical "
+            + "transactions will be cleaned up")
     public static int transaction_clean_interval_second = 30;
 
-    @ConfField(description = {"The cleanup interval for load jobs, in seconds. "
-            + "In each cycle, expired historical load jobs will be cleaned up"})
+    @ConfField(description = "The cleanup interval for load jobs, in seconds. In each cycle, expired historical load "
+            + "jobs will be cleaned up")
     public static int label_clean_interval_second = 1 * 3600; // 1 hours
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Time interval for cleaning up discarded temporary "
-            + "partitions after an Insert Overwrite task fails, in milliseconds"})
+    @ConfField(mutable = true, masterOnly = true, description = "Time interval for cleaning up discarded temporary "
+            + "partitions after an Insert Overwrite task fails, in " + "milliseconds")
     public static int overwrite_clean_interval_ms = 10000;
 
-    @ConfField(description = {"The directory to save Doris meta data"})
+    @ConfField(description = "The directory to save Doris meta data")
     public static String meta_dir =  EnvUtils.getDorisHome() + "/doris-meta";
 
-    @ConfField(description = {"The directory to save Doris temp data"})
+    @ConfField(description = "The directory to save Doris temp data")
     public static String tmp_dir =  EnvUtils.getDorisHome() + "/temp_dir";
 
-    @ConfField(description = {"The storage type of the metadata log. BDB: Logs are stored in BDBJE. "
-            + "LOCAL: logs are stored in a local file (for testing only)"}, options = {"BDB", "LOCAL"})
+    @ConfField(description = "The storage type of the metadata log. BDB: Logs are stored "
+            + "in BDBJE. LOCAL: logs are stored in a local file (for " + "testing only)", options = {"BDB", "LOCAL"})
     public static String edit_log_type = "bdb";
 
-    @ConfField(description = {"The port of BDBJE"})
+    @ConfField(description = "The port of BDBJE")
     public static int edit_log_port = 9010;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The log roll size of BDBJE. When the number of log entries exceeds this value, the log will be rolled"})
+    @ConfField(mutable = true, masterOnly = true, description = "The log roll size of BDBJE. When the number of log "
+            + "entries exceeds this value, the log will be rolled")
     public static int edit_log_roll_num = 50000;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"The max number of log entries for batching BDBJE"})
+    @ConfField(mutable = true, masterOnly = true, description = "The max number of log entries for batching BDBJE")
     public static int batch_edit_log_max_item_num = 100;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"The max size for batching BDBJE"})
+    @ConfField(mutable = true, masterOnly = true, description = "The max size for batching BDBJE")
     public static long batch_edit_log_max_byte_size = 640 * 1024L;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The sleep time after writing multiple batching BDBJE entries continuously"})
+    @ConfField(mutable = true, masterOnly = true, description = "The sleep time after writing multiple batching BDBJE "
+            + "entries continuously")
     public static long batch_edit_log_rest_time_ms = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "After writing multiple batching BDBJE entries continuously, a short rest is needed. "
-                    + "This indicates the write count before a rest"})
+    @ConfField(mutable = true, masterOnly = true, description = "After writing multiple batching BDBJE entries "
+            + "continuously, a short rest is needed. This indicates " + "the write count before a rest")
     public static long batch_edit_log_continuous_count_for_rest = 1000;
 
-    @ConfField(description = {"Batch EditLog writing"})
+    @ConfField(description = "Batch EditLog writing")
     public static boolean enable_batch_editlog = true;
 
-    @ConfField(description = {"The tolerated delay time of metadata synchronization, in seconds. "
-            + "If the metadata delay exceeds this value, non-master FE will stop offering service"})
+    @ConfField(description = "The tolerated delay time of metadata synchronization, in seconds. If the metadata delay "
+            + "exceeds this value, non-master FE will stop offering service")
     public static int meta_delay_toleration_second = 300;    // 5 min
 
-    @ConfField(description = {"The sync policy of meta data log. If you only deploy one Follower FE, "
-            + "set this to `SYNC`. If you deploy more than 3 Follower FE, "
-            + "you can set this and the following `replica_sync_policy` to `WRITE_NO_SYNC`. "
-            + "See: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html"},
+    @ConfField(description = "The sync policy of meta data log. If you only deploy one Follower FE, set this to "
+            + "`SYNC`. If you deploy more than 3 Follower FE, you can set this and the following "
+            + "`replica_sync_policy` to `WRITE_NO_SYNC`. See: "
+            + "http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.htm" + "l",
             options = {"SYNC", "NO_SYNC", "WRITE_NO_SYNC"})
     public static String master_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
 
-    @ConfField(description = {"Same as `master_sync_policy`"},
+    @ConfField(description = "Same as `master_sync_policy`",
             options = {"SYNC", "NO_SYNC", "WRITE_NO_SYNC"})
     public static String replica_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
 
-    @ConfField(description = {"The replica ack policy of bdbje. "
-            + "See: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html"},
+    @ConfField(description = "The replica ack policy of bdbje. See: "
+            + "http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPoli" + "cy.html",
             options = {"ALL", "NONE", "SIMPLE_MAJORITY"})
     public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
 
-    @ConfField(description = {"The heartbeat timeout of BDBJE between master and follower, in seconds. "
-            + "The default is 30 seconds, which is the same as the default value in BDBJE. "
-            + "If the network is experiencing transient problems, "
-            + "or some unexpected long Java GC is bothering you, "
-            + "you can try to increase this value to decrease the chances of false timeouts"})
+    @ConfField(description = "The heartbeat timeout of BDBJE between master and follower, in seconds. The default is "
+            + "30 seconds, which is the same as the default value in BDBJE. If the network is "
+            + "experiencing transient problems, or some unexpected long Java GC is bothering you, you "
+            + "can try to increase this value to decrease the chances of false timeouts")
     public static int bdbje_heartbeat_timeout_second = 30;
 
-    @ConfField(description = {"The lock timeout of bdbje operation, in seconds. "
-            + "If there are many LockTimeoutException in FE WARN log, you can try to increase this value"})
+    @ConfField(description = "The lock timeout of bdbje operation, in seconds. If there are many LockTimeoutException "
+            + "in FE WARN log, you can try to increase this value")
     public static int bdbje_lock_timeout_second = 5;
 
-    @ConfField(description = {"The replica ack timeout of bdbje between master and follower, in seconds. "
-            + "If there are many ReplicaWriteException in FE WARN log, you can try to increase this value"})
+    @ConfField(description = "The replica ack timeout of bdbje between master and follower, in seconds. If there are "
+            + "many ReplicaWriteException in FE WARN log, you can try to increase this value")
     public static int bdbje_replica_ack_timeout_second = 10;
 
-    @ConfField(description = {"The desired upper limit on the number of bytes of reserved space to retain "
-            + "in a replicated JE Environment. "
-            + "This parameter is ignored in a non-replicated JE Environment."})
+    @ConfField(description = "The desired upper limit on the number of bytes of reserved space to retain in a "
+            + "replicated JE Environment. This parameter is ignored in a non-replicated JE Environment.")
     public static long bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
-    @ConfField(description = {"Amount of free disk space required by BDBJE. "
-            + "If the free disk space is less than this value, BDBJE will not be able to write."})
+    @ConfField(description = "Amount of free disk space required by BDBJE. If the free disk space is less than this "
+            + "value, BDBJE will not be able to write.")
     public static long bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
-    @ConfField(description = {"Amount of memory used by BDBJE as cache."})
+    @ConfField(description = "Amount of memory used by BDBJE as cache.")
     public static long bdbje_cache_size_bytes = 10 * 1024 * 1024; // 10 MB
 
-    @ConfField(description = {"Maximum message size of BDBJE."})
+    @ConfField(description = "Maximum message size of BDBJE.")
     public static long bdbje_max_message_size_bytes = Integer.MAX_VALUE; // 2 GB
 
-    @ConfField(masterOnly = true, description = {"Number of threads to handle heartbeat events"})
+    @ConfField(masterOnly = true, description = "Number of threads to handle heartbeat events")
     public static int heartbeat_mgr_threads_num = 8;
 
-    @ConfField(masterOnly = true, description = {"Queue size to store heartbeat tasks in heartbeat_mgr"})
+    @ConfField(masterOnly = true, description = "Queue size to store heartbeat tasks in heartbeat_mgr")
     public static int heartbeat_mgr_blocking_queue_size = 1024;
 
-    @ConfField(masterOnly = true, description = {"Number of threads to update tablet statistics"})
+    @ConfField(masterOnly = true, description = "Number of threads to update tablet statistics")
     public static int tablet_stat_mgr_threads_num = -1;
 
-    @ConfField(masterOnly = true, description = {
-            "Number of threads to handle agent tasks in the agent task thread pool."})
+    @ConfField(masterOnly = true, description = "Number of threads to handle agent tasks in the agent task thread "
+            + "pool.")
     public static int max_agent_task_threads_num = 4096;
 
-    @ConfField(description = {
-            "The maximum number of transactions that BDBJE can roll back when trying to rejoin the group. "
-            + "If the number of transactions to roll back is larger than this value, "
-            + "BDBJE will not be able to rejoin the group, and you need to clean up BDBJE data manually."})
+    @ConfField(description = "The maximum number of transactions that BDBJE can roll back when trying to rejoin the "
+            + "group. If the number of transactions to roll back is larger than this value, BDBJE will "
+            + "not be able to rejoin the group, and you need to clean up BDBJE data manually.")
     public static int txn_rollback_limit = 100;
 
-    @ConfField(description = {"The preferred network address. If FE has multiple network addresses, "
-            + "this configuration can be used to specify the preferred network address. "
-            + "This is a semicolon-separated list, "
-            + "each element is a CIDR representation of the network address"})
+    @ConfField(description = "The preferred network address. If FE has multiple network addresses, this configuration "
+            + "can be used to specify the preferred network address. This is a semicolon-separated "
+            + "list, each element is a CIDR representation of the network address")
     public static String priority_networks = "";
 
-    @ConfField(mutable = true, description = {
-            "If true, non-master FE will ignore the metadata delay gap between Master FE and itself, "
-                    + "even if the metadata delay gap exceeds the threshold. "
-                    + "Non-master FE will still offer read service. "
-                    + "This is helpful when you need to stop the Master FE for a relatively long time for some reason, "
-                    + "but still want the non-master FE to offer read service."})
+    @ConfField(mutable = true, description = "If true, non-master FE will ignore the metadata delay gap between "
+            + "Master FE and itself, even if the metadata delay gap exceeds the "
+            + "threshold. Non-master FE will still offer read service. This is helpful "
+            + "when you need to stop the Master FE for a relatively long time for some "
+            + "reason, but still want the non-master FE to offer read service.")
     public static boolean ignore_meta_check = false;
 
-    @ConfField(description = {"The maximum clock skew between non-master FE to Master FE host, in milliseconds. "
-            + "This value is checked whenever a non-master FE establishes a connection to master FE via BDBJE. "
-            + "The connection is abandoned if the clock skew is larger than this value."})
+    @ConfField(description = "The maximum clock skew between non-master FE to Master FE host, in milliseconds. This "
+            + "value is checked whenever a non-master FE establishes a connection to master FE via "
+            + "BDBJE. The connection is abandoned if the clock skew is larger than this value.")
     public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
-    @ConfField(mutable = true, description = {
-            "Whether to enable authentication for all HTTP interfaces"}, varType = VariableAnnotation.EXPERIMENTAL)
+    @ConfField(mutable = true, description = "Whether to enable "
+            + "authentication for all HTTP " + "interfaces", varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;
 
-    @ConfField(description = {"Whether to enable FE unified TLS configuration. When enabled, protocols not listed in "
-            + "tls_excluded_protocols will use TLS implementation."})
+    @ConfField(description = "Whether to enable FE unified TLS configuration. When enabled, protocols not listed in "
+            + "tls_excluded_protocols will use TLS implementation.")
     public static boolean enable_tls = false;
 
-    @ConfField(description = {"Verify mode used by FE TLS. Supported values are verify_peer, verify_none and "
-            + "verify_fail_if_no_peer_cert."})
+    @ConfField(description = "Verify mode used by FE TLS. Supported values are verify_peer, verify_none and "
+            + "verify_fail_if_no_peer_cert.")
     public static String tls_verify_mode = "verify_peer";
 
-    @ConfField(description = {"Path to the FE TLS server certificate."})
+    @ConfField(description = "Path to the FE TLS server certificate.")
     public static String tls_certificate_path = "";
 
-    @ConfField(description = {"Path to the FE TLS private key."})
+    @ConfField(description = "Path to the FE TLS private key.")
     public static String tls_private_key_path = "";
 
-    @ConfField(description = {"Password for the FE TLS private key."})
+    @ConfField(description = "Password for the FE TLS private key.")
     public static String tls_private_key_password = "";
 
-    @ConfField(description = {"Path to the FE TLS CA certificate."})
+    @ConfField(description = "Path to the FE TLS CA certificate.")
     public static String tls_ca_certificate_path = "";
 
-    @ConfField(description = {"Refresh interval for FE TLS certificate reload, in seconds."})
+    @ConfField(description = "Refresh interval for FE TLS certificate reload, in seconds.")
     public static int tls_cert_refresh_interval_seconds = 3600;
 
-    @ConfField(description = {"Comma-separated list of protocols that should not use TLS. Supported values are "
-            + "thrift,mysql,http,arrowflight."})
+    @ConfField(description = "Comma-separated list of protocols that should not use TLS. Supported values are "
+            + "thrift,mysql,http,arrowflight.")
     public static String tls_excluded_protocols = "";
 
-    @ConfField(description = {"Peer certificate DNS SAN allowlist for private protocols. "
-            + "Syntax: protocol=dns1,dns2;... . Currently supported protocols are thrift and brpc."})
+    @ConfField(description = "Peer certificate DNS SAN allowlist for private protocols. Syntax: "
+            + "protocol=dns1,dns2;... . Currently supported protocols are thrift and brpc.")
     public static String tls_peer_cert_required_san_dns = "";
 
-    @ConfField(mutable = true, description = {
-            "Whether password verification can be skipped after cert-based auth succeeds."})
+    @ConfField(mutable = true, description = "Whether password verification can be skipped after cert-based auth "
+            + "succeeds.")
     public static boolean tls_cert_based_auth_ignore_password = false;
 
-    @ConfField(description = {"FE HTTP port. Currently, all FEs' HTTP port must be the same"})
+    @ConfField(description = "FE HTTP port. Currently, all FEs' HTTP port must be the same")
     public static int http_port = 8030;
 
-    @ConfField(description = {"FE HTTPS port. Currently, all FEs' HTTPS port must be the same"})
+    @ConfField(description = "FE HTTPS port. Currently, all FEs' HTTPS port must be the same")
     public static int https_port = 8050;
 
-    @ConfField(description = {"The key store path of FE https service"})
+    @ConfField(description = "The key store path of FE https service")
     public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
-    @ConfField(description = {"The key store password of FE https service"})
+    @ConfField(description = "The key store password of FE https service")
     public static String key_store_password = "";
 
-    @ConfField(description = {"The key store type of FE https service"})
+    @ConfField(description = "The key store type of FE https service")
     public static String key_store_type = "JKS";
 
-    @ConfField(description = {"The key store alias of FE https service"})
+    @ConfField(description = "The key store alias of FE https service")
     public static String key_store_alias = "doris_ssl_certificate";
 
-    @ConfField(description = {"Whether to enable https, if enabled, http port will not be available"},
+    @ConfField(description = "Whether to enable https, if enabled, http port will not be available",
             varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_https = false;
 
-    @ConfField(description = {
-            "The number of acceptor threads for Jetty. Jetty's thread architecture model is very simple, "
-                    + "divided into three thread pools: acceptor, selector and worker. "
-                    + "The acceptor is responsible for accepting new connections, "
-                    + "and then handing it over to the selector to process the unpacking of the HTTP message protocol, "
-                    + "and finally the worker processes the request. "
-                    + "The first two thread pools adopt a non-blocking model, "
-                    + "and one thread can handle many socket reads and writes, "
-                    + "so the number of thread pools is small. For most projects, "
-                    + "only 1-2 acceptor threads are needed, 2 to 4 should be enough. "
-                    + "The number of workers depends on the ratio of QPS and IO events of the application. "
-                    + "The higher the QPS, or the higher the IO ratio, the more threads are waiting, "
-                    + "and the more threads are required."})
+    @ConfField(description = "The number of acceptor threads for Jetty. Jetty's thread architecture model is very "
+            + "simple, divided into three thread pools: acceptor, selector and worker. The acceptor is "
+            + "responsible for accepting new connections, and then handing it over to the selector to "
+            + "process the unpacking of the HTTP message protocol, and finally the worker processes "
+            + "the request. The first two thread pools adopt a non-blocking model, and one thread can "
+            + "handle many socket reads and writes, so the number of thread pools is small. For most "
+            + "projects, only 1-2 acceptor threads are needed, 2 to 4 should be enough. The number of "
+            + "workers depends on the ratio of QPS and IO events of the application. The higher the "
+            + "QPS, or the higher the IO ratio, the more threads are waiting, and the more threads are " + "required.")
     public static int jetty_server_acceptors = 2;
-    @ConfField(description = {"The number of selector threads for Jetty."})
+    @ConfField(description = "The number of selector threads for Jetty.")
     public static int jetty_server_selectors = 4;
-    @ConfField(description = {"The number of worker threads for Jetty. 0 means using the default thread pool."})
+    @ConfField(description = "The number of worker threads for Jetty. 0 means using the default thread pool.")
     public static int jetty_server_workers = 0;
 
-    @ConfField(description = {"The default minimum number of threads for jetty."})
+    @ConfField(description = "The default minimum number of threads for jetty.")
     public static int jetty_threadPool_minThreads = 20;
-    @ConfField(description = {"The default maximum number of threads for jetty."})
+    @ConfField(description = "The default maximum number of threads for jetty.")
     public static int jetty_threadPool_maxThreads = 400;
 
-    @ConfField(description = {"The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
+    @ConfField(description = "The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB.")
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
-    @ConfField(description = {
-            "Jetty 在应用未消费完请求体时，额外尝试读取剩余内容的最大次数。"
-                    + "-1 表示不限制，0 表示不额外读取，正数表示最大读取次数。",
-            "The maximum number of extra reads Jetty performs for unconsumed request content. "
-                    + "-1 means unlimited, 0 means disabled, and a positive value limits the read attempts."})
+    @ConfField(description = "The maximum number of extra reads Jetty performs for unconsumed request content. -1 "
+            + "means unlimited, 0 means disabled, and a positive value limits the read attempts.")
     public static int jetty_server_max_unconsumed_request_content_reads = -1;
 
-    @ConfField(description = {"The maximum HTTP header size of Jetty, in bytes, the default value is 1MB."})
+    @ConfField(description = "The maximum HTTP header size of Jetty, in bytes, the default value is 1MB.")
     public static int jetty_server_max_http_header_size = 1048576;
 
-    @ConfField(description = {"Whether to disable mini load, disabled by default"})
+    @ConfField(description = "Whether to disable mini load, disabled by default")
     public static boolean disable_mini_load = true;
 
-    @ConfField(description = {"The backlog number of the MySQL NIO server. "
-            + "If you increase this value, you should also increase the value in "
-            + "`/proc/sys/net/core/somaxconn` at the same time"})
+    @ConfField(description = "The backlog number of the MySQL NIO server. If you increase this value, you should also "
+            + "increase the value in `/proc/sys/net/core/somaxconn` at the same time")
     public static int mysql_nio_backlog_num = 1024;
 
-    @ConfField(description = {"Whether to enable TCP Keep-Alive for MySQL connections, disabled by default"})
+    @ConfField(description = "Whether to enable TCP Keep-Alive for MySQL connections, disabled by default")
     public static boolean mysql_nio_enable_keep_alive = false;
 
-    @ConfField(description = {"The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
+    @ConfField(description = "The connection timeout of thrift client, in milliseconds. 0 means no timeout.")
     public static int thrift_client_timeout_ms = 0;
 
     @ConfField(mutable = true, masterOnly = false,
-            description = {"Thrift RPC 连接阶段的超时时间（毫秒），包括 TCP connect 和可能的 TLS 握手。"
-                    + "用于防止 reopen() 时因网络异常长时间阻塞。0 表示不设置。",
-                    "Timeout in milliseconds for the connect phase of Thrift RPC connections, "
-                    + "including TCP connect and potential TLS handshake. "
-                    + "Prevents long blocking during reopen() when network is unreachable. "
-                    + "0 means no timeout."})
+            description = "Timeout in milliseconds for the connect phase of Thrift RPC connections, including TCP "
+                    + "connect and potential TLS handshake. Prevents long blocking during reopen() when network "
+                    + "is unreachable. 0 means no timeout.")
     public static int thrift_rpc_connect_timeout_ms = 10000;
 
     // The default value is inherited from org.apache.thrift.TConfiguration
-    @ConfField(description = {"The maximum size of a received message of the Thrift server, in bytes"})
+    @ConfField(description = "The maximum size of a received message of the Thrift server, in bytes")
     public static int thrift_max_message_size = 100 * 1024 * 1024;
 
     // The default value is inherited from org.apache.thrift.TConfiguration
-    @ConfField(description = {"The size limit of one frame for the Thrift server transport"})
+    @ConfField(description = "The size limit of one frame for the Thrift server transport")
     public static int thrift_max_frame_size = 16384000;
 
-    @ConfField(description = {"The backlog number of the Thrift server. "
-            + "If you increase this value, you should also increase the value in "
-            + "`/proc/sys/net/core/somaxconn` at the same time"})
+    @ConfField(description = "The backlog number of the Thrift server. If you increase this value, you should also "
+            + "increase the value in `/proc/sys/net/core/somaxconn` at the same time")
     public static int thrift_backlog_num = 1024;
 
-    @ConfField(description = {"The port of FE thrift server"})
+    @ConfField(description = "The port of FE thrift server")
     public static int rpc_port = 9020;
 
-    @ConfField(description = {"The port of FE MySQL server"})
+    @ConfField(description = "The port of FE MySQL server")
     public static int query_port = 9030;
 
-    @ConfField(description = {"The port of FE Arrow-Flight-SQL server"})
+    @ConfField(description = "The port of FE Arrow-Flight-SQL server")
     public static int arrow_flight_sql_port = 8070;
 
-    @ConfField(description = {"The number of IO threads in the MySQL service"})
+    @ConfField(description = "The number of IO threads in the MySQL service")
     public static int mysql_service_io_threads_num = 4;
 
-    @ConfField(description = {"The maximum number of task threads in the MySQL service"})
+    @ConfField(description = "The maximum number of task threads in the MySQL service")
     public static int max_mysql_service_task_threads_num = 4096;
 
-    @ConfField(description = {"BackendServiceProxy pool size for pooling GRPC channels."})
+    @ConfField(description = "BackendServiceProxy pool size for pooling GRPC channels.")
     public static int backend_proxy_num = 48;
 
-    @ConfField(description = {
-            "Cluster ID used for internal authentication. Usually a random integer generated when the master FE "
-                    + "starts for the first time. You can also specify one."})
+    @ConfField(description = "Cluster ID used for internal authentication. Usually a random integer generated when "
+            + "the master FE starts for the first time. You can also specify one.")
     public static int cluster_id = -1;
 
-    @ConfField(sensitive = true, description = {"Cluster token used for internal authentication."})
+    @ConfField(sensitive = true, description = "Cluster token used for internal authentication.")
     public static String auth_token = "";
 
     @ConfField(mutable = true, masterOnly = true,
-            description = {"Maximal waiting time for creating a single replica, in seconds. "
-                    + "eg. if you create a table with #m tablets and #n replicas for each tablet, "
-                    + "the create table request will run at most "
-                    + "(m * n * tablet_create_timeout_second) before timeout"})
+            description = "Maximal waiting time for creating a single replica, in seconds. eg. if you create a table "
+                    + "with #m tablets and #n replicas for each tablet, the create table request will run at most "
+                    + "(m * n * tablet_create_timeout_second) before timeout")
     public static int tablet_create_timeout_second = 2;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Minimal waiting time for creating a table, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Minimal waiting time for creating a table, in "
+            + "seconds.")
     public static int min_create_table_timeout_second = 30;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Maximal waiting time for creating a table, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximal waiting time for creating a table, in "
+            + "seconds.")
     public static int max_create_table_timeout_second = 3600;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Maximal waiting time for all publish version tasks of one transaction to be finished, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximal waiting time for all publish version tasks "
+            + "of one transaction to be finished, in seconds.")
     public static int publish_version_timeout_second = 30; // 30 seconds
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Waiting time for a transaction to reach \"at least one replica success\", in seconds. "
-                    + "If time exceeds this and each tablet has at least one replica published successfully, "
-                    + "then the load task will be considered successful."})
+    @ConfField(mutable = true, masterOnly = true, description = "Waiting time for a transaction to reach \"at least "
+            + "one replica success\", in seconds. If time exceeds " + "this and each tablet has at least one replica "
+            + "published successfully, then the load task will be " + "considered successful.")
     public static int publish_wait_time_second = 300;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Check the replicas that are undergoing schema change when publishing a transaction. "
-                    + "Do not turn off this check "
-                    + "under normal circumstances. It only temporarily skips the check if "
-                    + "publish version and schema change encounter a deadlock"})
+    @ConfField(mutable = true, masterOnly = true, description = "Check the replicas that are undergoing schema change "
+            + "when publishing a transaction. Do not turn off this " + "check under normal circumstances. It only "
+            + "temporarily skips the check if publish version and " + "schema change encounter a deadlock")
     public static boolean publish_version_check_alter_replica = true;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Log printing interval for failed publish transactions, in seconds"})
+    @ConfField(mutable = true, masterOnly = true, description = "Log printing interval for failed publish "
+            + "transactions, in seconds")
     public static long publish_fail_log_interval_second = 5 * 60;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The upper limit of failure logs for PUBLISH_VERSION tasks"})
+    @ConfField(mutable = true, masterOnly = true, description = "The upper limit of failure logs for PUBLISH_VERSION "
+            + "tasks")
     public static long publish_version_task_failed_log_threshold = 80;
 
-    @ConfField(masterOnly = true, description = {"Number of threads to handle publish tasks"})
+    @ConfField(masterOnly = true, description = "Number of threads to handle publish tasks")
     public static int publish_thread_pool_num = 128;
 
-    @ConfField(masterOnly = true, description = {"Queue size to store publish tasks in the publish thread pool"})
+    @ConfField(masterOnly = true, description = "Queue size to store publish tasks in the publish thread pool")
     public static int publish_queue_size = 128;
 
-    @ConfField(mutable = true, description = {"Whether to enable parallel publish version"})
+    @ConfField(mutable = true, description = "Whether to enable parallel publish version")
     public static boolean enable_parallel_publish_version = true;
 
 
-    @ConfField(masterOnly = true, description = {"Number of threads to handle tablet report tasks"})
+    @ConfField(masterOnly = true, description = "Number of threads to handle tablet report tasks")
     public static int tablet_report_thread_pool_num = 10;
 
-    @ConfField(masterOnly = true, description = {
-            "Queue size to store tablet report tasks in the tablet report thread pool."})
+    @ConfField(masterOnly = true, description = "Queue size to store tablet report tasks in the tablet report thread "
+            + "pool.")
     public static int tablet_report_queue_size = 1024;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
-                    + "This parameter is only used for transactional insert operation"})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximal waiting time for all data inserted before "
+            + "one transaction to be committed, in seconds. This " + "parameter is only used for transactional insert "
+            + "operation")
     public static int commit_timeout_second = 30; // 30 seconds
 
-    @ConfField(masterOnly = true, description = {"The interval of the publish task trigger thread, in milliseconds"})
+    @ConfField(masterOnly = true, description = "The interval of the publish task trigger thread, in milliseconds")
     public static int publish_version_interval_ms = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "If the number of publishing transactions of a table exceeds this value, new transactions will "
-                    + "be rejected. Set to -1 to disable this limit."})
+    @ConfField(mutable = true, masterOnly = true, description = "If the number of publishing transactions of a table "
+            + "exceeds this value, new transactions will be " + "rejected. Set to -1 to disable this limit.")
     public static long max_publishing_txn_num_per_table = 500;
 
-    @ConfField(description = {"The maximum number of worker threads of the Thrift server"})
+    @ConfField(description = "The maximum number of worker threads of the Thrift server")
     public static int thrift_server_max_worker_threads = 4096;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Maximal timeout for delete job, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximal timeout for delete job, in seconds.")
     public static int delete_job_max_timeout_second = 300;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Minimum number of successfully written replicas for a load job."})
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas for "
+            + "a load job.")
     public static short min_load_replica_num = -1;
 
-    @ConfField(description = {"The interval of the load job scheduler, in seconds."})
+    @ConfField(description = "The interval of the load job scheduler, in seconds.")
     public static int load_checker_interval_second = 5;
 
-    @ConfField(description = {"The interval of the ingestion load job scheduler, in seconds."})
+    @ConfField(description = "The interval of the ingestion load job scheduler, in seconds.")
     public static int ingestion_load_checker_interval_second = 60;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Default timeout for broker load jobs, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Default timeout for broker load jobs, in seconds.")
     public static int broker_load_default_timeout_second = 14400; // 4 hour
 
-    @ConfField(description = {"The timeout of RPC between FE and Broker, in milliseconds"})
+    @ConfField(description = "The timeout of RPC between FE and Broker, in milliseconds")
     public static int broker_timeout_ms = 10000; // 10s
 
-    @ConfField(description = {"The timeout of RPC for high-concurrency short-circuit queries"})
+    @ConfField(description = "The timeout of RPC for high-concurrency short-circuit queries")
     public static int point_query_timeout_ms = 10000; // 10s
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Default timeout for insert load jobs, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Default timeout for insert load jobs, in seconds.")
     public static int insert_load_default_timeout_second = 14400; // 4 hour
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Randomly set ORDER BY keys for MOW tables for testing."})
+    @ConfField(mutable = true, masterOnly = true, description = "Randomly set ORDER BY keys for MOW tables for "
+            + "testing.")
     public static boolean random_add_order_by_keys_for_mow = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Randomly use V3 storage_format (ext_meta) for some tables in fuzzy tests to increase coverage"})
+    @ConfField(mutable = true, masterOnly = true, description = "Randomly use V3 storage_format (ext_meta) for some "
+            + "tables in fuzzy tests to increase coverage")
     public static boolean random_use_v3_storage_format = true;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The stale threshold of checkpoint image file in cloud mode (in seconds). "
-                    + "If the image file is older than this threshold, a new checkpoint will be triggered "
-                    + "even if there are no new journals. This helps keep table version, partition version, "
-                    + "and tablet stats in the image up-to-date. If the value is less than or equal to 0, "
-                    + "this feature is disabled."})
+    @ConfField(mutable = true, masterOnly = true, description = "The stale threshold of checkpoint image file in "
+            + "cloud mode (in seconds). If the image file is older " + "than this threshold, a new checkpoint will be "
+            + "triggered even if there are no new journals. This " + "helps keep table version, partition version, and "
+            + "tablet stats in the image up-to-date. If the value "
+            + "is less than or equal to 0, this feature is disabled.")
     public static long cloud_checkpoint_image_stale_threshold_seconds = 3600;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Wait for the internal batch to be written before returning; "
-                    + "insert into and stream load use group commit by default."})
+    @ConfField(mutable = true, masterOnly = true, description = "Wait for the internal batch to be written before "
+            + "returning; insert into and stream load use group " + "commit by default.")
     public static boolean wait_internal_group_commit_finish = false;
 
-    @ConfField(mutable = false, masterOnly = true, description = {"Default commit interval in ms for group commit"})
+    @ConfField(mutable = false, masterOnly = true, description = "Default commit interval in ms for group commit")
     public static int group_commit_interval_ms_default_value = 10000;
 
-    @ConfField(mutable = false, masterOnly = true, description = {"Default commit data bytes for group commit"})
+    @ConfField(mutable = false, masterOnly = true, description = "Default commit data bytes for group commit")
     public static int group_commit_data_bytes_default_value = 134217728;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The internal group commit timeout is a multiple of the table's group_commit_interval_ms"})
+    @ConfField(mutable = true, masterOnly = true, description = "The internal group commit timeout is a multiple of "
+            + "the table's group_commit_interval_ms")
     public static int group_commit_timeout_multipler = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Default timeout for stream load jobs, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Default timeout for stream load jobs, in seconds.")
     public static int stream_load_default_timeout_second = 86400 * 3; // 3days
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Default pre-commit timeout for stream load jobs, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Default pre-commit timeout for stream load jobs, in "
+            + "seconds.")
     public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable memtable on sink node by default in stream load"})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable memtable on sink node by default "
+            + "in stream load")
     public static boolean stream_load_default_memtable_on_sink_node = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable forwarding group commit stream load to follower nodes."
-                    + " If true, stream load with group commit mode will be forwarded to a follower FE round robin."})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable forwarding group commit stream "
+            + "load to follower nodes. If true, stream load with "
+            + "group commit mode will be forwarded to a follower FE " + "round robin.")
     public static boolean enable_forward_group_commit_stream_load_to_follower = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Maximum timeout for load jobs, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximum timeout for load jobs, in seconds.")
     public static int max_load_timeout_second = 259200; // 3days
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Maximum timeout for stream load jobs, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximum timeout for stream load jobs, in seconds.")
     public static int max_stream_load_timeout_second = 259200; // 3days
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Minimum timeout for load jobs, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum timeout for load jobs, in seconds.")
     public static int min_load_timeout_second = 1; // 1s
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Default timeout for ingestion load jobs, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Default timeout for ingestion load jobs, in seconds.")
     public static int ingestion_load_default_timeout_second = 86400; // 1 day
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Maximum number of waiting jobs for Broker Load. This is a desired number. "
-                    + "In some situations, such as switching the master, "
-                    + "the current number may exceed this value."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximum number of waiting jobs for Broker Load. This "
+            + "is a desired number. In some situations, such as "
+            + "switching the master, the current number may exceed " + "this value.")
     public static int desired_max_waiting_jobs = 100;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The interval at which FE fetches stream load records from BE."})
+    @ConfField(mutable = true, masterOnly = true, description = "The interval at which FE fetches stream load records "
+            + "from BE.")
     public static int fetch_stream_load_record_interval_second = 120;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Default maximum number of recent stream load records that can be stored in memory."})
+    @ConfField(mutable = true, masterOnly = true, description = "Default maximum number of recent stream load records "
+            + "that can be stored in memory.")
     public static int max_stream_load_record_size = 5000;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to disable show stream load and clear stream load records in memory."})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to disable show stream load and clear stream "
+            + "load records in memory.")
     public static boolean disable_show_stream_load = false;
 
-    @ConfField(mutable = true, description = {"Whether to enable stream load profile"})
+    @ConfField(mutable = true, description = "Whether to enable stream load profile")
     public static boolean enable_stream_load_profile = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable writing to a single replica for stream load and broker load."},
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable writing to a single replica for "
+            + "stream load and broker load.",
             varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_single_replica_load = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Shuffle will not be enabled for DUPLICATE KEY tables if their tablet count is lower than this number"},
+    @ConfField(mutable = true, masterOnly = true, description = "Shuffle will not be enabled for DUPLICATE KEY tables "
+            + "if their tablet count is lower than this number",
             varType = VariableAnnotation.EXPERIMENTAL)
     public static int min_tablets_for_dup_table_shuffle = 64;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Maximum number of concurrently running transactions, including prepare and commit transactions, "
-                    + "under a single database.",
-            "The transaction manager will reject incoming transactions once this limit is reached."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximum number of concurrently running transactions, "
+            + "including prepare and commit transactions, under a "
+            + "single database. The transaction manager will reject "
+            + "incoming transactions once this limit is reached.")
     public static int max_running_txn_num_per_db = 10000;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to move transaction edit log writes outside the write lock to reduce lock contention. "
-                    + "When enabled, edit log entries are enqueued inside the write lock (FIFO preserves ordering) "
-                    + "and awaited outside the lock, reducing write lock hold time "
-                    + "and improving concurrent transaction throughput. "
-                    + "Default is true. Set to false to use the traditional in-lock synchronous write mode."})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to move transaction edit log writes outside "
+            + "the write lock to reduce lock contention. When " + "enabled, edit log entries are enqueued inside the "
+            + "write lock (FIFO preserves ordering) and awaited "
+            + "outside the lock, reducing write lock hold time and "
+            + "improving concurrent transaction throughput. Default "
+            + "is true. Set to false to use the traditional in-lock " + "synchronous write mode.")
     public static boolean enable_txn_log_outside_lock = true;
 
-    @ConfField(mutable = true, description = {
-            "Whether to enable per-transaction parallel publish. When enabled, different transactions "
-                    + "in the same database can finish publishing in parallel across executor threads, "
-                    + "instead of being serialized per database. "
-                    + "When disabled, falls back to per-database routing (old behavior) "
-                    + "where transactions within a DB are published sequentially."})
+    @ConfField(mutable = true, description = "Whether to enable per-transaction parallel publish. When enabled, "
+            + "different transactions in the same database can finish publishing in "
+            + "parallel across executor threads, instead of being serialized per "
+            + "database. When disabled, falls back to per-database routing (old "
+            + "behavior) where transactions within a DB are published sequentially.")
     public static boolean enable_per_txn_publish = true;
 
-    @ConfField(masterOnly = true, description = {"The pending load task executor pool size. "
-            + "This pool size limits the maximum number of running pending load tasks.",
-            "Currently, it only limits the pending load tasks of broker load and ingestion load.",
-            "It should be less than `max_running_txn_num_per_db`"})
+    @ConfField(masterOnly = true, description = "The pending load task executor pool size. This pool size limits the "
+            + "maximum number of running pending load tasks. Currently, it only "
+            + "limits the pending load tasks of broker load and ingestion load. It "
+            + "should be less than `max_running_txn_num_per_db`")
     public static int async_pending_load_task_pool_size = 10;
 
-    @ConfField(masterOnly = true, description = {"The loading load task executor pool size. "
-            + "This pool size limits the maximum number of running loading load tasks.",
-            "Currently, it only limits the loading load tasks of broker load."})
+    @ConfField(masterOnly = true, description = "The loading load task executor pool size. This pool size limits the "
+            + "maximum number of running loading load tasks. Currently, it only "
+            + "limits the loading load tasks of broker load.")
     public static int async_loading_load_task_pool_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The same meaning as `tablet_create_timeout_second`, but used when deleting a tablet."})
+    @ConfField(mutable = true, masterOnly = true, description = "The same meaning as `tablet_create_timeout_second`, "
+            + "but used when deleting a tablet.")
     public static int tablet_delete_timeout_second = 2;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The high watermark of disk capacity usage percent. "
-                    + "This is used for calculating the load score of a backend."})
+    @ConfField(mutable = true, masterOnly = true, description = "The high watermark of disk capacity usage percent. "
+            + "This is used for calculating the load score of a " + "backend.")
     public static double capacity_used_percent_high_water = 0.75;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The maximum difference in disk capacity usage percent between BEs. "
-                    + "It is used for calculating the load score of a backend."})
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum difference in disk capacity usage "
+            + "percent between BEs. It is used for calculating the " + "load score of a backend.")
     public static double used_capacity_percent_max_diff = 0.30;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Sets a fixed disk usage factor in the BE load fraction. The BE load score is a combination of disk usage "
-                    + "and replica count. The valid value range is [0, 1]. When it is out of this range, other "
-                    + "methods are used to automatically calculate this coefficient."})
+    @ConfField(mutable = true, masterOnly = true, description = "Sets a fixed disk usage factor in the BE load "
+            + "fraction. The BE load score is a combination of disk "
+            + "usage and replica count. The valid value range is "
+            + "[0, 1]. When it is out of this range, other methods "
+            + "are used to automatically calculate this coefficient.")
     public static double backend_load_capacity_coeficient = -1.0;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Maximum timeout for ALTER TABLE requests. Set this long enough to accommodate your table data size."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximum timeout for ALTER TABLE requests. Set this "
+            + "long enough to accommodate your table data size.")
     public static int alter_table_timeout_second = 86400 * 30; // 1month
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "When disable_storage_medium_check is true, ReportHandler will not check the tablet's storage medium "
-                    + "and will disable the storage cooldown function."})
+    @ConfField(mutable = true, masterOnly = true, description = "When disable_storage_medium_check is true, "
+            + "ReportHandler will not check the tablet's storage " + "medium and will disable the storage cooldown "
+            + "function.")
     public static boolean disable_storage_medium_check = false;
 
-    @ConfField(description = {"When creating a table (or partition), you can specify its storage medium (HDD or SSD)."})
+    @ConfField(description = "When creating a table (or partition), you can specify its storage medium (HDD or SSD).")
     public static String default_storage_medium = "HDD";
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "After dropping a database (table/partition), you can recover it by using the RECOVER statement.",
-            "This specifies the maximum data retention time. After this time, the data will be deleted permanently."})
+    @ConfField(mutable = true, masterOnly = true, description = "After dropping a database (table/partition), you can "
+            + "recover it by using the RECOVER statement. This " + "specifies the maximum data retention time. After "
+            + "this time, the data will be deleted permanently.")
     public static long catalog_trash_expire_second = 86400L; // 1day
 
     @ConfField
     public static boolean catalog_trash_ignore_min_erase_latency = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Minimum bytes that a single broker scanner will read. When splitting files in broker load, "
-                    + "if the size of a split file is less than this value, it will not be split."})
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum bytes that a single broker scanner will "
+            + "read. When splitting files in broker load, if the " + "size of a split file is less than this value, it "
+            + "will not be split.")
     public static long min_bytes_per_broker_scanner = 67108864L; // 64MB
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Maximal concurrency of broker scanners."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximal concurrency of broker scanners.")
     public static int max_broker_concurrency = 100;
 
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Start time of consistency check. Used with `consistency_check_end_time` "
-                    + "to decide the start and end time of consistency check. "
-                    + "If set to the same value, consistency check will not be scheduled."})
+    @ConfField(mutable = true, masterOnly = true, description = "Start time of consistency check. Used with "
+            + "`consistency_check_end_time` to decide the start and "
+            + "end time of consistency check. If set to the same " + "value, consistency check will not be scheduled.")
     public static String consistency_check_start_time = "23";
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "End time of consistency check. Used with `consistency_check_start_time` "
-                    + "to decide the start and end time of consistency check. "
-                    + "If set to the same value, consistency check will not be scheduled."})
+    @ConfField(mutable = true, masterOnly = true, description = "End time of consistency check. Used with "
+            + "`consistency_check_start_time` to decide the start "
+            + "and end time of consistency check. If set to the "
+            + "same value, consistency check will not be scheduled.")
     public static String consistency_check_end_time = "23";
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Default timeout of a single consistency check task. Set long enough to fit your tablet size."})
+    @ConfField(mutable = true, masterOnly = true, description = "Default timeout of a single consistency check task. "
+            + "Set long enough to fit your tablet size.")
     public static long check_consistency_default_timeout_second = 600; // 10 min
 
-    @ConfField(description = {"Maximum number of MySQL server connections per FE."})
+    @ConfField(description = "Maximum number of MySQL server connections per FE.")
     public static int qe_max_connection = 1024;
 
-    @ConfField(mutable = true, description = {"Colocate join PlanFragment instance memory limit penalty factor.",
-            "The memory_limit for colocate join PlanFragment instance = "
-                    + "`exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)`"})
+    @ConfField(mutable = true, description = "Colocate join PlanFragment instance memory limit penalty factor. The "
+            + "memory_limit for colocate join PlanFragment instance = `exec_mem_limit "
+            + "/ min (query_colocate_join_memory_limit_penalty_factor, instance_num)`")
     public static int query_colocate_join_memory_limit_penalty_factor = 1;
 
     /**
@@ -803,8 +759,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to allow colocate balance between all groups."})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to allow colocate balance between all groups.")
     public static boolean disable_colocate_balance_between_groups = false;
 
     @ConfField public static boolean proxy_auth_enable = false;
@@ -829,16 +784,14 @@ public class Config extends ConfigBase {
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
 
-    @ConfField(sensitive = true, description = {"Cluster token for FE meta-service internal HTTP authentication. "
-            + "When set (non-empty), FE meta-service endpoints (such as image/role/check/put/journal_id) "
-            + "additionally require the caller to present a matching token header, on top of the existing "
-            + "node-host check. Empty (default) keeps the legacy behavior of node-host check only, so "
-            + "existing clusters and rolling upgrades are unaffected. Must be identical on all FEs and "
-            + "provisioned in fe.conf before enabling, otherwise FEs will reject each other.",
-            "FE meta-service 内部 HTTP 鉴权使用的集群 token。设置(非空)后,meta-service 端点(如 "
-            + "image/role/check/put/journal_id)在原有 node-host 校验之上,额外要求调用方携带匹配的 token 头。"
-            + "为空(默认)时维持仅 node-host 校验的旧行为,存量集群与滚动升级不受影响。必须在所有 FE 上取值一致,"
-            + "并在启用前写入 fe.conf,否则 FE 之间会互相拒绝。"})
+    @ConfField(sensitive = true, description = "Cluster token for FE meta-service internal HTTP authentication. When "
+            + "set (non-empty), FE meta-service endpoints (such as "
+            + "image/role/check/put/journal_id) additionally require the caller to "
+            + "present a matching token header, on top of the existing node-host "
+            + "check. Empty (default) keeps the legacy behavior of node-host check "
+            + "only, so existing clusters and rolling upgrades are unaffected. Must "
+            + "be identical on all FEs and provisioned in fe.conf before enabling, "
+            + "otherwise FEs will reject each other.")
     public static String fe_meta_auth_token = "";
 
     /**
@@ -948,16 +901,11 @@ public class Config extends ConfigBase {
      *
      * This can greatly reduce FE outbound network throughput when cache hit rate is high.
      */
-    @ConfField(mutable = true, description = {
-            "是否启用 point query 轻量请求。开启后，FE 在 PreparedStatement 执行阶段会优先省略"
-                    + " desc_tbl/output_expr/query_options，BE 若未命中可复用缓存则会要求 FE 补发完整请求。"
-                    + "当 BE 侧缓存命中率较高时，可以显著降低 FE 的出网带宽。",
-            "Whether to enable lightweight point-query requests. When enabled, FE will omit"
-                    + " desc_tbl/output_expr/query_options on the first PreparedStatement execute"
-                    + " request, and BE will ask FE to resend the full request if reusable cache"
-                    + " is missing. This can significantly reduce FE outbound bandwidth when the"
-                    + " BE-side reusable cache hit rate is high."
-    })
+    @ConfField(mutable = true, description = "Whether to enable lightweight point-query requests. When enabled, FE "
+            + "will omit desc_tbl/output_expr/query_options on the first "
+            + "PreparedStatement execute request, and BE will ask FE to resend the "
+            + "full request if reusable cache is missing. This can significantly "
+            + "reduce FE outbound bandwidth when the BE-side reusable cache hit rate " + "is high.")
     public static boolean enable_lightweight_lookup_request = false;
 
     /**
@@ -1172,9 +1120,8 @@ public class Config extends ConfigBase {
     public static int report_queue_size = 100;
 
     // if the number of report task in FE exceed max_report_task_num_per_rpc, then split it to multiple rpc
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The maximum number of batched tasks per RPC assigned to each BE when resending agent tasks, "
-                    + "the default value is 10000."})
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum number of batched tasks per RPC assigned "
+            + "to each BE when resending agent tasks, the default " + "value is 10000.")
     public static int report_resend_batch_task_num_per_rpc = 10000;
 
     /**
@@ -1226,6 +1173,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_min_timeout_sec = 300;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Minimum interval in seconds between snapshot offset persistence operations")
+    public static int streaming_job_snapshot_offset_persist_interval_sec = 300;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
@@ -1307,11 +1258,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static String[] force_skip_journal_ids = {};
 
-    @ConfField(description = {
-            "When replaying editlog encounters exceptions with specific operation types that prevent FE from starting, "
-                    + "you can configure the editlog operation type enum values to be ignored, "
-                    + "thereby skipping these exceptions and allowing the replay thread to continue "
-                    + "replaying other logs."})
+    @ConfField(description = "When replaying editlog encounters exceptions with specific operation types that prevent "
+            + "FE from starting, you can configure the editlog operation type enum values to be "
+            + "ignored, thereby skipping these exceptions and allowing the replay thread to continue "
+            + "replaying other logs.")
     public static short[] skip_operation_types_on_replay_exception =  {-1, -1};
 
     /**
@@ -1436,11 +1386,9 @@ public class Config extends ConfigBase {
             mutable = true,
             masterOnly = false,
             callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
-            description = {
-                    "The current default setting is 300, which is used to control the expiration time of SQL cache "
-                            + "in NereidsSqlCacheManager. If the cache is not accessed for a period of time, "
-                            + "it will be reclaimed."}
-    )
+            description = "The current default setting is 300, which is used to control the expiration time of SQL "
+                    + "cache in NereidsSqlCacheManager. If the cache is not accessed for a period of time, it "
+                    + "will be reclaimed.")
     public static int expire_sql_cache_in_fe_second = 300;
 
     /**
@@ -1450,11 +1398,9 @@ public class Config extends ConfigBase {
             mutable = true,
             masterOnly = false,
             callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
-            description = {
-                    "The default setting is 86400, which is used to control the expiration time of plan stats cache "
-                            + "in MemoryHboPlanStatisticsProvider. If the cache is not accessed for a period of time, "
-                            + "it will be reclaimed."}
-    )
+            description = "The default setting is 86400, which is used to control the expiration time of plan stats "
+                    + "cache in MemoryHboPlanStatisticsProvider. If the cache is not accessed for a period of "
+                    + "time, it will be reclaimed.")
     public static int expire_hbo_plan_stats_cache_in_fe_second = 86400;
 
     /**
@@ -1464,11 +1410,9 @@ public class Config extends ConfigBase {
             mutable = true,
             masterOnly = false,
             callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
-            description = {
-                    "The default setting is 100, which is used to control the expiration time of HBO plan info cache "
-                            + "in HboPlanInfoProvider. If the cache is not accessed for a period of time, "
-                            + "it will be reclaimed."}
-    )
+            description = "The default setting is 100, which is used to control the expiration time of HBO plan info "
+                    + "cache in HboPlanInfoProvider. If the cache is not accessed for a period of time, it will "
+                    + "be reclaimed.")
     public static int expire_hbo_plan_info_cache_in_fe_second = 1000;
 
     /**
@@ -1478,24 +1422,23 @@ public class Config extends ConfigBase {
             mutable = true,
             masterOnly = false,
             callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
-            description = {"The current default setting is 300, which is used to control the expiration time of "
-                    + "the partition metadata cache in NereidsSortedPartitionsCacheManager. "
-                    + "If the cache is not accessed for a period of time, it will be reclaimed."}
-    )
+            description = "The current default setting is 300, which is used to control the expiration time of the "
+                    + "partition metadata cache in NereidsSortedPartitionsCacheManager. If the cache is not "
+                    + "accessed for a period of time, it will be reclaimed.")
     public static int expire_cache_partition_meta_table_in_fe_second = 300;
 
     /**
      * Set the maximum number of rows that can be cached
      */
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "Maximum number of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
+    @ConfField(mutable = true, masterOnly = false, description = "Maximum number of rows that can be cached in "
+            + "SQL/Partition Cache, is 3000 by default.")
     public static int cache_result_max_row_count = 3000;
 
     /**
      * Set the maximum data size that can be cached
      */
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "Maximum data size of rows that can be cached in SQL/Partition Cache. The default is 30MB."})
+    @ConfField(mutable = true, masterOnly = false, description = "Maximum data size of rows that can be cached in "
+            + "SQL/Partition Cache. The default is 30MB.")
     public static int cache_result_max_data_size = 31457280; // 30M
 
     /**
@@ -1569,7 +1512,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_bdbje_debug_mode = false;
 
-    @ConfField(mutable = false, masterOnly = true, description = {"Whether to enable debug points, used in testing."})
+    @ConfField(mutable = false, masterOnly = true, description = "Whether to enable debug points, used in testing.")
     public static boolean enable_debug_points = false;
 
     /**
@@ -1602,7 +1545,7 @@ public class Config extends ConfigBase {
      * sets the time without read activity before sending a keepalive ping
      * the smaller the value, the sooner the channel is unavailable, but it will increase network io
      */
-    @ConfField(description = {"The time without GRPC read activity before sending a keepalive ping"})
+    @ConfField(description = "The time without GRPC read activity before sending a keepalive ping")
     public static int grpc_keep_alive_second = 10;
 
     /**
@@ -1615,8 +1558,7 @@ public class Config extends ConfigBase {
      * This option should only be enabled when you are sure responses are small and the risk is acceptable.
      * Takes effect after FE restart.
      */
-    @ConfField(description = {"是否为 BackendServiceClient 使用 gRPC directExecutor",
-            "Whether to use gRPC directExecutor for BackendServiceClient"})
+    @ConfField(description = "Whether to use gRPC directExecutor for BackendServiceClient")
     public static boolean grpc_backend_client_use_direct_executor = false;
 
     /**
@@ -1698,8 +1640,8 @@ public class Config extends ConfigBase {
     /**
      * Control the max num of tablets per backup job involved.
      */
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Control the maximum number of tablets per backup job, to avoid OOM."})
+    @ConfField(mutable = true, masterOnly = true, description = "Control the maximum number of tablets per backup "
+            + "job, to avoid OOM.")
     public static int max_backup_tablets_per_job = 300000;
 
     /**
@@ -1711,8 +1653,8 @@ public class Config extends ConfigBase {
     /**
      * whether to ignore temp partitions when backup, and not report exception.
      */
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to ignore temporary partitions during backup without reporting an exception."})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to ignore temporary partitions during backup "
+            + "without reporting an exception.")
     public static boolean ignore_backup_tmp_partitions = false;
 
     /**
@@ -1725,13 +1667,12 @@ public class Config extends ConfigBase {
     /**
      * Whether to enable cloud restore job.
      */
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable cloud restore job."}, varType = VariableAnnotation.EXPERIMENTAL)
+    @ConfField(mutable = true, masterOnly = true, description = "Whether "
+            + "to enable " + "cloud " + "restore " + "job.", varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cloud_restore_job = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "During the cloud restore job, the maximum number of tablets created per "
-                    + "create-tablets RPC. Default is 256."})
+    @ConfField(mutable = true, masterOnly = true, description = "During the cloud restore job, the maximum number of "
+            + "tablets created per create-tablets RPC. Default is " + "256.")
     public static int cloud_restore_create_tablet_batch_size = 256;
 
     /**
@@ -1764,13 +1705,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
 
-    @ConfField(mutable = true, description = {"Used to limit the length of column comments. "
-            + "If the existing column comment is too long, it will be truncated when displayed."})
+    @ConfField(mutable = true, description = "Used to limit the length of column comments. If the existing column "
+            + "comment is too long, it will be truncated when displayed.")
     public static int column_comment_length_limit = -1;
 
-    @ConfField(mutable = true, description = {
-            "Default compression type for internal tables. Supported values: LZ4, LZ4F, LZ4HC, ZLIB, ZSTD, "
-                    + "SNAPPY, NONE."})
+    @ConfField(mutable = true, description = "Default compression type for internal tables. Supported values: LZ4, "
+            + "LZ4F, LZ4HC, ZLIB, ZSTD, SNAPPY, NONE.")
     public static String default_compression_type = "ZSTD";
 
     /*
@@ -1859,9 +1799,9 @@ public class Config extends ConfigBase {
     /*
      * the system automatically checks the time interval for statistics
      */
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "This parameter controls the time interval for automatic collection jobs to check the health of table "
-                    + "statistics and trigger automatic collection."})
+    @ConfField(mutable = true, masterOnly = true, description = "This parameter controls the time interval for "
+            + "automatic collection jobs to check the health of "
+            + "table statistics and trigger automatic collection.")
     public static int auto_check_statistics_in_minutes = 1;
 
     /**
@@ -1886,7 +1826,7 @@ public class Config extends ConfigBase {
      * corresponding type of job
      * The value should be greater than 0, if it is 0 or <=0, set it to 5
      */
-    @ConfField(masterOnly = true, description = {"The number of threads used to dispatch timer jobs."})
+    @ConfField(masterOnly = true, description = "The number of threads used to dispatch timer jobs.")
     public static int job_dispatch_timer_job_thread_num = 2;
 
     /**
@@ -1896,63 +1836,56 @@ public class Config extends ConfigBase {
      * {@code @dispatch_timer_job_thread_num}
      * The value should be greater than 0, if it is 0 or <=0, set it to 1024
      */
-    @ConfField(masterOnly = true, description = {"The number of timer jobs that can be queued."})
+    @ConfField(masterOnly = true, description = "The number of timer jobs that can be queued.")
     public static int job_dispatch_timer_job_queue_size = 1024;
-    @ConfField(masterOnly = true, description = {
-            "Maximum number of persisted tasks allowed per job. Tasks exceeding this limit will be discarded. "
-                    + "If the value is less than 1, tasks will not be persisted."})
+    @ConfField(masterOnly = true, description = "Maximum number of persisted tasks allowed per job. Tasks exceeding "
+            + "this limit will be discarded. If the value is less than 1, tasks " + "will not be persisted.")
     public static int max_persistence_task_count = 100;
 
-    @ConfField(masterOnly = true, description = {
-            "The size of the MTMV task's waiting queue. If the size is negative, 1024 will be used. If "
-                    + "the size is not a power of two, the nearest power of two will be"
-                    + " automatically selected."})
+    @ConfField(masterOnly = true, description = "The size of the MTMV task's waiting queue. If the size is negative, "
+            + "1024 will be used. If the size is not a power of two, the nearest "
+            + "power of two will be automatically selected.")
     public static int mtmv_task_queue_size = 1024;
-    @ConfField(masterOnly = true, description = {
-            "The size of the Insert task's waiting queue. If the size is negative, 1024 will be used."
-                    + " If the size is not a power of two, the nearest power of two will "
-                    + "be automatically selected."})
+    @ConfField(masterOnly = true, description = "The size of the Insert task's waiting queue. If the size is "
+            + "negative, 1024 will be used. If the size is not a power of two, the "
+            + "nearest power of two will be automatically selected.")
     public static int insert_task_queue_size = 1024;
-    @ConfField(masterOnly = true, description = {
-            "The size of the Dictionary loading task's waiting queue. If the size is negative, 1024 will be used."
-                    + " If the size is not a power of two, the nearest power of two will "
-                    + "be automatically selected."})
+    @ConfField(masterOnly = true, description = "The size of the Dictionary loading task's waiting queue. If the size "
+            + "is negative, 1024 will be used. If the size is not a power of two, "
+            + "the nearest power of two will be automatically selected.")
     public static int dictionary_task_queue_size = 1024;
 
-    @ConfField(masterOnly = true, description = {
-            "The maximum time to retain a finished job before it is deleted. Unit: hour."})
+    @ConfField(masterOnly = true, description = "The maximum time to retain a finished job before it is deleted. "
+            + "Unit: hour.")
     public static int finished_job_cleanup_threshold_time_hour = 24;
 
-    @ConfField(masterOnly = true, description = {"The number of threads used to consume Insert tasks, "
-            + "the value should be greater than 0, if it is <=0, default is 10."})
+    @ConfField(masterOnly = true, description = "The number of threads used to consume Insert tasks, the value should "
+            + "be greater than 0, if it is <=0, default is 10.")
     public static int job_insert_task_consumer_thread_num = 10;
 
-    @ConfField(masterOnly = true, description = {"The number of threads used to consume MTMV tasks, "
-            + "the value should be greater than 0, if it is <=0, default is 10."})
+    @ConfField(masterOnly = true, description = "The number of threads used to consume MTMV tasks, the value should "
+            + "be greater than 0, if it is <=0, default is 10.")
     public static int job_mtmv_task_consumer_thread_num = 10;
 
-    @ConfField(masterOnly = true, description = {
-            "The number of threads used to perform dictionary import and delete tasks. The value should be"
-                    + " greater than 0; otherwise it defaults to 3."})
+    @ConfField(masterOnly = true, description = "The number of threads used to perform dictionary import and delete "
+            + "tasks. The value should be greater than 0; otherwise it defaults to " + "3.")
     public static int job_dictionary_task_consumer_thread_num = 3;
 
-    @ConfField(masterOnly = true, description = {"The number of threads used to execute streaming tasks. "
-            + "The value should be greater than 0; if it is <=0, the default is 100."})
+    @ConfField(masterOnly = true, description = "The number of threads used to execute streaming tasks. The value "
+            + "should be greater than 0; if it is <=0, the default is 100.")
     public static int job_streaming_task_exec_thread_num = 100;
 
-    @ConfField(masterOnly = true, description = {"The maximum number of streaming jobs. "
-            + "The value should be greater than 0; if it is <=0, the default is 1024."})
+    @ConfField(masterOnly = true, description = "The maximum number of streaming jobs. The value should be greater "
+            + "than 0; if it is <=0, the default is 1024.")
     public static int max_streaming_job_num = 1024;
 
-    @ConfField(masterOnly = true, description = {
-            "The maximum number of tasks a streaming job can keep in memory. If the number exceeds the limit, "
-                    + "old records will be discarded."})
+    @ConfField(masterOnly = true, description = "The maximum number of tasks a streaming job can keep in memory. If "
+            + "the number exceeds the limit, old records will be discarded.")
     public static int max_streaming_task_show_count = 100;
 
-    @ConfField(masterOnly = true, mutable = true, description = {
-            "Max auto resume retry count for streaming jobs. "
-                    + "After exceeding, the failure reason is rewritten to CANNOT_RESUME_ERR "
-                    + "and the job requires manual intervention."})
+    @ConfField(masterOnly = true, mutable = true, description = "Max auto resume retry count for streaming jobs. "
+            + "After exceeding, the failure reason is rewritten to " + "CANNOT_RESUME_ERR and the job requires manual "
+            + "intervention.")
     public static int streaming_job_max_auto_resume_count = 10;
 
     /* job test config */
@@ -1987,12 +1920,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long query_queue_update_interval_ms = 5000;
 
-    @ConfField(mutable = true, description = {"When BE memory usage is higher than this value, queries may be queued. "
-            + "Default value is -1, meaning this feature is disabled. Decimal value range is from 0 to 1."})
+    @ConfField(mutable = true, description = "When BE memory usage is higher than this value, queries may be queued. "
+            + "Default value is -1, meaning this feature is disabled. Decimal value " + "range is from 0 to 1.")
     public static double query_queue_by_be_used_memory = -1;
 
-    @ConfField(mutable = true, description = {"In the scenario of memory back-pressure, "
-            + "the time interval for periodically obtaining BE memory usage."})
+    @ConfField(mutable = true, description = "In the scenario of memory back-pressure, the time interval for "
+            + "periodically obtaining BE memory usage.")
     public static long get_be_resource_usage_interval_ms = 10000;
 
     @ConfField(mutable = false, masterOnly = true)
@@ -2055,20 +1988,19 @@ public class Config extends ConfigBase {
      * And the max number of compute node is controlled by min_backend_num_for_external_table.
      * If set to false, query on external table will assign to any node.
      */
-    @ConfField(mutable = true, description = {
-            "If set to true, queries on external tables will prefer to be assigned to compute nodes. "
-                    + "The maximum number of compute nodes is controlled by min_backend_num_for_external_table. "
-                    + "If set to false, queries on external tables will be assigned to any node. "
-                    + "If there are no compute nodes in the cluster, this config has no effect."})
+    @ConfField(mutable = true, description = "If set to true, queries on external tables will prefer to be assigned "
+            + "to compute nodes. The maximum number of compute nodes is controlled by "
+            + "min_backend_num_for_external_table. If set to false, queries on "
+            + "external tables will be assigned to any node. If there are no compute "
+            + "nodes in the cluster, this config has no effect.")
     public static boolean prefer_compute_node_for_external_table = false;
 
-    @ConfField(mutable = true, description = {"Only takes effect when prefer_compute_node_for_external_table is true. "
-            + "If the compute node count is less than this value, "
-            + "queries on external tables will try to use some mix nodes as well, "
-            + "to let the total number of nodes reach this value. "
-            + "If the compute node count is larger than this value, "
-            + "queries on external tables will be assigned to compute nodes only. "
-            + "-1 means only use current compute nodes."})
+    @ConfField(mutable = true, description = "Only takes effect when prefer_compute_node_for_external_table is true. "
+            + "If the compute node count is less than this value, queries on external "
+            + "tables will try to use some mix nodes as well, to let the total number "
+            + "of nodes reach this value. If the compute node count is larger than "
+            + "this value, queries on external tables will be assigned to compute "
+            + "nodes only. -1 means only use current compute nodes.")
     public static int min_backend_num_for_external_table = -1;
 
     /**
@@ -2086,18 +2018,18 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static boolean disable_backend_black_list = false;
 
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "If a backend is attempted to be added to the blacklist do_add_backend_black_list_threshold_count times "
-                    + "within do_add_backend_black_list_threshold_seconds, it will be added to the blacklist."})
+    @ConfField(mutable = true, masterOnly = false, description = "If a backend is attempted to be added to the "
+            + "blacklist do_add_backend_black_list_threshold_count " + "times within "
+            + "do_add_backend_black_list_threshold_seconds, it " + "will be added to the blacklist.")
     public static long do_add_backend_black_list_threshold_count = 10;
 
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "If a backend is attempted to be added to the blacklist do_add_backend_black_list_threshold_count times "
-                    + "within do_add_backend_black_list_threshold_seconds, it will be added to the blacklist."})
+    @ConfField(mutable = true, masterOnly = false, description = "If a backend is attempted to be added to the "
+            + "blacklist do_add_backend_black_list_threshold_count " + "times within "
+            + "do_add_backend_black_list_threshold_seconds, it " + "will be added to the blacklist.")
     public static long do_add_backend_black_list_threshold_seconds = 30;
 
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "A backend will stay in the blacklist for this duration after being added."})
+    @ConfField(mutable = true, masterOnly = false, description = "A backend will stay in the blacklist for this "
+            + "duration after being added.")
     public static long stay_in_backend_black_list_threshold_seconds = 60;
 
     /**
@@ -2160,48 +2092,47 @@ public class Config extends ConfigBase {
      * Max cache num of hive partition.
      * Decrease this value if FE's memory is small
      */
-    @ConfField(description = {"Maximum cache number of partitions at table level in Hive Metastore."})
+    @ConfField(description = "Maximum cache number of partitions at table level in Hive Metastore.")
     public static long max_hive_partition_cache_num = 100000;
 
-    @ConfField(description = {"Maximum cache number of Hudi/Iceberg tables."})
+    @ConfField(description = "Maximum cache number of Hudi/Iceberg tables.")
     public static long max_external_table_cache_num = 1000;
 
-    @ConfField(description = {"Maximum cache number of database and table instances in external catalogs."})
+    @ConfField(description = "Maximum cache number of database and table instances in external catalogs.")
     public static long max_meta_object_cache_num = 1000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "Stripe count used by multi-key MetaCacheEntry instances such as external object caches."})
+    @ConfField(mutable = false, masterOnly = false,
+            description = "Stripe count used by multi-key MetaCacheEntry instances such as external object caches.")
     public static int external_meta_cache_object_entry_lock_stripes = 256;
 
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "Whether to synchronously refresh external database/table names when a name lookup misses in an "
-                    + "existing cached snapshot. This option is enabled by default to preserve existing external "
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether to synchronously refresh external database/table names when a name lookup misses "
+                    + "in an existing cached snapshot. This option is enabled by default to preserve existing external "
                     + "catalog visibility behavior. Disable it to avoid repeated remote name enumeration for "
-                    + "non-existent objects."})
+                    + "non-existent objects.")
     public static boolean enable_external_meta_cache_name_miss_refresh = true;
 
-    @ConfField(description = {"Maximum cache number of Hive partitioned tables."})
+    @ConfField(description = "Maximum cache number of Hive partitioned tables.")
     public static long max_hive_partition_table_cache_num = 10000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+    @ConfField(mutable = false, masterOnly = false, description = "Max number of hive partition values to return "
+            + "while list partitions, -1 means no limitation.")
     public static short max_hive_list_partition_num = -1;
 
-    @ConfField(mutable = false, masterOnly = false, description = {"Max cache number of remote file system."})
+    @ConfField(mutable = false, masterOnly = false, description = "Max cache number of remote file system.")
     public static long max_remote_file_system_cache_num = 100;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "Maximum cache number of external table row counts."})
+    @ConfField(mutable = false, masterOnly = false, description = "Maximum cache number of external table row counts.")
     public static long max_external_table_row_count_cache_num = 100000;
 
-    @ConfField(description = {"Maximum cached file number for external table split file meta cache at query level."})
+    @ConfField(description = "Maximum cached file number for external table split file meta cache at query level.")
     public static long max_external_table_split_file_meta_cache_num = 100000;
 
     /**
      * Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session.
      */
-    @ConfField(mutable = false, masterOnly = true, description = {
-            "Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session."})
+    @ConfField(mutable = false, masterOnly = true, description = "Maximum number of MaxCompute Storage API write "
+            + "block IDs that can be allocated in one write " + "session.")
     public static long max_compute_write_max_block_count = 20000L;
 
     /**
@@ -2225,12 +2156,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_external_schema_cache_num = 10000;
 
-    @ConfField(description = {
-            "The expiration time of a cache object after its last access. Used for external meta cache."})
+    @ConfField(description = "The expiration time of a cache object after its last access. Used for external meta "
+            + "cache.")
     public static long external_cache_expire_time_seconds_after_access = 86400L; // 24 hours
 
-    @ConfField(description = {"The auto-refresh interval of the external meta cache."})
+    @ConfField(description = "The auto-refresh interval of the external meta cache.")
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
+
+    // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether external meta cache uses manual miss load instead of Caffeine sync load.")
+    public static boolean enable_external_meta_cache_manual_miss_load = true;
 
     /**
      * Github workflow test type, for setting some session variables
@@ -2261,9 +2197,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_same_name_catalog_trash_num = 3;
 
-    @ConfField(masterOnly = true, description = {
-            "The interval between catalog recycle bin clean tasks. "
-                    + "Default is 30000 milliseconds (30 seconds)."})
+    @ConfField(masterOnly = true, description = "The interval between catalog recycle bin clean tasks. Default is "
+            + "30000 milliseconds (30 seconds).")
     public static long catalog_recycle_bin_interval_ms = 30 * 1000;
 
     /**
@@ -2308,18 +2243,16 @@ public class Config extends ConfigBase {
     @ConfField(
             mutable = true,
             callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
-            description = {"Currently defaults to 100. This config is used to control the number of "
-                    + "SQL caches managed by NereidsSqlCacheManager."}
-    )
+            description = "Currently defaults to 100. This config is used to control the number of SQL caches managed "
+                    + "by NereidsSqlCacheManager.")
     public static int sql_cache_manage_num = 100;
 
     @ConfField(
             mutable = true,
             callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
-            description = {"Currently defaults to 100. This is used to control the number of ordered "
-                    + "partition metadata caches in NereidsSortedPartitionsCacheManager, "
-                    + "and to accelerate partition pruning."}
-    )
+            description = "Currently defaults to 100. This is used to control the number of ordered partition "
+                    + "metadata caches in NereidsSortedPartitionsCacheManager, and to accelerate partition "
+                    + "pruning.")
     public static int cache_partition_meta_table_manage_num = 100;
 
     /**
@@ -2328,9 +2261,8 @@ public class Config extends ConfigBase {
     @ConfField(
             mutable = true,
             callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
-            description = {"Currently defaults to 100000. This config is used to control the number of "
-                    + "HBO plan stats cache entries."}
-    )
+            description = "Currently defaults to 100000. This config is used to control the number of HBO plan stats "
+                    + "cache entries.")
     public static int hbo_plan_stats_cache_num = 100000;
 
     /**
@@ -2338,9 +2270,8 @@ public class Config extends ConfigBase {
      */
     @ConfField(
             mutable = true,
-            description = {"Currently defaults to 10. This config is used to control the number of "
-                    + "recent runs entries in the HBO plan stats cache."}
-    )
+            description = "Currently defaults to 10. This config is used to control the number of recent runs entries "
+                    + "in the HBO plan stats cache.")
     public static int hbo_plan_stats_cache_recent_runs_entry_num = 10;
 
     /**
@@ -2349,9 +2280,8 @@ public class Config extends ConfigBase {
     @ConfField(
             mutable = true,
             callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
-            description = {"Currently defaults to 1000. This config is used to control the number of "
-                    + "HBO plan info cache entries."}
-    )
+            description = "Currently defaults to 1000. This config is used to control the number of HBO plan info "
+                    + "cache entries.")
     public static int hbo_plan_info_cache_num = 1000;
 
     /**
@@ -2479,9 +2409,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = true;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "When creating tablets for a partition, always start from the first BE. "
-                    + "Note: This method may cause BE imbalance."})
+    @ConfField(mutable = true, masterOnly = true, description = "When creating tablets for a partition, always start "
+            + "from the first BE. Note: This method may cause BE " + "imbalance.")
     public static boolean create_tablet_round_robin_from_start = false;
 
     /**
@@ -2541,33 +2470,33 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_query_hit_stats = false;
 
-    @ConfField(mutable = true, description = {"When set to true, if a query is unable to select a healthy replica, "
-            + "the detailed information of all replicas of the tablet, "
-            + "including the specific reason why they are unqueryable, will be printed out."})
+    @ConfField(mutable = true, description = "When set to true, if a query is unable to select a healthy replica, the "
+            + "detailed information of all replicas of the tablet, including the "
+            + "specific reason why they are unqueryable, will be printed out.")
     public static boolean show_details_for_unaccessible_tablet = true;
 
-    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "Whether to enable the binlog feature"})
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = "Whether "
+            + "to " + "enable " + "the " + "binlog " + "feature")
     public static boolean enable_feature_binlog = false;
 
-    @ConfField(mutable = false, description = {"Whether to enable the binlog feature for databases/tables by default"})
+    @ConfField(mutable = false, description = "Whether to enable the binlog feature for databases/tables by default")
     public static boolean force_enable_feature_binlog = false;
 
-    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "Set the maximum byte length of a binlog message"})
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = "Set the "
+            + "maximum " + "byte " + "length " + "of a " + "binlog " + "message")
     public static int max_binlog_messsage_size = 1024 * 1024 * 1024;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to disable creating catalog with WITH RESOURCE statement."})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to disable creating catalog with WITH "
+            + "RESOURCE statement.")
     public static boolean disallow_create_catalog_with_resource = true;
 
-    @ConfField(mutable = true, masterOnly = false, description = {"Sample size for hive row count estimation."})
+    @ConfField(mutable = true, masterOnly = false, description = "Sample size for hive row count estimation.")
     public static int hive_stats_partition_sample_size = 30;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Whether to enable external Hive bucket tables"})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable external Hive bucket tables")
     public static boolean enable_create_hive_bucket_table = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Default Hive file format when creating tables."})
+    @ConfField(mutable = true, masterOnly = true, description = "Default Hive file format when creating tables.")
     public static String hive_default_file_format = "orc";
 
     @ConfField
@@ -2576,42 +2505,34 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Used to force the number of replicas of internal tables. If this config is greater than zero, "
-                    + "the number of replicas specified by the user when creating the table will be ignored, "
-                    + "and the value set by this parameter will be used. At the same time, the replica tags "
-                    + "and other parameters specified in the CREATE TABLE statement will be ignored. "
-                    + "This config does not affect operations including creating partitions "
-                    + "and modifying table properties. "
-                    + "This config is recommended to be used only in the test environment."})
+    @ConfField(mutable = true, masterOnly = true, description = "Used to force the number of replicas of internal "
+            + "tables. If this config is greater than zero, the " + "number of replicas specified by the user when "
+            + "creating the table will be ignored, and the value " + "set by this parameter will be used. At the same "
+            + "time, the replica tags and other parameters " + "specified in the CREATE TABLE statement will be "
+            + "ignored. This config does not affect operations " + "including creating partitions and modifying table "
+            + "properties. This config is recommended to be used " + "only in the test environment.")
     public static int force_olap_table_replication_num = 0;
 
-    @ConfField(mutable = true, description = {
-            "Used to force set the replica allocation of internal tables. If this config is not empty, "
-                    + "the replication_num and replication_allocation specified by the user when creating the table "
-                    + "or partitions will be ignored, and the value set by this parameter will be used. "
-                    + "This config affects operations including creating tables, creating partitions, and creating "
-                    + "dynamic partitions. This config is recommended to be used only in the test environment."})
+    @ConfField(mutable = true, description = "Used to force set the replica allocation of internal tables. If this "
+            + "config is not empty, the replication_num and replication_allocation "
+            + "specified by the user when creating the table or partitions will be "
+            + "ignored, and the value set by this parameter will be used. This config "
+            + "affects operations including creating tables, creating partitions, and "
+            + "creating dynamic partitions. This config is recommended to be used only " + "in the test environment.")
     public static String force_olap_table_replication_allocation = "";
 
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "统计信息收集时 string 列允许的最大字节长度。若列中存在长度超过该值的行，"
-                    + "该列的统计信息将被跳过收集（task 仍标记为 FINISHED，在 SHOW ANALYZE 中显示跳过原因）。"
-                    + "≤ 0 表示关闭此保护。默认 1024 (1KB)。"
-                    + "注意：此保护只覆盖 FULL / LINEAR / DUJ1 统计收集路径（即 analyze 全表和 sample 的主 SQL）。"
-                    + "当 enable_partition_analyze=true 时的 per-partition 路径（PARTITION_ANALYZE_TEMPLATE）"
-                    + "出于正确性考虑不启用该保护，详见 BaseAnalysisTask 中的 NOTE。",
-            "Max byte length allowed for a string column when collecting statistics. "
-                    + "If any row in a string column is longer than this value, the column's stats "
-                    + "collection is skipped (the task is still marked FINISHED, with the skip reason "
-                    + "shown in SHOW ANALYZE). A value <= 0 disables this protection. Default: 1024 (1KB). "
-                    + "Note: this protection applies to the FULL / LINEAR / DUJ1 collection paths "
-                    + "(i.e. the main SQL used by full-table and sample analyze). The per-partition path "
-                    + "(PARTITION_ANALYZE_TEMPLATE, used when enable_partition_analyze=true) is intentionally "
-                    + "not guarded for correctness reasons; see the NOTE in BaseAnalysisTask."})
+    @ConfField(mutable = true, masterOnly = true, description = "Max byte length allowed for a string column when "
+            + "collecting statistics. If any row in a string column " + "is longer than this value, the column's stats "
+            + "collection is skipped (the task is still marked " + "FINISHED, with the skip reason shown in SHOW "
+            + "ANALYZE). A value <= 0 disables this protection. "
+            + "Default: 1024 (1KB). Note: this protection applies "
+            + "to the FULL / LINEAR / DUJ1 collection paths (i.e. "
+            + "the main SQL used by full-table and sample analyze). "
+            + "The per-partition path (PARTITION_ANALYZE_TEMPLATE, " + "used when enable_partition_analyze=true) is "
+            + "intentionally not guarded for correctness reasons; " + "see the NOTE in BaseAnalysisTask.")
     public static long statistics_max_string_column_length = 1024;
 
     @ConfField(mutable = false)
@@ -2623,145 +2544,132 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean force_sample_analyze = false; // avoid full analyze for performance reason
 
-    @ConfField(mutable = true, description = {"The maximum number of partitions allowed for an Export job"})
+    @ConfField(mutable = true, description = "The maximum number of partitions allowed for an Export job")
     public static int maximum_number_of_export_partitions = 2000;
 
-    @ConfField(mutable = true, description = {"Whether to use MySQL's BIGINT type to return Doris's LARGEINT type"})
+    @ConfField(mutable = true, description = "Whether to use MySQL's BIGINT type to return Doris's LARGEINT type")
     public static boolean use_mysql_bigint_for_largeint = false;
 
     @ConfField
     public static boolean forbid_running_alter_job = false;
 
-    @ConfField(description = {"Temporary config field. Will make all OLAP tables enable light schema change."})
+    @ConfField(description = "Temporary config field. Will make all OLAP tables enable light schema change.")
     public static boolean enable_convert_light_weight_schema_change = false;
 
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "When querying the information_schema.metadata_name_ids table, "
-                    + "the timeout for obtaining all tables in one database."})
+    @ConfField(mutable = true, masterOnly = false, description = "When querying the "
+            + "information_schema.metadata_name_ids table, the " + "timeout for obtaining all tables in one database.")
     public static long query_metadata_name_ids_timeout = 3;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Whether to disable LocalDeployManager drop node."})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to disable LocalDeployManager drop node.")
     public static boolean disable_local_deploy_manager_drop_node = true;
 
-    @ConfField(mutable = true, description = {
-            "When file cache is enabled, the number of virtual nodes of each node in the consistent hash algorithm. "
-                    + "The larger the value, the more uniform the distribution of the hash algorithm, "
-                    + "but it will increase the memory overhead."})
+    @ConfField(mutable = true, description = "When file cache is enabled, the number of virtual nodes of each node in "
+            + "the consistent hash algorithm. The larger the value, the more uniform "
+            + "the distribution of the hash algorithm, but it will increase the memory " + "overhead.")
     public static int split_assigner_virtual_node_number = 256;
 
-    @ConfField(mutable = true, description = {"Local node soft affinity optimization. Prefer local replication node."})
+    @ConfField(mutable = true, description = "Local node soft affinity optimization. Prefer local replication node.")
     public static boolean split_assigner_optimized_local_scheduling = true;
 
-    @ConfField(mutable = true, description = {
-            "The random algorithm has the smallest number of candidates and will select the most idle node."})
+    @ConfField(mutable = true, description = "The random algorithm has the smallest number of candidates and will "
+            + "select the most idle node.")
     public static int split_assigner_min_random_candidate_num = 2;
 
-    @ConfField(mutable = true, description = {
-            "The consistent hash algorithm has the smallest number of candidates and will select the most idle node."})
+    @ConfField(mutable = true, description = "The consistent hash algorithm has the smallest number of candidates and "
+            + "will select the most idle node.")
     public static int split_assigner_min_consistent_hash_candidate_num = 2;
 
-    @ConfField(mutable = true, description = {"The maximum difference in the number of splits between nodes. "
-            + "If this number is exceeded, the splits will be redistributed."})
+    @ConfField(mutable = true, description = "The maximum difference in the number of splits between nodes. If this "
+            + "number is exceeded, the splits will be redistributed.")
     public static int split_assigner_max_split_num_variance = 1;
 
-    @ConfField(description = {"Determines the number of persisted automatic analyze job execution status records."})
+    @ConfField(description = "Determines the number of persisted automatic analyze job execution status records.")
     public static long analyze_record_limit = 20000;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Minimum number of buckets for auto bucketing."})
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum number of buckets for auto bucketing.")
     public static int autobucket_min_buckets = 3;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Maximum number of buckets for auto bucketing."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximum number of buckets for auto bucketing.")
     public static int autobucket_max_buckets = 128;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Maximum number of buckets allowed when creating a table or adding a partition. "
-                    + "This config shares the same default value with autobucket_max_buckets for consistency. "
-                    + "Behavior: "
-                    + "1. For user-specified buckets (CREATE TABLE / ALTER TABLE ADD PARTITION): "
-                    + "if bucket number exceeds this limit, the operation will be rejected with an error message. "
-                    + "2. For auto-bucket feature (Dynamic Partition): "
-                    + "bucket number will be capped at autobucket_max_buckets automatically. "
-                    + "Set to 0 or negative value to disable this limit for user-specified buckets."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximum number of buckets allowed when creating a "
+            + "table or adding a partition. This config shares the "
+            + "same default value with autobucket_max_buckets for "
+            + "consistency. Behavior: 1. For user-specified buckets "
+            + "(CREATE TABLE / ALTER TABLE ADD PARTITION): if "
+            + "bucket number exceeds this limit, the operation will " + "be rejected with an error message. 2. For "
+            + "auto-bucket feature (Dynamic Partition): bucket " + "number will be capped at autobucket_max_buckets "
+            + "automatically. Set to 0 or negative value to disable " + "this limit for user-specified buckets.")
     public static int max_bucket_num_per_partition = 768;
 
-    @ConfField(description = {"Maximum number of connections for the Arrow Flight Server per FE."})
+    @ConfField(description = "Maximum number of connections for the Arrow Flight Server per FE.")
     public static int arrow_flight_max_connections = 4096;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "In auto bucketing, the number of buckets is estimated based on the partition size. "
-                    + "For storage and computing integration, a partition size of 5GB is estimated as one bucket, "
-                    + "but for cloud, a partition size of 10GB is estimated as one bucket. "
-                    + "If the configuration is less than 0, the code will adaptively use a default of 5GB "
-                    + "in non-cloud mode, and 10GB in cloud mode."})
+    @ConfField(mutable = true, masterOnly = true, description = "In auto bucketing, the number of buckets is "
+            + "estimated based on the partition size. For storage "
+            + "and computing integration, a partition size of 5GB " + "is estimated as one bucket, but for cloud, a "
+            + "partition size of 10GB is estimated as one bucket. "
+            + "If the configuration is less than 0, the code will "
+            + "adaptively use a default of 5GB in non-cloud mode, " + "and 10GB in cloud mode.")
     public static int autobucket_partition_size_per_bucket_gb = -1;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "If the new partition bucket number calculated by auto bucketing exceeds this percentage "
-                    + "of the previous partition's bucket number, "
-                    + "it is considered an abnormal case and triggers an alert."})
+    @ConfField(mutable = true, masterOnly = true, description = "If the new partition bucket number calculated by "
+            + "auto bucketing exceeds this percentage of the " + "previous partition's bucket number, it is considered "
+            + "an abnormal case and triggers an alert.")
     public static double autobucket_out_of_bounds_percent_threshold = 0.5;
 
-    @ConfField(description = {
-            "(Deprecated, replaced by arrow_flight_max_connection) The cache limit of all user tokens in "
-                    + "Arrow Flight Server, which will be eliminated by LRU rules after exceeding the limit. "
-                    + "Arrow Flight SQL is a stateless protocol; the connection is usually not actively disconnected. "
-                    + "A bearer token evicted from the cache will unregister its ConnectContext."})
+    @ConfField(description = "(Deprecated, replaced by arrow_flight_max_connection) The cache limit of all user "
+            + "tokens in Arrow Flight Server, which will be eliminated by LRU rules after exceeding "
+            + "the limit. Arrow Flight SQL is a stateless protocol; the connection is usually not "
+            + "actively disconnected. A bearer token evicted from the cache will unregister its " + "ConnectContext.")
     public static int arrow_flight_token_cache_size = 4096;
 
-    @ConfField(description = {
-            "The alive time of the user token in Arrow Flight Server (expire after write), in seconds. "
-                    + "The default value is 86400, which is 1 day."})
+    @ConfField(description = "The alive time of the user token in Arrow Flight Server (expire after write), in "
+            + "seconds. The default value is 86400, which is 1 day.")
     public static int arrow_flight_token_alive_time_second = 86400;
 
-    @ConfField(mutable = true, description = {
-            "To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. "
-                    + "If this database conflicts with a user's own database, please modify this field to replace "
-                    + "the name of the Doris built-in MySQL database with a different name."})
+    @ConfField(mutable = true, description = "To ensure compatibility with the MySQL ecosystem, Doris includes a "
+            + "built-in database called mysql. If this database conflicts with a "
+            + "user's own database, please modify this field to replace the name of "
+            + "the Doris built-in MySQL database with a different name.")
     public static String mysqldb_replace_name = "mysql";
 
-    @ConfField(description = {"Set the specific domain name that allows cross-domain access. "
-            + "By default, any domain name is allowed cross-domain access."})
+    @ConfField(description = "Set the specific domain name that allows cross-domain access. By default, any domain "
+            + "name is allowed cross-domain access.")
     public static String access_control_allowed_origin_domain = "*";
 
-    @ConfField(description = {
-            "Used to enable Java UDF. Default is true. If this configuration is false, creation and use of Java UDF is "
-                    + "disabled. In some scenarios it may be necessary to disable this configuration to prevent "
-                    + "command injection attacks."})
+    @ConfField(description = "Used to enable Java UDF. Default is true. If this configuration is false, creation and "
+            + "use of Java UDF is disabled. In some scenarios it may be necessary to disable this "
+            + "configuration to prevent command injection attacks.")
     public static boolean enable_java_udf = true;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "When enabled, data can be processed using the globally created Java UDF function during import. "
-                    + "The default setting is false."})
+    @ConfField(mutable = true, masterOnly = true, description = "When enabled, data can be processed using the "
+            + "globally created Java UDF function during import. " + "The default setting is false.")
     public static boolean enable_udf_in_load = false;
 
-    @ConfField(description = {
-            "Used to enable Python UDF. Default is true. If this configuration is false, "
-                    + "creation and use of Python UDF is disabled. "
-                    + "In some scenarios it may be necessary to disable this configuration to prevent "
-                    + "command injection attacks."})
+    @ConfField(description = "Used to enable Python UDF. Default is true. If this configuration is false, creation "
+            + "and use of Python UDF is disabled. In some scenarios it may be necessary to disable "
+            + "this configuration to prevent command injection attacks.")
     public static boolean enable_python_udf = true;
 
-    @ConfField(description = {"Whether to ignore unknown modules in Image file. "
-            + "If true, metadata modules not in PersistMetaModules.MODULE_NAMES "
-            + "will be ignored and skipped. Default is false, if Image file contains unknown modules, "
-            + "Doris will throw exception. "
-            + "This parameter is mainly used in downgrade operation, "
-            + "old version can be compatible with new version Image file."})
+    @ConfField(description = "Whether to ignore unknown modules in Image file. If true, metadata modules not in "
+            + "PersistMetaModules.MODULE_NAMES will be ignored and skipped. Default is false, if Image "
+            + "file contains unknown modules, Doris will throw exception. This parameter is mainly "
+            + "used in downgrade operation, old version can be compatible with new version Image file.")
     public static boolean ignore_unknown_metadata_module = false;
 
-    @ConfField(mutable = true, description = {
-            "The timeout for FE Follower/Observer synchronizing an image file from the FE Master. Can be adjusted "
-                    + "based on the size of the image file in ${meta_dir}/image and the network environment between "
-                    + "nodes. The default value is 300."})
+    @ConfField(mutable = true, description = "The timeout for FE Follower/Observer synchronizing an image file from "
+            + "the FE Master. Can be adjusted based on the size of the image file in "
+            + "${meta_dir}/image and the network environment between nodes. The " + "default value is 300.")
     public static int sync_image_timeout_second = 300;
 
-    @ConfField(mutable = true, description = {
-            "The batch size (in bytes) when loading the binary content of a module from the "
-                    + "image file into a byte array and deserializing it into a UTF-8 encoded string "
-                    + "when FE starts. A value of -1 means reading the entire byte array at once and "
-                    + "then deserializing it into a UTF-8 encoded string; any other value means reading "
-                    + "a certain size (at least 16MB) of byte array in batches, deserializing each into a "
-                    + "UTF-8 encoded string, and then merging them into a complete string. The default value is -1."})
+    @ConfField(mutable = true, description = "The batch size (in bytes) when loading the binary content of a module "
+            + "from the image file into a byte array and deserializing it into a UTF-8 "
+            + "encoded string when FE starts. A value of -1 means reading the entire "
+            + "byte array at once and then deserializing it into a UTF-8 encoded "
+            + "string; any other value means reading a certain size (at least 16MB) of "
+            + "byte array in batches, deserializing each into a UTF-8 encoded string, "
+            + "and then merging them into a complete string. The default value is -1.")
     public static int metadata_text_read_max_batch_bytes = -1;
 
     @ConfField(mutable = true, masterOnly = true)
@@ -2789,8 +2697,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int query_audit_log_timeout_ms = 5000;
 
-    @ConfField(description = {"The operations of the users in this list will not be recorded in the audit log. "
-            + "Multiple users are separated by commas."})
+    @ConfField(description = "The operations of the users in this list will not be recorded in the audit log. "
+            + "Multiple users are separated by commas.")
     public static String skip_audit_user_list = "";
 
     @ConfField(mutable = true)
@@ -2799,58 +2707,54 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_group_max_num = 15;
 
-    @ConfField(description = {"The timeout threshold for checking the WAL queue on BE, in milliseconds."})
+    @ConfField(description = "The timeout threshold for checking the WAL queue on BE, in milliseconds.")
     public static int check_wal_queue_timeout_threshold = 180000;   // 3 min
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "
-                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 20000."})
+    @ConfField(mutable = true, masterOnly = true, description = "For auto-partitioned tables to prevent users from "
+            + "accidentally creating a large number of partitions, "
+            + "the number of partitions allowed per OLAP table is " + "`max_auto_partition_num`. Default 20000.")
     public static int max_auto_partition_num = 20000;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The maximum difference in the number of tablets of each BE in partition rebalance mode. "
-                    + "If it is less than this value, it will be diagnosed as balanced."})
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum difference in the number of tablets of "
+            + "each BE in partition rebalance mode. If it is less "
+            + "than this value, it will be diagnosed as balanced.")
     public static int diagnose_balance_max_tablet_num_diff = 50;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The maximum ratio of the number of tablets in each BE in partition rebalance mode. "
-                    + "If it is less than this value, it will be diagnosed as balanced."})
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum ratio of the number of tablets in each "
+            + "BE in partition rebalance mode. If it is less than " + "this value, it will be diagnosed as balanced.")
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 
-    @ConfField(masterOnly = true, description = {
-            "Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. "
-                    + "Subsequent `set password` operations for root user will overwrite the initial root password. "
-                    + "Example: If you want to configure a plaintext password `root@123`."
-                    + "You can execute Doris SQL `select password('root@123')` to generate encrypted "
-                    + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`"})
+    @ConfField(masterOnly = true, description = "Set root user initial 2-staged SHA-1 encrypted password, default as "
+            + "'', means no root password. Subsequent `set password` operations for "
+            + "root user will overwrite the initial root password. Example: If you "
+            + "want to configure a plaintext password `root@123`.You can execute "
+            + "Doris SQL `select password('root@123')` to generate encrypted "
+            + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`")
     public static String initial_root_password = "";
 
-    @ConfField(description = {"The path of the nereids trace file."})
+    @ConfField(description = "The path of the nereids trace file.")
     public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The maximum number of snapshots assigned to an upload task during the backup process. "
-                    + "The default value is 10."})
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to an "
+            + "upload task during the backup process. The default " + "value is 10.")
     public static int backup_upload_snapshot_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The maximum number of snapshots assigned to a download task during the restore process. "
-                    + "The default value is 10."})
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to a "
+            + "download task during the restore process. The " + "default value is 10.")
     public static int restore_download_snapshot_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The maximum number of batched tasks per RPC assigned to each BE during the backup/restore process. "
-                    + "The default value is 10000."})
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum number of batched tasks per RPC assigned "
+            + "to each BE during the backup/restore process. The " + "default value is 10000.")
     public static int backup_restore_batch_task_num_per_rpc = 10000;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"The number of concurrent restore tasks per BE."})
+    @ConfField(mutable = true, masterOnly = true, description = "The number of concurrent restore tasks per BE.")
     public static int restore_task_concurrency_per_be = 5000;
 
-    @ConfField(mutable = true, description = {
-            "The time after which a BE is considered unavailable if no heartbeat is received."})
+    @ConfField(mutable = true, description = "The time after which a BE is considered unavailable if no heartbeat is "
+            + "received.")
     public static int agent_task_be_unavailable_heartbeat_timeout_second = 300;
 
-    @ConfField(description = {"Whether to enable the function of getting log files through the HTTP interface."})
+    @ConfField(description = "Whether to enable the function of getting log files through the HTTP interface.")
     public static boolean enable_get_log_file_api = false;
 
     @ConfField(mutable = true)
@@ -2858,18 +2762,16 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_collect_internal_query_profile = false;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "The maximum number of worker threads for the HTTP SQL submitter."})
+    @ConfField(mutable = false, masterOnly = false, description = "The maximum number of worker threads for the HTTP "
+            + "SQL submitter.")
     public static int http_sql_submitter_max_worker_threads = 2;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The threshold of load labels' number. After this number is exceeded, "
-                    + "the labels of the completed import jobs or tasks will be deleted, "
-                    + "and the deleted labels can be reused. "
-                    + "When the value is -1, it indicates no threshold."})
+    @ConfField(mutable = true, masterOnly = true, description = "The threshold of load labels' number. After this "
+            + "number is exceeded, the labels of the completed " + "import jobs or tasks will be deleted, and the "
+            + "deleted labels can be reused. When the value is -1, " + "it indicates no threshold.")
     public static int label_num_threshold = 2000;
 
-    @ConfField(description = {"Specify the default authentication class of internal catalog"},
+    @ConfField(description = "Specify the default authentication class of internal catalog",
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
 
@@ -2882,46 +2784,43 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
-    @ConfField(description = {
-            "Specifies the primary MySQL authenticator name, either a built-in authenticator "
-                    + "or an authentication plugin name"},
+    @ConfField(description = "Specifies the primary MySQL authenticator name, either a built-in authenticator or an "
+            + "authentication plugin name",
             options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
 
-    @ConfField(mutable = true, description = {
-            "Specifies the authentication chain used after primary authentication failure, "
-                    + "multiple integration names are comma-separated"})
+    @ConfField(mutable = true, description = "Specifies the authentication chain used after primary authentication "
+            + "failure, multiple integration names are comma-separated")
     public static String authentication_chain = "";
 
     // The dir the trino-connector catalog loads Trino's own plugins from, used verbatim. Keep the
     // default in sync with BE config trino_connector_plugin_dir: FE and BE load the same plugins and
     // an operator who leaves both untouched expects both to find them.
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "Specify the default plugins loading path for the trino-connector catalog"})
+    @ConfField(mutable = true, masterOnly = false, description = "Specify the default plugins loading path for the "
+            + "trino-connector catalog")
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/trino_plugins";
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Default storage format of inverted index, the default value is V3."})
+    @ConfField(mutable = true, masterOnly = true, description = "Default storage format of inverted index, the "
+            + "default value is V3.")
     public static String inverted_index_storage_format = "V3";
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
-                    + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
-                    + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."})
+    @ConfField(mutable = true, masterOnly = true, description = "Enable the 'delete predicate' for DELETE statements. "
+            + "If enabled, it will enhance the performance of " + "DELETE statements, but partial column updates after "
+            + "a DELETE may result in erroneous data. If disabled, "
+            + "it will reduce the performance of DELETE statements " + "to ensure accuracy.")
     public static boolean enable_mow_light_delete = false;
 
-    @ConfField(description = {"Whether to enable proxy protocol"})
+    @ConfField(description = "Whether to enable proxy protocol")
     public static boolean enable_proxy_protocol = false;
 
-    @ConfField(description = {
-            "Profile async collect expire time. After the query is completed, if the profile is not collected within "
-                    + "the time specified by this parameter, the uncompleted profile will be abandoned."})
+    @ConfField(description = "Profile async collect expire time. After the query is completed, if the profile is not "
+            + "collected within the time specified by this parameter, the uncompleted profile will be " + "abandoned.")
     public static int profile_async_collect_expire_time_secs = 5;
 
-    @ConfField(description = {"Used to control the interval time of ProfileManager for profile garbage collection."})
+    @ConfField(description = "Used to control the interval time of ProfileManager for profile garbage collection.")
     public static int profile_manager_gc_interval_seconds = 1;
     // Used to check compatibility when upgrading.
     @ConfField
@@ -2932,17 +2831,17 @@ public class Config extends ConfigBase {
     public static boolean checkpoint_after_check_compatibility = false;
 
     // Advance the next id before transferring to the master.
-    @ConfField(description = {"Whether to advance the ID generator after becoming Master to ensure that the id "
-            + "generator will not be rolled back even when metadata is rolled back."})
+    @ConfField(description = "Whether to advance the ID generator after becoming Master to ensure that the id "
+            + "generator will not be rolled back even when metadata is rolled back.")
     public static boolean enable_advance_next_id = true;
 
     // The count threshold to do manual GC when doing checkpoint but not enough memory.
     // Set zero to disable it.
-    @ConfField(description = {"The threshold to do manual GC when doing checkpoint but not enough memory"})
+    @ConfField(description = "The threshold to do manual GC when doing checkpoint but not enough memory")
     public static int checkpoint_manual_gc_threshold = 0;
 
-    @ConfField(mutable = true, description = {
-            "Whether to log the request content before each request starts, specifically the query statements."})
+    @ConfField(mutable = true, description = "Whether to log the request content before each request starts, "
+            + "specifically the query statements.")
     public static boolean enable_print_request_before_execution = false;
 
     @ConfField
@@ -2960,54 +2859,51 @@ public class Config extends ConfigBase {
     public static long spilled_profile_storage_limit_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 
     // Profile will be spilled to storage after query has finished for this time.
-    @ConfField(mutable = true, description = {
-            "Profile will be spilled to storage after the query has been finished for this duration."})
+    @ConfField(mutable = true, description = "Profile will be spilled to storage after the query has been finished "
+            + "for this duration.")
     public static int profile_waiting_time_for_spill_seconds = 10;
 
     // Enable profile archive feature. When enabled, profiles exceeding storage limits
     // will be archived to compressed ZIP files instead of being directly deleted.
-    @ConfField(mutable = true, description = {
-            "Enable profile archive feature. When enabled, profiles exceeding storage limits "
-                    + "will be archived to compressed ZIP files instead of being directly deleted."})
+    @ConfField(mutable = true, description = "Enable profile archive feature. When enabled, profiles exceeding "
+            + "storage limits will be archived to compressed ZIP files instead of " + "being directly deleted.")
     public static boolean enable_profile_archive = true;
 
     // Number of profiles to include in each archive ZIP file.
     // Recommended value: 1000
-    @ConfField(mutable = true, description = {"Number of profiles per archive ZIP file. Recommended: 1000"})
+    @ConfField(mutable = true, description = "Number of profiles per archive ZIP file. Recommended: 1000")
     public static int profile_archive_batch_size = 1000;
 
     // Storage path for archived profiles.
     // If empty, defaults to ${spilled_profile_storage_path}/archive
-    @ConfField(description = {
-            "Storage path for archived profiles. Defaults to ${spilled_profile_storage_path}/archive if empty."})
+    @ConfField(description = "Storage path for archived profiles. Defaults to ${spilled_profile_storage_path}/archive "
+            + "if empty.")
     public static String profile_archive_path = "";
 
     // Retention period for archive files in seconds.
     // -1: keep forever
     // 0: disable archiving (equivalent to enable_profile_archive = false)
     // >0: delete archives older than specified seconds (e.g., 604800 = 30 days)
-    @ConfField(mutable = true, description = {
-            "Retention period for archive files in seconds. -1 for unlimited, 0 to disable archiving."})
+    @ConfField(mutable = true, description = "Retention period for archive files in seconds. -1 for unlimited, 0 to "
+            + "disable archiving.")
     public static int profile_archive_retention_seconds = 28800; // 8 hours
 
     // Maximum waiting time for pending archive files in seconds.
     // If the oldest file in pending directory exceeds this time, archive will be forced
     // even if the batch size is not reached.
-    @ConfField(mutable = true, description = {"Maximum waiting time for pending archive files in seconds. "
-            + "Forces archive even if the batch is not full."})
+    @ConfField(mutable = true, description = "Maximum waiting time for pending archive files in seconds. Forces "
+            + "archive even if the batch is not full.")
     public static int profile_archive_pending_timeout_seconds = 3600; // 1 hours
 
-    @ConfField(mutable = true, description = {"Whether to abort transactions by checking coordinator BE heartbeat."})
+    @ConfField(mutable = true, description = "Whether to abort transactions by checking coordinator BE heartbeat.")
     public static boolean enable_abort_txn_by_checking_coordinator_be = true;
 
-    @ConfField(mutable = true, description = {
-            "Whether to abort transactions by checking conflict transactions in schema change "
-                    + "or cloud upgrade checks."})
+    @ConfField(mutable = true, description = "Whether to abort transactions by checking conflict transactions in "
+            + "schema change or cloud upgrade checks.")
     public static boolean enable_abort_txn_by_checking_conflict_txn = true;
 
-    @ConfField(mutable = true, description = {
-            "Columns that have not been collected within the specified interval will trigger automatic analyze. "
-                    + "0 means not trigger."})
+    @ConfField(mutable = true, description = "Columns that have not been collected within the specified interval will "
+            + "trigger automatic analyze. 0 means not trigger.")
     public static long auto_analyze_interval_seconds = 86400; // 24 hours.
 
     // A internal config to control whether to enable the checkpoint.
@@ -3016,32 +2912,32 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_checkpoint = true;
 
-    @ConfField(description = {"The default directory for storing hadoop conf configuration files."})
+    @ConfField(description = "The default directory for storing hadoop conf configuration files.")
     public static String hadoop_config_dir = EnvUtils.getDorisHome() + "/plugins/hadoop_conf/";
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Timeout for dictionary-related RPCs."})
+    @ConfField(mutable = true, masterOnly = true, description = "Timeout for dictionary-related RPCs.")
     public static int dictionary_rpc_timeout_seconds = 5;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Interval at which the dictionary triggers a data expiration check, in seconds."})
+    @ConfField(mutable = true, masterOnly = true, description = "Interval at which the dictionary triggers a data "
+            + "expiration check, in seconds.")
     public static int dictionary_auto_refresh_interval_seconds = 5;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "Whether to enable the experimental Table Stream functionality" },
+    @ConfField(mutable = false, masterOnly = false, description = "Whether to enable the experimental Table Stream "
+            + "functionality",
             varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_table_stream = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "The interval at which FE cleans stale partition offset state from table streams, in seconds."},
+    @ConfField(mutable = true, masterOnly = true, description = "The interval at which FE cleans stale partition "
+            + "offset state from table streams, in seconds.",
             varType = VariableAnnotation.EXPERIMENTAL)
     public static int table_stream_partition_offset_cleanup_interval_second = 3600;
 
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
-    @ConfField(description = {"Whether to enable the FE log file deletion policy based on size, "
-            + "where logs exceeding the specified size are deleted. "
-            + "It is disabled by default and follows a time-based deletion policy."},
+    @ConfField(description = "Whether to enable the FE log file deletion policy based on size, where logs exceeding "
+            + "the specified size are deleted. It is disabled by default and follows a time-based "
+            + "deletion policy.",
             options = {"age", "size"})
     public static String log_rollover_strategy = "age";
 
@@ -3203,66 +3099,59 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static double cloud_balance_tablet_percent_per_run = 0.05;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Specify the scaling and warming methods for all compute groups in cloud mode. "
-                    + "without_warmup: Directly modify shard mapping, first read from S3, "
-                    + "fastest rebalance but largest fluctuation; "
-                    + "async_warmup: Asynchronous warmup, best-effort cache pulling, "
-                    + "faster rebalance but possible cache miss; "
-                    + "sync_warmup: Synchronous warmup, ensure cache migration completion, "
-                    + "slower rebalance but no cache miss; "
-                    + "peer_read_async_warmup: Directly modify shard mapping, first read from peer BE, "
-                    + "fastest rebalance but may affect other BEs in the same compute group's performance. "
-                    + "Note: This is a global FE configuration. "
-                    + "You can also use SQL (ALTER COMPUTE GROUP cg PROPERTIES) "
-                    + "to set balance type at compute group level. "
-                    + "Compute group level configuration has higher priority."},
+    @ConfField(mutable = true, masterOnly = true, description = "Specify the scaling and warming methods for all "
+            + "compute groups in cloud mode. without_warmup: " + "Directly modify shard mapping, first read from S3, "
+            + "fastest rebalance but largest fluctuation; " + "async_warmup: Asynchronous warmup, best-effort cache "
+            + "pulling, faster rebalance but possible cache miss; " + "sync_warmup: Synchronous warmup, ensure cache "
+            + "migration completion, slower rebalance but no cache "
+            + "miss; peer_read_async_warmup: Directly modify shard "
+            + "mapping, first read from peer BE, fastest rebalance "
+            + "but may affect other BEs in the same compute group's " + "performance. Note: This is a global FE "
+            + "configuration. You can also use SQL (ALTER COMPUTE "
+            + "GROUP cg PROPERTIES) to set balance type at compute "
+            + "group level. Compute group level configuration has " + "higher priority.",
             options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
     public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
-    @ConfField(mutable = true, masterOnly = true, description = {"The maximum number of tablets per host "
-            + "when batching warm-up requests during tablet rebalancing in "
-            + "compute-storage separation mode. Default is 10."})
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum number of tablets per host when batching "
+            + "warm-up requests during tablet rebalancing in " + "compute-storage separation mode. Default is 10.")
     public static int cloud_warm_up_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Maximum wait time in milliseconds before a "
-            + "pending warm-up batch is flushed. Default is 50ms."})
+    @ConfField(mutable = true, masterOnly = true, description = "Maximum wait time in milliseconds before a pending "
+            + "warm-up batch is flushed. Default is 50ms.")
     public static int cloud_warm_up_batch_flush_interval_ms = 50;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Thread pool size for asynchronous warm-up RPC dispatch during tablet "
-                    + "rebalancing in compute-storage separation mode. Default is 4."})
+    @ConfField(mutable = true, masterOnly = true, description = "Thread pool size for asynchronous warm-up RPC "
+            + "dispatch during tablet rebalancing in " + "compute-storage separation mode. Default is 4.")
     public static int cloud_warm_up_rpc_async_pool_size = 4;
 
-    @ConfField(masterOnly = true, description = {"When tablets are being balanced in compute-storage separation mode, "
-            + "whether to enable the active tablet priority scheduling strategy. Default is true."})
+    @ConfField(masterOnly = true, description = "When tablets are being balanced in compute-storage separation mode, "
+            + "whether to enable the active tablet priority scheduling strategy. " + "Default is true.")
     public static boolean enable_cloud_active_tablet_priority_scheduling = true;
 
-    @ConfField(masterOnly = true, description = {
-            "Whether to enable active tablet sliding window access statistics feature. Default is true."})
+    @ConfField(masterOnly = true, description = "Whether to enable active tablet sliding window access statistics "
+            + "feature. Default is true.")
     public static boolean enable_active_tablet_sliding_window_access_stats = true;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Time window size in seconds for active tablet sliding window access statistics. "
-                    + "Default is 3600 seconds (1 hour)."})
+    @ConfField(mutable = true, masterOnly = true, description = "Time window size in seconds for active tablet "
+            + "sliding window access statistics. Default is 3600 " + "seconds (1 hour).")
     public static long active_tablet_sliding_window_time_window_second = 3600L;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "When active tablet priority scheduling is enabled: partition-level scheduling processes TopN active "
-                    + "partitions first, then other active partitions, "
-                    + "then inactive partitions, and internal databases last. "
-                    + "Default is 10000. <=0 disables TopN segmentation."})
+    @ConfField(mutable = true, masterOnly = true, description = "When active tablet priority scheduling is enabled: "
+            + "partition-level scheduling processes TopN active "
+            + "partitions first, then other active partitions, then "
+            + "inactive partitions, and internal databases last. "
+            + "Default is 10000. <=0 disables TopN segmentation.")
     public static int cloud_active_partition_scheduling_topn = 10000;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Refresh interval in seconds for the active-tablet snapshot when active priority scheduling is enabled. "
-                    + "Default 60 seconds. Reuses the same active-tablet set within the interval."})
+    @ConfField(mutable = true, masterOnly = true, description = "Refresh interval in seconds for the active-tablet "
+            + "snapshot when active priority scheduling is enabled. "
+            + "Default 60 seconds. Reuses the same active-tablet " + "set within the interval.")
     public static long cloud_active_tablet_ids_refresh_interval_second = 60L;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "When active priority scheduling is enabled and the active phase remains unbalanced for N consecutive "
-                    + "rounds, force one inactive phase round to avoid long-term starvation. "
-                    + "Default 10. <=0 disables this forced mechanism."})
+    @ConfField(mutable = true, masterOnly = true, description = "When active priority scheduling is enabled and the "
+            + "active phase remains unbalanced for N consecutive " + "rounds, force one inactive phase round to avoid "
+            + "long-term starvation. Default 10. <=0 disables this " + "forced mechanism.")
     public static int cloud_active_unbalanced_force_inactive_after_rounds = 10;
 
     @ConfField(mutable = true, masterOnly = false)
@@ -3271,36 +3160,34 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int mow_calculate_delete_bitmap_retry_times = 10;
 
-    @ConfField(description = {
-            "The allowlist for S3 load endpoints. If it is empty, no allowlist will be set. "
-                    + "For example: s3_load_endpoint_white_list=a,b,c. "
-                    + "This can only be set in fe.conf and takes effect after a restart; "
-                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
+    @ConfField(description = "The allowlist for S3 load endpoints. If it is empty, no allowlist will be set. For "
+            + "example: s3_load_endpoint_white_list=a,b,c. This can only be set in fe.conf and takes "
+            + "effect after a restart; it is intentionally not modifiable at runtime via ADMIN SET "
+            + "FRONTEND CONFIG.")
     public static String[] s3_load_endpoint_white_list = {};
 
-    @ConfField(description = {
-            "The default scheme for S3 endpoints without an explicit scheme. Valid values are http and https."},
+    @ConfField(description = "The default scheme for S3 endpoints without an explicit scheme. Valid values are http "
+            + "and https.",
             options = {"http", "https"})
     public static String s3_client_http_scheme = "https";
 
-    @ConfField(mutable = true, description = {
-            "For deterministic S3 paths (without wildcards like *, ?), use HEAD requests instead of "
-                    + "ListObjects to avoid requiring ListBucket permission. Brace patterns {1,2,3} and "
-                    + "non-negated bracket patterns [abc] are expanded to concrete paths. This is useful when only "
-                    + "GetObject permission is granted. Set to false to fall back to the original listing behavior."})
+    @ConfField(mutable = true, description = "For deterministic S3 paths (without wildcards like *, ?), use HEAD "
+            + "requests instead of ListObjects to avoid requiring ListBucket "
+            + "permission. Brace patterns {1,2,3} and non-negated bracket patterns "
+            + "[abc] are expanded to concrete paths. This is useful when only "
+            + "GetObject permission is granted. Set to false to fall back to the " + "original listing behavior.")
     public static boolean s3_skip_list_for_deterministic_path = true;
 
-    @ConfField(mutable = true, description = {
-            "Maximum number of expanded paths when using HEAD requests instead of ListObjects. "
-                    + "If the expanded path count exceeds this limit, falls back to ListObjects. "
-                    + "This prevents patterns like {1..100}/{1..100} from triggering too many HEAD requests."})
+    @ConfField(mutable = true, description = "Maximum number of expanded paths when using HEAD requests instead of "
+            + "ListObjects. If the expanded path count exceeds this limit, falls back "
+            + "to ListObjects. This prevents patterns like {1..100}/{1..100} from "
+            + "triggering too many HEAD requests.")
     public static int s3_head_request_max_paths = 100;
-    @ConfField(mutable = true, description = {
-            "The host suffix whitelist for Azure endpoints (both blob and dfs), separated by commas. "
-                    + "The default value is .blob.core.windows.net,.dfs.core.windows.net,"
-                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
-                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
-                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de."})
+    @ConfField(mutable = true, description = "The host suffix whitelist for Azure endpoints (both blob and dfs), "
+            + "separated by commas. The default value is "
+            + ".blob.core.windows.net,.dfs.core.windows.net,.blob.core.chinacloudapi.cn"
+            + ",.dfs.core.chinacloudapi.cn,.blob.core.usgovcloudapi.net,.dfs.core.usgov"
+            + "cloudapi.net,.blob.core.cloudapi.de,.dfs.core.cloudapi.de.")
     public static String[] azure_blob_host_suffixes = {
             ".blob.core.windows.net",
             ".dfs.core.windows.net",
@@ -3312,14 +3199,13 @@ public class Config extends ConfigBase {
             ".dfs.core.cloudapi.de"
     };
 
-    @ConfField(description = {
-            "The allowlist for JDBC driver URLs. If it is empty, no allowlist will be set. "
-                    + "For example: jdbc_driver_url_white_list=a,b,c. "
-                    + "This can only be set in fe.conf and takes effect after a restart; "
-                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
+    @ConfField(description = "The allowlist for JDBC driver URLs. If it is empty, no allowlist will be set. For "
+            + "example: jdbc_driver_url_white_list=a,b,c. This can only be set in fe.conf and takes "
+            + "effect after a restart; it is intentionally not modifiable at runtime via ADMIN SET "
+            + "FRONTEND CONFIG.")
     public static String[] jdbc_driver_url_white_list = {};
 
-    @ConfField(description = {"The maximum length of label in Stream Load is limited."})
+    @ConfField(description = "The maximum length of label in Stream Load is limited.")
     public static int label_regex_length = 128;
 
     @ConfField(mutable = true, masterOnly = true)
@@ -3337,19 +3223,16 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "zh-CN: 定期刷新 table-level warmup 任务匹配的 table ID 集合的时间间隔（毫秒）",
-            "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
+    @ConfField(mutable = true, masterOnly = true, description = "en: Interval in milliseconds to refresh matched "
+            + "table IDs for table-level warmup jobs")
     public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "zh-CN: 定期从 BE 拉取主动增量预热 SyncStats 并缓存到 FE job 的时间间隔（毫秒）",
-            "en: Interval in milliseconds to collect event-driven warmup SyncStats from BEs and cache it in FE jobs"})
+    @ConfField(mutable = true, masterOnly = true, description = "en: Interval in milliseconds to collect event-driven "
+            + "warmup SyncStats from BEs and cache it in FE jobs")
     public static long cloud_warm_up_sync_stats_refresh_interval_ms = 15000; // 15 seconds
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "zh-CN: SHOW WARM UP JOB 和 FE 日志中 MatchedTables 最多展示的表数量",
-            "en: Maximum number of MatchedTables entries displayed in SHOW WARM UP JOB and FE logs"})
+    @ConfField(mutable = true, masterOnly = true, description = "en: Maximum number of MatchedTables entries "
+            + "displayed in SHOW WARM UP JOB and FE logs")
     public static int cloud_warm_up_matched_tables_display_limit = 100;
 
     @ConfField(mutable = true, masterOnly = true)
@@ -3378,177 +3261,158 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int audit_event_log_queue_size = 250000;
 
-    @ConfField(description = {"Maximum size of the lineage event queue. Events will be discarded when exceeded."})
+    @ConfField(description = "Maximum size of the lineage event queue. Events will be discarded when exceeded.")
     public static int lineage_event_queue_size = 50000;
 
-    @ConfField(mutable = true, description = {"Stream load route policy. Available options are "
-            + "public-private/public/private/direct/random-be and empty string."})
+    @ConfField(mutable = true, description = "Stream load route policy. Available options are "
+            + "public-private/public/private/direct/random-be and empty string.")
     public static String streamload_redirect_policy = "";
 
-    @ConfField(mutable = true, description = {
-            "Stream Load redirect 场景下，FE 在返回 307 后额外丢弃请求体的最大字节数。"
-                    + "0 表示关闭该兼容逻辑，正数表示最大丢弃字节数。",
-            "The maximum number of request body bytes FE drains after returning 307 for Stream Load redirects. "
-                    + "0 disables the compatibility logic, and a positive value sets the byte limit."})
+    @ConfField(mutable = true, description = "The maximum number of request body bytes FE drains after returning 307 "
+            + "for Stream Load redirects. 0 disables the compatibility logic, and a "
+            + "positive value sets the byte limit.")
     // Enable a generous bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
     public static long stream_load_redirect_bounded_drain_max_bytes = 1024L * 1024 * 1024;
 
-    @ConfField(mutable = true, description = {
-            "Stream Load redirect 场景下，FE 在检测到请求体暂时无可读数据后继续等待的最大空闲时长，单位毫秒。"
-                    + "0 表示不额外等待，用于给慢客户端或分段到达的数据保留一个有限的缓冲窗口。",
-            "The maximum idle wait time in milliseconds after FE detects no readable request body bytes "
-                    + "during Stream Load redirect drain. 0 disables the extra idle wait, while a positive value "
-                    + "keeps a bounded grace window for slow clients or delayed request body chunks."})
+    @ConfField(mutable = true, description = "The maximum idle wait time in milliseconds after FE detects no readable "
+            + "request body bytes during Stream Load redirect drain. 0 disables the "
+            + "extra idle wait, while a positive value keeps a bounded grace window "
+            + "for slow clients or delayed request body chunks.")
     // Keep a small grace period for delayed body chunks after FE has already written the redirect.
     public static int stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
 
-    @ConfField(mutable = true, description = {
-            "Whether to enable group commit streamload BE forward feature in cloud mode. "
-                    + "Solves the issue where LB random forwarding breaks group commit batching "
-                    + "by implementing BE-level forwarding to ensure same-table requests reach the same BE node."})
+    @ConfField(mutable = true, description = "Whether to enable group commit streamload BE forward feature in cloud "
+            + "mode. Solves the issue where LB random forwarding breaks group commit "
+            + "batching by implementing BE-level forwarding to ensure same-table " + "requests reach the same BE node.")
     public static boolean enable_group_commit_streamload_be_forward = false;
 
-    @ConfField(description = {"When creating a table in cloud mode, check if recycler keys remain. Default is true."})
+    @ConfField(description = "When creating a table in cloud mode, check if recycler keys remain. Default is true.")
     public static boolean check_create_table_recycle_key_remained = true;
 
-    @ConfField(mutable = true, description = {
-            "Lock expiration time for FE requesting a lock from meta service in cloud mode. Default is 60s."})
+    @ConfField(mutable = true, description = "Lock expiration time for FE requesting a lock from meta service in "
+            + "cloud mode. Default is 60s.")
     public static int delete_bitmap_lock_expiration_seconds = 60;
 
-    @ConfField(mutable = true, description = {
-            "Timeout for calculate delete bitmap task in cloud mode. Default is 60s."})
+    @ConfField(mutable = true, description = "Timeout for calculate delete bitmap task in cloud mode. Default is 60s.")
     public static int calculate_delete_bitmap_task_timeout_seconds = 60;
 
-    @ConfField(mutable = true, description = {
-            "Timeout for calculate delete bitmap task during transaction load in cloud mode. Default is 300s."})
+    @ConfField(mutable = true, description = "Timeout for calculate delete bitmap task during transaction load in "
+            + "cloud mode. Default is 300s.")
     public static int calculate_delete_bitmap_task_timeout_seconds_for_transaction_load = 300;
 
-    @ConfField(mutable = true, description = {"Lock wait timeout during commit phase in cloud mode. Default is 5s."})
+    @ConfField(mutable = true, description = "Lock wait timeout during commit phase in cloud mode. Default is 5s.")
     public static int try_commit_lock_timeout_seconds = 5;
 
-    @ConfField(mutable = true, description = {"Whether to enable commit lock for all tables during transaction commit. "
-            + "If true, commit lock will be applied to all tables. "
-            + "If false, commit lock will only be applied to Merge-On-Write tables. "
-            + "Default value is true."})
+    @ConfField(mutable = true, description = "Whether to enable commit lock for all tables during transaction commit. "
+            + "If true, commit lock will be applied to all tables. If false, commit "
+            + "lock will only be applied to Merge-On-Write tables. Default value is " + "true.")
     public static boolean enable_commit_lock_for_all_tables = true;
 
-    @ConfField(mutable = true, description = {
-            "Whether to enable lazy commit for large transactions in cloud mode. Default is true."})
+    @ConfField(mutable = true, description = "Whether to enable lazy commit for large transactions in cloud mode. "
+            + "Default is true.")
     public static boolean enable_cloud_txn_lazy_commit = true;
 
     @ConfField(mutable = true, masterOnly = true,
-            description = {
-                    "Whether to immediately reassign tablets to a new BE when the assigned BE is abnormal "
-                            + "in cloud mode. Default is false."})
+            description = "Whether to immediately reassign tablets to a new BE when the assigned BE is abnormal in "
+                    + "cloud mode. Default is false.")
     public static boolean enable_immediate_be_assign = false;
 
     @ConfField(mutable = true, masterOnly = false,
-            description = {
-                    "Time in seconds after a BE goes down before its tablets are permanently reassigned "
-                            + "to other BEs in cloud mode."})
+            description = "Time in seconds after a BE goes down before its tablets are permanently reassigned to "
+                    + "other BEs in cloud mode.")
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
     @ConfField(mutable = false, masterOnly = true,
-            description = {
-                    "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
-                            + "If false, use the legacy modulo placement. Restart-only."})
+            description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "
+                    + "use the legacy modulo placement. Restart-only.")
     public static boolean enable_cloud_colocate_consistent_hash = true;
 
-    @ConfField(mutable = true, description = {
-            "Whether to enable the automatic start-stop feature in cloud model, default is true."})
+    @ConfField(mutable = true, description = "Whether to enable the automatic start-stop feature in cloud model, "
+            + "default is true.")
     public static boolean enable_auto_start_for_cloud_cluster = true;
 
-    @ConfField(mutable = true, description = {
-            "The automatic start-stop wait time for cluster wake-up backoff retry count in the cloud "
-                    + "model is set to 300 times, which is approximately 5 minutes by default."})
+    @ConfField(mutable = true, description = "The automatic start-stop wait time for cluster wake-up backoff retry "
+            + "count in the cloud model is set to 300 times, which is approximately 5 " + "minutes by default.")
     public static int auto_start_wait_to_resume_times = 300;
 
-    @ConfField(description = {
-            "Maximal concurrent num of master FE sync tablet stats task to observers and followers in cloud mode."})
+    @ConfField(description = "Maximal concurrent num of master FE sync tablet stats task to observers and followers "
+            + "in cloud mode.")
     public static int cloud_sync_tablet_stats_task_threads_num = 4;
 
-    @ConfField(mutable = true, description = {"Version of getting tablet stats in cloud mode. "
-            + "Version 1: get all tablets; Version 2: get active and interval expired tablets"})
+    @ConfField(mutable = true, description = "Version of getting tablet stats in cloud mode. Version 1: get all "
+            + "tablets; Version 2: get active and interval expired tablets")
     public static int cloud_get_tablet_stats_version = 2;
 
-    @ConfField(description = {"Maximum concurrent number of get tablet stat jobs."})
+    @ConfField(description = "Maximum concurrent number of get tablet stat jobs.")
     public static int max_get_tablet_stat_task_threads_num = 4;
 
-    @ConfField(description = {
-            "Cloud table and partition version syncer interval. All frontends will perform the checking."})
+    @ConfField(description = "Cloud table and partition version syncer interval. All frontends will perform the "
+            + "checking.")
     public static int cloud_version_syncer_interval_second = 20;
 
-    @ConfField(mutable = true, description = {
-            "Whether to enable the function of syncing table and partition version in cloud mode."})
+    @ConfField(mutable = true, description = "Whether to enable the function of syncing table and partition version "
+            + "in cloud mode.")
     public static boolean cloud_enable_version_syncer = true;
 
-    @ConfField(description = {"Concurrent number of get version tasks."})
+    @ConfField(description = "Concurrent number of get version tasks.")
     public static int cloud_get_version_task_threads_num = 4;
 
-    @ConfField(description = {"Maximum concurrent number of sync version tasks between Master FE and other FEs."})
+    @ConfField(description = "Maximum concurrent number of sync version tasks between Master FE and other FEs.")
     public static int cloud_sync_version_task_threads_num = 4;
 
-    @ConfField(mutable = true, description = {"Maximum table or partition batch size for get version tasks."})
+    @ConfField(mutable = true, description = "Maximum table or partition batch size for get version tasks.")
     public static int cloud_get_version_task_batch_size = 2000;
 
-    @ConfField(mutable = true, description = {
-            "Whether to enable retry when a schema change job fails, default is true."})
+    @ConfField(mutable = true, description = "Whether to enable retry when a schema change job fails, default is true.")
     public static boolean enable_schema_change_retry = true;
 
-    @ConfField(mutable = true, description = {"Max retry times when a schema change job fails, default is 3."})
+    @ConfField(mutable = true, description = "Max retry times when a schema change job fails, default is 3.")
     public static int schema_change_max_retry_time = 3;
 
-    @ConfField(mutable = true, description = {"Whether to enable the use of ShowCacheHotSpotStmt, default is false."})
+    @ConfField(mutable = true, description = "Whether to enable the use of ShowCacheHotSpotStmt, default is false.")
     public static boolean enable_show_file_cache_hotspot_stmt = false;
 
-    @ConfField(mutable = true, description = {
-            "Request timeout for FE connecting to meta service in cloud mode, default is 30000ms."})
+    @ConfField(mutable = true, description = "Request timeout for FE connecting to meta service in cloud mode, "
+            + "default is 30000ms.")
     public static int meta_service_brpc_timeout_ms = 30000;
 
-    @ConfField(mutable = true, description = {
-            "Connection timeout for FE connecting to meta service in cloud mode. Default is 500ms."})
+    @ConfField(mutable = true, description = "Connection timeout for FE connecting to meta service in cloud mode. "
+            + "Default is 500ms.")
     public static int meta_service_brpc_connect_timeout_ms = 500;
 
-    @ConfField(mutable = true, description = {
-            "In cloud mode, the retry count when the FE request to meta service times out. Default is 1."})
+    @ConfField(mutable = true, description = "In cloud mode, the retry count when the FE request to meta service "
+            + "times out. Default is 1.")
     public static int meta_service_rpc_timeout_retry_times = 1;
 
-    @ConfField(mutable = true, description = {
-            "Whether to enable QPS rate limit for RPC requests to meta service."})
+    @ConfField(mutable = true, description = "Whether to enable QPS rate limit for RPC requests to meta service.")
     public static boolean meta_service_rpc_rate_limit_enabled = false;
 
-    @ConfField(mutable = true, description = {
-            "Default QPS limit for each method (requests per second) in each cpu core, "
-                    + "non-positive value (<= 0) means no limit"})
+    @ConfField(mutable = true, description = "Default QPS limit for each method (requests per second) in each cpu "
+            + "core, non-positive value (<= 0) means no limit")
     public static int meta_service_rpc_rate_limit_default_qps_per_core = 50;
 
     @ConfField(mutable = true,
             callback = MetaServiceRpcRateLimitConfigValidator.QpsConfigHandler.class,
-            description = {
-                "QPS limit config per rpc method to meta service in per cpu core, "
-                    + "format: method1:qps1;method2:qps2, "
-                    + "e.g.: getPartitionVersion:100;getTableVersion:100;getTabletStats:50, "
-                    + "non-positive value (<= 0) means no limit"})
+            description = "QPS limit config per rpc method to meta service in per cpu core, format: "
+                    + "method1:qps1;method2:qps2, e.g.: "
+                    + "getPartitionVersion:100;getTableVersion:100;getTabletStats:50, non-positive value (<= 0) "
+                    + "means no limit")
     public static String meta_service_rpc_rate_limit_qps_per_core_config
             = "getPartitionVersion:500;getTableVersion:500;getTabletStats:50;beginTxn:50";
 
     @ConfField(mutable = true,
             callback = MetaServiceRpcRateLimitConfigValidator.PositiveIntConfigHandler.class,
-            description = {
-                "Burst window for meta service RPC rate limit in seconds. "
-                    + "The long-term average QPS is unchanged, while calls can burst within this window."})
+            description = "Burst window for meta service RPC rate limit in seconds. The long-term average QPS is "
+                    + "unchanged, while calls can burst within this window.")
     public static int meta_service_rpc_rate_limit_burst_seconds = 2;
 
     @ConfField(mutable = true, callback = MetaServiceRpcRateLimitConfigValidator.NonNegativeLongConfigHandler.class,
-            description = {
-                "Max wait time in milliseconds when meta service RPC is rate limited, "
-                    + "zero means fail fast."})
+            description = "Max wait time in milliseconds when meta service RPC is rate limited, zero means fail fast.")
     public static long meta_service_rpc_rate_limit_wait_timeout_ms = 1000;
 
-    @ConfField(mutable = true, description = {
-            "In cloud mode, the auto start and stop ignores the databases used by internal jobs, "
-                    + "such as those used for statistics. "
-                    + "For example: auto_start_ignore_db_names=__internal_schema, information_schema"})
+    @ConfField(mutable = true, description = "In cloud mode, the auto start and stop ignores the databases used by "
+            + "internal jobs, such as those used for statistics. For example: "
+            + "auto_start_ignore_db_names=__internal_schema, information_schema")
     public static String[] auto_start_ignore_resume_db_names = {"__internal_schema", "information_schema"};
 
     @ConfField(mutable = true, masterOnly = true)
@@ -3563,38 +3427,34 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
-    @ConfField(mutable = false, masterOnly = true, description = {
-            "TSO service update interval in milliseconds. Default is 50, which means the TSO service "
-                    + "will perform timestamp update checks every 50 milliseconds."})
+    @ConfField(mutable = false, masterOnly = true, description = "TSO service update interval in milliseconds. "
+            + "Default is 50, which means the TSO service will " + "perform timestamp update checks every 50 "
+            + "milliseconds.")
     public static int tso_service_update_interval_ms = 50;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "TSO service max retry count. Default is 3, which means the TSO service will retry 3 times "
-                    + "to update the global timestamp."})
+    @ConfField(mutable = true, masterOnly = true, description = "TSO service max retry count. Default is 3, which "
+            + "means the TSO service will retry 3 times to update " + "the global timestamp.")
     public static int tso_max_update_retry_count = 3;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "TSO get max retry count. Default is 10, which means the TSO service will retry 10 times "
-                    + "to generate TSO."})
+    @ConfField(mutable = true, masterOnly = true, description = "TSO get max retry count. Default is 10, which means "
+            + "the TSO service will retry 10 times to generate TSO.")
     public static int tso_max_get_retry_count = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "TSO service time window in milliseconds. Default is 5000, which means the TSO service "
-                    + "will apply for a TSO time window of 5000ms from BDBJE once."})
+    @ConfField(mutable = true, masterOnly = true, description = "TSO service time window in milliseconds. Default is "
+            + "5000, which means the TSO service will apply for a " + "TSO time window of 5000ms from BDBJE once.")
     public static int tso_service_window_duration_ms = 5000;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Max tolerated clock backward threshold during TSO calibration in milliseconds. "
-                    + "Exceeding this threshold will fail enabling TSO. Default is 30 minutes."})
+    @ConfField(mutable = true, masterOnly = true, description = "Max tolerated clock backward threshold during TSO "
+            + "calibration in milliseconds. Exceeding this " + "threshold will fail enabling TSO. Default is 30 "
+            + "minutes.")
     public static long tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
 
-    @ConfField(mutable = true, description = {
-            "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service "
-                    + "timestamp offset is 0 milliseconds."})
+    @ConfField(mutable = true, description = "TSO service time offset in milliseconds. Only for test. Default is 0, "
+            + "which means the TSO service timestamp offset is 0 milliseconds.")
     public static int tso_time_offset_debug_mode = 0;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to forward TSO 1ms when logical counter is nearly full. Default is true."})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to forward TSO 1ms when logical counter is "
+            + "nearly full. Default is true.")
     public static boolean enable_tso_forward_when_counter_full = true;
 
     @ConfField(mutable = true, masterOnly = true)
@@ -3608,119 +3468,111 @@ public class Config extends ConfigBase {
     //==========================================================================
     //==========================================================================
     //                      start of lock config
-    @ConfField(description = {"Whether to enable deadlock detection."})
+    @ConfField(description = "Whether to enable deadlock detection.")
     public static boolean enable_deadlock_detection = true;
 
-    @ConfField(description = {"Deadlock detection interval time, in minutes."})
+    @ConfField(description = "Deadlock detection interval time, in minutes.")
     public static long deadlock_detection_interval_minute = 5;
 
-    @ConfField(mutable = true, description = {"Maximum lock hold time. Logs a warning if exceeded."})
+    @ConfField(mutable = true, description = "Maximum lock hold time. Logs a warning if exceeded.")
     public static long max_lock_hold_threshold_seconds = 10;
 
-    @ConfField(mutable = true, description = {"Whether metadata synchronization is enabled in safe mode."})
+    @ConfField(mutable = true, description = "Whether metadata synchronization is enabled in safe mode.")
     public static boolean meta_helper_security_mode = false;
 
-    @ConfField(description = {"Interval for checking if a resource is ready."})
+    @ConfField(description = "Interval for checking if a resource is ready.")
     public static long resource_not_ready_sleep_seconds = 5;
 
-    @ConfField(mutable = true, description = {
-            "When set to true, if a query cannot select a healthy replica, "
-                    + "detailed information of all replicas of the tablet will be printed."})
+    @ConfField(mutable = true, description = "When set to true, if a query cannot select a healthy replica, detailed "
+            + "information of all replicas of the tablet will be printed.")
     public static boolean sql_block_rule_ignore_admin = false;
 
-    @ConfField(description = {"Authentication plugin root directories. Use a comma-separated list to configure "
-            + "multiple roots."})
+    @ConfField(description = "Authentication plugin root directories. Use a comma-separated list to configure "
+            + "multiple roots.")
     public static String authentication_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authentication";
 
-    @ConfField(description = {"Authorization plugin root directories. Use a comma-separated list to configure "
-            + "multiple roots."})
+    @ConfField(description = "Authorization plugin root directories. Use a comma-separated list to configure multiple "
+            + "roots.")
     public static String authorization_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authorization";
 
-    @ConfField(description = {"Security plugin directory."})
+    @ConfField(description = "Security plugin directory.")
     public static String security_plugins_dir = EnvUtils.getDorisHome() + "/plugins/security";
 
-    @ConfField(description = {"Directory containing filesystem provider plugin subdirectories. "
-            + "Each subdirectory is one storage backend (e.g., s3/, hdfs/, azure/). "
-            + "If empty, only classpath-based built-in providers are used (test/dev mode)."})
+    @ConfField(description = "Directory containing filesystem provider plugin subdirectories. Each subdirectory is "
+            + "one storage backend (e.g., s3/, hdfs/, azure/). If empty, only classpath-based built-in "
+            + "providers are used (test/dev mode).")
     public static String filesystem_plugin_root = EnvUtils.getDorisHome() + "/plugins/filesystem";
 
-    @ConfField(description = {"Directory containing connector provider plugin subdirectories. "
-            + "Each subdirectory is one connector (e.g., es/, jdbc/, iceberg/). "
-            + "If empty, only classpath-based built-in providers are used (test/dev mode)."})
+    @ConfField(description = "Directory containing connector provider plugin subdirectories. Each subdirectory is one "
+            + "connector (e.g., es/, jdbc/, iceberg/). If empty, only classpath-based built-in "
+            + "providers are used (test/dev mode).")
     public static String connector_plugin_root = EnvUtils.getDorisHome() + "/plugins/connector";
 
-    @ConfField(description = {"Authorization plugin configuration file path. Must be under DORIS_HOME. "
-            + "Default is conf/authorization.conf."})
+    @ConfField(description = "Authorization plugin configuration file path. Must be under DORIS_HOME. Default is "
+            + "conf/authorization.conf.")
     public static String authorization_config_file_path = "/conf/authorization.conf";
 
-    @ConfField(description = {"Authentication plugin configuration file path. Must be under DORIS_HOME. "
-            + "Default is conf/authentication.conf."})
+    @ConfField(description = "Authentication plugin configuration file path. Must be under DORIS_HOME. Default is "
+            + "conf/authentication.conf.")
     public static String authentication_config_file_path = "/conf/authentication.conf";
 
-    @ConfField(description = {"For testing purposes, all queries are forcibly forwarded to the master to verify "
-            + "the behavior of forwarding queries."})
+    @ConfField(description = "For testing purposes, all queries are forcibly forwarded to the master to verify the "
+            + "behavior of forwarding queries.")
     public static boolean force_forward_all_queries = false;
 
-    @ConfField(description = {
-            "For disabling certain SQL queries, the configuration item is a list of simple class names of AST "
-                    + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
+    @ConfField(description = "For disabling certain SQL queries, the configuration item is a list of simple class "
+            + "names of AST (for example CreateRepositoryStmt, CreatePolicyCommand), separated by " + "commas.")
     public static String block_sql_ast_names = "";
 
     public static long meta_service_rpc_reconnect_interval_ms = 100;
 
     public static long meta_service_rpc_retry_cnt = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to allow the use of inverted index v1 for variant."})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to allow the use of inverted index v1 for "
+            + "variant.")
     public static boolean enable_inverted_index_v1_for_variant = false;
 
-    @ConfField(mutable = true, description = {"Prometheus output table dimension metric count limit."})
+    @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;
 
 
     @ConfField(mutable = true, masterOnly = true)
     public static long create_partition_wait_seconds = 300;
 
-    @ConfField(mutable = true, description = {
-            "The ID of the master key in KMS, used for generating and encrypting data keys"})
+    @ConfField(mutable = true, description = "The ID of the master key in KMS, used for generating and encrypting "
+            + "data keys")
     public static String doris_tde_key_id = "";
 
-    @ConfField(mutable = true, description = {"The endpoint of the KMS service, should match the region of the key"})
+    @ConfField(mutable = true, description = "The endpoint of the KMS service, should match the region of the key")
     public static String doris_tde_key_endpoint = "";
 
-    @ConfField(mutable = true, description = {"The region where the KMS key is located, used for SDK configuration"})
+    @ConfField(mutable = true, description = "The region where the KMS key is located, used for SDK configuration")
     public static String doris_tde_key_region = "";
 
-    @ConfField(mutable = true, description = {
-            "The key provider for TDE (Transparent Data Encryption), currently supports aws_kms"})
+    @ConfField(mutable = true, description = "The key provider for TDE (Transparent Data Encryption), currently "
+            + "supports aws_kms")
     public static String doris_tde_key_provider = "";
 
-    @ConfField(mutable = true, description = {
-            "The encryption algorithm used for data. Default is AES256; may be set to empty later for KMS to decide."})
+    @ConfField(mutable = true, description = "The encryption algorithm used for data. Default is AES256; may be set "
+            + "to empty later for KMS to decide.")
     public static String doris_tde_algorithm = "PLAINTEXT";
 
-    @ConfField(mutable = true, description = {
-            "The time interval for automatic rotation of the master key in data encryption, in milliseconds."
-                    + "The default interval is one month."})
+    @ConfField(mutable = true, description = "The time interval for automatic rotation of the master key in data "
+            + "encryption, in milliseconds.The default interval is one month.")
     public static long doris_tde_rotate_master_key_interval_ms = 30 * 24 * 3600 * 1000L;
 
-    @ConfField(mutable = true, description = {
-            "The interval at which data encryption checks whether to rotate the master key, in milliseconds. "
-                    + "The default interval is five minutes."})
+    @ConfField(mutable = true, description = "The interval at which data encryption checks whether to rotate the "
+            + "master key, in milliseconds. The default interval is five minutes.")
     public static long doris_tde_check_rotate_master_key_interval_ms = 5 * 60 * 1000L;
 
-    @ConfField(mutable = true, description = {
-            "The maximum length of the first row error message when data quality error occurs, default is 256 bytes"})
+    @ConfField(mutable = true, description = "The maximum length of the first row error message when data quality "
+            + "error occurs, default is 256 bytes")
     public static int first_error_msg_max_length = 256;
 
-    @ConfField(mutable = false, description = {
-        "Whether to enable file cache admission control(Blocklist and Allowlist)"
-    })
+    @ConfField(mutable = false, description = "Whether to enable file cache admission control(Blocklist and Allowlist)")
     public static boolean enable_file_cache_admission_control = false;
 
-    @ConfField(mutable = false, description = {
-        "Directory path for storing admission rules JSON files"
-    })
+    @ConfField(mutable = false, description = "Directory path for storing admission rules JSON files")
     public static String file_cache_admission_control_json_dir = "";
 
     @ConfField
@@ -3734,10 +3586,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
 
-    @ConfField(mutable = true, description = {"The minimum privilege required for cluster snapshot operations. "
-            + "Valid values: 'root' (only root user can execute)"
-            + " or 'admin' (users with ADMIN privilege can execute). "
-            + "Default is 'root'."})
+    @ConfField(mutable = true, description = "The minimum privilege required for cluster snapshot operations. Valid "
+            + "values: 'root' (only root user can execute) or 'admin' (users with "
+            + "ADMIN privilege can execute). Default is 'root'.")
     public static String cluster_snapshot_min_privilege = "root";
 
     @ConfField(mutable = true)
@@ -3750,46 +3601,38 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
 
-    @ConfField(mutable = true, description = {
-            "The soft upper limit of FILE_CACHE percent that a single query of a user can use (range: 1 to 100).",
-            "100 indicates that the full FILE_CACHE capacity can be used."})
+    @ConfField(mutable = true, description = "The soft upper limit of FILE_CACHE percent that a single query of a "
+            + "user can use (range: 1 to 100). 100 indicates that the full FILE_CACHE " + "capacity can be used.")
     public static int file_cache_query_limit_max_percent = 100;
-    @ConfField(description = {
-            "The thread pool size used by the AWS SDK to schedule asynchronous retries, timeout tasks, "
-                    + "and other background operations. Shared globally."})
+    @ConfField(description = "The thread pool size used by the AWS SDK to schedule asynchronous retries, timeout "
+            + "tasks, and other background operations. Shared globally.")
     public static int aws_sdk_async_scheduler_thread_pool_size = 20;
 
-    @ConfField(description = {
-            "Agent tasks health check interval. Default is five minutes. "
-                    + "No health check when less than or equal to 0."})
+    @ConfField(description = "Agent tasks health check interval. Default is five minutes. No health check when less "
+            + "than or equal to 0.")
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
-    @ConfField(description = {
-            "Whether to skip the FE internal catalog privilege check in catalog-level privilege validation. "
-                    + "This only applies to SHOW/SELECT on external catalogs with a custom access controller. "
-                    + "Internal catalogs, catalogs without a custom access controller, and other privileges such "
-                    + "as CREATE/LOAD/ALTER are still validated by the default logic."})
+    @ConfField(description = "Whether to skip the FE internal catalog privilege check in catalog-level privilege "
+            + "validation. This only applies to SHOW/SELECT on external catalogs with a custom access "
+            + "controller. Internal catalogs, catalogs without a custom access controller, and other "
+            + "privileges such as CREATE/LOAD/ALTER are still validated by the default logic.")
     public static boolean skip_catalog_priv_check = false;
 
-    @ConfField(mutable = true, description = {
-            "In compute-storage separation mode, whether to obtain partition version information in batches when "
-                    + "calculating the delete bitmap. Enabled by default."})
+    @ConfField(mutable = true, description = "In compute-storage separation mode, whether to obtain partition version "
+            + "information in batches when calculating the delete bitmap. Enabled by " + "default.")
     public static boolean calc_delete_bitmap_get_versions_in_batch = true;
 
-    @ConfField(mutable = true, description = {
-            "In compute-storage separation mode, whether to wait for pending transactions to complete before "
-                    + "obtaining partition version information when calculating the delete bitmap. Enabled "
-                    + "by default."})
+    @ConfField(mutable = true, description = "In compute-storage separation mode, whether to wait for pending "
+            + "transactions to complete before obtaining partition version information "
+            + "when calculating the delete bitmap. Enabled by default.")
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable adaptive random bucket load. When enabled, each BE computes its own local "
-                    + "bucket set (buckets whose primary replica it hosts) from the tablet location info "
-                    + "sent by FE, and rotates across those buckets once per-tablet write volume exceeds "
-                    + "the threshold (default 200 MB). This reduces import memory pressure and improves "
-                    + "throughput for random-distribution tables. Covers all load types uniformly.",
-            "是否启用自适应随机桶导入。开启后每个 BE 根据 FE 下发的 tablet 位置信息自行计算本地桶集合"
-                    + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
-                    + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable adaptive random bucket load. When "
+            + "enabled, each BE computes its own local bucket set "
+            + "(buckets whose primary replica it hosts) from the "
+            + "tablet location info sent by FE, and rotates across "
+            + "those buckets once per-tablet write volume exceeds "
+            + "the threshold (default 200 MB). This reduces import " + "memory pressure and improves throughput for "
+            + "random-distribution tables. Covers all load types " + "uniformly.")
     public static boolean enable_adaptive_random_bucket_load = true;
 
 }
