@@ -277,7 +277,9 @@ private:
     Slice _v2_def_levels;
     bool _dict_checked = false;
     bool _has_dict = false;
+    bool _empty_value_section = false;
     Decoder* _page_decoder = nullptr;
+    std::unique_ptr<Decoder> _empty_value_decoder;
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;

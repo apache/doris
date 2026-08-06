@@ -27,13 +27,17 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_column_reader.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "runtime/runtime_state.h"
+#include "util/block_compression.h"
 #include "util/coding.h"
+#include "util/faststring.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -251,6 +255,52 @@ Status make_plain_fixture(ColumnChunkFixture* fixture, int page_count = 1) {
     return Status::OK();
 }
 
+Status make_empty_boolean_v2_fixture(bool is_null, ColumnChunkFixture* fixture) {
+    BlockCompressionCodec* codec = nullptr;
+    RETURN_IF_ERROR(get_block_compression_codec(segment_v2::CompressionTypePB::SNAPPY, &codec));
+    const uint8_t unused = 0;
+    faststring compressed_values;
+    RETURN_IF_ERROR(codec->compress(Slice(&unused, 0), &compressed_values));
+
+    const std::vector<uint8_t> definition_levels {2, static_cast<uint8_t>(is_null ? 0 : 1)};
+    std::vector<uint8_t> payload = definition_levels;
+    if (compressed_values.size() != 0) {
+        payload.insert(payload.end(), compressed_values.data(),
+                       compressed_values.data() + compressed_values.size());
+    }
+
+    tparquet::DataPageHeaderV2 data_header;
+    data_header.__set_num_values(1);
+    data_header.__set_num_nulls(is_null ? 1 : 0);
+    data_header.__set_num_rows(1);
+    data_header.__set_encoding(tparquet::Encoding::PLAIN);
+    data_header.__set_definition_levels_byte_length(definition_levels.size());
+    data_header.__set_repetition_levels_byte_length(0);
+    data_header.__set_is_compressed(true);
+
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE_V2;
+    header.__set_compressed_page_size(cast_set<int32_t>(payload.size()));
+    header.__set_uncompressed_page_size(cast_set<int32_t>(definition_levels.size()));
+    header.__set_data_page_header_v2(data_header);
+
+    int64_t data_page_offset = 0;
+    int32_t data_page_size = 0;
+    RETURN_IF_ERROR(
+            append_page(&header, payload, fixture->data, &data_page_offset, &data_page_size));
+
+    auto& metadata = fixture->chunk.meta_data;
+    metadata.__set_type(tparquet::Type::BOOLEAN);
+    metadata.__set_codec(tparquet::CompressionCodec::SNAPPY);
+    metadata.__set_num_values(1);
+    metadata.__set_data_page_offset(data_page_offset);
+    metadata.__set_total_compressed_size(data_page_size);
+
+    fixture->field_schema.physical_type = tparquet::Type::BOOLEAN;
+    fixture->field_schema.definition_level = 1;
+    return Status::OK();
+}
+
 void expect_dictionary_values(ColumnChunkReader<false, false>* reader) {
     MutableColumnPtr column = ColumnString::create();
     ASSERT_TRUE(reader->read_dict_values_to_column(column).ok());
@@ -384,6 +434,59 @@ TEST(ParquetColumnChunkReaderTest, FailedDictionaryCheckCanBeRetried) {
         EXPECT_TRUE(has_dict);
         EXPECT_GT(buffered_reader.read_count(), failed_read);
     }
+}
+
+TEST(ParquetColumnChunkReaderTest, CompressedV2AllNullBooleanAcceptsEmptyValueSection) {
+    ColumnChunkFixture fixture;
+    ASSERT_TRUE(make_empty_boolean_v2_fixture(true, &fixture).ok());
+    CountingBufferedReader buffered_reader(std::move(fixture.data));
+    ParquetPageReadContext page_read_ctx(false);
+    ColumnChunkReader<false, false> reader(&buffered_reader, &fixture.chunk, &fixture.field_schema,
+                                           nullptr, 1, nullptr, page_read_ctx);
+
+    ASSERT_TRUE(reader.init().ok());
+    ASSERT_TRUE(reader.parse_page_header().ok());
+    ASSERT_TRUE(reader.load_page_data().ok());
+    EXPECT_TRUE(reader.get_page_data().empty());
+    EXPECT_TRUE(reader.skip_values(0).ok());
+
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(nullptr, 0, false).ok());
+    ColumnSelectVector select_vector;
+    const std::vector<uint16_t> null_map {0, 1};
+    ASSERT_TRUE(select_vector.init(null_map, 1, nullptr, &filter_map, 0).ok());
+    MutableColumnPtr column = ColumnUInt8::create();
+    DataTypePtr data_type = std::make_shared<DataTypeUInt8>();
+    ASSERT_TRUE(reader.decode_values(column, data_type, select_vector, false).ok());
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(assert_cast<const ColumnUInt8&>(*column).get_data()[0], 0);
+}
+
+TEST(ParquetColumnChunkReaderTest, CompressedV2NonNullBooleanRejectsEmptyValueSection) {
+    ColumnChunkFixture fixture;
+    ASSERT_TRUE(make_empty_boolean_v2_fixture(false, &fixture).ok());
+    CountingBufferedReader buffered_reader(std::move(fixture.data));
+    ParquetPageReadContext page_read_ctx(false);
+    ColumnChunkReader<false, false> reader(&buffered_reader, &fixture.chunk, &fixture.field_schema,
+                                           nullptr, 1, nullptr, page_read_ctx);
+
+    ASSERT_TRUE(reader.init().ok());
+    ASSERT_TRUE(reader.parse_page_header().ok());
+    ASSERT_TRUE(reader.load_page_data().ok());
+    EXPECT_TRUE(reader.skip_values(1).is<ErrorCode::CORRUPTION>());
+    EXPECT_EQ(reader.remaining_num_values(), 1);
+
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(nullptr, 0, false).ok());
+    ColumnSelectVector select_vector;
+    const std::vector<uint16_t> null_map {1};
+    ASSERT_TRUE(select_vector.init(null_map, 1, nullptr, &filter_map, 0).ok());
+    MutableColumnPtr column = ColumnUInt8::create();
+    DataTypePtr data_type = std::make_shared<DataTypeUInt8>();
+    EXPECT_TRUE(reader.decode_values(column, data_type, select_vector, false)
+                        .is<ErrorCode::CORRUPTION>());
+    EXPECT_EQ(reader.remaining_num_values(), 1);
+    EXPECT_TRUE(column->empty());
 }
 
 TEST(ParquetColumnChunkReaderTest, ScalarDictionaryReadUsesExplicitProbe) {
