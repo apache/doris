@@ -30,6 +30,7 @@
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/packed_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"

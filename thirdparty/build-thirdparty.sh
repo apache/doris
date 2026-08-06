@@ -155,7 +155,8 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-eval "bash ${TP_DIR}/download-thirdparty.sh ${packages[*]}"
+prepare_arrow_paimon_download_packages "${packages[@]}"
+bash "${TP_DIR}/download-thirdparty.sh" "${ARROW_PAIMON_DOWNLOAD_PACKAGES[@]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -1064,6 +1065,7 @@ build_grpc() {
 # arrow
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
+    invalidate_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
 
     mkdir -p release
@@ -1088,9 +1090,7 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="${ldflags}" \
+    LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
@@ -1125,6 +1125,7 @@ build_arrow() {
         -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
         -DARROW_LZ4_USE_SHARED=OFF \
+        -DLZ4_ROOT="${TP_INSTALL_DIR};${TP_INSTALL_DIR}/include/lz4" \
         -DLZ4_LIB="${TP_INSTALL_DIR}/lib/liblz4.a" -DLZ4_INCLUDE_DIR="${TP_INSTALL_DIR}/include/lz4" \
         -DLz4_SOURCE=SYSTEM \
         -DARROW_ZSTD_USE_SHARED=OFF \
@@ -1147,9 +1148,12 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
+    strip_lib libarrow_compute.a
     strip_lib libparquet.a
     strip_lib libarrow_dataset.a
     strip_lib libarrow_acero.a
+
+    publish_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
 # arrow-adbc
@@ -2130,6 +2134,8 @@ build_pugixml() {
 # paimon-cpp
 build_paimon_cpp() {
     check_if_source_exist "${PAIMON_CPP_SOURCE}"
+    require_arrow_prebuilt_for_paimon "${TP_INSTALL_DIR}"
+    invalidate_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
 
     rm -rf "${BUILD_DIR}"
@@ -2176,6 +2182,7 @@ build_paimon_cpp() {
         mkdir -p "${paimon_deps_dir}"
         for paimon_arrow_dep in \
             libarrow.a \
+            libarrow_compute.a \
             libarrow_filesystem.a \
             libarrow_dataset.a \
             libarrow_acero.a \
@@ -2209,6 +2216,7 @@ build_paimon_cpp() {
     fi
 
     echo "Paimon-cpp internal dependencies installed successfully"
+    publish_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
 # lance-c

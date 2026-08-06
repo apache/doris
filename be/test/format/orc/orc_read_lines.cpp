@@ -46,6 +46,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "service/backend_options.h"
 #include "storage/segment/column_reader.h"
 #include "testutil/desc_tbl_builder.h"
 

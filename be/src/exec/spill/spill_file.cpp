@@ -57,8 +57,8 @@ void SpillFile::gc() {
                                                    _spill_dir, status.to_string());
         }
     }
-    // decrease spill data usage anyway, since in ~QueryContext() spill data of the query will be
-    // clean up as a last resort
+    // Decrease spill data usage even if per-file cleanup failed. QueryContext teardown deletes the
+    // whole query spill directory and retains failures for later retries.
     _data_dir->update_spill_data_usage(-_total_written_bytes);
     _total_written_bytes = 0;
 }

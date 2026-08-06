@@ -39,6 +39,7 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include "runtime/cluster_info.h"
 #include "service/backend_options.h"
 #include "service/internal_service.h"
 #include "storage/olap_common.h"

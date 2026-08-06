@@ -875,15 +875,24 @@ void write_sparse_filter_nested_parquet_file(const std::string& file_path) {
 
     ::parquet::WriterProperties::Builder builder;
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
-    // V2 and page-index writers preserve record boundaries, so use V1 here to produce the
-    // continuation pages that the reader must still handle correctly.
+    // Arrow 24 enables page indexes by default. V2 and page-index writers preserve record
+    // boundaries, so use V1 without a page index to produce the continuation pages that the
+    // reader must still handle correctly.
     builder.data_page_version(::parquet::ParquetDataPageVersion::V1);
+    builder.disable_write_page_index();
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     builder.disable_dictionary();
     builder.write_batch_size(8);
-    builder.data_pagesize(64);
+    // Arrow 24 checks repeated-column page limits only at record or WriteBatch boundaries.
+    // A one-byte target deterministically flushes at every eligible boundary, including the
+    // deliberately split wide record below.
+    builder.data_pagesize(1);
     auto writer = ::parquet::ParquetFileWriter::Open(out, schema, builder.build());
     auto* row_group = writer->AppendRowGroup();
+
+    // Split each wide record across WriteBatch calls. The first half flushes at the one-byte page
+    // limit, so the second call deterministically creates a page whose first repetition level is 1.
+    constexpr int64_t SPANNING_BATCH_VALUES = SPANNING_NESTED_VALUES / 2;
 
     auto* id_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
     const int32_t ids[] = {1, 2, 3, 4, 5, 6};
@@ -913,16 +922,32 @@ void write_sparse_filter_nested_parquet_file(const std::string& file_path) {
     map_keys.push_back(6000);
 
     auto* map_key_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
-    EXPECT_EQ(map_key_writer->WriteBatch(static_cast<int64_t>(map_repetition_levels.size()),
-                                         map_key_definition_levels.data(),
+    constexpr int64_t MAP_PREFIX_LEVELS = 4;
+    constexpr int64_t MAP_KEY_PREFIX_VALUES = 2;
+    constexpr int64_t MAP_SPLIT_LEVELS = MAP_PREFIX_LEVELS + SPANNING_BATCH_VALUES;
+    constexpr int64_t MAP_KEY_SPLIT_VALUES = MAP_KEY_PREFIX_VALUES + SPANNING_BATCH_VALUES;
+    EXPECT_EQ(map_key_writer->WriteBatch(MAP_SPLIT_LEVELS, map_key_definition_levels.data(),
                                          map_repetition_levels.data(), map_keys.data()),
-              static_cast<int64_t>(map_keys.size()));
+              MAP_KEY_SPLIT_VALUES);
+    EXPECT_EQ(map_key_writer->WriteBatch(
+                      static_cast<int64_t>(map_repetition_levels.size()) - MAP_SPLIT_LEVELS,
+                      map_key_definition_levels.data() + MAP_SPLIT_LEVELS,
+                      map_repetition_levels.data() + MAP_SPLIT_LEVELS,
+                      map_keys.data() + MAP_KEY_SPLIT_VALUES),
+              static_cast<int64_t>(map_keys.size()) - MAP_KEY_SPLIT_VALUES);
     map_key_writer->Close();
     auto* map_value_writer = static_cast<::parquet::ByteArrayWriter*>(row_group->NextColumn());
-    EXPECT_EQ(map_value_writer->WriteBatch(static_cast<int64_t>(map_repetition_levels.size()),
-                                           map_value_definition_levels.data(),
+    constexpr int64_t MAP_VALUE_PREFIX_VALUES = 1;
+    constexpr int64_t MAP_VALUE_SPLIT_VALUES = MAP_VALUE_PREFIX_VALUES + SPANNING_BATCH_VALUES;
+    EXPECT_EQ(map_value_writer->WriteBatch(MAP_SPLIT_LEVELS, map_value_definition_levels.data(),
                                            map_repetition_levels.data(), map_values.data()),
-              static_cast<int64_t>(map_values.size()));
+              MAP_VALUE_SPLIT_VALUES);
+    EXPECT_EQ(map_value_writer->WriteBatch(
+                      static_cast<int64_t>(map_repetition_levels.size()) - MAP_SPLIT_LEVELS,
+                      map_value_definition_levels.data() + MAP_SPLIT_LEVELS,
+                      map_repetition_levels.data() + MAP_SPLIT_LEVELS,
+                      map_values.data() + MAP_VALUE_SPLIT_VALUES),
+              static_cast<int64_t>(map_values.size()) - MAP_VALUE_SPLIT_VALUES);
     map_value_writer->Close();
 
     std::vector<int16_t> element_repetition_levels {0, 0, 0, 1, 0};
@@ -940,10 +965,19 @@ void write_sparse_filter_nested_parquet_file(const std::string& file_path) {
     element_definition_levels.push_back(3);
 
     auto* element_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
-    EXPECT_EQ(element_writer->WriteBatch(static_cast<int64_t>(element_repetition_levels.size()),
-                                         element_definition_levels.data(),
+    constexpr int64_t ELEMENT_PREFIX_LEVELS = 5;
+    constexpr int64_t ELEMENT_PREFIX_VALUES = 2;
+    constexpr int64_t ELEMENT_SPLIT_LEVELS = ELEMENT_PREFIX_LEVELS + SPANNING_BATCH_VALUES;
+    constexpr int64_t ELEMENT_SPLIT_VALUES = ELEMENT_PREFIX_VALUES + SPANNING_BATCH_VALUES;
+    EXPECT_EQ(element_writer->WriteBatch(ELEMENT_SPLIT_LEVELS, element_definition_levels.data(),
                                          element_repetition_levels.data(), element_values.data()),
-              static_cast<int64_t>(element_values.size()));
+              ELEMENT_SPLIT_VALUES);
+    EXPECT_EQ(element_writer->WriteBatch(
+                      static_cast<int64_t>(element_repetition_levels.size()) - ELEMENT_SPLIT_LEVELS,
+                      element_definition_levels.data() + ELEMENT_SPLIT_LEVELS,
+                      element_repetition_levels.data() + ELEMENT_SPLIT_LEVELS,
+                      element_values.data() + ELEMENT_SPLIT_VALUES),
+              static_cast<int64_t>(element_values.size()) - ELEMENT_SPLIT_VALUES);
     element_writer->Close();
     auto* marker_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
     const int16_t marker_definition_levels[] = {1, 0, 1, 1, 1, 1};

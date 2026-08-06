@@ -44,7 +44,6 @@
 #include <utility>
 #include <vector>
 
-#include "agent/be_exec_version_manager.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
@@ -105,6 +104,9 @@ namespace {
 constexpr std::string_view kTestDir = "./ut_dir/segment_flusher_format_test";
 constexpr std::string_view kGoldenDir = "./be/test/storage/test_data/segment_flusher_format";
 constexpr std::string_view kGoldenOutputDirEnv = "DORIS_SEGMENT_FLUSHER_GOLDEN_OUTPUT_DIR";
+// BE exec version is encoded in the checked-in golden Segments. Change it only when intentionally
+// regenerating all golden files.
+constexpr int32_t kGoldenBeExecVersion = 10;
 constexpr int32_t kRowBinlogSystemColumnCount = 3;
 constexpr size_t kExpectedGoldenCaseCount = 76;
 constexpr size_t kExpectedGoldenSegmentCount = 154;
@@ -766,7 +768,7 @@ TabletSchemaSPtr create_complex_value_schema(TabletStorageFormatPB storage_forma
         auto* column = add_column(&schema_pb, unique_id, name, agg_state_type, false, false,
                                   function_name);
         column->set_result_is_nullable(false);
-        column->set_be_exec_version(BeExecVersionManager::get_newest_version());
+        column->set_be_exec_version(kGoldenBeExecVersion);
         return column;
     };
     auto* count = add_agg_state_column(8, "v_agg_count", "count");

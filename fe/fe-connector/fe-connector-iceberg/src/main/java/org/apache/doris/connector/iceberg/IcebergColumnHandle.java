@@ -19,7 +19,10 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Iceberg {@link ConnectorColumnHandle}, mirroring the paimon connector's {@code PaimonColumnHandle}. Carries
@@ -37,10 +40,17 @@ public class IcebergColumnHandle implements ConnectorColumnHandle {
 
     private final String name;
     private final int fieldId;
+    private final Set<Integer> projectedFieldIds;
 
     public IcebergColumnHandle(String name, int fieldId) {
+        this(name, fieldId, Collections.emptySet());
+    }
+
+    private IcebergColumnHandle(String name, int fieldId, Set<Integer> projectedFieldIds) {
         this.name = Objects.requireNonNull(name, "name");
         this.fieldId = fieldId;
+        this.projectedFieldIds = Collections.unmodifiableSet(new LinkedHashSet<>(
+                Objects.requireNonNull(projectedFieldIds, "projectedFieldIds")));
     }
 
     public String getName() {
@@ -49,6 +59,19 @@ public class IcebergColumnHandle implements ConnectorColumnHandle {
 
     public int getFieldId() {
         return fieldId;
+    }
+
+    public boolean hasProjectedFieldIds() {
+        return !projectedFieldIds.isEmpty();
+    }
+
+    public Set<Integer> getProjectedFieldIds() {
+        return projectedFieldIds;
+    }
+
+    @Override
+    public ConnectorColumnHandle withProjectedFieldIds(Set<Integer> projectedIds) {
+        return new IcebergColumnHandle(name, fieldId, projectedIds);
     }
 
     @Override
