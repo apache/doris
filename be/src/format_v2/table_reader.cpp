@@ -1073,29 +1073,55 @@ Status TableReader::_build_table_filters_from_conjuncts() {
 
 namespace {
 
-bool same_scan_projections(const std::vector<LocalColumnIndex>& lhs,
-                           const std::vector<LocalColumnIndex>& rhs) {
-    if (lhs.size() != rhs.size()) {
+const LocalColumnIndex* scan_projection_at_position(const FileScanRequest& request,
+                                                    LocalColumnId column_id,
+                                                    bool deferred_non_predicate) {
+    const auto find_by_id = [column_id](const std::vector<LocalColumnIndex>& projections) {
+        return std::ranges::find_if(projections, [column_id](const LocalColumnIndex& projection) {
+            return projection.column_id() == column_id;
+        });
+    };
+    if (deferred_non_predicate) {
+        const auto it = find_by_id(request.non_predicate_columns);
+        return it == request.non_predicate_columns.end() ? nullptr : &*it;
+    }
+
+    auto it = find_by_id(request.predicate_columns);
+    if (it != request.predicate_columns.end()) {
+        return &*it;
+    }
+    it = find_by_id(request.non_predicate_columns);
+    return it == request.non_predicate_columns.end() ? nullptr : &*it;
+}
+
+bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest& rhs) {
+    if (lhs.local_positions != rhs.local_positions ||
+        lhs.non_predicate_positions != rhs.non_predicate_positions) {
         return false;
     }
-    for (const auto& lhs_projection : lhs) {
-        const auto rhs_it = std::ranges::find_if(rhs, [&](const LocalColumnIndex& rhs_projection) {
-            return rhs_projection.column_id() == lhs_projection.column_id();
-        });
-        if (rhs_it == rhs.end() || !same_local_column_index(lhs_projection, *rhs_it)) {
+    const auto same_projection = [&](LocalColumnId column_id, bool deferred_non_predicate) {
+        const auto* lhs_projection =
+                scan_projection_at_position(lhs, column_id, deferred_non_predicate);
+        const auto* rhs_projection =
+                scan_projection_at_position(rhs, column_id, deferred_non_predicate);
+        return lhs_projection != nullptr && rhs_projection != nullptr &&
+               same_local_column_index(*lhs_projection, *rhs_projection);
+    };
+    for (const auto& [column_id, _] : lhs.local_positions) {
+        // A late filter may reclassify a root as a predicate without moving its physical slot.
+        // Category membership is therefore not part of the immutable reader layout.
+        if (!same_projection(column_id, false)) {
+            return false;
+        }
+    }
+    for (const auto& [column_id, _] : lhs.non_predicate_positions) {
+        // Deferred complex roots have a second physical slot whose output projection must remain
+        // stable independently from the eager predicate projection above.
+        if (!same_projection(column_id, true)) {
             return false;
         }
     }
     return true;
-}
-
-bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest& rhs) {
-    // Deferred complex roots occupy independent output slots. Comparing only eager positions can
-    // accept a refresh whose second Variant root now aliases or overruns the active block layout.
-    return lhs.local_positions == rhs.local_positions &&
-           lhs.non_predicate_positions == rhs.non_predicate_positions &&
-           same_scan_projections(lhs.predicate_columns, rhs.predicate_columns) &&
-           same_scan_projections(lhs.non_predicate_columns, rhs.non_predicate_columns);
 }
 
 } // namespace
