@@ -260,6 +260,23 @@ BucketedAggSharedState::~BucketedAggSharedState() {
     _close();
 }
 
+Status BucketedAggSharedState::init_instances(int num_instances,
+                                              const std::function<Status()>& metadata_init) {
+    std::call_once(_init_once, [&]() {
+        num_sink_instances = num_instances;
+        per_instance_data.resize(num_instances);
+        sink_finished = std::make_unique<std::atomic<bool>[]>(num_instances);
+        for (int i = 0; i < num_instances; ++i) {
+            sink_finished[i].store(false, std::memory_order_relaxed);
+        }
+        for (auto& bs : bucket_states) {
+            bs.merged_instances.resize(num_instances, false);
+        }
+        _init_status = metadata_init();
+    });
+    return _init_status;
+}
+
 void BucketedAggSharedState::_close() {
     for (auto& inst : per_instance_data) {
         for (auto& bucket_data : inst.bucket_agg_data) {

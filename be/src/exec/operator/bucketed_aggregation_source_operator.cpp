@@ -22,6 +22,7 @@
 
 #include "common/exception.h"
 #include "core/column/column_vector.h"
+#include "exec/common/agg_utils.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/util.hpp"
 #include "exec/operator/operator.h"

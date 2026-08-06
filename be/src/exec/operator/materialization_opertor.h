@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "exec/operator/operator.h"
+#include "service/brpc.h" // IWYU pragma: keep (brpc::Controller member below)
 
 namespace doris {
 class RuntimeState;

@@ -22,7 +22,6 @@
 #include <sys/_types/_u_int.h>
 #endif
 
-#include <concurrentqueue.h>
 #include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <sqltypes.h>
@@ -47,18 +46,13 @@
 #include "core/arena.h"
 #include "core/block/block.h"
 #include "core/types.h"
-#include "exec/common/agg_utils.h"
 #include "exec/common/join_op_utils.h"
-#include "exec/common/join_utils.h"
-#include "exec/common/set_utils.h"
 #include "exec/operator/data_queue.h"
-#include "exec/operator/join/process_hash_table_probe.h"
 #include "exec/sort/partition_sorter.h"
 #include "exec/sort/sorter.h"
 #include "exec/spill/spill_file.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_profile_counter_names.h"
-#include "util/brpc_closure.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
 
@@ -520,22 +514,10 @@ public:
     /// The callback runs exactly once (under std::call_once), must return Status,
     /// and should populate shared metadata like probe_expr_ctxs, aggregate_evaluators, etc.
     /// All threads observe the same init status via _init_status.
-    template <typename Func>
-    Status init_instances(int num_instances, Func&& metadata_init) {
-        std::call_once(_init_once, [&]() {
-            num_sink_instances = num_instances;
-            per_instance_data.resize(num_instances);
-            sink_finished = std::make_unique<std::atomic<bool>[]>(num_instances);
-            for (int i = 0; i < num_instances; ++i) {
-                sink_finished[i].store(false, std::memory_order_relaxed);
-            }
-            for (auto& bs : bucket_states) {
-                bs.merged_instances.resize(num_instances, false);
-            }
-            _init_status = std::forward<Func>(metadata_init)();
-        });
-        return _init_status;
-    }
+    /// Once-per-query cold path; defined in dependency.cpp so the body (which
+    /// materializes the per-bucket BucketedAggDataVariants storage) stays out
+    /// of every includer's parse.
+    Status init_instances(int num_instances, const std::function<Status()>& metadata_init);
 
 private:
     std::once_flag _init_once;
