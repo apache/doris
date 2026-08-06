@@ -50,8 +50,9 @@ class IvmAggBitmapUnionCountProcessor extends IvmAggBitmapProcessor {
         // Keep the bitmap union as hidden MV state; the visible BITMAP_UNION_COUNT value is bitmap_count(state).
         Slot oldBitmap = applyContext.rawMvSlot(target.getHiddenStateSlot(IvmAggStateKey.BITMAP_UNION).getName());
         Expression newBitmap = buildGuardedNewBitmap(target, applyContext, oldBitmap);
-        applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.BITMAP_UNION).getName(), newBitmap);
-        applyContext.putFinalExpression(target.getVisibleSlot().getName(), TypeCoercionUtils.castIfNotMatchType(
+        applyContext.putFinalExpression(target,
+                target.getHiddenStateSlot(IvmAggStateKey.BITMAP_UNION).getName(), newBitmap);
+        applyContext.putFinalExpression(target, target.getVisibleSlot().getName(), TypeCoercionUtils.castIfNotMatchType(
                 new BitmapCount(newBitmap), target.getVisibleSlot().getDataType()));
     }
 }

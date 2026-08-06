@@ -131,8 +131,8 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         Expression newExtremeGuarded = new If(guard, newExtremeRaw,
                 new NullLiteral(newExtremeRaw.getDataType()));
 
-        applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.COUNT).getName(), newCount);
-        applyContext.putFinalExpression(target.getVisibleSlot().getName(),
+        applyContext.putFinalExpression(target, target.getHiddenStateSlot(IvmAggStateKey.COUNT).getName(), newCount);
+        applyContext.putFinalExpression(target, target.getVisibleSlot().getName(),
                 new If(ctx.isPositive(newCount),
                         TypeCoercionUtils.castIfNotMatchType(newExtremeGuarded, target.getVisibleSlot().getDataType()),
                         new NullLiteral(target.getVisibleSlot().getDataType())));

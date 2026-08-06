@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -73,16 +74,27 @@ public class IvmAggFunctionRegistry {
     /**
      * Builds target metadata for one original aggregate function and its optional hidden state columns.
      */
-    public IvmAggTargetSpec buildTargetSpec(int ordinal, AggregateFunction function, Alias visibleAlias) {
-        return findProcessor(function).buildTargetSpec(ordinal, function, visibleAlias);
+    public IvmAggTargetSpec buildTargetSpec(int ordinal, AggregateFunction function, Alias visibleAlias,
+            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs) {
+        return findProcessor(function).buildTargetSpec(
+                ordinal, function, visibleAlias, aggColumnPool, hiddenAggOutputs);
     }
 
     /**
-     * Appends the aggregate expressions produced by the delta aggregate for one visible MV aggregate column.
+     * Appends delta aggregate outputs, skipping any output whose column name was already emitted
+     * (in {@code emittedNames}). Shared hidden state columns (for example the visible {@code COUNT(x)}
+     * column reused by both {@code SUM(x)} and {@code AVG(x)}) must produce only one delta aggregate
+     * output.
      */
     public void appendDeltaAggregateOutputs(IvmAggTarget target, Slot dmlFactorSlot, List<NamedExpression> outputs,
-            IvmAggExpressionBuilder ctx) {
-        processorFor(target).appendDeltaAggregateOutputs(target, dmlFactorSlot, outputs, ctx);
+            IvmAggExpressionBuilder ctx, Set<String> emittedNames) {
+        List<NamedExpression> pending = new ArrayList<>();
+        processorFor(target).appendDeltaAggregateOutputs(target, dmlFactorSlot, pending, ctx);
+        for (NamedExpression output : pending) {
+            if (emittedNames.add(output.getName())) {
+                outputs.add(output);
+            }
+        }
     }
 
     /**
@@ -129,5 +141,10 @@ public class IvmAggFunctionRegistry {
         }
         throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
                 "Unsupported aggregate function for IVM: " + function.getName());
+    }
+
+    /** Returns the supported function kind for an original aggregate function. */
+    public IvmAggFunctionKind kindOf(AggregateFunction function) {
+        return findProcessor(function).handledFunctionKind();
     }
 }
