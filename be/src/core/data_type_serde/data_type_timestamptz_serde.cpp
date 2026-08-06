@@ -56,8 +56,20 @@ Status decode_timestamp_tz_orc_values(IColumn& nested_column,
             continue;
         }
         auto& value = data[old_data_size + row];
-        value.from_unixtime(orc_batch->data[source_row], utc_time_zone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        value.from_unixtime(timestamp.seconds, utc_time_zone);
+        value.set_microsecond(timestamp.microseconds);
+        if (!value.is_valid_date()) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC TIMESTAMPTZ is outside the Doris 0000-9999 range");
+        }
     }
     return Status::OK();
 }

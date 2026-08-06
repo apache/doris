@@ -41,6 +41,28 @@ bool orc_row_is_null(const ::orc::ColumnVectorBatch& batch, size_t row) {
     return batch.hasNulls && !batch.notNull[row];
 }
 
+Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
+                                           RoundedOrcTimestamp* result) {
+    constexpr int64_t NANOS_PER_SECOND = 1000000000;
+    constexpr int64_t NANOS_PER_MICROSECOND = 1000;
+    constexpr int64_t MICROS_PER_SECOND = 1000000;
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(nanoseconds >= 0 && nanoseconds < NANOS_PER_SECOND);
+    // Doris stores six fractional digits, so use half-up rounding and carry 999999500ns into the
+    // next second instead of silently truncating the ORC value.
+    const auto rounded_microseconds =
+            (nanoseconds + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
+    // Validate the carry here, but validate Doris' calendar range after timezone conversion:
+    // a valid year-zero local timestamp may have a UTC epoch before year zero.
+    if (__builtin_add_overflow(seconds, rounded_microseconds / MICROS_PER_SECOND,
+                               &result->seconds)) {
+        return Status::DataQualityError("ORC timestamp overflows after microsecond rounding");
+    }
+    result->microseconds = cast_set<uint64_t>(rounded_microseconds % MICROS_PER_SECOND);
+    result->carry = rounded_microseconds >= MICROS_PER_SECOND;
+    return Status::OK();
+}
+
 DecodedColumnView make_orc_decoded_view(const OrcDecodedColumnView& orc_view,
                                         DecodedValueKind value_kind) {
     DecodedColumnView view;

@@ -32,6 +32,15 @@ size_t orc_decode_row_count(size_t rows, const std::vector<size_t>* selected_row
 size_t orc_source_row_at(size_t row, const std::vector<size_t>* selected_rows);
 bool orc_row_is_null(const ::orc::ColumnVectorBatch& batch, size_t row);
 
+struct RoundedOrcTimestamp {
+    int64_t seconds;
+    uint64_t microseconds;
+    bool carry;
+};
+
+Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
+                                           RoundedOrcTimestamp* result);
+
 DecodedColumnView make_orc_decoded_view(const OrcDecodedColumnView& orc_view,
                                         DecodedValueKind value_kind);
 

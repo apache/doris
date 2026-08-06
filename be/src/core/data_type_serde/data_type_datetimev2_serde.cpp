@@ -72,8 +72,28 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         }
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
         value.from_unixtime(orc_batch->data[source_row], timezone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        if (!value.is_valid_date()) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC timestamp is outside the target timezone range");
+        }
+        value.set_microsecond(timestamp.microseconds);
+        // Plain ORC TIMESTAMP is a civil value. Carry after timezone conversion so a fractional
+        // round does not jump backward or skip an hour at a daylight-saving transition.
+        if (timestamp.carry &&
+            !value.date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, 1, false})) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC timestamp is outside the target timezone range");
+        }
     }
     return Status::OK();
 }
