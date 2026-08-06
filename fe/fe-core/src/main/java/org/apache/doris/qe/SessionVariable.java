@@ -3268,7 +3268,8 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, fuzzy = false)
     public long lowMemoryModeBufferLimit = 33554432;
 
-    // The memory limit of streaming agg when spilling is enabled
+    // The memory limit of streaming aggregation. The operator itself does not spill and switches
+    // to pass-through mode after reaching this limit, regardless of whether query spill is enabled.
     // NOTE: streaming agg operator will not spill to disk.
     @VarAttrDef.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
