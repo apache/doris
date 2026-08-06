@@ -97,7 +97,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
     private static final Set<Class<? extends AggregateFunction>> SUPPORT_AGG_FUNCTIONS =
             ImmutableSet.of(Sum.class, Sum0.class, Min.class, Max.class, AnyValue.class, Count.class);
     private static final int DECOMPOSE_REPEAT_THRESHOLD = 3;
-    private static final int BALANCE_MULTIPLIER = 64;
+    private static final int BALANCE_MULTIPLIER = 128;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
