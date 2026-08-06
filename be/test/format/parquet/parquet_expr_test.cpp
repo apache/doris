@@ -50,6 +50,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "core/column/column.h"
@@ -71,10 +72,12 @@
 #include "format/parquet/vparquet_file_metadata.h"
 #include "format/parquet/vparquet_page_index.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/iceberg_reader.h"
 #include "gtest/gtest_pred_impl.h"
 #include "information_schema/schema_scanner.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/predicate/comparison_predicate.h"
@@ -1267,6 +1270,95 @@ TEST_F(ParquetExprTest, test_page_index_filter_skips_column_index_for_unsupporte
     assert_single_range(&candidate_row_ranges, 0, row_group.num_rows);
     EXPECT_EQ(read_calls_before + 1, p_reader->_column_statistics.page_index_read_calls);
     EXPECT_EQ(0, p_reader->_reader_statistics.filtered_row_groups_by_expr_zonemap);
+}
+
+TEST_F(ParquetExprTest, test_page_index_filter_skips_synthetic_slot_absent_from_schema_mapping) {
+    // #61225: TopN appends a synthetic GLOBAL_ROWID_COL slot to the scan tuple. The Iceberg
+    // scan builds the table-side schema tree from the FE schema info (history_schema_info),
+    // which never registers synthetic slots. The page-index path must skip such a slot instead
+    // of crashing on StructNode::children.at() (std::out_of_range / DCHECK abort).
+    ScopedBoolConfig enable_page_index_guard(config::enable_parquet_page_index, true);
+
+    // Tuple: one real column (int64_col, cid 0) + one synthetic slot (cid 1).
+    TDescriptorTable local_desc_table;
+    TTableDescriptor local_table_desc;
+    create_table_desc(local_desc_table, local_table_desc, {"int64_col", BeConsts::GLOBAL_ROWID_COL},
+                      {TPrimitiveType::BIGINT, TPrimitiveType::BIGINT});
+    DescriptorTbl* local_desc_tbl = nullptr;
+    ObjectPool local_obj_pool;
+    ASSERT_TRUE(DescriptorTbl::create(&local_obj_pool, local_desc_table, &local_desc_tbl).ok());
+    const auto* local_tuple_desc = local_desc_tbl->get_tuple_descriptor(0);
+    ASSERT_EQ(2, local_tuple_desc->slots().size());
+
+    // The FE schema info registers ONLY int64_col — synthetic slots are never registered.
+    schema::external::TSchema fe_schema;
+    {
+        TColumnType bigint_type;
+        bigint_type.__set_type(TPrimitiveType::BIGINT);
+        auto field = std::make_shared<schema::external::TField>();
+        field->__set_name("int64_col");
+        field->__set_id(2);
+        field->__set_is_optional(true);
+        field->__set_type(bigint_type);
+        schema::external::TFieldPtr field_ptr;
+        field_ptr.__set_field_ptr(std::move(field));
+        schema::external::TStructField root_field;
+        root_field.__set_fields({std::move(field_ptr)});
+        fe_schema.__set_schema_id(-1);
+        fe_schema.__set_root_field(root_field);
+    }
+
+    io::FileReaderSPtr local_file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(file_path, &local_file_reader).ok());
+
+    TFileScanRangeParams scan_params;
+    scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+    scan_params.__set_history_schema_info({std::move(fe_schema)});
+    TFileRangeDesc scan_range;
+    scan_range.start_offset = 0;
+    scan_range.size = local_file_reader->size();
+    scan_range.path = file_path;
+
+    RuntimeProfile profile("test_profile");
+    auto iceberg_reader = std::make_unique<IcebergParquetReader>(
+            nullptr /* kv_cache */, &profile, scan_params, scan_range, 1024, &ctz,
+            nullptr /* io_ctx */, runtime_state.get(), nullptr /* meta_cache */);
+    iceberg_reader->set_file_reader(local_file_reader);
+
+    std::vector<ColumnDescriptor> column_descs;
+    ColumnDescriptor desc;
+    desc.name = "int64_col";
+    column_descs.push_back(desc);
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"int64_col", 0}};
+    std::unordered_map<std::string, int> local_colname_to_slot_id = {{"int64_col", 0}};
+
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_descs = &column_descs;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.tuple_descriptor = local_tuple_desc;
+    pq_ctx.colname_to_slot_id = &local_colname_to_slot_id;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    ASSERT_TRUE(iceberg_reader->init_reader(&pq_ctx).ok());
+
+    // A zonemap conjunct on the synthetic slot (cid 1): the slot is in the tuple but not in
+    // the FE-built schema tree, so page-index filtering must skip it gracefully.
+    VExprContextSPtrs conjuncts {make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+            std::vector<int> {1}, TestPageZonemapExpr::Mode::BIGINT_MAX_AT_LEAST, 10))};
+    iceberg_reader->set_conjuncts_for_test(conjuncts);
+
+    RowRanges candidate_row_ranges;
+    std::vector<std::unique_ptr<MutilColumnBlockPredicate>> push_down_pred;
+    const auto& row_group = doris_metadata.row_groups[0];
+    RowGroupReader::RowGroupIndex row_group_index(0, 0, row_group.num_rows);
+    ASSERT_TRUE(iceberg_reader
+                        ->_process_page_index_filter(row_group, row_group_index, push_down_pred,
+                                                     &candidate_row_ranges)
+                        .ok());
+
+    // Optimization skipped: the full row group range is kept and nothing was filtered.
+    assert_single_range(&candidate_row_ranges, 0, row_group.num_rows);
+    EXPECT_EQ(0, iceberg_reader->_reader_statistics.filtered_row_groups_by_expr_zonemap);
 }
 
 TEST_F(ParquetExprTest, test_expr_zonemap_page_filter_handles_all_null_pages) {
