@@ -942,6 +942,56 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                 tableList.length >= 1, "include_tables or table is required");
         configFactory.tableList(tableList);
 
+        // JDBC properties and SSL must be configured BEFORE the startup mode block because
+        // modes like 'latest', 'earliest', and timestamp call initializeEffectiveOffset()
+        // which opens a JDBC connection to resolve the current binlog position. Without SSL
+        // configured here, that connection fails on servers with require_secure_transport=ON.
+        Properties jdbcProperteis = new Properties();
+        jdbcProperteis.putAll(cu.getOriginalProperties());
+
+        Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
+        dbzProps.setProperty(
+                MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
+                DEBEZIUM_HEARTBEAT_INTERVAL_MS + "");
+        dbzProps.setProperty(
+                EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT,
+                Boolean.toString(excludeHeartbeatFromEventCount()));
+
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_MODE)) {
+            String normalized =
+                    normalizeSslModeForMysql(cdcConfig.get(DataSourceConfigKeys.SSL_MODE));
+            dbzProps.put("database.ssl.mode", normalized);
+            // Flink CDC's forked MySqlConnection drops Debezium SSL props from the snapshot
+            // JDBC URL, so mirror to Connector/J native names.
+            jdbcProperteis.put("sslMode", normalized);
+        }
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            String fileName = cdcConfig.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            String truststorePath = SmallFileMgr.getPkcs12TruststorePath(fileName);
+            LOG.info("Using SSL truststore file path: {}", truststorePath);
+            dbzProps.put("database.ssl.truststore", truststorePath);
+            dbzProps.put("database.ssl.truststore.password", SmallFileMgr.TRUSTSTORE_PASSWORD);
+            jdbcProperteis.put("trustCertificateKeyStoreUrl", "file:" + truststorePath);
+            // Connector/J defaults keystore type to JKS; we generate PKCS12.
+            jdbcProperteis.put("trustCertificateKeyStoreType", "PKCS12");
+            jdbcProperteis.put(
+                    "trustCertificateKeyStorePassword", SmallFileMgr.TRUSTSTORE_PASSWORD);
+        }
+
+        // Keep genuinely ancient (<100) DATE/DATETIME years; MySQL already completes 2-digit years.
+        dbzProps.setProperty("enable.time.adjuster", "false");
+        // The converter is valid only when snapshot JDBC exposes YEAR values as numbers.
+        if ("false"
+                .equalsIgnoreCase(
+                        jdbcProperteis.getProperty(PropertyKey.yearIsDateType.getKeyName()))) {
+            dbzProps.setProperty("converters", "dorisYear");
+            dbzProps.setProperty("dorisYear.type", MySqlYearConverter.class.getName());
+        }
+
+        configFactory.jdbcProperties(jdbcProperteis);
+        configFactory.debeziumProperties(dbzProps);
+        configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
+
         // setting startMode
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
         if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
@@ -992,52 +1042,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         } else {
             throw new RuntimeException("Unknown offset " + startupMode);
         }
-
-        Properties jdbcProperteis = new Properties();
-        jdbcProperteis.putAll(cu.getOriginalProperties());
-        configFactory.jdbcProperties(jdbcProperteis);
-
-        Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
-        dbzProps.setProperty(
-                MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
-                DEBEZIUM_HEARTBEAT_INTERVAL_MS + "");
-        dbzProps.setProperty(
-                EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT,
-                Boolean.toString(excludeHeartbeatFromEventCount()));
-
-        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_MODE)) {
-            String normalized =
-                    normalizeSslModeForMysql(cdcConfig.get(DataSourceConfigKeys.SSL_MODE));
-            dbzProps.put("database.ssl.mode", normalized);
-            // Flink CDC's forked MySqlConnection drops Debezium SSL props from the snapshot
-            // JDBC URL, so mirror to Connector/J native names.
-            jdbcProperteis.put("sslMode", normalized);
-        }
-        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
-            String fileName = cdcConfig.get(DataSourceConfigKeys.SSL_ROOTCERT);
-            String truststorePath = SmallFileMgr.getPkcs12TruststorePath(fileName);
-            LOG.info("Using SSL truststore file path: {}", truststorePath);
-            dbzProps.put("database.ssl.truststore", truststorePath);
-            dbzProps.put("database.ssl.truststore.password", SmallFileMgr.TRUSTSTORE_PASSWORD);
-            jdbcProperteis.put("trustCertificateKeyStoreUrl", "file:" + truststorePath);
-            // Connector/J defaults keystore type to JKS; we generate PKCS12.
-            jdbcProperteis.put("trustCertificateKeyStoreType", "PKCS12");
-            jdbcProperteis.put(
-                    "trustCertificateKeyStorePassword", SmallFileMgr.TRUSTSTORE_PASSWORD);
-        }
-
-        // Keep genuinely ancient (<100) DATE/DATETIME years; MySQL already completes 2-digit years.
-        dbzProps.setProperty("enable.time.adjuster", "false");
-        // The converter is valid only when snapshot JDBC exposes YEAR values as numbers.
-        if ("false"
-                .equalsIgnoreCase(
-                        jdbcProperteis.getProperty(PropertyKey.yearIsDateType.getKeyName()))) {
-            dbzProps.setProperty("converters", "dorisYear");
-            dbzProps.setProperty("dorisYear.type", MySqlYearConverter.class.getName());
-        }
-
-        configFactory.debeziumProperties(dbzProps);
-        configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
 
         configFactory.splitSize(
                 Integer.parseInt(
