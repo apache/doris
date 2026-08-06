@@ -1307,7 +1307,7 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
-    public void getWritePartitioningUsesRandomMergeFallbackForNestedSource() {
+    public void getWritePartitioningRoutesNestedSourceByItsTopLevelColumn() {
         InMemoryCatalog catalog = freshCatalog();
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
@@ -1321,8 +1321,8 @@ public class IcebergWritePlanProviderTest {
                         new IcebergTableHandle("db1", "nested_partition"))
                 .getFields().get(0);
 
-        Assertions.assertNull(field.getSourceColumnName(),
-                "merge exchange must fall back to random until its expressions can carry nested access paths");
+        Assertions.assertEquals("payload", field.getSourceColumnName(),
+                "merge exchange must route a nested source through its bound top-level struct slot");
         Assertions.assertEquals(Integer.valueOf(3), field.getSourceId());
     }
 

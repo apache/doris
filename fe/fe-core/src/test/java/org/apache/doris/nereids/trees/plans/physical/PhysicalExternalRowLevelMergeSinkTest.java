@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -130,6 +133,46 @@ public class PhysicalExternalRowLevelMergeSinkTest {
         Assertions.assertEquals(
                 ImmutableList.of(new MergePartitionField("bucket[16]", id, 16, "id_bucket", 5)), out,
                 "transform param/name/sourceId must be carried verbatim from the connector field");
+    }
+
+    @Test
+    public void reconstructCarriesNestedSourcePathWithoutRandomFallback() {
+        ExprId payload = exprId("payload");
+        List<MergePartitionField> out = new ArrayList<>();
+        ConnectorWritePartitionField nested = new ConnectorWritePartitionField(
+                "bucket[8]", 8, "payload", "payload_part_bucket", 3);
+        Column payloadColumn = new Column("payload", new StructType(
+                new StructField("part", Type.INT)));
+        payloadColumn.setUniqueId(2);
+        payloadColumn.getChildren().get(0).setUniqueId(3);
+
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(
+                out, spec(4, nested), map("payload", payload), ImmutableList.of(payloadColumn));
+
+        Assertions.assertTrue(result.success);
+        Assertions.assertEquals(ImmutableList.of(
+                new MergePartitionField("bucket[8]", payload, 8, "payload_part_bucket", 3,
+                        ImmutableList.of(0))), out);
+    }
+
+    @Test
+    public void reconstructMissingNestedSourceIdHardFails() {
+        Column payloadColumn = new Column("payload", new StructType(
+                new StructField("part", Type.INT)));
+        payloadColumn.setUniqueId(2);
+        payloadColumn.getChildren().get(0).setUniqueId(3);
+        List<MergePartitionField> out = new ArrayList<>();
+
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(
+                out,
+                spec(4, new ConnectorWritePartitionField(
+                        "bucket[8]", 8, "payload", "payload_part_bucket", 99)),
+                map("payload", exprId("payload")),
+                ImmutableList.of(payloadColumn));
+
+        Assertions.assertFalse(result.success,
+                "an evolved schema must not hash the whole struct when the nested source id disappeared");
+        Assertions.assertTrue(out.isEmpty());
     }
 
     @Test

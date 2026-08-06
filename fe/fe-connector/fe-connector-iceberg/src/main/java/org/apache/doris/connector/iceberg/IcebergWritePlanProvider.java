@@ -61,6 +61,7 @@ import org.apache.iceberg.SortField;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.LocationUtil;
 
@@ -532,23 +533,39 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         }
         Schema schema = active.isPresent()
                 ? active.get().getSchema() : table.schema();
-        Set<Integer> topLevelFieldIds = schema.columns().stream()
-                .map(NestedField::fieldId).collect(Collectors.toSet());
         List<ConnectorWritePartitionField> fields = new ArrayList<>();
         for (PartitionField field : spec.fields()) {
-            // sourceColumnName mirrors the legacy schema.findField(field.sourceId()).name() lookup the engine
-            // used to map a partition field back to a bound output expr id. transform/param mirror
-            // field.transform().toString() + parseTransformParam (kept connector-side so fe-core never parses).
-            NestedField sourceField = schema.findField(field.sourceId());
-            // A slot reference cannot encode a nested access path. Returning null makes merge routing use its
-            // correctness-safe random fallback; the BE writer still partitions by the source field ID.
-            String sourceColumnName = sourceField == null || !topLevelFieldIds.contains(field.sourceId())
-                    ? null : sourceField.name();
+            // Bind a nested source to its top-level slot. fe-core recovers child indexes from the stable Iceberg
+            // field ids already carried by the Doris Column tree, so the public connector SPI stays unchanged.
+            String sourceColumnName = findPartitionSourceColumnName(schema, field.sourceId());
             String transform = field.transform().toString();
             fields.add(new ConnectorWritePartitionField(
-                    transform, parseTransformParam(transform), sourceColumnName, field.name(), field.sourceId()));
+                    transform, parseTransformParam(transform), sourceColumnName,
+                    field.name(), field.sourceId()));
         }
         return new ConnectorWritePartitionSpec(spec.specId(), fields);
+    }
+
+    private static String findPartitionSourceColumnName(Schema schema, int sourceId) {
+        List<NestedField> columns = schema.columns();
+        for (NestedField column : columns) {
+            if (column.fieldId() == sourceId || containsStructField(column.type(), sourceId)) {
+                return column.name();
+            }
+        }
+        return null;
+    }
+
+    private static boolean containsStructField(Type type, int sourceId) {
+        if (!type.isStructType()) {
+            return false;
+        }
+        for (NestedField field : type.asStructType().fields()) {
+            if (field.fieldId() == sourceId || containsStructField(field.type(), sourceId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
